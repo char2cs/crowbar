@@ -1,50 +1,22 @@
-import { useEffect, useRef } from 'react'
-import {
-  getChatTelemetry,
-  type AgentChat,
-  type AgentTelemetry,
-} from '@/features/agent/api/agent-chat-reads'
-import { setChatTelemetry, useChatStore } from '@/features/agent/stores/chat-store'
+import { useStore } from 'zustand'
+import type { AgentChat, AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
+import { entityStore } from '@/core/entities/entity-store'
+import { selectAgentChat, useSelect } from '@/core/entities/select'
 
 /** One field of a chat entity; `pick` must return a primitive or a held reference. */
 export function useChatField<T>(chatId: string, pick: (chat: AgentChat | undefined) => T): T {
-  return useChatStore((s) => pick(s.chats[chatId]))
+  return useSelect((s) => pick(selectAgentChat(s, chatId)))
 }
 
-/** The daemon's folded busy flag for the chat, as its lifecycle frames carry it. */
+/** The daemon's folded busy flag for the chat, as its frames carry it. */
 export function useChatWorking(chatId: string): boolean {
-  return useChatStore((s) => s.chats[chatId]?.working ?? false)
+  return useChatField(chatId, (c) => c?.working ?? false)
 }
 
-/**
- * The provider's newest usage report. Frames push every report; a chat that
- * reported before this client subscribed has none coming, so it is read once
- * when the chat becomes visible, and again when its surface changes.
- */
-export function useChatTelemetry(
-  wsId: string,
-  chatId: string,
-  visible: boolean,
-): AgentTelemetry | null {
-  const telemetry = useChatStore((s) => s.telemetry[chatId] ?? null)
-  const surface = useChatStore((s) => s.chats[chatId]?.surface ?? '')
-  const readFor = useRef<string | null>(null)
-
-  useEffect(() => {
-    const key = `${chatId}\u0000${surface}`
-    if (!visible || readFor.current === key) return
-    readFor.current = key
-    const controller = new AbortController()
-    getChatTelemetry(wsId, chatId, controller.signal)
-      .then((report) => setChatTelemetry(chatId, report))
-      // A failed read leaves the last good gauge standing.
-      .catch(() => {
-        if (readFor.current === key) readFor.current = null
-      })
-    return () => controller.abort()
-  }, [wsId, chatId, visible, surface])
-
-  return telemetry
+/** The provider's newest usage report, which the chat's scope sends on subscribe and
+ *  on every report after. */
+export function useChatTelemetry(chatId: string): AgentTelemetry | null {
+  return useStore(entityStore, (s) => s.byKind.telemetry[chatId]?.data ?? null)
 }
 
 /** When the most-consumed rate-limit window lifts: the window closest to

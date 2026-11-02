@@ -3,15 +3,15 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { homeRows } from '@/__tests__/__fixtures__/tree-rows'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 
 // SpacePanel's own useNavigate() call (used only to hand a navigate fn to
 // handleCreateHomeThread below) — no Router is mounted in these unit tests.
@@ -127,7 +127,7 @@ describe('SpaceScroller', () => {
     // jsdom does not implement scrollTo
     HTMLElement.prototype.scrollTo = vi.fn()
     resetWindowPaneStoreForTests()
-    useHomeTreeStore.setState({ trees: {} })
+    resetEntities()
     __resetWorkspaceScopesForTest()
     useHomeWorkspaceStateMock.mockReturnValue({
       wsId: 'home-ws-1',
@@ -939,7 +939,7 @@ describe('SpaceScroller', () => {
     })
 
     it('renders nothing extra before the daemon has backfilled the home workspace’s owning chat', () => {
-      useHomeTreeStore.setState({ trees: { p1: { chats: [], folders: [] } } })
+      seedHomeTree('p1', { chats: [], folders: [] })
       const projects = [makeProject('p1')]
       render(
         <SpaceScroller
@@ -961,52 +961,18 @@ describe('SpaceScroller', () => {
 
       expect(screen.getByText('Repo thread')).toBeInTheDocument()
     })
-
-    // Every chat-scoped API call for a home workspace throws unless its
-    // scope is RECORDED first (workspace-scope.ts) — `ide-shell.tsx` only
-    // ever records the ACTIVE route's, but `SpacePanel` mounts one per
-    // VISIBLE project. Without this, a project other than whichever one
-    // happens to be on screen throws instead of working at all.
-    it("records the home workspace's scope once resolved, even for a project that is not the active one", () => {
-      const projects = [makeProject('p1')]
-      render(
-        <SpaceScroller
-          projects={projects}
-          activeProjectId="p2"
-          onActiveProjectChange={vi.fn()}
-          rowsForProject={() => []}
-          onOpen={vi.fn()}
-          onTrash={vi.fn()}
-          onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
-          onDrop={onDrop}
-          onPaneDrop={onPaneDrop}
-          onTrashProject={vi.fn()}
-        />,
-      )
-
-      expect(getWorkspaceScope('home-ws-1')).toEqual(
-        expect.objectContaining({ projectId: 'p1', repoId: '' }),
-      )
-    })
   })
 
   // REGRESSION (live-reported: "rows on recents cannot be reorder"): a
   // reorder that writes only `viewOrder` must re-render the band.
   describe('the dragged Recents order (spec §8.1)', () => {
     function renderBand() {
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              { id: 'chat-a', repoId: '', workspaceId: 'home-ws-1', title: 'Chat A', order: 0 },
-              { id: 'chat-b', repoId: '', workspaceId: 'home-ws-1', title: 'Chat B', order: 1 },
-            ],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [
+          { id: 'chat-a', repoId: '', workspaceId: 'home-ws-1', title: 'Chat A', order: 0 },
+          { id: 'chat-b', repoId: '', workspaceId: 'home-ws-1', title: 'Chat B', order: 1 },
+        ],
+        folders: [],
       })
       render(
         <SpaceScroller

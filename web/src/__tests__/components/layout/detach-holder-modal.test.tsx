@@ -8,7 +8,7 @@ import { detachHolder } from '@/lib/api/workspace'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { DetachHolderModal } from '@/components/layout/detach-holder-modal'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
+import { operationsState } from '@/core/entities/operations'
 
 beforeEach(() => {
   vi.clearAllMocks()

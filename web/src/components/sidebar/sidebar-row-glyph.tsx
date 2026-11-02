@@ -3,7 +3,7 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { selectEntityBusy, useOperations } from '@/lib/store/operations'
+import { selectEntityBusy, useOperations } from '@/core/entities/operations'
 
 /**
  * What a row's glyph box holds: the flip-dot spinner while the row works —

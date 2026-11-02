@@ -24,8 +24,7 @@ interface AgentProvidersState {
   markUnavailable: () => void
 }
 
-// Only the most-recently ISSUED load may write, exactly as loadable-slice's
-// `latestFetch` does: resolution order is not issue order, and an older answer
+// Only the most-recently ISSUED load may write: resolution order is not issue order, and an older answer
 // landing last would reinstate a list the user has already moved past.
 let latestLoad = 0
 

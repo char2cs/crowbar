@@ -1,9 +1,7 @@
-import { readSelect, selectRepos } from '@/core/entities/select'
+import { readSelect, selectRepos, selectProjects } from '@/core/entities/select'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
-import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import { resolveChatRow, resolveRow } from './open-actions'
 
 /**
@@ -57,7 +55,7 @@ export function handleTrash(id: string): boolean {
       ? { kind: 'chat', id, repoId: chatRow.repo.id }
       : (resolveRow(currentRepos, id)?.subject ?? null)
   if (!subject) return false
-  const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
+  const projects = readSelect(selectProjects)
   const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
   treeUiStore.getState().hold(drafts)
@@ -77,7 +75,7 @@ export function handleTrash(id: string): boolean {
  */
 export function handleTrashProject(projectId: string): boolean {
   const currentRepos = readSelect(selectRepos)
-  const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
+  const projects = readSelect(selectProjects)
   const drafts = planRemoval([{ kind: 'project', id: projectId }], currentRepos, projects)
   if (drafts.length === 0) return false
   treeUiStore.getState().hold(drafts)
@@ -96,7 +94,7 @@ export function handleTrashProject(projectId: string): boolean {
  */
 export function handleTrashRepo(repoId: string): boolean {
   const currentRepos = readSelect(selectRepos)
-  const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
+  const projects = readSelect(selectProjects)
   const drafts = planRemoval([{ kind: 'repo', id: repoId }], currentRepos, projects)
   if (drafts.length === 0) return false
   treeUiStore.getState().hold(drafts)

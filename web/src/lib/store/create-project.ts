@@ -1,7 +1,6 @@
 import { postProject } from '@/lib/api'
-import { dataOf } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { runOperation, whenSettled } from '@/lib/store/run-operation'
+import { entityStore } from '@/core/entities/entity-store'
+import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import type { Project } from '@/lib/types'
 
 /** Adds the project at `path` as one operation and resolves with it once the
@@ -19,7 +18,7 @@ export async function createProject(name: string, path: string): Promise<Project
   )
   const settled = await whenSettled(op.id)
   const id = settled.items.find((item) => item.ref.kind === 'project')?.ref.id
-  const project = (dataOf(useProjectDataStore.getState().data) ?? []).find((p) => p.id === id)
+  const project = id ? entityStore.getState().byKind.project[id]?.data : undefined
   if (!project) throw new Error(`${settled.label}: the project is not in the list`)
   return project
 }

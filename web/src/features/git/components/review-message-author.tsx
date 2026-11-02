@@ -1,8 +1,8 @@
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import { useChatListReady } from '@/features/agent/hooks/use-chat-scope'
+import { useChatListReady } from '@/features/agent/hooks/use-chat-providers'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { useChatStore } from '@/features/agent/stores/chat-store'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -73,7 +73,7 @@ export function resolveAuthorDisplay(
 
 /** Narrow selectors, one per field: an object would re-render the thread on
  *  every unrelated chat write. */
-export function useAgentAttribution(wsId: string, message: ReviewMessage): AgentAttribution {
+export function useAgentAttribution(message: ReviewMessage): AgentAttribution {
   const providerId = message.providerId ?? ''
   const chatId = message.chatId ?? ''
 
@@ -83,12 +83,9 @@ export function useAgentAttribution(wsId: string, message: ReviewMessage): Agent
   const providerIcon = useAgentProvidersStore((s) =>
     providerId ? (s.providers.find((p) => p.id === providerId)?.icon ?? '') : '',
   )
-  const chatTitle = useChatStore((s) => {
-    const chat = chatId ? s.chats[chatId] : undefined
-    return chat ? chat.title || UNTITLED_CHAT_LABEL : ''
-  })
+  const chatTitle = useChatField(chatId, (chat) => (chat ? chat.title || UNTITLED_CHAT_LABEL : ''))
   // "Deleted" is a claim only a landed list can back.
-  const listReady = useChatListReady(wsId)
+  const listReady = useChatListReady()
 
   if (!message.isAgent) return NO_ATTRIBUTION
   return {

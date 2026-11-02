@@ -1,27 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { treeInputFor, useTreeInput } from '@/features/workspace/tree/input'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import type { Operation, OperationItem } from '@/lib/store/operations'
+import type { Operation, OperationItem } from '@/core/entities/operations'
 import type { Chat, Folder } from '@/core/entities/repo-types'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { HOME_ROW_ID, homeRows } from '@/__tests__/__fixtures__/tree-rows'
 import {
-  __resetHomeWorkspaceResolverForTest,
-  ensureHomeWorkspaceResolved,
-} from '@/features/workspace/lib/home-workspace-resolver'
-
-const fetchHomeWorkspace = vi.fn()
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  fetchHomeWorkspace: (projectId: string) => fetchHomeWorkspace(projectId),
-}))
+  resetEntities,
+  seedHome,
+  seedHomeTree,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 const NOT_A_DIR = {
   code: 'internal' as const,
@@ -66,33 +59,33 @@ const importOp = (over: Partial<Operation> = {}): Operation => ({
 })
 
 beforeEach(() => {
-  useSidebarStore.setState({ ...getInitialState(), repos: [repo()] })
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
+  seedRepos([repo()])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useFolderSignalStore.setState({ seededRepoIds: new Set(), seededWorkspaceRepoIds: new Set() })
   resetOperations()
-  __resetHomeWorkspaceResolverForTest()
-  fetchHomeWorkspace.mockReset()
 })
 
 const ids = (projectId: string) => deriveRows(treeInputFor(projectId)).map((r) => r.id)
 
 describe('one project at a time', () => {
   it("draws only the given project's repos, every repo it holds", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({ workspaces: [{ id: 'ws-1', branch: 'alpha', age: '' }] }),
-        repo({ id: 'r2', defaultWorkspaceId: 'home-2', defaultOwningChatId: 'home-2-row' }),
-        repo({ id: 'r3', projectId: 'p2', defaultOwningChatId: 'home-3-row' }),
-      ],
-    })
+    seedRepos([
+      repo({ workspaces: [{ id: 'ws-1', branch: 'alpha', age: '' }] }),
+      repo({ id: 'r2', defaultWorkspaceId: 'home-2', defaultOwningChatId: 'home-2-row' }),
+      repo({
+        id: 'r3',
+        projectId: 'p2',
+        defaultWorkspaceId: 'home-3',
+        defaultOwningChatId: 'home-3-row',
+      }),
+    ])
     expect(ids('p1')).toEqual(['home-row', 'ws-1', 'home-2-row'])
     expect(ids('p2')).toEqual(['home-3-row'])
     expect(ids('unknown')).toEqual([])
   })
 
   it('a repo with no project yet belongs to no space', () => {
-    useSidebarStore.setState({ repos: [repo({ projectId: undefined })] })
+    seedRepos([repo({ projectId: undefined })])
     expect(ids('p1')).toEqual([])
   })
 })
@@ -102,31 +95,26 @@ describe('useTreeInput', () => {
   const drawn = (derive: (projectId: string) => ReturnType<typeof treeInputFor>) =>
     deriveRows(derive('p1')).map((r) => r.id)
 
-  // A row id must never change under the user, so a repo waits for its tree or workspaces seed.
-  it('draws a repo once its tree or its workspaces have seeded', () => {
+  it('draws every repo the projects scope carries', () => {
     const { result } = renderHook(() => useTreeInput())
-    expect(drawn(result.current)).toEqual([])
-    act(() => useFolderSignalStore.setState({ seededWorkspaceRepoIds: new Set(['r1']) }))
     expect(drawn(result.current)).toEqual(['home-row'])
   })
 
   it('re-derives the home rows when the home workspace resolves after mount', async () => {
-    useSidebarStore.setState({ repos: [] })
-    useHomeTreeStore.setState({ trees: { p1: { chats: [homeChat], folders: [] } } })
-    fetchHomeWorkspace.mockResolvedValue({ id: 'home-ws', owningChatId: 'home-owner' })
-    // Derived during render, as the surface does: only a re-render can show the resolved home.
+    seedRepos([])
+    seedHomeTree('p1', { chats: [homeChat], folders: [] })
+    // Derived during render, as the surface does: only a re-render can show the home.
     const { result } = renderHook(() => drawn(useTreeInput()))
     expect(result.current).toEqual([])
-    act(() => ensureHomeWorkspaceResolved('p1'))
+    act(() => seedHome('p1', 'home-ws', { owningChatId: 'home-owner' }))
     await waitFor(() => expect(result.current).toEqual(['c-1']))
   })
 
   it("hides a held home row's descendants and keeps the held row, marked, on screen", async () => {
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
     const thread = { ...homeChat, id: 'c-2', parentId: 'c-1' }
-    useHomeTreeStore.setState({ trees: { p1: { chats: [homeChat, thread], folders: [] } } })
-    fetchHomeWorkspace.mockResolvedValue({ id: 'home-ws', owningChatId: 'home-owner' })
-    ensureHomeWorkspaceResolved('p1')
+    seedHomeTree('p1', { chats: [homeChat, thread], folders: [] })
+    seedHome('p1', 'home-ws', { owningChatId: 'home-owner' })
     await waitFor(() => expect(ids('p1')).toEqual(['c-1', 'c-2']))
     const held = { kind: 'chat', id: 'c-1', entryId: 'e1', deadlineAt: 1, extra: 1 }
     treeUiStore.setState({
@@ -206,9 +194,7 @@ describe('operation rows', () => {
   })
 
   it('a failed item whose entity exists draws only the entity', () => {
-    useSidebarStore.setState({
-      repos: [repo({ chats: [{ id: 'chat-a', repoId: 'r1', title: '', order: 0 }] })],
-    })
+    seedRepos([repo({ chats: [{ id: 'chat-a', repoId: 'r1', title: '', order: 0 }] })])
     const failed = importOp({
       state: 'failed',
       items: [item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR })],
@@ -233,9 +219,7 @@ describe('operation rows', () => {
       items: [item('chat-b', 'good', { state: 'succeeded' })],
     })
     expect(rows([done])).toMatchObject([{ id: 'chat-b', working: true }])
-    useSidebarStore.setState({
-      repos: [repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })],
-    })
+    seedRepos([repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })])
     expect(rows([done])).toEqual([])
   })
 
@@ -297,7 +281,7 @@ describe('operation rows', () => {
         error: { code: 'conflict', message: 'branch is still held' },
       }),
     )
-    useSidebarStore.setState({ repos: [placeholder] })
+    seedRepos([placeholder])
     const row = deriveRows(treeInputFor('p1')).find((r) => r.id === 'chat-1')
     expect(row?.placeholderReason).toContain('branch is still held')
     // Not a create: no row of its own.

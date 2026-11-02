@@ -1,10 +1,11 @@
+import { useEffect } from 'react'
 import { selectRepos, useSelect } from '@/core/entities/select'
 import {
   useActivePaneWorkspaceId,
   usePaneEditorWorkspaceIds,
   useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
-import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
+import { holdScope } from '@/core/stream/stream'
 import { usePublishFocusedWorkspaceContext } from './use-publish-focused-workspace-context'
 
 export interface IdeShellWorkspaceRetention {
@@ -65,10 +66,12 @@ export function useIdeShellWorkspaceRetention(
     (isHomeRoute ? homeWorkspaceId : activeWorkspaceId) ??
     (isHomeRoute ? activeWorkspaceId : homeWorkspaceId) ??
     null
-  // Open the per-:wsId workspace WS stream for the viewed workspace. Beyond data,
-  // this is what starts the daemon's per-connection provider poll so a branch with
-  // an open PR flips to the green pr-open icon (the list stream never starts it).
-  useWorkspaceProviderStream(activeProjectIdFromRoute, activeRepoIdFromRoute, activeWorkspaceId)
+  // Holding the viewed workspace's forge scope starts the daemon's provider poll, so a
+  // branch with an open PR flips to its pr-open icon; the workspace frames carry it.
+  useEffect(
+    () => (activeWorkspaceId ? holdScope(`forge:${activeWorkspaceId}`) : undefined),
+    [activeWorkspaceId],
+  )
   // The shell only needs one scalar from the sidebar tree. Subscribing to the
   // whole repos array made every live status/count frame rebuild the complete
   // IDE shell — sidebar provider, carousel, offscreen panels and workspace host

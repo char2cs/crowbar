@@ -59,6 +59,8 @@ export function owningChatIdOfWorkspace(repos: readonly Repo[], wsId: string): s
 }
 
 export function workspaceIdOfBranchRow(repos: readonly Repo[], id: string): string | null {
+  // '' is the root, never a row: an unowned workspace's owningChatId is '' too.
+  if (!id) return null
   for (const repo of repos) {
     const ws = repo.workspaces.find((w) => w.owningChatId === id)
     if (ws) return ws.id

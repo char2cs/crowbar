@@ -24,18 +24,17 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { resolveRow, handleOpen } from '@/components/layout/open-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -60,9 +59,9 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
@@ -314,15 +313,9 @@ describe('handleOpen', () => {
 
     it('opens an existing home chat in place when home is already active', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
-            ],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+        folders: [],
       })
       setActiveWorkspaceId('home-ws-1')
       const navigate = vi.fn()
@@ -340,15 +333,9 @@ describe('handleOpen', () => {
       // whatever the last test happened to leave.
       setActiveWorkspaceId('unrelated-ws')
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
-            ],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+        folders: [],
       })
       // Stands in for the route change actually mounting the home workspace
       // view (workspace-view.tsx's own effect, which is what really flips
@@ -370,8 +357,9 @@ describe('handleOpen', () => {
 
     it('toggles fold for a home folder instead of opening it', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
+      seedHomeTree('p1', {
+        chats: [],
+        folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }],
       })
       const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
       const navigate = vi.fn()
@@ -386,17 +374,13 @@ describe('handleOpen', () => {
       getHomeWorkspaceId.mockImplementation((projectId: string) =>
         projectId === 'p2' ? 'home-ws-2' : 'home-ws-1',
       )
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 0 }],
-            folders: [],
-          },
-          p2: {
-            chats: [{ id: 'c2', repoId: '', workspaceId: 'home-ws-2', title: '', order: 0 }],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 0 }],
+        folders: [],
+      })
+      seedHomeTree('p2', {
+        chats: [{ id: 'c2', repoId: '', workspaceId: 'home-ws-2', title: '', order: 0 }],
+        folders: [],
       })
       setActiveWorkspaceId('home-ws-2')
       const navigate = vi.fn()

@@ -1,10 +1,8 @@
-import { vi } from 'vitest'
-import * as api from '@/lib/api'
-import { ensureHomeWorkspaceResolved } from '@/features/workspace/lib/home-workspace-resolver'
-import { buildRepoTree, toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import {
+  chatEntity,
+  markProjectsSynced,
+  putEntities,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const workspace = (over: Partial<WorkspaceDTO> & Pick<WorkspaceDTO, 'id'>): WorkspaceDTO => ({
@@ -166,29 +164,25 @@ export const PIN_OUTLINE = [
   '  beta [oc-beta]',
 ]
 
-/** Writes `PIN` into the stores the sidebar reads, and answers GET /home with its home. */
+/** Writes `PIN` into the entity store as the projects scope carries it. */
 export function loadPinFixture(): void {
-  vi.spyOn(api, 'fetchHomeWorkspace').mockResolvedValue(PIN.home)
-  ensureHomeWorkspaceResolved('p1')
-  useSidebarStore
-    .getState()
-    .setRepos(
-      buildRepoTree(
-        PIN.repos,
-        PIN.workspaces,
-        PIN.folders.map(toSidebarFolder),
-        PIN.chats.map(toSidebarChat),
-      ),
-    )
-  useFolderSignalStore.setState({ seededRepoIds: new Set(PIN.repos.map((r) => r.id)) })
-  useHomeTreeStore.setState({
-    trees: {
-      p1: {
-        chats: PIN.homeChats.map(toSidebarChat),
-        folders: PIN.homeFolders.map(toSidebarFolder),
-      },
-    },
-  })
+  const entity = (c: ChatDTO) =>
+    chatEntity({
+      id: c.id,
+      projectId: c.projectId,
+      repoId: c.repoId,
+      workspaceId: c.workspaceId,
+      parentId: c.parentId ?? '',
+      title: c.title,
+      order: c.order ?? 0,
+      ...(c.type && { type: c.type }),
+      ...(c.createdAt && { createdAt: c.createdAt }),
+    })
+  putEntities('repo', PIN.repos)
+  putEntities('workspace', [...PIN.workspaces, PIN.home])
+  putEntities('folder', [...PIN.folders, ...PIN.homeFolders])
+  putEntities('chat', [...PIN.chats, ...PIN.homeChats].map(entity))
+  markProjectsSynced()
 }
 
 /** The sidebar tree's own rows: a project panel's scroll content, minus its Recents band. */

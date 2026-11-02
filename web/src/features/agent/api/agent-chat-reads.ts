@@ -25,16 +25,6 @@ export function chatBase(wsId: string): string {
 
 // ── Wire shapes (identical to the backend DTOs; camelCase) ──────────
 
-/** One conversation a chat has hosted — append-only history, oldest first. It is
- *  what a "segment" really was, minus everything that described a process (no
- *  status, no PTY, no runner id), so it cannot drift from reality. */
-interface ChatConversation {
-  chatId: string
-  providerId: string
-  sessionId: string
-  firstSeenAt: string
-}
-
 // AgentChat carries three DERIVED runner facts the backend joins on at read time;
 // none of them is stored on the chat.
 //
@@ -74,8 +64,8 @@ export interface AgentChat {
   createdAt: string
   /**
    * Orders every answer the daemon gives about this chat, frame or GET: a
-   * snapshot applies only if its version is newer than the one held
-   * (reduce-chat-frame.ts). Larger across daemon restarts too.
+   * snapshot applies only if its version is newer than the one held.
+   * Larger across daemon restarts too.
    */
   version: number
   /** The chat's lifecycle phase, owned by the daemon. The pane renders it. */
@@ -193,10 +183,6 @@ export interface FolderShift {
   shifted: AgentChatFolderWire[]
 }
 
-export interface AgentChatDetail extends AgentChat {
-  conversations: ChatConversation[]
-}
-
 type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
 
 export interface SlashCatalogItem {
@@ -272,23 +258,6 @@ export function mapShift(raw: Partial<FolderShift> | null): AgentChatFolder[] {
   return (raw?.shifted ?? []).map(mapFolder)
 }
 
-// ── Reads ───────────────────────────────────────────────────────────
-export async function listChats(wsId: string): Promise<AgentChat[]> {
-  const raw = await apiFetch<AgentChat[]>(`${chatBase(wsId)}`)
-  return (raw ?? []).map(mapChat)
-}
-
-export async function getChat(
-  wsId: string,
-  id: string,
-  signal?: AbortSignal,
-): Promise<AgentChatDetail> {
-  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`, {
-    signal,
-  })
-  return { ...mapChat(raw), conversations: raw.conversations ?? [] }
-}
-
 /** One content-addressed payload a row names (`sha256:…`); null once swept. */
 export async function readBlob(
   chatId: string,
@@ -330,23 +299,6 @@ export interface AgentTelemetry {
   rateLimits?: AgentRateLimit[]
   cost?: { totalUsd?: number; apiDurationMs?: number }
   model?: { id: string; displayName?: string }
-}
-
-/** Read the provider's own report of context, cost and rate limits.
- *
- *  Null means the provider has not reported — which is NOT the same as reporting
- *  zero, and the caller must draw no gauge rather than an empty one. */
-export async function getChatTelemetry(
-  wsId: string,
-  id: string,
-  signal?: AbortSignal,
-): Promise<AgentTelemetry | null> {
-  const raw = await apiFetch<AgentTelemetry | null>(
-    `${chatBase(wsId)}/${encodeURIComponent(id)}/telemetry`,
-    { signal },
-    { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
-  )
-  return raw ?? null
 }
 
 /** Run the active provider's deterministic, descriptor-declared skill probe.

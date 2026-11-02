@@ -9,7 +9,7 @@ import {
   newestProblem,
   operationsState,
   type Operation,
-} from '@/lib/store/operations'
+} from '@/core/entities/operations'
 
 function op(over: Partial<Operation>): Operation {
   return {

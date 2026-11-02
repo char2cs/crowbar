@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { selectProjectsSynced, selectRepos, useSelect } from '@/core/entities/select'
-import { useOperations } from '@/lib/store/operations'
+import { useOperations } from '@/core/entities/operations'
 import { mergeRunsOn, shouldRedirectUnknownWorkspace } from '@/lib/store/workspace-route-guard'
 
 export const Route = createFileRoute('/_shell/ide/$projectId/$repoId/$wsId')({
@@ -12,7 +12,7 @@ function WorkspaceRouteGuard() {
   const { projectId, repoId, wsId } = Route.useParams()
   const navigate = useNavigate()
   const repos = useSelect(selectRepos)
-  const synced = useSelect((s) => selectProjectsSynced(s, projectId, repoId))
+  const synced = useSelect(selectProjectsSynced)
   const merging = useOperations((state) => mergeRunsOn(state.ops, wsId))
 
   // The hierarchical scope (project+repo) for this workspace is recorded

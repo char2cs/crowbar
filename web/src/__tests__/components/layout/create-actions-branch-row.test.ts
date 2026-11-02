@@ -20,12 +20,11 @@ vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
 import { resolveChatRow, resolveRow } from '@/components/layout/open-actions'
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { handleTrash } from '@/components/layout/trash-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -50,9 +49,9 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   treeUiStore.setState({ draft: null })
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
@@ -114,7 +113,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   })
 
   it('its "+" creates a workspace under the OWNING CHAT id — the id the daemon places by', () => {
-    useSidebarStore.setState({ repos: [lockedRepo()] })
+    seedRepos([lockedRepo()])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -135,7 +134,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   })
 
   it('its thread "+" runs in the WORKSPACE, not in the row id', () => {
-    useSidebarStore.setState({ repos: [lockedRepo()] })
+    seedRepos([lockedRepo()])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -154,7 +153,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   })
 
   it('its trash takes the WORKSPACE path — refused as locked, never deleteChat', () => {
-    useSidebarStore.setState({ repos: [lockedRepo()] })
+    seedRepos([lockedRepo()])
 
     // A branch row can only ever be a locked branch or a repo home, and
     // `planRemoval`'s `draftFor` refuses both — so the tray staying empty is

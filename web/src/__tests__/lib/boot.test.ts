@@ -1,41 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { hydrateCriticalStores } from '@/lib/boot'
-import type { Loadable } from '@/lib/loadable'
-import type { Repo } from '@/core/entities/repo-types'
 
-const { hydrateSidebar, hydrateWindowPaneLayout, placeRestoredChatMembers } = vi.hoisted(() => ({
-  hydrateSidebar: vi.fn().mockResolvedValue(undefined),
-  hydrateWindowPaneLayout: vi.fn().mockResolvedValue(undefined),
-  placeRestoredChatMembers: vi.fn().mockResolvedValue(undefined),
-}))
+const { hydrateSidebar, hydrateWindowPaneLayout, placeRestoredPanesOnceSynced } = vi.hoisted(
+  () => ({
+    hydrateSidebar: vi.fn().mockResolvedValue(undefined),
+    hydrateWindowPaneLayout: vi.fn().mockResolvedValue(undefined),
+    placeRestoredPanesOnceSynced: vi.fn(),
+  }),
+)
 vi.mock('@/lib/persistence/hydrate', () => ({
   hydrateSidebar,
   hydrateWindowPaneLayout,
-  placeRestoredChatMembers,
+  placeRestoredPanesOnceSynced,
 }))
-
-const { workspaceListFetch, setRepos, workspaceListData } = vi.hoisted(() => ({
-  workspaceListFetch: vi.fn().mockResolvedValue(undefined),
-  setRepos: vi.fn(),
-  workspaceListData: { current: { status: 'idle' } as Loadable<Repo[]> },
-}))
-vi.mock('@/lib/store/workspace-list', () => ({
-  useWorkspaceListStore: {
-    getState: () => ({ fetch: workspaceListFetch, data: workspaceListData.current }),
-  },
-}))
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: { getState: () => ({ setRepos }) },
-}))
-
-const testRepo: Repo = {
-  id: 'r1',
-  projectId: 'p1',
-  name: 'repo',
-  avatarLabel: 'R',
-  avatarColor: 'bg-indigo-700',
-  workspaces: [],
-}
 
 // Regression: this ordering used to live inside a React component
 // (`HydrationGate`) that gated first paint on ALL of it, including the one
@@ -51,7 +28,6 @@ const testRepo: Repo = {
 describe('hydrateCriticalStores', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    workspaceListData.current = { status: 'idle' }
   })
 
   it('hydrates preferences and pane layout', async () => {
@@ -60,16 +36,14 @@ describe('hydrateCriticalStores', () => {
     expect(hydrateWindowPaneLayout).toHaveBeenCalledTimes(1)
   })
 
-  // The daemon placement of restored members is network: started once the
-  // layout is in the store, never awaited before first paint.
-  it('starts placing restored chat members after the layout, without awaiting it', async () => {
+  // Restored members are placed once the projects scope answers, never before first paint.
+  it('arms placing restored chat members after the layout', async () => {
     const order: string[] = []
     hydrateWindowPaneLayout.mockImplementation(async () => {
       order.push('layout')
     })
-    placeRestoredChatMembers.mockImplementation(() => {
+    placeRestoredPanesOnceSynced.mockImplementation(() => {
       order.push('place')
-      return new Promise<void>(() => {})
     })
 
     await hydrateCriticalStores()
@@ -85,37 +59,17 @@ describe('hydrateCriticalStores', () => {
     expect(localStorage.getItem('crowbar:settings:editorEngine')).toBeNull()
   })
 
-  it('sets repos from the workspace-list fetch before hydrating the sidebar', async () => {
+  it('hydrates the sidebar UI after the layout', async () => {
     const order: string[] = []
-    workspaceListFetch.mockImplementation(async () => {
-      workspaceListData.current = { status: 'success', data: [testRepo], fetchedAt: Date.now() }
-      order.push('fetch')
+    hydrateWindowPaneLayout.mockImplementation(async () => {
+      order.push('layout')
     })
-    setRepos.mockImplementation(() => order.push('setRepos'))
     hydrateSidebar.mockImplementation(async () => {
       order.push('hydrateSidebar')
     })
 
     await hydrateCriticalStores()
 
-    expect(setRepos).toHaveBeenCalledWith([testRepo])
-    expect(order).toEqual(['fetch', 'setRepos', 'hydrateSidebar'])
-  })
-
-  it('resolves only after every step has completed — no step is fire-and-forget', async () => {
-    let workspaceListResolved = false
-    workspaceListFetch.mockImplementation(
-      () =>
-        new Promise<void>((resolve) =>
-          setTimeout(() => {
-            workspaceListResolved = true
-            resolve()
-          }, 0),
-        ),
-    )
-
-    await hydrateCriticalStores()
-
-    expect(workspaceListResolved).toBe(true)
+    expect(order).toEqual(['layout', 'hydrateSidebar'])
   })
 })

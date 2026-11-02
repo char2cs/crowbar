@@ -4,8 +4,7 @@ import {
   saveWorkspaceLayout,
   WINDOW_LAYOUT_VERSION,
 } from './workspace-layout'
-import { getAllEntities } from './entity-cache'
-import type { ChatDTO } from '@/lib/types'
+import { entityStore, type EntityState } from '@/core/entities/entity-store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
@@ -18,8 +17,6 @@ import {
 import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
 import { putDrafts } from '@/features/editor/documents/draft-store'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
-import { fetchHomeChats, fetchRepoChats, fetchRepos } from '@/lib/api'
-import { isNotFoundError } from '@/lib/errors/api-error'
 import { loadSidebarUI } from './sidebar-ui'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
@@ -60,99 +57,54 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
  * The one load-time upgrade of an older saved layout to the current shape.
  * Idempotent: a layout already at `WINDOW_LAYOUT_VERSION` is returned as is.
  *
- * v1 → v2: a chat pane records the workspace its chat belongs to, read from
- * the chat's cached record (`crowbar_chats`). A chat the cache does not know
- * (a project-home chat, a repo never opened) keeps its pane unplaced (null)
- * for the daemon to answer — never dropped on the cache's silence.
+ * v1 → v2: a chat pane records the workspace its chat belongs to; one without it
+ * stays unplaced (null) until the projects scope answers for it.
  * v2 → v3: buffers name their documents (`upgradeLegacyBuffers`).
  * v3 → v4: buffers drop their text; unsaved text is written as drafts first.
  */
 export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
   const version = layout.version ?? 1
   if (version >= WINDOW_LAYOUT_VERSION) return layout
-  const placed = version < 2 ? await placeChatPanes(layout) : layout
+  const placed = version < 2 ? unplaceChatPanes(layout) : layout
   const buffers = placed.buffers && upgradeLegacyBuffers(placed.buffers)
   const split = splitLegacyEditorContent({ ...placed, buffers })
   await putDrafts(split.drafts)
   return { ...split.layout, version: WINDOW_LAYOUT_VERSION }
 }
 
-async function placeChatPanes(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
-  const owner = new Map<string, string>()
-  for (const chat of await getAllEntities<ChatDTO>('crowbar_chats')) {
-    if (chat.workspaceId) owner.set(chat.id, chat.workspaceId)
-  }
+function unplaceChatPanes(layout: WorkspaceLayout): WorkspaceLayout {
   const panes: Record<string, PaneGroup> = {}
   for (const [id, pane] of Object.entries(layout.panes ?? {})) {
-    const workspaceId = pane.chatId ? pane.workspaceId || owner.get(pane.chatId) : null
-    panes[id] = { ...pane, workspaceId: workspaceId ?? null }
+    panes[id] = { ...pane, workspaceId: pane.chatId ? pane.workspaceId || null : null }
   }
   return { ...layout, panes }
 }
 
-/**
- * Place every restored chat member that has no workspace, from the daemon's
- * chat listings of its view's project; drop a member only on a definitive
- * answer (the chat, or its whole project, is gone). A listing that fails
- * leaves its members unplaced for the next boot. No request when all placed.
- */
-export async function placeRestoredChatMembers(): Promise<void> {
+function placeFrom(s: EntityState): void {
   const { panes, views } = windowPaneStore.getState()
-  const byProject = new Map<string, Set<string>>()
-  for (const pane of Object.values(panes)) {
-    const projectId = pane.viewId ? views[pane.viewId]?.projectId : undefined
-    if (!pane.chatId || pane.workspaceId || projectId === undefined) continue
-    const chats = byProject.get(projectId) ?? new Set<string>()
-    byProject.set(projectId, chats.add(pane.chatId))
-  }
   const placed = new Map<string, string>()
   const gone = new Set<string>()
-  await Promise.all(
-    [...byProject].map(async ([projectId, chatIds]) => {
-      const found = await findProjectChats(projectId, chatIds)
-      if (found === undefined) return
-      for (const chatId of chatIds) {
-        const workspaceId = found?.get(chatId)
-        if (workspaceId) placed.set(chatId, workspaceId)
-        else if (!found?.has(chatId)) gone.add(chatId)
-      }
-    }),
-  )
+  for (const pane of Object.values(panes)) {
+    const inView = pane.viewId ? views[pane.viewId]?.projectId !== undefined : false
+    if (!pane.chatId || pane.workspaceId || !inView) continue
+    const chat = s.byKind.chat[pane.chatId]?.data
+    if (chat?.workspaceId) placed.set(pane.chatId, chat.workspaceId)
+    else if (!chat) gone.add(pane.chatId)
+  }
   if (placed.size > 0 || gone.size > 0) {
     windowPaneStore.getState().paneActions.placeRestoredMembers(placed, gone)
   }
 }
 
-/**
- * chatId → workspaceId ('' when the chat has none) for `wanted`, listing the
- * project home first and its repos only if some chat is still unfound; null
- * when the project is gone, undefined when the daemon could not answer.
- */
-async function findProjectChats(
-  projectId: string,
-  wanted: ReadonlySet<string>,
-): Promise<Map<string, string> | null | undefined> {
-  const found = new Map<string, string>()
-  const record = (chats: ChatDTO[]) => {
-    for (const chat of chats) if (wanted.has(chat.id)) found.set(chat.id, chat.workspaceId)
-  }
-  try {
-    record(await fetchHomeChats(projectId).catch(emptyWhenNotFound))
-    if (found.size === wanted.size) return found
-    const repos = await fetchRepos(projectId)
-    const lists = await Promise.all(
-      repos.map((repo) => fetchRepoChats(projectId, repo.id).catch(emptyWhenNotFound)),
-    )
-    for (const chats of lists) record(chats)
-    return found
-  } catch (err) {
-    return isNotFoundError(err) ? null : undefined
-  }
-}
-
-function emptyWhenNotFound(err: unknown): ChatDTO[] {
-  if (isNotFoundError(err)) return []
-  throw err
+/** Once the projects scope's first snapshot lands, places each restored chat pane that
+ *  names no workspace in its chat's, and drops one whose chat is gone. */
+export function placeRestoredPanesOnceSynced(): void {
+  if (entityStore.getState().loaded.projects) return placeFrom(entityStore.getState())
+  const stop = entityStore.subscribe((s) => {
+    if (!s.loaded.projects) return
+    stop()
+    placeFrom(s)
+  })
 }
 
 /**

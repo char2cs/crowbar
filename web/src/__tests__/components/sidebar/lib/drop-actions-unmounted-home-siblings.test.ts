@@ -31,11 +31,10 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { getAllActiveWorkspaceIds } from '@/features/workspace/stores/workspace-store-registry'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const homeRow = (id: string, order: number): SidebarRow => ({
   id,
@@ -51,51 +50,47 @@ const homeRow = (id: string, order: number): SidebarRow => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   getHomeWorkspaceId.mockReturnValue('home-ws-1')
   // Three home chats, as the sidebar renders them — and NO workspace store
   // for home: its pane is not open.
-  useHomeTreeStore.setState({
-    trees: {
-      'proj-1': {
-        folders: [],
-        chats: [
-          {
-            id: 'home-owner',
-            repoId: '',
-            ownsWorktree: true,
-            workspaceId: 'home-ws-1',
-            title: '',
-            order: 0,
-          },
-          {
-            id: 'a',
-            repoId: '',
-            ownsWorktree: false,
-            workspaceId: 'home-ws-1',
-            title: 'a',
-            order: 0,
-          },
-          {
-            id: 'b',
-            repoId: '',
-            ownsWorktree: false,
-            workspaceId: 'home-ws-1',
-            title: 'b',
-            order: 1,
-          },
-          {
-            id: 'c',
-            repoId: '',
-            ownsWorktree: false,
-            workspaceId: 'home-ws-1',
-            title: 'c',
-            order: 2,
-          },
-        ],
+  seedHomeTree('proj-1', {
+    folders: [],
+    chats: [
+      {
+        id: 'home-owner',
+        repoId: '',
+        ownsWorktree: true,
+        workspaceId: 'home-ws-1',
+        title: '',
+        order: 0,
       },
-    },
+      {
+        id: 'a',
+        repoId: '',
+        ownsWorktree: false,
+        workspaceId: 'home-ws-1',
+        title: 'a',
+        order: 0,
+      },
+      {
+        id: 'b',
+        repoId: '',
+        ownsWorktree: false,
+        workspaceId: 'home-ws-1',
+        title: 'b',
+        order: 1,
+      },
+      {
+        id: 'c',
+        repoId: '',
+        ownsWorktree: false,
+        workspaceId: 'home-ws-1',
+        title: 'c',
+        order: 2,
+      },
+    ],
   })
 })
 

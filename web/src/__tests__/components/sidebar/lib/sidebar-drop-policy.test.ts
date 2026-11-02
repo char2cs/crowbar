@@ -11,12 +11,12 @@ import {
   NO_MODES,
   REORDER_MODES,
 } from '@/components/tree-dnd/drop-core'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { runOperation, type OperationReply } from '@/lib/store/run-operation'
+import { runOperation, type OperationReply } from '@/core/entities/run-operation'
+import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 // `resolveHomeRowScope` (home-tree.ts) reads this; its fetch is not under test.
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
@@ -27,8 +27,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 /** Record `chatId` as the chat owning `ws-1`'s worktree — what lets it re-parent. */
 function recordOwnerOfWs1(chatId: string): void {
-  useSidebarStore.setState((s) => ({
-    repos: s.repos.map((r) =>
+  seedRepos(
+    readSelect(selectRepos).map((r) =>
       r.id === 'repo-1'
         ? {
             ...r,
@@ -38,7 +38,7 @@ function recordOwnerOfWs1(chatId: string): void {
           }
         : r,
     ),
-  }))
+  )
 }
 
 function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
@@ -61,45 +61,42 @@ describe('SIDEBAR_DROP_POLICY', () => {
     resetChatStore()
     resetOperations()
     vi.clearAllMocks()
-    useHomeTreeStore.setState({ trees: {} })
+    resetEntities()
     // repo-1 and repo-2 share proj-1; repo-3 is a different project entirely.
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo-1',
-          avatarLabel: 'A',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'home-1',
-          workspaces: [
-            { id: 'ws-1', branch: 'feature-a', age: '' },
-            // A protected branch — develop — sitting alongside ws-1 under home-1.
-            { id: 'ws-locked', branch: 'develop', age: '', status: 'locked' },
-          ],
-          folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
-        },
-        {
-          id: 'repo-2',
-          projectId: 'proj-1',
-          name: 'repo-2',
-          avatarLabel: 'B',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'home-2',
-          workspaces: [{ id: 'ws-2', branch: 'feature-b', age: '' }],
-        },
-        {
-          id: 'repo-3',
-          projectId: 'proj-2',
-          name: 'repo-3',
-          avatarLabel: 'C',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'home-3',
-          workspaces: [],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo-1',
+        avatarLabel: 'A',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'home-1',
+        workspaces: [
+          { id: 'ws-1', branch: 'feature-a', age: '' },
+          // A protected branch — develop — sitting alongside ws-1 under home-1.
+          { id: 'ws-locked', branch: 'develop', age: '', status: 'locked' },
+        ],
+        folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
+      },
+      {
+        id: 'repo-2',
+        projectId: 'proj-1',
+        name: 'repo-2',
+        avatarLabel: 'B',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'home-2',
+        workspaces: [{ id: 'ws-2', branch: 'feature-b', age: '' }],
+      },
+      {
+        id: 'repo-3',
+        projectId: 'proj-2',
+        name: 'repo-3',
+        avatarLabel: 'C',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'home-3',
+        workspaces: [],
+      },
+    ])
   })
 
   it('a working row allows no drop mode', () => {
@@ -155,13 +152,13 @@ describe('SIDEBAR_DROP_POLICY', () => {
   // FOLDER reordering past a plain repo CHAT sibling — the two share one
   // sibling order space same as in a project's home tree.
   it('allows a repo folder to reorder/file relative to a plain CHAT in the same repo', () => {
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((r) =>
+    seedRepos(
+      readSelect(selectRepos).map((r) =>
         r.id === 'repo-1'
           ? { ...r, chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'testing', order: 1 }] }
           : r,
       ),
-    }))
+    )
     const folder = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
     const chat = makeRow({ id: 'chat-1', kind: 'chat', workspaceId: null })
     expect(SIDEBAR_DROP_POLICY.allowedModes([folder], chat)).toEqual(ALL_MODES)
@@ -176,8 +173,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
   // side of that same invariant.
   describe('a folder may not cross into a different branch’s own context', () => {
     beforeEach(() => {
-      useSidebarStore.setState((s) => ({
-        repos: s.repos.map((r) =>
+      seedRepos(
+        readSelect(selectRepos).map((r) =>
           r.id === 'repo-1'
             ? {
                 ...r,
@@ -203,7 +200,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
               }
             : r,
         ),
-      }))
+      )
     })
 
     it('refuses a folder filed under one branch dropped onto a folder filed under a DIFFERENT branch', () => {
@@ -234,8 +231,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
 
     it('allows reordering a folder among siblings that share its own branch context', () => {
-      useSidebarStore.setState((s) => ({
-        repos: s.repos.map((r) =>
+      seedRepos(
+        readSelect(selectRepos).map((r) =>
           r.id === 'repo-1'
             ? {
                 ...r,
@@ -252,7 +249,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
               }
             : r,
         ),
-      }))
+      )
       const subject = makeRow({
         id: 'folder-in-ws-1',
         kind: 'folder',
@@ -301,8 +298,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     const sibling = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
     // A folder nested under ws-1's own fork space — a REAL lineage change
     // for a bare-root row like ws-locked, unlike the same-anchor cases below.
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((r) =>
+    seedRepos(
+      readSelect(selectRepos).map((r) =>
         r.id === 'repo-1'
           ? {
               ...r,
@@ -319,7 +316,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
             }
           : r,
       ),
-    }))
+    )
     const otherLineage = makeRow({
       id: 'folder-nested',
       kind: 'folder',
@@ -390,8 +387,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     const sibling = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     // A folder nested under ws-locked's own fork space — a REAL lineage
     // change for a bare-root row like ws-1.
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((r) =>
+    seedRepos(
+      readSelect(selectRepos).map((r) =>
         r.id === 'repo-1'
           ? {
               ...r,
@@ -408,7 +405,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
             }
           : r,
       ),
-    }))
+    )
     const otherLineage = makeRow({
       id: 'folder-nested',
       kind: 'folder',
@@ -565,21 +562,17 @@ describe('SIDEBAR_DROP_POLICY', () => {
         getHomeWorkspaceId.mockImplementation((projectId: string) =>
           projectId === 'proj-1' ? 'home-ws-1' : null,
         )
-        useHomeTreeStore.setState({
-          trees: {
-            'proj-1': {
-              folders: [],
-              chats: [
-                {
-                  id: 'home-chat',
-                  repoId: '',
-                  workspaceId: 'home-ws-1',
-                  title: 'h',
-                  order: 0,
-                },
-              ],
+        seedHomeTree('proj-1', {
+          folders: [],
+          chats: [
+            {
+              id: 'home-chat',
+              repoId: '',
+              workspaceId: 'home-ws-1',
+              title: 'h',
+              order: 0,
             },
-          },
+          ],
         })
       })
 
@@ -632,8 +625,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
       })
 
       it('allows a locked branch’s thread beside a fork filed under that same branch', () => {
-        useSidebarStore.setState((s) => ({
-          repos: s.repos.map((r) =>
+        seedRepos(
+          readSelect(selectRepos).map((r) =>
             r.id === 'repo-1'
               ? {
                   ...r,
@@ -644,7 +637,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
                 }
               : r,
           ),
-        }))
+        )
         expect(
           SIDEBAR_DROP_POLICY.allowedModes(
             [chatRow('thread-a', { workspaceId: 'ws-locked' })],
@@ -685,16 +678,12 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
     it('allows reordering/filing a home folder relative to another row in the SAME project’s home tree', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [],
-            folders: [
-              { id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 },
-              { id: 'home-folder-2', repoId: '', name: 'Ideas', order: 1 },
-            ],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [],
+        folders: [
+          { id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 },
+          { id: 'home-folder-2', repoId: '', name: 'Ideas', order: 1 },
+        ],
       })
 
       expect(
@@ -709,17 +698,13 @@ describe('SIDEBAR_DROP_POLICY', () => {
       getHomeWorkspaceId.mockImplementation((projectId: string) =>
         projectId === 'proj-2' ? 'home-ws-2' : 'home-ws-1',
       )
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [],
-            folders: [{ id: 'home-folder-1', repoId: '', name: 'A', order: 0 }],
-          },
-          'proj-2': {
-            chats: [],
-            folders: [{ id: 'home-folder-2', repoId: '', name: 'B', order: 0 }],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [],
+        folders: [{ id: 'home-folder-1', repoId: '', name: 'A', order: 0 }],
+      })
+      seedHomeTree('proj-2', {
+        chats: [],
+        folders: [{ id: 'home-folder-2', repoId: '', name: 'B', order: 0 }],
       })
 
       expect(
@@ -740,13 +725,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     // how to resolve a home chat target — was ever reached.
     it('allows filing/reordering a home folder relative to a home CHAT in the SAME project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 1 }],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+        folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 1 }],
       })
       const homeChatRow = makeRow({ id: 'home-chat-1', kind: 'chat', workspaceId: null })
 
@@ -757,13 +738,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
     it('refuses mixing a home folder with a repo folder in one drag', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [],
-            folders: [{ id: 'home-folder-1', repoId: '', name: 'A', order: 0 }],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [],
+        folders: [{ id: 'home-folder-1', repoId: '', name: 'A', order: 0 }],
       })
 
       expect(
@@ -781,13 +758,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     // home folder as the TARGET.
     it('allows filing a home CHAT into a home folder in the SAME project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+        folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
       })
       const homeChatRow = makeRow({ id: 'home-chat-1', kind: 'chat', workspaceId: null })
 
@@ -809,13 +782,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
       beforeEach(() => {
         getHomeWorkspaceId.mockReturnValue('home-ws-1')
-        useHomeTreeStore.setState({
-          trees: {
-            'proj-1': {
-              chats: [],
-              folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
-            },
-          },
+        seedHomeTree('proj-1', {
+          chats: [],
+          folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
         })
       })
 
@@ -901,13 +870,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
     it('reorders (never nests) relative to a home CHAT in the same project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-            folders: [],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+        folders: [],
       })
       const homeChatRow = makeRow({ id: 'home-chat-1', kind: 'chat', workspaceId: null })
 
@@ -918,13 +883,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
     it('reorders OR nests into a home FOLDER in the same project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [],
-            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [],
+        folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
       })
       const homeFolderRow = makeRow({ id: 'home-folder-1', kind: 'folder', workspaceId: null })
 
@@ -942,15 +903,11 @@ describe('SIDEBAR_DROP_POLICY', () => {
     // the folder as a destination.
     it('refuses to reorder past a home folder that is itself nested inside a CHAT — but still allows nesting INTO it', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-            folders: [
-              { id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 },
-            ],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+        folders: [
+          { id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 },
+        ],
       })
       const nestedFolderRow = makeRow({
         id: 'home-folder-1',
@@ -968,13 +925,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
       getHomeWorkspaceId.mockImplementation((projectId: string) =>
         projectId === 'proj-2' ? 'home-ws-2' : 'home-ws-1',
       )
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-2': {
-            chats: [],
-            folders: [{ id: 'home-folder-2', repoId: '', name: 'Ideas', order: 0 }],
-          },
-        },
+      seedHomeTree('proj-2', {
+        chats: [],
+        folders: [{ id: 'home-folder-2', repoId: '', name: 'Ideas', order: 0 }],
       })
       const homeFolderRow = makeRow({ id: 'home-folder-2', kind: 'folder', workspaceId: null })
 

@@ -19,7 +19,7 @@ import {
   performSetWorkspaceLock,
 } from '@/components/sidebar/lib/row-actions'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleTrashRepo } from '@/components/layout/trash-actions'

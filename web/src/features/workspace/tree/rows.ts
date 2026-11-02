@@ -1,4 +1,4 @@
-import type { EntityRef, Operation, OperationItem } from '@/lib/store/operations'
+import type { EntityRef, Operation, OperationItem } from '@/core/entities/operations'
 import type { CreateDraft, RemovalEntry } from './tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { attachRemovalState } from '@/components/layout/removal-plan'

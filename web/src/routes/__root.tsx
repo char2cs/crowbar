@@ -1,7 +1,6 @@
 // web/src/routes/__root.tsx
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { AppSyncProvider } from '@/components/app-sync-provider'
 import { AnchoredToastProvider } from '@/components/ui/toast'
 import { DaemonHaltGate } from '@/features/window/components/daemon-halt-gate'
 import { DaemonHealthListener } from '@/features/window/components/daemon-health-listener'
@@ -22,16 +21,14 @@ import { OperationsWatcher } from '@/components/layout/operations-watcher'
 function RootComponent() {
   return (
     <ErrorBoundary>
-      <AppSyncProvider>
-        <AnchoredToastProvider>
-          <DaemonHealthListener />
-          <ConnectionIndicator />
-          <OperationsWatcher />
-          <DaemonHaltGate>
-            <Outlet />
-          </DaemonHaltGate>
-        </AnchoredToastProvider>
-      </AppSyncProvider>
+      <AnchoredToastProvider>
+        <DaemonHealthListener />
+        <ConnectionIndicator />
+        <OperationsWatcher />
+        <DaemonHaltGate>
+          <Outlet />
+        </DaemonHaltGate>
+      </AnchoredToastProvider>
     </ErrorBoundary>
   )
 }

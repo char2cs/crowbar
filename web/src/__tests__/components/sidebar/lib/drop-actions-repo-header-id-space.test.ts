@@ -24,12 +24,6 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   placeRepo: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/api/workspace', () => ({ reparentWorkspace: vi.fn() }))
-// The drop reads the repos back after placing them; without this the read goes
-// to a daemon that isn't there and sits out the client's startup retries (~5 s).
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  fetchRepos: vi.fn().mockResolvedValue([]),
-}))
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPlacement: vi.fn() }))
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
@@ -40,10 +34,10 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { placeRepo } from '@/lib/api/sidebar-placement'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 const repo = (n: number): Repo => ({
   id: `repo-${n}`,
@@ -62,25 +56,21 @@ const repo = (n: number): Repo => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ ...getInitialState(), repos: [repo(1), repo(2), repo(3)] })
+  seedRepos([repo(1), repo(2), repo(3)])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   getHomeWorkspaceId.mockReturnValue('home-ws-1')
-  useHomeTreeStore.setState({
-    trees: {
-      'proj-1': {
-        folders: [],
-        chats: [
-          {
-            id: 'home-owner',
-            repoId: '',
-            ownsWorktree: true,
-            workspaceId: 'home-ws-1',
-            title: '',
-            order: 0,
-          },
-        ],
+  seedHomeTree('proj-1', {
+    folders: [],
+    chats: [
+      {
+        id: 'home-owner',
+        repoId: '',
+        ownsWorktree: true,
+        workspaceId: 'home-ws-1',
+        title: '',
+        order: 0,
       },
-    },
+    ],
   })
 })
 
@@ -102,11 +92,11 @@ describe('a repo header dropped relative to ANOTHER repo header', () => {
 describe('a repo reorder the daemon refuses', () => {
   it('leaves the headers exactly where they were', async () => {
     vi.mocked(placeRepo).mockRejectedValueOnce(new Error('409 conflict'))
-    const before = useSidebarStore.getState().repos.map((r) => [r.id, r.order])
+    const before = readSelect(selectRepos).map((r) => [r.id, r.order])
     const header = (n: number) => repoRows(repo(n))[0]
 
     await performSidebarDrop([header(3)], header(1), 'before')
 
-    expect(useSidebarStore.getState().repos.map((r) => [r.id, r.order])).toEqual(before)
+    expect(readSelect(selectRepos).map((r) => [r.id, r.order])).toEqual(before)
   })
 })

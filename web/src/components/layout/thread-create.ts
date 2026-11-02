@@ -3,8 +3,8 @@ import { createSurfaceFor, type AgentProvider } from '@/features/agent/api/agent
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { runOperation } from '@/lib/store/run-operation'
-import type { OperationItem } from '@/lib/store/operations'
+import { runOperation } from '@/core/entities/run-operation'
+import type { OperationItem } from '@/core/entities/operations'
 import { toast } from '@/features/window/stores/toast-store'
 
 // The create machinery every sidebar create shares — the in-flight guard and

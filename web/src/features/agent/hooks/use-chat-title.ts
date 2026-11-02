@@ -1,6 +1,6 @@
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { useChatStore } from '@/features/agent/stores/chat-store'
+import { selectAgentChat, useSelect } from '@/core/entities/select'
 
 /**
  * What a surface shows where a name would go while this store holds no record
@@ -19,5 +19,5 @@ export function chatTitleOf(chat: AgentChat | undefined): string | null {
 }
 
 export function useChatTitle(chatId: string): string | null {
-  return useChatStore((s) => chatTitleOf(s.chats[chatId]))
+  return useSelect((s) => chatTitleOf(selectAgentChat(s, chatId)))
 }

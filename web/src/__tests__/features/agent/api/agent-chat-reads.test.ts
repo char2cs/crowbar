@@ -30,149 +30,17 @@ describe('agent-chat-reads: chatBase URL shape', () => {
     apiFetchRaw.mockReset()
   })
 
-  it('builds the repo-scoped chat URL for a non-home workspace', async () => {
-    apiFetch.mockResolvedValue([])
-    await api.listChats('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats')
-    expect(apiFetch.mock.calls[0][0]).not.toContain('/workspaces/')
+  it('builds the repo-scoped chat URL for a non-home workspace', () => {
+    expect(api.chatBase('w1')).toBe('/v0/projects/p1/repos/r1/chats')
   })
 
-  it('keeps the home mount unchanged for a home workspace', async () => {
-    apiFetch.mockResolvedValue([])
-    await api.listChats('ws-home')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/home/chats')
-    expect(apiFetch.mock.calls[0][0]).not.toContain('/repos/')
+  it('keeps the home mount unchanged for a home workspace', () => {
+    expect(api.chatBase('ws-home')).toBe('/v0/projects/p1/home/chats')
   })
 })
 
 describe('agent-chat-reads', () => {
   beforeEach(() => apiFetch.mockReset())
-
-  it('listChats GETs the workspace-scoped chats list, carrying the live runner and its PTY', async () => {
-    apiFetch.mockResolvedValue([
-      {
-        id: 'c1',
-        workspaceId: 'w1',
-        title: 'T',
-        liveRunnerId: 'r1',
-        terminalSessionId: 'pty1',
-        activeProviderId: 'claude',
-        createdAt: '2026-01-01T00:00:00Z',
-      },
-    ])
-    const chats = await api.listChats('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats')
-    // liveRunnerId + its PTY must survive the mapper — they ARE the attach contract.
-    expect(chats[0]).toMatchObject({
-      id: 'c1',
-      liveRunnerId: 'r1',
-      terminalSessionId: 'pty1',
-      activeProviderId: 'claude',
-    })
-  })
-
-  it('listChats carries a DORMANT chat through as empty runner/PTY (not undefined)', async () => {
-    // '' is a meaningful value here — "no runner is on this chat" — and it is the
-    // whole liveness answer. It must not arrive as undefined and read as falsy-by-luck.
-    apiFetch.mockResolvedValue([
-      {
-        id: 'c1',
-        workspaceId: 'w1',
-        title: 'T',
-        liveRunnerId: '',
-        terminalSessionId: '',
-        activeProviderId: 'claude',
-        createdAt: '2026-01-01T00:00:00Z',
-      },
-    ])
-    const chats = await api.listChats('w1')
-    expect(chats[0].liveRunnerId).toBe('')
-    expect(chats[0].terminalSessionId).toBe('')
-    // A dormant chat still names the provider Resume brings back.
-    expect(chats[0].activeProviderId).toBe('claude')
-  })
-
-  // The chat's sticky selection. Omitted on the wire means UNSET — "whatever this
-  // provider defaults to" — and it is grounded to '' so an absent key and a
-  // cleared one are the same thing everywhere downstream.
-  it('listChats carries the sticky model/effort selection, grounding an absent one', async () => {
-    apiFetch.mockResolvedValue([
-      {
-        id: 'c1',
-        workspaceId: 'w1',
-        title: 'T',
-        liveRunnerId: '',
-        terminalSessionId: '',
-        activeProviderId: 'codex',
-        createdAt: '2026-01-01T00:00:00Z',
-        model: 'gpt-5.6-luna',
-        effort: 'max',
-      },
-      {
-        id: 'c2',
-        workspaceId: 'w1',
-        title: 'T2',
-        liveRunnerId: '',
-        terminalSessionId: '',
-        activeProviderId: 'codex',
-        createdAt: '2026-01-01T00:00:00Z',
-      },
-    ])
-    const chats = await api.listChats('w1')
-    expect(chats[0]).toMatchObject({ model: 'gpt-5.6-luna', effort: 'max' })
-    expect(chats[1].model).toBe('')
-    expect(chats[1].effort).toBe('')
-  })
-
-  it('listChats returns [] when the backend responds with no body', async () => {
-    apiFetch.mockResolvedValue(undefined)
-    const chats = await api.listChats('w1')
-    expect(chats).toEqual([])
-  })
-
-  it('getChat GETs the single chat and includes the conversations it has hosted', async () => {
-    apiFetch.mockResolvedValue({
-      id: 'c1',
-      workspaceId: 'w1',
-      title: 'T',
-      liveRunnerId: 'r1',
-      terminalSessionId: 'pty1',
-      activeProviderId: 'claude',
-      createdAt: '2026-01-01T00:00:00Z',
-      conversations: [
-        {
-          chatId: 'c1',
-          providerId: 'claude',
-          sessionId: 'sess-1',
-          firstSeenAt: '2026-01-01T00:00:00Z',
-        },
-      ],
-    })
-    const chat = await api.getChat('w1', 'c1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/c1', {
-      signal: undefined,
-    })
-    expect(chat.liveRunnerId).toBe('r1')
-    expect(chat.terminalSessionId).toBe('pty1')
-    // Conversations succeed the deleted `segments`: pure append-only history, with
-    // nothing in them that describes a process (no status, no PTY, no runner id).
-    expect(chat.conversations).toHaveLength(1)
-    expect(chat.conversations[0]).toMatchObject({ providerId: 'claude', sessionId: 'sess-1' })
-  })
-
-  it('getChat defaults conversations to [] when the backend omits them', async () => {
-    apiFetch.mockResolvedValue({
-      id: 'c1',
-      workspaceId: 'w1',
-      title: 'T',
-      liveRunnerId: '',
-      terminalSessionId: '',
-      activeProviderId: 'claude',
-      createdAt: '2026-01-01T00:00:00Z',
-    })
-    const chat = await api.getChat('w1', 'c1')
-    expect(chat.conversations).toEqual([])
-  })
 
   // A blob read goes through the shared raw fetch: it retries a transport
   // failure and reports a daemon refusal like every other read.
@@ -212,49 +80,10 @@ describe('agent-chat-reads', () => {
     )
   })
 
-  it('propagates apiFetch errors to the caller', async () => {
-    apiFetch.mockRejectedValueOnce(new Error('boom'))
-    await expect(api.listChats('w1')).rejects.toThrow('boom')
-  })
-
-  // ── AgentChat.parentId / .order: the tree grounding on mapChat ──────────
-  // Every chat read is grounded here, once, so nothing downstream has to
-  // remember that an absent parent and a root parent are the same thing.
-
-  it('listChats grounds a chat with no parentId/order to root ("") / 0', async () => {
-    apiFetch.mockResolvedValueOnce([
-      {
-        id: 'c1',
-        workspaceId: 'w1',
-        title: 'T',
-        liveRunnerId: '',
-        terminalSessionId: '',
-        activeProviderId: 'claude',
-        createdAt: '2026-01-01T00:00:00Z',
-        // parentId/order omitted, as a pre-tree daemon would send
-      },
-    ])
-    const [chat] = await api.listChats('w1')
-    expect(chat.parentId).toBe('')
-    expect(chat.order).toBe(0)
-  })
-
-  it('listChats carries an explicit parentId/order through untouched', async () => {
-    apiFetch.mockResolvedValueOnce([
-      {
-        id: 'c1',
-        workspaceId: 'w1',
-        title: 'T',
-        liveRunnerId: '',
-        terminalSessionId: '',
-        activeProviderId: 'claude',
-        createdAt: '2026-01-01T00:00:00Z',
-        parentId: 'f1',
-        order: 4,
-      },
-    ])
-    const [chat] = await api.listChats('w1')
-    expect(chat.parentId).toBe('f1')
-    expect(chat.order).toBe(4)
+  // Every chat read is grounded once, so nothing downstream has to remember
+  // that an absent parent and a root parent are the same thing.
+  it('mapChat grounds an absent parent, order, model and effort', () => {
+    const chat = api.mapChat({ id: 'c1', workspaceId: 'w1' } as never)
+    expect(chat).toMatchObject({ parentId: '', order: 0, model: '', effort: '' })
   })
 })

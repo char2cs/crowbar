@@ -28,9 +28,9 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { allowedModes } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo: Repo = {
   id: 'r1',
@@ -68,8 +68,8 @@ const repo: Repo = {
 beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
-  useSidebarStore.setState(getInitialState())
-  useSidebarStore.getState().setRepos([repo])
+  resetEntities()
+  seedRepos([repo])
 })
 
 // A fork whose owning chat has not been recorded yet is addressed by its

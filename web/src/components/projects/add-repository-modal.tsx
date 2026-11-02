@@ -13,11 +13,10 @@ import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { fetchRepos, fetchWorkspaces, postRepo } from '@/lib/api'
-import { useProjectStore } from '@/lib/store/projects'
-import { upsertEntity } from '@/lib/persistence/entity-cache'
-import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
-import { runOperation, whenSettled } from '@/lib/store/run-operation'
-import { operationsState, type Operation } from '@/lib/store/operations'
+import { useProjectStore } from '@/core/entities/active-project'
+import { placeEntities } from '@/core/entities/entity-store'
+import { runOperation, whenSettled } from '@/core/entities/run-operation'
+import { operationsState, type Operation } from '@/core/entities/operations'
 import { report } from '@/lib/errors/report'
 
 interface AddRepositoryModalProps {
@@ -115,11 +114,10 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       const repoId = addedRepoId(await settledOrPartial(op.id))
       const { repo, home } = await readRepoHome(activeProjectId, repoId)
 
-      // The /ide guard reads the sidebar, which the streams fill a beat after
-      // this; seeding it first keeps the navigate from bouncing back to /.
-      await upsertEntity('crowbar_repos', repo)
-      if (home) await upsertEntity('crowbar_workspaces', home)
-      await syncSidebarFromCache()
+      // The /ide guard reads the entity store; the read's answer lands there before the
+      // navigate, so it never bounces back to /.
+      placeEntities('repo', { [repo.id]: repo })
+      if (home) placeEntities('workspace', { [home.id]: home })
 
       onOpenChange(false)
       setPath('')

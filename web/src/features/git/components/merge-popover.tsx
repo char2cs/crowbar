@@ -11,11 +11,11 @@ import {
   getWorkspaceStore,
   subscribeActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
-import { selectEntityBusy, useOperations } from '@/lib/store/operations'
+import { entityStore, holdsEntity } from '@/core/entities/entity-store'
+import { selectEntityBusy, useOperations } from '@/core/entities/operations'
 import { readSelect, selectRepos } from '@/core/entities/select'
-import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/lib/store/repo-tree'
-import { runOperation, whenSettled } from '@/lib/store/run-operation'
+import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/core/entities/repo-queries'
+import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
@@ -27,11 +27,11 @@ function whenChildLeaves(wsId: string, go: () => void): () => void {
   const stop = () => stops.splice(0).forEach((s) => s())
   const check = () => {
     if (getActiveWorkspaceId() !== wsId) return stop()
-    if (isEntityPresent({ kind: 'workspace', id: wsId })) return
+    if (holdsEntity(entityStore.getState(), { kind: 'workspace', id: wsId })) return
     stop()
     go()
   }
-  stops.push(subscribeEntityPresence(check), subscribeActiveWorkspaceId(check))
+  stops.push(entityStore.subscribe(check), subscribeActiveWorkspaceId(check))
   check()
   return stop
 }

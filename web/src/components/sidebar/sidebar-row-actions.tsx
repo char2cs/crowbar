@@ -10,7 +10,7 @@ import { DISCLOSURE_GLYPH_PATH } from '@/components/layout/workspace-row-base'
 import { cn } from '@/lib/utils'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { retryProvision } from '@/lib/api/workspace'
-import { runOperation } from '@/lib/store/run-operation'
+import { runOperation } from '@/core/entities/run-operation'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarRowActionsProps {

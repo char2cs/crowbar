@@ -1,8 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { WorkspaceSwitcherMenu } from '@/components/layout/workspace-switcher'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const navigateMock = vi.fn()
 let mockPathname = '/workspaces/ws3'
@@ -34,7 +34,7 @@ const repos: Repo[] = [
 beforeEach(() => {
   navigateMock.mockClear()
   mockPathname = '/ide/p1/r2/ws3'
-  useSidebarStore.setState({ repos })
+  seedRepos(repos)
 })
 
 describe('WorkspaceSwitcherMenu', () => {
@@ -65,26 +65,24 @@ describe('WorkspaceSwitcherMenu', () => {
   })
 
   it('renders formatted added/deleted counts when present', () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'r1',
-          name: 'crowbar',
-          avatarLabel: 'C',
-          avatarColor: 'bg-indigo-700',
-          workspaces: [
-            { id: 'ws1', branch: 'develop', status: 'pr-open', added: 1234, deleted: 5, age: '1d' },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'r1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: 'bg-indigo-700',
+        workspaces: [
+          { id: 'ws1', branch: 'develop', status: 'pr-open', added: 1234, deleted: 5, age: '1d' },
+        ],
+      },
+    ])
     render(<WorkspaceSwitcherMenu onClose={() => {}} />)
     expect(screen.getByText('+1k')).toBeInTheDocument()
     expect(screen.getByText('-5')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no workspaces', () => {
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
     render(<WorkspaceSwitcherMenu onClose={() => {}} />)
     expect(screen.getByText(/no workspaces/i)).toBeInTheDocument()
   })

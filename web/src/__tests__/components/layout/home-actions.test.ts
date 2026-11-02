@@ -31,21 +31,20 @@ const presetChatLandingPresentation = vi
 
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
+import { operationsState } from '@/core/entities/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 
 afterEach(() => {
   // A GLOBAL store — a leaked 'terminal' default would silently arm every
@@ -57,9 +56,9 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   treeUiStore.setState({ draft: null })
   resetOperations()
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
@@ -81,7 +80,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
   it('a home thread create draws its row from the operation', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     const existing = { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }
-    useHomeTreeStore.setState({ trees: { p1: { chats: [existing], folders: [] } } })
+    seedHomeTree('p1', { chats: [existing], folders: [] })
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -103,26 +102,18 @@ describe('a project-home chat row resolves Thread through its home workspace, an
     // Succeeded, but the chat is not in the home tree yet: the row still stands in.
     expect(opRows()).toHaveLength(1)
 
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [existing, { ...existing, id: chatId, title: '', parentId: 'c1' }],
-          folders: [],
-        },
-      },
+    seedHomeTree('p1', {
+      chats: [existing, { ...existing, id: chatId, title: '', parentId: 'c1' }],
+      folders: [],
     })
     expect(opRows()).toEqual([])
   })
 
   it('presets Terminal for a project-home thread too, when asked for one', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
-          folders: [],
-        },
-      },
+    seedHomeTree('p1', {
+      chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+      folders: [],
     })
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -141,13 +132,9 @@ describe('a project-home chat row resolves Thread through its home workspace, an
 
   it('Fork is a silent no-op — no repo, no worktree to clone', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
-          folders: [],
-        },
-      },
+    seedHomeTree('p1', {
+      chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+      folders: [],
     })
     useAgentProvidersStore.setState({
       status: 'ready',

@@ -9,10 +9,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import * as api from '@/lib/api'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
-import { useProjectDataStore } from '@/lib/store/projects'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState, type Operation } from '@/lib/store/operations'
-import { success } from '@/lib/loadable'
+import { operationsState, type Operation } from '@/core/entities/operations'
 import type { Project } from '@/lib/types'
 import {
   expectMigratingShown,
@@ -21,6 +19,7 @@ import {
   refusal,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+import { seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 
 /** The daemon's row for the add: the project it names under `server-id`. */
 function createOp(opId: string, version: number, state: Operation['state']): Operation {
@@ -54,7 +53,7 @@ beforeEach(() => {
     operation: createOp(opId, 1, 'accepted'),
   }))
   resetOperations()
-  useProjectDataStore.setState({ data: success([]) })
+  seedProjects([])
 })
 
 test('Import button is disabled when the path is empty', () => {
@@ -82,7 +81,7 @@ test('import waits on the operation and hands over the project from the store', 
 
   streamOperation(createOp(opId, 2, 'succeeded'))
   expect(onImport).not.toHaveBeenCalled()
-  useProjectDataStore.setState({ data: success([project]) })
+  seedProjects([project])
 
   await waitFor(() => expect(onImport).toHaveBeenCalledWith(project))
 })

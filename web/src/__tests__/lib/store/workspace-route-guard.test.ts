@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import type { Operation } from '@/lib/store/operations'
+import type { Operation } from '@/core/entities/operations'
 import {
   mergeRunsOn,
   shouldRedirectUnknownWorkspace,

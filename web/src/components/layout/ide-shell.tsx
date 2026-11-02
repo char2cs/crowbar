@@ -9,12 +9,8 @@ import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { SidebarFooter } from './sidebar-footer'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
-import {
-  useProjectStore,
-  useProjectDataStore,
-  EMPTY_PROJECTS,
-  importProjectAndSync,
-} from '@/lib/store/projects'
+import { useProjectStore } from '@/core/entities/active-project'
+import { selectProjects, useSelect } from '@/core/entities/select'
 import type { Project } from '@/lib/types'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -30,11 +26,7 @@ import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-p
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath, setWorkspaceScope } from '@/lib/workspace-scope'
-import { dataOf } from '@/lib/loadable'
-import {
-  ensureHomeWorkspaceResolved,
-  useHomeWorkspaceState,
-} from '@/features/workspace/lib/home-workspace-resolver'
+import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectIsShowingEmptyStage } from '@/features/panes/lib/view-selectors'
 import { useIdeShellWorkspaceRetention } from './use-ide-shell-workspace-retention'
@@ -96,9 +88,6 @@ function IdeShellBody() {
     owningChatId: homeOwningChatId,
     localPath: homeWorkspacePath,
   } = useHomeWorkspaceState(homeProjectId ?? null)
-  useEffect(() => {
-    if (homeProjectId) ensureHomeWorkspaceResolved(homeProjectId)
-  }, [homeProjectId])
   // Recorded SYNCHRONOUSLY during render (matches recordWorkspaceScopeFromPath
   // above) — WorkspaceHost, rendered below, mounts this workspace's
   // WorkspaceView in the same render pass, and workspaceBase() needs the
@@ -117,7 +106,7 @@ function IdeShellBody() {
   // Every workspace-id fact WorkspaceHost's retention and the sidebar's
   // file-explorer path need, resolved off the active pane/route — see the
   // hook's own doc for why this lives outside IDEShell's body.
-  const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
+  const allProjects = useSelect(selectProjects)
   const projectPath = allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? ''
   const { effectiveActiveWorkspaceId, paneWsIds, viewWsIds } = useIdeShellWorkspaceRetention(
     activeWorkspaceId,
@@ -135,8 +124,8 @@ function IdeShellBody() {
   // the sidebar itself. Lifted here, alongside `allProjects`, so both the
   // footer (the marks) and the surface below can reach it.
   const [creatingSpace, setCreatingSpace] = useState(false)
-  const handleCreateSpace = useCallback((project: Project) => {
-    importProjectAndSync(project)
+  // The created project is already in the entity store: its operation settled after it.
+  const handleCreateSpace = useCallback((_project: Project) => {
     setCreatingSpace(false)
   }, [])
   // Space marks (spec §4.1): same navigation the workspace switcher's own

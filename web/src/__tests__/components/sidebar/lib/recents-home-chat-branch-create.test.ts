@@ -7,10 +7,9 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 /**
  * Live report: "creating a new branch out of develop while a project-home chat
@@ -97,8 +96,8 @@ beforeEach(() => {
   resetChatStore()
   homeIds.current = new Map()
   activeWsId.current = null
-  useHomeTreeStore.setState({ trees: {} })
-  useSidebarStore.setState({ repos: [] })
+  resetEntities()
+  seedRepos([])
   resetWindowPaneStoreForTests()
 })
 
@@ -109,7 +108,7 @@ describe('creating a branch while a project-home chat is open', () => {
     activeIds.current = [HOME_WS, 'ws-1']
     writeChat({ id: 'chat-home', workspaceId: HOME_WS })
     writeChat({ id: 'chat-repo', workspaceId: 'ws-1' })
-    useHomeTreeStore.getState().setTree('p1', {
+    seedHomeTree('p1', {
       chats: [{ id: 'chat-home', repoId: '', title: 'Plan', order: 0, workspaceId: HOME_WS }],
       folders: [],
     })
@@ -121,7 +120,7 @@ describe('creating a branch while a project-home chat is open', () => {
     windowPaneStore.getState().paneActions.setActiveProject('p1')
     // A tree click on each: `openChatIdInOwnView` is the one shared core every
     // "open this chat the way a click does" caller runs.
-    useSidebarStore.setState({ repos })
+    seedRepos(repos)
     click('chat-repo', 'ws-1')
     click('chat-home', HOME_WS)
     expect(bandChats().sort()).toEqual(['chat-home', 'chat-repo'])
@@ -142,7 +141,7 @@ describe('creating a branch while a project-home chat is open', () => {
     activeIds.current = [HOME_WS, 'ws-1', 'ws-new']
     writeChat({ id: 'chat-new', workspaceId: 'ws-new' })
     windowPaneStore.getState().paneActions.setActiveProject('p1')
-    useSidebarStore.setState({ repos: reposAfter })
+    seedRepos(reposAfter)
     click('chat-new', 'ws-new')
 
     expect(bandChats().sort()).toEqual(['chat-home', 'chat-new', 'chat-repo'])
@@ -162,7 +161,7 @@ describe('creating a branch while a project-home chat is open', () => {
       [makeTestWorkspace({ id: 'ws-1', branch: 'main' })],
       [{ id: 'chat-repo', repoId: 'r1', title: 'Repo chat', order: 0, workspaceId: 'ws-1' }],
     )
-    useSidebarStore.setState({ repos })
+    seedRepos(repos)
     windowPaneStore.getState().paneActions.setActiveProject('p1')
     click('chat-repo', 'ws-1')
 
@@ -176,7 +175,7 @@ describe('creating a branch while a project-home chat is open', () => {
         { id: 'chat-new', repoId: 'r1', title: 'feature', order: 1, workspaceId: 'ws-new' },
       ],
     )
-    useSidebarStore.setState({ repos: reposAfter })
+    seedRepos(reposAfter)
     click('chat-new', 'ws-new')
 
     expect(bandChats().sort()).toEqual(['chat-new', 'chat-repo'])

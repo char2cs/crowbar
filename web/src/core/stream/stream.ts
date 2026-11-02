@@ -174,14 +174,17 @@ export function streamOpened(): Promise<void> {
   return wsManager.opened(ENDPOINT)
 }
 
-/** Opens the one stream; returns the stop. Called once, at boot. */
+/** Opens the one stream and holds the projects scope, which the sidebar and every
+ *  route read, for as long as it runs; returns the stop. Called once, at boot. */
 export function startStream(): () => void {
   const stopDrops = wsManager.onDrop(ENDPOINT, () => {
     ready = false
     current.clear()
   })
   const stop = wsManager.subscribe(ENDPOINT, onMessage)
+  const letGoOfProjects = holdScope('projects')
   return () => {
+    letGoOfProjects()
     ready = false
     stopDrops()
     stop()

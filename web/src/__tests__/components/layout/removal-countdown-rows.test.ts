@@ -12,10 +12,10 @@ import {
   renderedHiddenIds,
 } from '@/components/layout/removal-plan'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { useProjectDataStore } from '@/lib/store/projects'
+import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 /**
  * THE EIGHT-SECOND WINDOW, END TO END.
@@ -40,7 +40,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
  * fine, and the skew was introduced one layer up.
  */
 
-const PROJECT = { id: 'p1', name: 'Space', path: '/tmp/p1', lastActivity: '', order: 0 }
+const PROJECT = { id: 'p1', name: 'Space', path: '/tmp/p1', lastActivity: new Date(0), order: 0 }
 
 /** A repo whose fork rows are unified: one row per (workspace, owning chat). */
 function repo(): Repo {
@@ -106,10 +106,7 @@ function repo(): Repo {
  *  stays so it has a row left to transform in place (`renderedHiddenIds`). */
 function rowsOnScreen() {
   const { removals: entries, hiddenIds } = treeUiStore.getState()
-  const repos = applyPendingRemovals(
-    useSidebarStore.getState().repos,
-    renderedHiddenIds(hiddenIds, entries),
-  )
+  const repos = applyPendingRemovals(readSelect(selectRepos), renderedHiddenIds(hiddenIds, entries))
   return attachRemovalState(
     repos.flatMap((r) => repoRows(r)),
     entries,
@@ -118,8 +115,8 @@ function rowsOnScreen() {
 
 beforeEach(() => {
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useSidebarStore.setState({ repos: [repo()] })
-  useProjectDataStore.setState({ data: { status: 'success', data: [PROJECT] } } as never)
+  seedRepos([repo()])
+  seedProjects([PROJECT])
 })
 
 describe('a held workspace row during its countdown', () => {
@@ -170,55 +167,5 @@ describe('a held workspace row during its countdown', () => {
     const hidden = treeUiStore.getState().hiddenIds
     expect(hidden.has('ws-fork')).toBe(true)
     expect(hidden.has('chat-fork')).toBe(true)
-  })
-})
-
-describe('a workspace row whose Workspace record is missing', () => {
-  /**
-   * The same skew from the other direction, and the reason the fix could not
-   * just be "hide the chat too".
-   *
-   * A freshly forked workspace arrives as a CHAT first — `crowbar_chats` and
-   * `crowbar_workspaces` are different streams — so for a beat there is an
-   * owning chat with no `Workspace` record anywhere. That row is still a
-   * workspace and must still draw as one; drawing a bubble is how a brand-new
-   * fork appeared as a conversation until its `WorkspaceDTO` caught up.
-   */
-  it('still draws a branch row off the chat alone', () => {
-    const half = repo()
-    half.workspaces = half.workspaces.filter((w) => w.id !== 'ws-fork')
-    useSidebarStore.setState({ repos: [half] })
-
-    const row = rowsOnScreen().find((r) => r.id === 'chat-fork')
-    expect(row).toMatchObject({ kind: 'branch', ownsWorktree: true, workspaceId: 'ws-fork' })
-    // The decoration that genuinely lives on the absent half is absent, rather
-    // than faked: a row claiming `locked: false` would offer verbs the daemon
-    // then refuses.
-    expect(row?.branchName).toBeUndefined()
-    expect(row?.locked).toBeUndefined()
-  })
-
-  it('is still a real bubble when the chat owns nothing', () => {
-    const withBubble = repo()
-    withBubble.chats = [
-      ...(withBubble.chats ?? []),
-      {
-        id: 'chat-bubble',
-        repoId: 'r1',
-        type: 'chat',
-        workspaceId: 'ws-fork',
-        parentId: 'chat-fork',
-        title: 'A thread',
-        order: 0,
-      },
-    ]
-    useSidebarStore.setState({ repos: [withBubble] })
-
-    // A thread carries its parent's workspaceId, which is exactly why
-    // `workspaceId` alone can never stand in for ownership.
-    expect(rowsOnScreen().find((r) => r.id === 'chat-bubble')).toMatchObject({
-      kind: 'chat',
-      ownsWorktree: false,
-    })
   })
 })

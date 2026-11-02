@@ -58,6 +58,10 @@ beforeAll(() => {
   startStream()
 })
 
+/** What went out besides the projects scope, which the stream itself holds from boot. */
+const sentBesidesProjects = () =>
+  socket.sent.filter((m) => (m as { scope?: string }).scope !== 'projects')
+
 beforeEach(() => {
   epochs++
   reconnect()
@@ -88,7 +92,7 @@ describe('the one stream', () => {
     hold('chat:a')
     expect(socket.sent).toEqual([])
     socket.deliver({ t: 'ready', epoch: `e${epochs}` })
-    expect(socket.sent).toEqual([{ op: 'sub', scope: 'chat:a' }])
+    expect(sentBesidesProjects()).toEqual([{ op: 'sub', scope: 'chat:a' }])
   })
 
   it('re-sends sub for every held scope after a reconnect, with since from the kind handler', () => {
@@ -99,7 +103,7 @@ describe('the one stream', () => {
 
     reconnect()
 
-    expect(socket.sent).toEqual([
+    expect(sentBesidesProjects()).toEqual([
       { op: 'sub', scope: 'chat:a', since: 42 },
       { op: 'sub', scope: 'ws:w1' },
     ])
@@ -132,7 +136,7 @@ describe('the one stream', () => {
     socket.sent.length = 0
     reconnect()
     release()
-    expect(socket.sent).toEqual([])
+    expect(sentBesidesProjects()).toEqual([])
   })
 
   it('an undecodable frame is reported once and its scope dropped', () => {
@@ -144,7 +148,7 @@ describe('the one stream', () => {
 
     socket.sent.length = 0
     reconnect()
-    expect(socket.sent).toEqual([])
+    expect(sentBesidesProjects()).toEqual([])
   })
 
   it('an error frame is reported and drops no scope', () => {
@@ -158,7 +162,12 @@ describe('the one stream', () => {
 
     socket.sent.length = 0
     reconnect()
-    expect(socket.sent).toEqual([{ op: 'sub', scope: 'chat:a' }])
+    expect(sentBesidesProjects()).toEqual([{ op: 'sub', scope: 'chat:a' }])
+  })
+
+  it('holds the projects scope from boot, across every reconnect', () => {
+    reconnect()
+    expect(socket.sent).toEqual([{ op: 'sub', scope: 'projects' }])
   })
 
   // A snapshot the daemon could not read closes the socket with resync, never the scope.

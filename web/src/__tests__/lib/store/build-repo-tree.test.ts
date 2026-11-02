@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRepoTree,
   sortByPlacement,
+  sortReposByOrder,
   toSidebarChat,
   toSidebarRepo,
   toSidebarWorkspace,
 } from '@/lib/store/build-repo-tree'
+import type { Repo } from '@/core/entities/repo-types'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -386,5 +388,53 @@ describe('a tied level sorts the way the daemon sorts it', () => {
       ],
     )
     expect(tree[0].workspaces.map((w) => w.id)).toEqual(['w-z', 'w-m', 'w-a'])
+  })
+})
+
+const sortRepo = (id: string, order?: number): Repo => ({
+  id,
+  projectId: 'p1',
+  name: id,
+  avatarLabel: id[0].toUpperCase(),
+  avatarColor: 'bg-indigo-700',
+  workspaces: [],
+  ...(order !== undefined && { order }),
+})
+
+const sortDto = (id: string, order: number): RepoDTO => ({
+  id,
+  projectId: 'p1',
+  name: id,
+  path: `/${id}`,
+  defaultBranch: 'main',
+  avatarLabel: id[0].toUpperCase(),
+  avatarColor: 'bg-indigo-700',
+  avatarUrl: '',
+  avatarEmoji: '',
+  order,
+})
+
+describe('the sort', () => {
+  it('orders by index, with a missing order last', () => {
+    expect(
+      sortReposByOrder([
+        sortRepo('c', 2),
+        sortRepo('a', 0),
+        sortRepo('nope'),
+        sortRepo('b', 1),
+      ]).map((r) => r.id),
+    ).toEqual(['a', 'b', 'c', 'nope'])
+  })
+
+  it('keeps arrival order among ties, so an undragged level never reshuffles', () => {
+    expect(
+      sortReposByOrder([sortRepo('x', 0), sortRepo('y', 0), sortRepo('z', 0)]).map((r) => r.id),
+    ).toEqual(['x', 'y', 'z'])
+  })
+
+  it('is applied when the tree is built from the stored rows, which have no order of their own', () => {
+    expect(
+      buildRepoTree([sortDto('c', 2), sortDto('a', 0), sortDto('b', 1)], []).map((r) => r.id),
+    ).toEqual(['a', 'b', 'c'])
   })
 })

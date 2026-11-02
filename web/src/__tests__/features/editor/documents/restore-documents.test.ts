@@ -44,7 +44,7 @@ import {
   followHostDocument,
   reconcileWorkspaceDocuments,
 } from '@/features/workspace/lib/external-buffer-sync'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const A = workspaceRef('ws-restore', 'src/a.ts')
 const B = workspaceRef('ws-restore', 'src/b.ts')
@@ -361,7 +361,7 @@ describe('restoreDocuments', () => {
       { id: 'ws-x', branch: 'feature-x' },
       { id: 'ws-y', branch: 'feature-y' },
     ]
-    useSidebarStore.setState({ repos: [{ id: 'r', name: 'r', workspaces }] as never })
+    seedRepos([{ id: 'r', name: 'r', workspaces }] as never)
     restoredTab(workspaceRef('ws-x', 'src/a.ts'))
     restoredTab(workspaceRef('ws-y', 'src/a.ts'))
     readDocument.mockRejectedValue(new ApiError('boom', 500))
@@ -369,7 +369,7 @@ describe('restoreDocuments', () => {
     await restoreDocuments()
 
     expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts (feature-x), a.ts (feature-y)')
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
   })
 })
 

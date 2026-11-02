@@ -21,7 +21,6 @@ const presetChatLandingPresentation = vi
   .mockImplementation(() => {})
 
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -30,12 +29,12 @@ import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -60,9 +59,9 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   treeUiStore.setState({ draft: null })
   resetOperations()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
@@ -92,9 +91,7 @@ describe('a refused thread create', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     createChat.mockImplementationOnce(() =>
       Promise.reject(new ApiError('parent ws-a not found', 404, 'not_found')),
     )
@@ -115,9 +112,7 @@ describe('a refused thread create', () => {
 
 describe('starting a thread on an empty folder', () => {
   it('says why instead of silently doing nothing', () => {
-    useSidebarStore.setState({
-      repos: [repo({ folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] })],
-    })
+    seedRepos([repo({ folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] })])
 
     handleCreate('f1', 'thread', vi.fn())
 
@@ -128,9 +123,7 @@ describe('starting a thread on an empty folder', () => {
 
 describe('starting a thread on a real workspace', () => {
   it('creates a chat with the first enabled provider', () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     // The GLOBAL provider list — providers are machine-level, and a
     // per-workspace copy only exists once that workspace has been mounted.
     useAgentProvidersStore.setState({
@@ -156,9 +149,7 @@ describe('starting a thread on a real workspace', () => {
   // optional 4th `presentation` arg is the fix: handleCreate presets the
   // landed chat's surface before opening it, same seam an in-pane pick uses.
   it('presets the new chat onto Terminal when asked for one', async () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -176,9 +167,7 @@ describe('starting a thread on a real workspace', () => {
   })
 
   it('never presets a surface for an ordinary create', async () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -192,9 +181,7 @@ describe('starting a thread on a real workspace', () => {
 
   it('a thread create draws its row from the operation and opens at once', async () => {
     resetWindowPaneStoreForTests()
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -211,23 +198,21 @@ describe('starting a thread on a real workspace', () => {
     )
     expect(opRows()).toHaveLength(1)
 
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-          chats: [
-            {
-              id: chatId,
-              repoId: 'r1',
-              workspaceId: 'ws-a',
-              title: '',
-              order: 0,
-              parentId: 'ws-a',
-            },
-          ],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+        chats: [
+          {
+            id: chatId,
+            repoId: 'r1',
+            workspaceId: 'ws-a',
+            title: '',
+            order: 0,
+            parentId: 'ws-a',
+          },
+        ],
+      }),
+    ])
     expect(opRows()).toEqual([])
   })
 
@@ -238,9 +223,7 @@ describe('starting a thread on a real workspace', () => {
   // thread. This pins the repo-scoped path now matching it.
   it('opens the new thread into a pane immediately when its workspace is already active', async () => {
     resetWindowPaneStoreForTests()
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -271,9 +254,7 @@ describe('starting a thread on a real workspace', () => {
   // store-level mechanism this pins end-to-end through the real create flow.
   it('a thread opened while an existing chat occupies the pane survives a delayed project bootstrap', async () => {
     resetWindowPaneStoreForTests()
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -318,9 +299,7 @@ describe('starting a thread on a real workspace', () => {
 
   it('navigates to the workspace first when it is not yet the active one, then opens the new thread', async () => {
     resetWindowPaneStoreForTests()
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -378,7 +357,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('c1', 'thread', vi.fn())
 
@@ -400,7 +379,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
         { id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true },
       ] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('c1', 'thread', vi.fn())
     await Promise.resolve()
@@ -425,7 +404,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
       status: 'ready',
       providers: [{ id: 'claude', enabled: true, hasTerminal: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('c1', 'thread', vi.fn())
     await Promise.resolve()
@@ -439,7 +418,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('c1', 'workspace', vi.fn())
     expect(treeUiStore.getState().draft).toMatchObject({ parentId: 'c-owner' })
@@ -466,11 +445,9 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({
-      repos: [
-        repo({ chats: [{ id: 'c1', repoId: 'r1', workspaceId: 'home-1', title: 't', order: 0 }] }),
-      ],
-    })
+    seedRepos([
+      repo({ chats: [{ id: 'c1', repoId: 'r1', workspaceId: 'home-1', title: 't', order: 0 }] }),
+    ])
 
     handleCreate('c1', 'thread', vi.fn())
     expect(createChat).toHaveBeenCalledExactlyOnceWith(

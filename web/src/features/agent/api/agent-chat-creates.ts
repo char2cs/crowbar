@@ -1,6 +1,6 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { apiFetch } from '@/lib/api/fetch'
-import { operationHeaders } from '@/lib/store/run-operation'
+import { operationHeaders } from '@/core/entities/run-operation'
 import { chatBase } from '@/features/agent/api/agent-chat-reads'
 
 // ── Writes ──────────────────────────────────────────────────────────

@@ -4,9 +4,7 @@ import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { deriveRows } from '@/features/workspace/tree/rows'
-import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
@@ -16,6 +14,7 @@ import * as trashActions from '@/components/layout/trash-actions'
 import * as createActions from '@/components/layout/create-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -208,31 +207,27 @@ const homeThreadRow: SidebarRow = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
+  seedRepos([REPO])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({
-    trees: {
-      'proj-1': {
-        chats: [
-          {
-            id: 'home-branch-chat',
-            repoId: '',
-            ownsWorktree: true,
-            workspaceId: 'home-ws-1',
-            title: '',
-            order: 0,
-          },
-          {
-            id: HOME_THREAD_ROW_ID,
-            repoId: '',
-            ownsWorktree: false,
-            title: 'A home thread',
-            order: 1,
-          },
-        ],
-        folders: [{ id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }],
+  seedHomeTree('proj-1', {
+    chats: [
+      {
+        id: 'home-branch-chat',
+        repoId: '',
+        ownsWorktree: true,
+        workspaceId: 'home-ws-1',
+        title: '',
+        order: 0,
       },
-    },
+      {
+        id: HOME_THREAD_ROW_ID,
+        repoId: '',
+        ownsWorktree: false,
+        title: 'A home thread',
+        order: 1,
+      },
+    ],
+    folders: [{ id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }],
   })
   rows = [...repoRows(REPO), homeFolderRow, homeThreadRow]
 })

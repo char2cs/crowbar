@@ -1581,7 +1581,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   })
 
   it('hands the chat surface the workspace the CHAT belongs to', async () => {
-    seedChats([chatRecord('chat-1', 'w-owner')], 'w-owner')
+    seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
@@ -1607,7 +1607,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // AgentChatPane) reads off the exact same resolved `chatStore` — this is
   // the same cross-workspace-title bug class, now checked at its new home.
   it("shows the chat's own title in its header even while a DIFFERENT workspace is ambient", async () => {
-    seedChats([chatRecord('chat-1', 'w-owner')], 'w-owner')
+    seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
@@ -1624,7 +1624,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // a wrong answer here doesn't just render wrong and self-correct next
   // frame: it permanently tags a buffer with the wrong workspace.
   it("opens branch review for the CHAT's own workspace, not whichever one is ambient", async () => {
-    seedChats([chatRecord('chat-1', 'w-owner')], 'w-owner')
+    seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })

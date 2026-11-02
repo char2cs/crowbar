@@ -78,10 +78,8 @@ export function resolveOwnerChats(
  *
  * Starts from {@link resolveOwnerChats}'s CONFIRMED pairs (reversed), then
  * adds `Chat.ownsWorktree` + `Chat.workspaceId` for whatever workspace that
- * left unconfirmed — delivered atomically WITH the chat, on a separately
- * streamed channel (`crowbar_chats` reseeds on its own folder-signal bump,
- * `crowbar_workspaces` on its own entity stream), so a row still renders as a
- * workspace even when its `WorkspaceDTO` is the half running late. A chat's
+ * left unconfirmed — delivered atomically WITH the chat entity, so a row still
+ * renders as a workspace even when its workspace entity is the half running late. A chat's
  * `workspaceId` alone can NOT stand in for `ownsWorktree`: a thread carries
  * its parent's, so it names a worktree it does not own.
  */

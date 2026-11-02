@@ -5,7 +5,7 @@ import {
   subscribeOperations,
   type Operation,
   type OperationState,
-} from '@/lib/store/operations'
+} from '@/core/entities/operations'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
 // A partial failure's own reason is only a count; each failed item carries the why.

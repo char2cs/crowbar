@@ -1,7 +1,6 @@
 import { openDB } from 'idb'
 import type { IDBPDatabase } from 'idb'
 import type { CrowbarDB } from './schemas'
-import { readLocal, writeLocal } from '@/lib/local-storage'
 
 let _db: IDBPDatabase<CrowbarDB> | null = null
 // The IN-FLIGHT open, not just the settled one. Callers arrive together at
@@ -13,53 +12,13 @@ let _opening: Promise<IDBPDatabase<CrowbarDB>> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   if (_db) return _db
-  _opening ??= healEntityStores(openDatabase())
+  _opening ??= openDatabase()
   try {
     _db = await _opening
     return _db
   } finally {
     _opening = null
   }
-}
-
-/**
- * Create any entity store the database is missing, by reopening one version up.
- *
- * An object store can only be created inside an `upgrade`, so a database that
- * reached the current version without running the branch that adds a store
- * never gets it — and it cannot get it later, because the version no longer
- * changes. Every entity-cache call is best-effort, so the result is not an
- * error but an empty list forever: the feature backed by that store silently
- * does nothing, with a green typecheck and a green test suite.
- *
- * That skew is reachable whenever more than one build runs against this origin
- * — several checkouts and an installed app share one bundle id, so an older
- * build holding the database open is enough to strand a newer one's upgrade.
- *
- * Healing beats wiping here: the entity stores are re-seedable from GET, but
- * the rest of the database (drafts, layout, chat history) is not, so
- * `deleteDatabase` would cost the user real work to repair a cache. Creating
- * just what is missing costs nothing and leaves everything else untouched.
- */
-async function healEntityStores(
-  opening: Promise<IDBPDatabase<CrowbarDB>>,
-): Promise<IDBPDatabase<CrowbarDB>> {
-  const db = await opening
-  const missing = ENTITY_STORES.filter((name) => !db.objectStoreNames.contains(name))
-  if (missing.length === 0) return db
-  const next = db.version + 1
-  db.close()
-  return openDB<CrowbarDB>('crowbar', next, {
-    upgrade(upgraded) {
-      // Only the absentees, each guarded: this runs with the real oldVersion, so
-      // replaying the version chain above would collide with what already exists.
-      for (const name of missing) {
-        if (!upgraded.objectStoreNames.contains(name)) {
-          upgraded.createObjectStore(name, { keyPath: 'id' })
-        }
-      }
-    },
-  })
 }
 
 /**
@@ -170,48 +129,4 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
 export function resetDB(): void {
   _db = null
   _opening = null
-}
-
-// ---------------------------------------------------------------------------
-// §6 version-gated wipe. Pre-production there are no users and no migrations:
-// on a daemon/cache version change we drop the entity cache wholesale and let
-// the app re-seed from GET. Bump CROWBAR_CACHE_VERSION whenever the DTO shape
-// or the daemon's persisted model changes incompatibly.
-// ---------------------------------------------------------------------------
-
-// '2': chat/workspace/repo DTOs gained ownsWorktree/type/owningChatId/folderId.
-export const CROWBAR_CACHE_VERSION = '2'
-
-const CACHE_VERSION_KEY = 'crowbar:cache-version'
-
-const ENTITY_STORES = [
-  'crowbar_projects',
-  'crowbar_repos',
-  'crowbar_workspaces',
-  'crowbar_threads',
-  'crowbar_folders',
-  'crowbar_chats',
-] as const
-
-/** Clears every crowbar_* entity store. Best-effort: IDB failures no-op. */
-export async function wipeEntityCache(): Promise<void> {
-  try {
-    const db = await getDB()
-    const tx = db.transaction(ENTITY_STORES, 'readwrite')
-    await Promise.all(ENTITY_STORES.map((name) => tx.objectStore(name).clear()))
-    await tx.done
-  } catch {
-    return // the old rows stay until the daemon's snapshot replaces them
-  }
-}
-
-/**
- * Compares the persisted cache version (localStorage) to CROWBAR_CACHE_VERSION.
- * On a mismatch (including first run) wipe the entity cache and record the new
- * version; on a match this is a no-op. Call once at startup before seeding.
- */
-export async function maybeWipeOnVersionChange(): Promise<void> {
-  if (readLocal(CACHE_VERSION_KEY) === CROWBAR_CACHE_VERSION) return
-  await wipeEntityCache()
-  writeLocal(CACHE_VERSION_KEY, CROWBAR_CACHE_VERSION)
 }

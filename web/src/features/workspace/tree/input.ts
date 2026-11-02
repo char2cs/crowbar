@@ -1,9 +1,9 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Repo } from '@/core/entities/repo-types'
 import { readSelect, selectHomeTrees, selectRepos, useSelect } from '@/core/entities/select'
-import type { HomeTree } from '@/lib/store/home-tree'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import type { HomeTree } from '@/core/entities/views-from-entities'
+import { entityStore, holdsEntity } from '@/core/entities/entity-store'
 import { treeUiStore, useTreeUi, type CreateDraft, type RemovalEntry } from './tree-ui-store'
 import {
   newestProblem,
@@ -12,8 +12,7 @@ import {
   useOperations,
   type EntityRef,
   type Operation,
-} from '@/lib/store/operations'
-import { entityKey, isEntityPresent, usePresentEntities } from '@/lib/store/entity-presence'
+} from '@/core/entities/operations'
 import {
   getHomeOwningChatId,
   getHomeWorkspaceId,
@@ -29,8 +28,6 @@ interface Sources {
   repos: readonly Repo[]
   hidden: ReadonlySet<string>
   removals: readonly RemovalEntry[]
-  /** Whether a repo's rows may be drawn yet. */
-  drawn: (repo: Repo) => boolean
   homeTrees: Readonly<Record<string, HomeTree>>
   /** A project's resolved home workspace and the chat that owns it. */
   homeOf: (projectId: string) => { workspaceId: string | null; owningChatId: string | null }
@@ -54,7 +51,7 @@ function homeOf(src: Sources, projectId: string): LegacyHome | null {
 
 function inputFrom(src: Sources, projectId: string): TreeInput {
   const repos = applyPendingRemovals(
-    src.repos.filter((r) => r.projectId === projectId && src.drawn(r)),
+    src.repos.filter((r) => r.projectId === projectId),
     src.hidden,
   )
   const home = homeOf(src, projectId)
@@ -68,6 +65,8 @@ function inputFrom(src: Sources, projectId: string): TreeInput {
     ui: { removals: src.removals, draft: src.draft },
   }
 }
+
+const refKey = (ref: EntityRef): string => `${ref.kind}:${ref.id}`
 
 const problemsIn =
   (failed: Readonly<Record<string, Operation>>): ProblemLookup =>
@@ -87,7 +86,6 @@ export function treeInputFor(
       repos,
       hidden: renderedHiddenIds(tray.hiddenIds, tray.removals),
       removals: tray.removals,
-      drawn: () => true,
       homeTrees: readSelect(selectHomeTrees),
       homeOf: (id) => ({
         workspaceId: getHomeWorkspaceId(id),
@@ -96,7 +94,7 @@ export function treeInputFor(
       operations: Object.values(ops.ops),
       draft: treeUiStore.getState().draft,
       problemOf: problemsIn(selectFailedOps(ops)),
-      isPresent: isEntityPresent,
+      isPresent: (ref) => holdsEntity(entityStore.getState(), ref),
     },
     projectId,
   )
@@ -107,8 +105,6 @@ export function useTreeInput(): (projectId: string) => TreeInput {
   const repos = useSelect(selectRepos)
   const removals = useTreeUi((s) => s.removals)
   const trayHidden = useTreeUi((s) => s.hiddenIds)
-  const seeded = useFolderSignalStore((s) => s.seededRepoIds)
-  const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
   const homeTrees = useSelect(selectHomeTrees)
   const homes = useHomeWorkspaceStates()
   const ops = useOperations((s) => s.ops)
@@ -116,14 +112,20 @@ export function useTreeInput(): (projectId: string) => TreeInput {
   // Shallow: rows re-derive only when some failure changes, not on every frame.
   const failed = useOperations(useShallow(selectFailedOps))
   const operations = useMemo(() => Object.values(ops), [ops])
-  const present = usePresentEntities(useMemo(() => createItemRefs(operations), [operations]))
+  const refs = useMemo(() => createItemRefs(operations), [operations])
+  // The held refs as one key: the input re-derives when one lands or leaves, not on every frame.
+  const presentKey = useSyncExternalStore(entityStore.subscribe, () => {
+    const s = entityStore.getState()
+    const held: string[] = []
+    for (const ref of refs) if (holdsEntity(s, ref)) held.push(refKey(ref))
+    return held.join('\n')
+  })
+  const present = useMemo(() => new Set(presentKey.split('\n')), [presentKey])
   const src = useMemo<Sources>(
     () => ({
       repos,
       hidden: renderedHiddenIds(trayHidden, removals),
       removals,
-      // A repo draws once its tree or its workspaces have seeded, so a row's id never changes under it.
-      drawn: (r) => seeded.has(r.id) || seededWorkspaces.has(r.id),
       homeTrees,
       homeOf: (id) => {
         const state = homes.get(id)
@@ -132,21 +134,9 @@ export function useTreeInput(): (projectId: string) => TreeInput {
       operations,
       draft,
       problemOf: problemsIn(failed),
-      isPresent: (ref) => present.has(entityKey(ref)),
+      isPresent: (ref) => present.has(refKey(ref)),
     }),
-    [
-      repos,
-      trayHidden,
-      removals,
-      seeded,
-      seededWorkspaces,
-      homeTrees,
-      homes,
-      operations,
-      draft,
-      failed,
-      present,
-    ],
+    [repos, trayHidden, removals, homeTrees, homes, operations, draft, failed, present],
   )
   return useCallback((projectId: string) => inputFrom(src, projectId), [src])
 }

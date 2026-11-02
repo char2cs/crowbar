@@ -6,7 +6,7 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
 import { openChatInOwnPane } from '@/components/sidebar/lib/pane-drop-actions'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import { renderedProjectRows } from '@/components/sidebar/lib/rendered-rows'
 import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
@@ -283,7 +283,7 @@ export function openChatRoute(
  *
  * A project-home row (chat or folder) is resolved FIRST, against every
  * visible project's home tree rather than `repos` — see `resolveHomeRowScope`
- * (lib/store/home-tree.ts), the one shared implementation every caller that
+ * (core/entities/home-rows.ts), the one shared implementation every caller that
  * needs to tell a home row apart from a repo one reuses.
  */
 export function handleOpen(id: string, repos: readonly Repo[], navigate: NavigateFn): void {

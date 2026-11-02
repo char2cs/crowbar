@@ -8,8 +8,7 @@ import { vi, describe, it, expect } from 'vitest'
 // and that the CTA opens the dialog.
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
-vi.mock('@/lib/store/projects', () => ({
-  importProjectAndSync: vi.fn(),
+vi.mock('@/core/entities/active-project', () => ({
   useProjectStore: { getState: () => ({ setActiveProject: vi.fn() }) },
 }))
 vi.mock('@/lib/api', () => ({

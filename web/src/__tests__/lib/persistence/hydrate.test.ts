@@ -6,27 +6,12 @@ vi.mock('@/features/editor/documents/restore-documents', () => ({
   restoreDocuments: () => restoreDocumentsMock(),
 }))
 
-// The daemon's chat listings, for placing a restored member the cache does not know.
-const fetchHomeChatsMock = vi.fn<(projectId: string) => Promise<ChatDTO[]>>()
-const fetchReposMock = vi.fn<(projectId: string) => Promise<RepoDTO[]>>()
-const fetchRepoChatsMock = vi.fn<(projectId: string, repoId: string) => Promise<ChatDTO[]>>()
-vi.mock('@/lib/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/api')>()
-  return {
-    ...actual,
-    fetchHomeChats: (p: string) => fetchHomeChatsMock(p),
-    fetchRepos: (p: string) => fetchReposMock(p),
-    fetchRepoChats: (p: string, r: string) => fetchRepoChatsMock(p, r),
-  }
-})
-
 import {
   hydrateSidebar,
   hydrateWindowPaneLayout,
-  placeRestoredChatMembers,
+  placeRestoredPanesOnceSynced,
   upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
-import { ApiError } from '@/lib/errors/api-error'
 import { loadDrafts } from '@/features/editor/documents/draft-store'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import {
@@ -43,14 +28,27 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { upsertEntity } from '@/lib/persistence/entity-cache'
-import type { ChatDTO, RepoDTO } from '@/lib/types'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import {
+  chatEntity,
+  markProjectsSynced,
+  putEntities,
+  resetEntities,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
+
+/** The projects scope's snapshot landing with `chats`. */
+function syncChats(chats: Array<{ id: string; workspaceId: string }>): void {
+  putEntities(
+    'chat',
+    chats.map((c) => chatEntity(c)),
+  )
+  markProjectsSynced()
+}
 
 const HYDRATE_TEST_REPOS: Repo[] = [
   {
@@ -136,16 +134,10 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.buffers[0]).not.toHaveProperty('content')
   })
 
-  // The one versioned load-time upgrade: a v1 member carried only its chat;
-  // v2 records the workspace, read from the chat's own cached record.
-  it('upgrades a v1 layout: members gain their workspace from the chat cache', async () => {
-    await upsertEntity('crowbar_chats', {
-      id: 'chat-a',
-      repoId: 'r1',
-      projectId: 'p1',
-      workspaceId: 'ws-a',
-      title: 'A',
-    } as ChatDTO)
+  // A v1 member carried only its chat; it is restored unplaced, and the projects scope
+  // places it, or drops it when its chat is gone.
+  it('upgrades a v1 layout: members gain their workspace once the projects scope answers', async () => {
+    resetEntities()
     const db = await getDB()
     const v1 = (id: string, viewId: string, chatId: string) => {
       const p = pane(id, viewId, { chatId })
@@ -174,13 +166,18 @@ describe('hydrateWindowPaneLayout', () => {
     } as WorkspaceLayout)
 
     await hydrateWindowPaneLayout()
+    placeRestoredPanesOnceSynced()
 
     const state = windowPaneStore.getState()
-    expect(state.panes['pane-a'].workspaceId).toBe('ws-a')
-    // A member the cache cannot place is not guessed at and not dropped: it
-    // is restored unplaced, for the daemon to answer (placeRestoredChatMembers).
     expect(state.viewOrder).toEqual(['view-a', 'view-x'])
+    expect(state.panes['pane-a'].workspaceId).toBeNull()
     expect(state.panes['pane-x'].workspaceId).toBeNull()
+
+    syncChats([{ id: 'chat-a', workspaceId: 'ws-a' }])
+
+    const placed = windowPaneStore.getState()
+    expect(placed.panes['pane-a'].workspaceId).toBe('ws-a')
+    expect(placed.viewOrder).toEqual(['view-a'])
   })
 
   it('a payload without views hydrates to an empty band and keeps its buffers', async () => {
@@ -281,9 +278,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
     resetWindowPaneStoreForTests()
-    fetchHomeChatsMock.mockReset()
-    fetchReposMock.mockReset()
-    fetchRepoChatsMock.mockReset()
+    resetEntities()
   })
 
   function basePane(id: string, viewId: string | null, over: Partial<PaneGroup> = {}): PaneGroup {
@@ -324,15 +319,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     } as unknown as WorkspaceLayout)
   }
 
-  it('keeps a project-home chat pane the cache does not know, with its dirty buffer', async () => {
-    // Only the repo chat is in the entity cache; the project-home chat never is.
-    await upsertEntity('crowbar_chats', {
-      id: 'chat-repo',
-      repoId: 'r1',
-      projectId: P,
-      workspaceId: 'ws-repo',
-      title: 'repo',
-    } as ChatDTO)
+  it('keeps an unplaced chat pane with its dirty buffer until the projects scope places it', async () => {
     await seedBaseLayout({
       panes: {
         [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null),
@@ -368,7 +355,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       workspaceId: null,
       editorTabIds: ['buf-dirty'],
     })
-    expect(state.panes['pane-repo'].workspaceId).toBe('ws-repo')
+    expect(state.panes['pane-repo'].workspaceId).toBeNull()
     // No unsaved edit is lost: the orphan is re-homed to a surviving pane.
     expect(state.buffers.map((b) => b.id).sort()).toEqual(['buf-dirty', 'buf-orphan'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-orphan'))
@@ -380,22 +367,21 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     ])
     expect(viewIntegrityViolations(state)).toEqual([])
 
-    // The daemon then places the unknown member.
-    fetchHomeChatsMock.mockResolvedValue([
-      { id: 'chat-home', repoId: '', projectId: P, workspaceId: 'ws-home', title: 'h' } as ChatDTO,
+    // The projects scope then places both members.
+    placeRestoredPanesOnceSynced()
+    syncChats([
+      { id: 'chat-home', workspaceId: 'ws-home' },
+      { id: 'chat-repo', workspaceId: 'ws-repo' },
     ])
-    await placeRestoredChatMembers()
 
-    expect(fetchHomeChatsMock).toHaveBeenCalledWith(P)
-    // Home answered every unknown chat; no repo was listed.
-    expect(fetchReposMock).not.toHaveBeenCalled()
     const placed = windowPaneStore.getState()
     expect(placed.panes['pane-home'].workspaceId).toBe('ws-home')
+    expect(placed.panes['pane-repo'].workspaceId).toBe('ws-repo')
     expect(placed.panes['pane-home'].editorTabIds).toEqual(['buf-dirty'])
     expect(placed.viewOrder).toEqual(['view-home', 'view-repo'])
   })
 
-  it('drops a member the daemon reports not found, re-homing its unsaved buffer', async () => {
+  it('drops a member the projects scope does not carry, re-homing its unsaved buffer', async () => {
     await seedBaseLayout({
       panes: {
         [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null),
@@ -420,15 +406,10 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     })
     await hydrateWindowPaneLayout()
 
-    fetchHomeChatsMock.mockResolvedValue([])
-    fetchReposMock.mockResolvedValue([{ id: 'r1' } as RepoDTO])
-    fetchRepoChatsMock.mockResolvedValue([
-      { id: 'chat-kept', repoId: 'r1', projectId: P, workspaceId: 'ws-k', title: 'k' } as ChatDTO,
-    ])
-    await placeRestoredChatMembers()
+    syncChats([{ id: 'chat-kept', workspaceId: 'ws-k' }])
+    placeRestoredPanesOnceSynced()
 
     const state = windowPaneStore.getState()
-    expect(fetchRepoChatsMock).toHaveBeenCalledWith(P, 'r1')
     expect(state.viewOrder).toEqual(['view-kept'])
     expect(state.panes['pane-gone']).toBeUndefined()
     expect(state.panes['pane-kept'].workspaceId).toBe('ws-k')
@@ -439,7 +420,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     expect(viewIntegrityViolations(state)).toEqual([])
   })
 
-  it('drops every member of a project the daemon no longer has', async () => {
+  it('keeps an unknown member unplaced until the projects scope answers', async () => {
     await seedBaseLayout({
       panes: {
         'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
@@ -452,29 +433,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     })
     await hydrateWindowPaneLayout()
 
-    fetchReposMock.mockRejectedValue(new ApiError('project not found', 404))
-    fetchHomeChatsMock.mockRejectedValue(new ApiError('project not found', 404))
-    await placeRestoredChatMembers()
-
-    expect(windowPaneStore.getState().viewOrder).toEqual([])
-  })
-
-  it('keeps an unknown member unplaced when the daemon cannot answer', async () => {
-    await seedBaseLayout({
-      panes: {
-        'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
-        'bottom-pane': basePane('bottom-pane', null),
-      },
-      views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
-      viewOrder: ['view-a'],
-      activeViewId: 'view-a',
-      activePaneId: 'pane-a',
-    })
-    await hydrateWindowPaneLayout()
-
-    fetchHomeChatsMock.mockRejectedValue(new ApiError('daemon starting', 503))
-    fetchReposMock.mockRejectedValue(new ApiError('daemon starting', 503))
-    await placeRestoredChatMembers()
+    placeRestoredPanesOnceSynced()
 
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-a'])
@@ -500,15 +459,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     expect(stamped?.panes['pane-a']).toMatchObject({ chatId: 'chat-a', workspaceId: null })
     // Idempotent: upgrading an upgraded layout changes nothing.
     expect(await upgradeWindowPaneLayout(stamped!)).toBe(stamped)
-    // The cache learning the chat later does not re-run the upgrade — the
-    // daemon placement (placeRestoredChatMembers) owns what is left.
-    await upsertEntity('crowbar_chats', {
-      id: 'chat-a',
-      repoId: 'r1',
-      projectId: P,
-      workspaceId: 'ws-late',
-      title: 'A',
-    } as ChatDTO)
     resetWindowPaneStoreForTests()
     await hydrateWindowPaneLayout()
     expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
@@ -574,9 +524,7 @@ describe('hydrateSidebar', () => {
   beforeEach(async () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
-    useSidebarStore.setState({
-      repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-    })
+    seedRepos(HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })))
     treeUiStore.setState(treeUiStore.getInitialState(), true)
   })
 

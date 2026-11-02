@@ -34,22 +34,20 @@ import {
   cancelCreateDraft,
 } from '@/components/layout/create-actions'
 import { handleTrash } from '@/components/layout/trash-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
+import { operationsState } from '@/core/entities/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -74,9 +72,9 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   treeUiStore.setState({ draft: null })
   resetOperations()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
@@ -104,7 +102,7 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
     repo({ chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }] })
 
   it('handleTrash holds a chat in the removal tray — no direct deleteChat call', () => {
-    useSidebarStore.setState({ repos: [repoWithChat()] })
+    seedRepos([repoWithChat()])
 
     expect(handleTrash('c1')).toBe(true)
 
@@ -122,7 +120,7 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
   })
 
   it('handleCreate is SILENT — never the folder’s "has none to run it in" — for a bubble with no ground at all', () => {
-    useSidebarStore.setState({ repos: [repoWithChat()] })
+    seedRepos([repoWithChat()])
     handleCreate('c1', 'thread', vi.fn())
     expect(toastError).not.toHaveBeenCalled()
     expect(createChat).not.toHaveBeenCalled()
@@ -139,7 +137,7 @@ describe('creating a workspace off the repo-home row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName()
@@ -162,9 +160,7 @@ describe('creating a workspace off the repo-home row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
 
     handleCreate('ws-a', 'workspace', vi.fn())
     confirmArmedBranchName()
@@ -189,7 +185,7 @@ describe('creating a workspace off the repo-home row', () => {
         { id: 'codex', enabled: true },
       ] as never,
     })
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName()
@@ -208,7 +204,7 @@ describe('creating a workspace off the repo-home row', () => {
 
   it('is a silent no-op with no enabled provider loaded yet', async () => {
     useAgentProvidersStore.setState({ status: 'ready', providers: [] })
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     await Promise.resolve()
@@ -222,7 +218,7 @@ describe('creating a workspace off the repo-home row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     handleCreate('home-1', 'workspace', vi.fn())
@@ -241,7 +237,7 @@ describe('creating a workspace off the repo-home row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName('first')
@@ -260,9 +256,7 @@ describe('creating a workspace off the repo-home row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({
-      repos: [repo(), repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' })],
-    })
+    seedRepos([repo(), repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' })])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName('first')
@@ -288,7 +282,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
     confirmArmedBranchName()
@@ -305,14 +299,14 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  // D5: a fork opens its chat once the branch exists, not on the bare response.
-  it('a branch create draws its row from the operation and opens the chat once the branch exists', async () => {
+  // The daemon sends the branch's entities before the operation's succeeded (R16).
+  it('a branch create draws its row from the operation and opens the chat once it succeeded', async () => {
     resetWindowPaneStoreForTests()
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
     const navigate = vi.fn(() => Promise.resolve())
 
     handleCreate('ws-a', 'workspace', navigate)
@@ -324,29 +318,26 @@ describe('creating a workspace off a REGULAR fork row', () => {
     expect(rows).toMatchObject([
       { id: chatId, kind: 'branch', label: 'feature/x', parentId: 'c-owner', working: true },
     ])
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).not.toBe(chatId)
 
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          workspaces: [
-            { id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' },
-            { id: 'ws-new', branch: 'feature/x', age: '', order: 1, owningChatId: chatId },
-          ],
-          chats: [
-            { id: 'c-owner', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 },
-            {
-              id: chatId,
-              repoId: 'r1',
-              workspaceId: 'ws-new',
-              parentId: 'c-owner',
-              title: '',
-              order: 0,
-            },
-          ],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        workspaces: [
+          { id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' },
+          { id: 'ws-new', branch: 'feature/x', age: '', order: 1, owningChatId: chatId },
+        ],
+        chats: [
+          { id: 'c-owner', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 },
+          {
+            id: chatId,
+            repoId: 'r1',
+            workspaceId: 'ws-new',
+            parentId: 'c-owner',
+            title: '',
+            order: 0,
+          },
+        ],
+      }),
+    ])
 
     await vi.waitFor(() =>
       expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(chatId),
@@ -363,7 +354,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
     createChatWithOwnWorktree.mockImplementationOnce(() =>
       Promise.reject(new ApiError('feature/x already exists', 409, 'conflict')),
     )
@@ -389,7 +380,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
     expect(treeUiStore.getState().draft).toMatchObject({
@@ -420,7 +411,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'thread', vi.fn())
 
@@ -439,7 +430,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: false }] as never,
     })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'thread', vi.fn())
 
@@ -449,42 +440,11 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
   it('says why instead of silently doing nothing when a fork finds no provider', () => {
     useAgentProvidersStore.setState({ status: 'ready', providers: [] as never })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalledOnce()
-  })
-
-  it('bumps the repo’s tree signal after a fork so the new row is drawn', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
-    handleCreate('ws-a', 'workspace', vi.fn())
-    confirmArmedBranchName()
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
-  })
-
-  it('bumps it after a thread too', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
-    handleCreate('ws-a', 'thread', vi.fn())
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
   })
 })

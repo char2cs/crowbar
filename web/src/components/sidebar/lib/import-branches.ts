@@ -1,7 +1,7 @@
 import { readSelect, selectRepo } from '@/core/entities/select'
 import { importBranches } from '@/lib/api'
-import { runOperation } from '@/lib/store/run-operation'
-import type { OperationItem } from '@/lib/store/operations'
+import { runOperation } from '@/core/entities/run-operation'
+import type { OperationItem } from '@/core/entities/operations'
 
 function importLabel(branches: readonly string[]): string {
   return branches.length === 1 ? `Import ${branches[0]}` : `Import ${branches.length} branches`

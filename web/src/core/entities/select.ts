@@ -1,10 +1,14 @@
 import { useSyncExternalStore } from 'react'
-import type { EntityState } from '@/core/entities/entity-store'
-import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import type { ThreadDTO } from '@/lib/types'
+import { entityStore, type EntityState } from '@/core/entities/entity-store'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
+import {
+  EMPTY_HOME_TREE,
+  viewsFromEntities,
+  type HomeTree,
+  type SidebarViews,
+} from '@/core/entities/views-from-entities'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { Project, ThreadDTO } from '@/lib/types'
 
 type Threads = EntityState['byKind']['review_thread']
 
@@ -24,34 +28,15 @@ export function selectReviewThreads(s: EntityState, wsId: string): ThreadDTO[] {
   return selected
 }
 
-/** The project tree as the sidebar stores hold it. The selectors below are the only readers
- *  of these fields, so moving them onto the entity store changes their bodies, not callers. */
-export interface SelectState {
-  repos: Repo[]
-  homeTrees: Record<string, HomeTree>
-  /** Repos whose workspace list the daemon has answered. */
-  workspacesRead: ReadonlySet<string>
-  /** Projects whose repo list the daemon has answered. */
-  reposRead: ReadonlySet<string>
-}
+/** The sidebar as the entity store holds it; selectors read it, never the store. */
+export type SelectState = SidebarViews
 
 function selectState(): SelectState {
-  const signal = useFolderSignalStore.getState()
-  return {
-    repos: useSidebarStore.getState().repos,
-    homeTrees: useHomeTreeStore.getState().trees,
-    workspacesRead: signal.seededWorkspaceRepoIds,
-    reposRead: signal.seededRepoListProjectIds,
-  }
+  return viewsFromEntities(entityStore.getState())
 }
 
 function subscribe(onChange: () => void): () => void {
-  const stops = [
-    useSidebarStore.subscribe(onChange),
-    useHomeTreeStore.subscribe(onChange),
-    useFolderSignalStore.subscribe(onChange),
-  ]
-  return () => stops.forEach((stop) => stop())
+  return entityStore.subscribe(onChange)
 }
 
 /** `sel` in the render path: re-renders when its answer changes identity (as a store hook
@@ -83,26 +68,33 @@ export function selectWorkspace(s: SelectState, wsId: string): Workspace | undef
   return undefined
 }
 
-/** A repo chat, else a project-home chat. */
-export function selectChat(s: SelectState, chatId: string): Chat | undefined {
-  for (const repo of s.repos) {
-    const chat = repo.chats?.find((c) => c.id === chatId)
-    if (chat) return chat
-  }
-  for (const tree of Object.values(s.homeTrees)) {
-    const chat = tree.chats.find((c) => c.id === chatId)
-    if (chat) return chat
-  }
-  return undefined
-}
-
 /** Every loaded project's home chats and folders, by project id. */
 export function selectHomeTrees(s: SelectState): Record<string, HomeTree> {
   return s.homeTrees
 }
 
-/** Whether the daemon has answered the part of the tree a route names: `repoId`'s workspaces
- *  once that repo is known, else `projectId`'s repos. */
-export function selectProjectsSynced(s: SelectState, projectId: string, repoId: string): boolean {
-  return selectRepo(s, repoId) ? s.workspacesRead.has(repoId) : s.reposRead.has(projectId)
+/** Whether the projects scope's snapshot has landed: before it, an absent row is unknown,
+ *  after it, gone. */
+export function selectProjectsSynced(s: SelectState): boolean {
+  return s.synced
+}
+
+/** Every project, in sidebar order. */
+export function selectProjects(s: SelectState): Project[] {
+  return s.projects
+}
+
+/** A project's home chats and folders, empty when it has none. */
+export function selectHomeTree(s: SelectState, projectId: string): HomeTree {
+  return s.homeTrees[projectId] ?? EMPTY_HOME_TREE
+}
+
+/** A chat as the chat surfaces read it. */
+export function selectAgentChat(s: SelectState, chatId: string): AgentChat | undefined {
+  return s.chats[chatId]
+}
+
+/** The chat a live runner runs, '' when none does. */
+export function selectRunnerChat(s: SelectState, runnerId: string): string {
+  return s.byRunner[runnerId] ?? ''
 }

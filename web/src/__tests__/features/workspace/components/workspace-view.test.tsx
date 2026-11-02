@@ -4,17 +4,17 @@ import { render, act, cleanup } from '@testing-library/react'
 // Focused WorkspaceView lifecycle tests for keep-alive semantics: a warm
 // (hidden -> active) flip does no work of its own (disk reconciliation belongs
 // to the files feed, see use-workspace-file-tree).
-const { activeEffectsSpy, chatScopeSpy } = vi.hoisted(() => ({
+const { activeEffectsSpy, providersSpy } = vi.hoisted(() => ({
   activeEffectsSpy: vi.fn((_wsId: string, _active: boolean) => {}),
-  chatScopeSpy: vi.fn((_wsId: string) => {}),
+  providersSpy: vi.fn((_wsId: string) => {}),
 }))
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-effects', () => ({
   useWorkspaceEffects: (wsId: string, active: boolean) => activeEffectsSpy(wsId, active),
 }))
 
-vi.mock('@/features/agent/hooks/use-chat-scope', () => ({
-  useChatScope: (wsId: string) => chatScopeSpy(wsId),
+vi.mock('@/features/agent/hooks/use-chat-providers', () => ({
+  useChatProviders: (wsId: string) => providersSpy(wsId),
 }))
 
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
@@ -38,7 +38,7 @@ async function renderView(active: boolean) {
 
 beforeEach(() => {
   activeEffectsSpy.mockClear()
-  chatScopeSpy.mockClear()
+  providersSpy.mockClear()
 })
 
 afterEach(() => {
@@ -61,13 +61,13 @@ describe('WorkspaceView keep-alive lifecycle', () => {
 
   // Recents, background adoption and a pane on this workspace's chat all need
   // its chat scope held while the workspace is hidden.
-  it('holds the chat scope for as long as the workspace is MOUNTED, active or not', async () => {
+  it('loads the chat providers for as long as the workspace is MOUNTED, active or not', async () => {
     const { setActive } = await renderView(true)
-    expect(chatScopeSpy).toHaveBeenCalledWith('ws-a')
+    expect(providersSpy).toHaveBeenCalledWith('ws-a')
 
-    chatScopeSpy.mockClear()
+    providersSpy.mockClear()
     await setActive(false)
 
-    expect(chatScopeSpy).toHaveBeenCalledWith('ws-a')
+    expect(providersSpy).toHaveBeenCalledWith('ws-a')
   })
 })

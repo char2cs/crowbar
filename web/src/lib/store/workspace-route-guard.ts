@@ -1,11 +1,11 @@
 import type { Repo } from '@/core/entities/repo-types'
-import type { Operation } from '@/lib/store/operations'
-import { holdsWorkspace } from '@/lib/store/repo-tree'
+import type { Operation } from '@/core/entities/operations'
+import { holdsWorkspace } from '@/core/entities/repo-queries'
 
 /** What the sidebar tree holds, and whether the daemon has answered for the route. */
 export interface WorkspaceRouteKnowledge {
   repos: Repo[]
-  /** `selectProjectsSynced` for the route's project and repo. */
+  /** `selectProjectsSynced`: the projects scope's snapshot has landed. */
   synced: boolean
   /** A merge folding the routed workspace runs: the merge, not the guard, moves the user. */
   merging: boolean
@@ -13,7 +13,7 @@ export interface WorkspaceRouteKnowledge {
 
 /**
  * Whether an `/ide/…/<wsId>` route names a workspace that does not exist.
- * Only the daemon's answer can say so: a tree read from a cold cache is empty
+ * Only the daemon's answer can say so: before the projects scope's snapshot the tree is empty
  * because nothing is known yet, not because the workspace is gone.
  */
 export function shouldRedirectUnknownWorkspace(

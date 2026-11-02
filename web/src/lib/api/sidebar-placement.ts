@@ -139,10 +139,8 @@ function toFolderWriteResult(
 /**
  * Create a folder, and answer with the created row plus its collateral.
  *
- * There is no dedicated push channel for folders any more (Task 34), so this
- * is not a seed for a later stream frame — it is the only confirmation the
- * caller gets. `row-actions.ts`'s `performCreateFolder` applies it to
- * `useSidebarStore` directly.
+ * `row-actions.ts`'s `performCreateFolder` places the answer at once, so the
+ * row shows before its folder entity frame lands.
  */
 export function createFolder(
   projectId: string,

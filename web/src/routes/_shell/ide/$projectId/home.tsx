@@ -2,8 +2,8 @@ import { createFileRoute, useParams } from '@tanstack/react-router'
 import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
 
 /**
- * Project-home route. Renders nothing itself: IDEShell resolves the home
- * workspace id (`ensureHomeWorkspaceResolved`) and keeps its WorkspaceView
+ * Project-home route. Renders nothing itself: IDEShell reads the home
+ * workspace off the projects scope and keeps its WorkspaceView
  * mounted-but-hidden in WorkspaceHost — the SAME keep-alive retention real
  * workspaces get — so returning to project home is a warm slot reveal
  * instead of a cold fetch+hydrate+mount every visit (see

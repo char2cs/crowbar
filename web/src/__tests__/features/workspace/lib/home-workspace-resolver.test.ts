@@ -1,27 +1,24 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
-
-const fetchHomeWorkspaceMock = vi.fn()
-
-vi.mock('@/lib/api', () => ({
-  fetchHomeWorkspace: (projectId: string) => fetchHomeWorkspaceMock(projectId),
-}))
-
+import { act, renderHook } from '@testing-library/react'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  ensureHomeWorkspaceResolved,
-  getKnownHomeWorkspaceIds,
+  getHomeOwningChatId,
   getHomeWorkspaceId,
+  getHomeWorkspacePath,
+  getKnownHomeWorkspaceIds,
   useHomeWorkspaceState,
-  __resetHomeWorkspaceResolverForTest,
+  useHomeWorkspaceStates,
 } from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  projectDTO,
+  resetEntities,
+  seedHome,
+  seedProjects,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
-beforeEach(() => {
-  fetchHomeWorkspaceMock.mockReset()
-  __resetHomeWorkspaceResolverForTest()
-})
+beforeEach(() => resetEntities())
 
-describe('home-workspace-resolver', () => {
-  it('useHomeWorkspaceState starts unresolved (no wsId, no error) before anything is fetched', () => {
+describe('the home workspace resolver', () => {
+  it('is unresolved, not missing, before the projects scope answers', () => {
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
     expect(result.current).toEqual({
       wsId: null,
@@ -31,126 +28,42 @@ describe('home-workspace-resolver', () => {
     })
   })
 
-  it('resolves the home workspace id AND its on-disk path once the fetch settles, and known ids include it', async () => {
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({
-      id: 'ws-home-1',
-      projectId: 'p1',
-      kind: 'home',
-      owningChatId: 'chat-home-1',
-      localPath: '/Users/mateo/projects/rabbyte-labs',
-    })
+  it('names the home the projects scope carries, with its owner and directory', () => {
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
 
-    act(() => {
-      ensureHomeWorkspaceResolved('p1')
-    })
+    act(() => seedHome('p1', 'ws-home', { owningChatId: 'chat-home', localPath: '/p1' }))
 
-    await waitFor(() => {
-      // owningChatId is carried through because chat-scoped routes (a terminal's)
-      // are addressed by it and the home route supplies no chat id of its own.
-      // localPath is the real on-disk project root — the editor pane/file
-      // explorer resolve it from here, never from a borrowed repo path.
-      expect(result.current).toEqual({
-        wsId: 'ws-home-1',
-        owningChatId: 'chat-home-1',
-        localPath: '/Users/mateo/projects/rabbyte-labs',
-        error: false,
-      })
+    expect(result.current).toEqual({
+      wsId: 'ws-home',
+      owningChatId: 'chat-home',
+      localPath: '/p1',
+      error: false,
     })
-    expect(getKnownHomeWorkspaceIds()).toContain('ws-home-1')
+    expect(getHomeWorkspaceId('p1')).toBe('ws-home')
+    expect(getHomeOwningChatId('p1')).toBe('chat-home')
+    expect(getHomeWorkspacePath('p1')).toBe('/p1')
   })
 
-  it('is idempotent: a second call for the same project id does not re-fetch', async () => {
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({
-      id: 'ws-home-1',
-      projectId: 'p1',
-      kind: 'home',
-      owningChatId: 'chat-home-1',
-    })
-
-    ensureHomeWorkspaceResolved('p1')
-    ensureHomeWorkspaceResolved('p1') // in-flight — must not issue a second fetch
-    await waitFor(() => expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1))
-
-    ensureHomeWorkspaceResolved('p1') // already resolved — must not re-fetch
-    expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('surfaces an error without caching a wsId, and re-fetches on the next call', async () => {
-    fetchHomeWorkspaceMock.mockRejectedValueOnce(new Error('not found'))
+  it('reports a synced project without a home as missing', () => {
+    seedProjects([projectDTO({ id: 'p1' })])
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
-
-    act(() => {
-      ensureHomeWorkspaceResolved('p1')
-    })
-
-    await waitFor(() => {
-      expect(result.current).toEqual({
-        wsId: null,
-        owningChatId: null,
-        localPath: null,
-        error: true,
-      })
-    })
-    expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
-
-    // A failure is not terminal: the whole sidebar rides on this id, so one
-    // lost GET at cold start must heal on the next mount rather than blank the
-    // project's home for the session.
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-home-2', projectId: 'p1', kind: 'home' })
-    act(() => {
-      ensureHomeWorkspaceResolved('p1')
-    })
-    expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(2)
-    await waitFor(() => {
-      expect(result.current).toEqual({
-        wsId: 'ws-home-2',
-        owningChatId: null,
-        localPath: null,
-        error: false,
-      })
-    })
+    expect(result.current.error).toBe(true)
+    expect(result.current.wsId).toBeNull()
   })
 
-  it('tracks multiple projects independently', async () => {
-    fetchHomeWorkspaceMock.mockImplementation((projectId: string) =>
-      Promise.resolve({ id: `ws-${projectId}`, projectId, kind: 'home' }),
-    )
-    ensureHomeWorkspaceResolved('p1')
-    ensureHomeWorkspaceResolved('p2')
-
-    await waitFor(() => {
-      expect(getKnownHomeWorkspaceIds().sort()).toEqual(['ws-p1', 'ws-p2'])
-    })
+  it('keeps the same state object while the home does not change', () => {
+    seedHome('p1', 'ws-home')
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+    const first = result.current
+    act(() => seedProjects([projectDTO({ id: 'p2' })]))
+    expect(result.current).toBe(first)
   })
 
-  describe('getHomeWorkspaceId', () => {
-    it('returns null before anything has resolved for that project', () => {
-      expect(getHomeWorkspaceId('p1')).toBeNull()
-    })
-
-    it("returns exactly the ONE project's own resolved id, not another project's", async () => {
-      fetchHomeWorkspaceMock.mockImplementation((projectId: string) =>
-        Promise.resolve({ id: `ws-${projectId}`, projectId, kind: 'home' }),
-      )
-      ensureHomeWorkspaceResolved('p1')
-      ensureHomeWorkspaceResolved('p2')
-
-      await waitFor(() => {
-        expect(getHomeWorkspaceId('p1')).toBe('ws-p1')
-      })
-      expect(getHomeWorkspaceId('p2')).toBe('ws-p2')
-      expect(getHomeWorkspaceId('p1')).not.toBe(getHomeWorkspaceId('p2'))
-    })
-
-    it('returns null for a project that errored rather than the error sentinel', async () => {
-      fetchHomeWorkspaceMock.mockRejectedValueOnce(new Error('not found'))
-      ensureHomeWorkspaceResolved('p1')
-
-      await waitFor(() => {
-        expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
-      })
-      expect(getHomeWorkspaceId('p1')).toBeNull()
-    })
+  it('knows every project home at once', () => {
+    seedHome('p1', 'ws-p1')
+    seedHome('p2', 'ws-p2')
+    const { result } = renderHook(() => useHomeWorkspaceStates())
+    expect([...result.current.keys()].sort()).toEqual(['p1', 'p2'])
+    expect(getKnownHomeWorkspaceIds().sort()).toEqual(['ws-p1', 'ws-p2'])
   })
 })

@@ -1,5 +1,4 @@
-import { useChatStore } from '@/features/agent/stores/chat-store'
-import { selectChat, useSelect } from '@/core/entities/select'
+import { selectAgentChat, useSelect } from '@/core/entities/select'
 
 /** What a Recents member row draws: the same three facts from either source. */
 export interface RecentsChat {
@@ -9,21 +8,14 @@ export interface RecentsChat {
   working: boolean
 }
 
-/** A Recents member's chat: the ChatStore's live record when one is held,
- *  else the sidebar's own chat lists. */
+/** A Recents member's chat as the entity store holds it. */
 export function useRecentsChat(workspaceId: string, chatId: string): RecentsChat | null {
-  const live = useChatStore((s) => s.chats[chatId])
-  const working = live?.working ?? false
-  const record = useSelect((s) => selectChat(s, chatId))
-
-  if (live) {
-    return { id: live.id, title: live.title, workspaceId: live.workspaceId, working }
-  }
-  if (!record) return null
+  const chat = useSelect((s) => selectAgentChat(s, chatId))
+  if (!chat) return null
   return {
-    id: record.id,
-    title: record.title,
-    workspaceId: record.workspaceId || workspaceId,
-    working,
+    id: chat.id,
+    title: chat.title,
+    workspaceId: chat.workspaceId || workspaceId,
+    working: chat.working ?? false,
   }
 }

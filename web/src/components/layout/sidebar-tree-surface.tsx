@@ -12,7 +12,8 @@ import { applyPendingRemovals, renderedHiddenIds } from './removal-plan'
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useTreeUi } from '@/features/workspace/tree/tree-ui-store'
-import { selectRepos, useSelect } from '@/core/entities/select'
+import { selectProjectsSynced, selectRepos, useSelect } from '@/core/entities/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
 import { CreateSpacePanel } from './create-space-panel'
@@ -106,6 +107,9 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // (via native `contextmenu` bubbling), not on any one panel — a single
   // listener here catches a right-click in ANY project's rows.
   const treeRef = useRef<HTMLDivElement>(null)
+  // Before the projects scope's snapshot no row is known yet, so none is drawn.
+  const synced = useSelect(selectProjectsSynced)
+  if (!synced) return <SidebarSkeleton />
 
   return (
     <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -134,3 +138,21 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     </div>
   )
 })
+
+const SKELETON_ROWS = [
+  { id: 'a', width: 'w-3/4' },
+  { id: 'b', width: 'w-1/2' },
+  { id: 'c', width: 'w-2/3' },
+  { id: 'd', width: 'w-1/2' },
+  { id: 'e', width: 'w-3/5' },
+]
+
+function SidebarSkeleton() {
+  return (
+    <div data-testid="sidebar-skeleton" className="flex flex-col gap-2 p-3" aria-busy="true">
+      {SKELETON_ROWS.map(({ id, width }) => (
+        <Skeleton key={id} className={`h-5 ${width}`} />
+      ))}
+    </div>
+  )
+}

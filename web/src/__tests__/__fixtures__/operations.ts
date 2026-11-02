@@ -1,6 +1,6 @@
 import { entityStore } from '@/core/entities/entity-store'
 import { forgetLocalOperation, useLocalOperationsStore } from '@/lib/store/local-operations'
-import type { Operation } from '@/lib/store/operations'
+import type { Operation } from '@/core/entities/operations'
 
 let v = 0
 
@@ -14,11 +14,10 @@ export function streamOperation(op: Operation): void {
 
 /** No operation anywhere. */
 export function resetOperations(): void {
-  entityStore.setState({
-    byKind: { operation: {}, review_thread: {} },
+  entityStore.setState((s) => ({
+    byKind: { ...s.byKind, operation: {}, review_thread: {} },
     members: {},
     fresh: {},
-    synced: {},
-  })
+  }))
   useLocalOperationsStore.setState({ ops: {} })
 }

@@ -1,3 +1,4 @@
+import { applyEntityFrame } from '@/core/entities/entity-store'
 import {
   holdScope,
   registerScopeKind,
@@ -94,6 +95,8 @@ registerScopeKind('chat', {
   },
   frame(f) {
     if (!('scope' in f)) return
+    // The chat's usage report rides its scope as an entity the entity store holds.
+    if (f.t === 'entity') return applyEntityFrame(f)
     const chatId = f.scope.slice('chat:'.length)
     const attachment = attachments.get(chatId)
     if (attachment) onFrame(chatId, attachment, f)

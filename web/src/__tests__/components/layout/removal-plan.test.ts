@@ -21,7 +21,7 @@ import {
   type DragSubject,
 } from '@/components/layout/removal-plan'
 import type { Repo } from '@/core/entities/repo-types'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -45,7 +45,7 @@ const WS = (id: string): DragSubject => ({ kind: 'workspace', id, repoId: 'r1' }
 
 beforeEach(() => {
   getHomeWorkspaceId.mockReset()
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
 })
 
 describe('what a removal takes with it', () => {
@@ -158,16 +158,12 @@ describe('the sidebar as it reads with rows held', () => {
 describe('a project-home chat or folder', () => {
   it('drafts a chat removal scoped to the home workspace, taking its threads with it', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [
-            { id: 'c1', repoId: '', title: 'Parent', order: 0 },
-            { id: 'c2', repoId: '', title: 'Thread', order: 0, parentId: 'c1' },
-          ],
-          folders: [],
-        },
-      },
+    seedHomeTree('p1', {
+      chats: [
+        { id: 'c1', repoId: '', title: 'Parent', order: 0 },
+        { id: 'c2', repoId: '', title: 'Thread', order: 0, parentId: 'c1' },
+      ],
+      folders: [],
     })
 
     const [draft] = planRemoval([{ kind: 'chat', id: 'c1' }], [repo()])
@@ -182,9 +178,7 @@ describe('a project-home chat or folder', () => {
 
   it('drafts a folder removal scoped to no repo at all, alone', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
-    })
+    seedHomeTree('p1', { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] })
 
     const [draft] = planRemoval([{ kind: 'folder', id: 'f1' }], [repo()])
 
@@ -197,10 +191,9 @@ describe('a project-home chat or folder', () => {
 
   it('is never confused by a repo whose OWN folders array also claims the same id', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] },
-      },
+    seedHomeTree('p1', {
+      chats: [],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }],
     })
     const bled = repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })
 

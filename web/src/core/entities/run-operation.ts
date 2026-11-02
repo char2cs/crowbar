@@ -1,7 +1,6 @@
 import { apiFetch } from '@/lib/api/fetch'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { problemOf, type Problem } from '@/lib/errors/problem'
-import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
 import {
   putLocalOperation,
   operationsState,
@@ -9,7 +8,7 @@ import {
   type EntityRef,
   type Operation,
   type OperationItem,
-} from '@/lib/store/operations'
+} from '@/core/entities/operations'
 
 /** What a request that starts an operation answers: the daemon's operation
  *  (202), or the items it created inside the request. */
@@ -63,30 +62,6 @@ export function runOperation(
 }
 
 /** The kind of entity an operation of `kind` creates, whose arrival it waits for. */
-function createdKinds(kind: string): EntityRef['kind'][] {
-  switch (kind) {
-    case 'branch.import':
-    case 'chat.create':
-      return ['chat']
-    case 'branch.create':
-      return ['chat', 'workspace']
-    case 'repo.create':
-      return ['repo']
-    case 'project.create':
-      return ['project']
-    default:
-      return []
-  }
-}
-
-function landed(op: Operation): boolean {
-  if (op.kind.endsWith('.delete')) return op.items.every((item) => !isEntityPresent(item.ref))
-  const kinds = new Set(createdKinds(op.kind))
-  return op.items
-    .filter((item) => kinds.has(item.ref.kind) && item.state !== 'failed')
-    .every((item) => isEntityPresent(item.ref))
-}
-
 function failureOf(op: Operation): Problem {
   return (
     op.error ??
@@ -97,8 +72,8 @@ function failureOf(op: Operation): Problem {
   )
 }
 
-/** Resolves once the operation succeeded and what it created (or deleted) is
- *  in the stores; rejects with its reason when it failed. No timeout: each
+/** Resolves once the operation succeeded, which the daemon sends after the entities it
+ *  wrote on the same scope; rejects with its reason when it failed. No timeout: each
  *  outcome is a fact the daemon sends. */
 export function whenSettled(opId: string): Promise<Operation> {
   return new Promise((resolve, reject) => {
@@ -111,13 +86,13 @@ export function whenSettled(opId: string): Promise<Operation> {
       if (op.state === 'failed') {
         done = true
         reject(new OperationFailedError(failureOf(op), opId))
-      } else if (op.state === 'succeeded' && landed(op)) {
+      } else if (op.state === 'succeeded') {
         done = true
         resolve(op)
       }
       if (done) stops.forEach((stop) => stop())
     }
-    stops.push(subscribeOperations(check), subscribeEntityPresence(check))
+    stops.push(subscribeOperations(check))
     check()
   })
 }

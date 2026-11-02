@@ -20,8 +20,8 @@ import {
   terminalLinksFor,
   type TerminalLinksOptions,
 } from '@/features/terminal/lib/terminal-links'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 // The daemon's Go conformance suite wraps the same URL (wrapTestURL, 58 chars).
 const WRAP_URL = 'https://example.com/docs/guide/getting-started?ref=crowbar'
@@ -390,16 +390,14 @@ describe('terminalLinksFor', () => {
     revealInEditor.mockReset()
     openExternalUrl.mockClear()
     const ws = (id: string, localPath: string) => ({ id, branch: id, localPath })
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'r1',
-          defaultWorkspaceId: 'ws-main',
-          localPath: '/disk/repo',
-          workspaces: [ws('ws-a', '/disk/a'), ws('ws-b', '/disk/b')],
-        } as unknown as Repo,
-      ],
-    })
+    seedRepos([
+      {
+        id: 'r1',
+        defaultWorkspaceId: 'ws-main',
+        localPath: '/disk/repo',
+        workspaces: [ws('ws-a', '/disk/a'), ws('ws-b', '/disk/b')],
+      } as unknown as Repo,
+    ])
   })
 
   /** Clicks the first link xterm would draw on a row reading `text`. */

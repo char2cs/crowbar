@@ -9,13 +9,9 @@ import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
-import {
-  ensureHomeWorkspaceResolved,
-  useHomeWorkspaceState,
-} from '@/features/workspace/lib/home-workspace-resolver'
+import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { toast } from '@/features/window/stores/toast-store'
-import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -78,12 +74,6 @@ function SpacePanel({
   const rows = rowsForProject(projectId)
   // The project-home workspace: the header's Thread and New folder act on it, never a repo's home.
   const { wsId: homeWorkspaceId } = useHomeWorkspaceState(projectId)
-  useEffect(() => {
-    ensureHomeWorkspaceResolved(projectId)
-  }, [projectId])
-  // Recorded during render, not in an effect: a Thread click right after home resolves must
-  // find its scope, and SpacePanel mounts for every visible project, not only the active one.
-  if (homeWorkspaceId) recordWorkspaceScope({ projectId, repoId: '', wsId: homeWorkspaceId })
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
@@ -126,14 +116,7 @@ function SpacePanel({
             // opening/navigating to the new chat (mirrors handleCreate's own
             // open/navigate handling, just scoped to the home workspace).
             //
-            // Reported live as "can't create a thread from the project
-            // home": a freshly-opened (or just-created) project's home
-            // workspace resolves asynchronously (`ensureHomeWorkspaceResolved`
-            // above) — clicking during that window used to silently do
-            // nothing, with no error and no visible reason, since
-            // `homeWorkspaceId` was still null. A row's own refusals (a
-            // locked branch, a working chat) all surface a toast instead —
-            // this one now matches.
+            // Before the projects scope carries the home workspace there is none to run in.
             if (!homeWorkspaceId) {
               toast.error("Can't start a new thread yet")
               return

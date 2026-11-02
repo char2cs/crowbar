@@ -5,7 +5,7 @@ import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
-import type { AgentChat, AgentChatDetail } from '@/features/agent/api/agent-chat-reads'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -16,7 +16,6 @@ import {
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 
 const {
-  getChatFn,
   resumeChatFn,
   submitPromptFn,
   slashCatalogFn,
@@ -27,7 +26,6 @@ const {
   switchProviderFn,
   listProvidersFn,
 } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
   resumeChatFn: vi.fn(),
   submitPromptFn: vi.fn(),
   slashCatalogFn: vi.fn(),
@@ -45,9 +43,7 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
 }))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
-vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
@@ -136,18 +132,11 @@ function dormantChat(id: string, provider: string): AgentChat {
   }
 }
 
-function detail(chat: AgentChat): AgentChatDetail {
-  return {
-    ...chat,
-    conversations: [{ chatId: chat.id, providerId: 'claude', sessionId: 's1', firstSeenAt: '' }],
-  }
-}
-
 /** A workspace whose `WorkspaceView` never ran: the chat is known, and the
  *  provider list is whatever the machine-level store holds. */
 function unmountedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  seedChats(chats, wsId)
+  seedChats(chats)
   return store
 }
 
@@ -199,7 +188,6 @@ beforeEach(() => {
   resetWindowPaneStoreForTests()
   paneWorkspace.clear()
   for (const f of [
-    getChatFn,
     resumeChatFn,
     submitPromptFn,
     slashCatalogFn,
@@ -231,7 +219,6 @@ describe('reopening an already-run conversation', () => {
 
     const chat = dormantChat('c1', 'claude')
     const store = unmountedWorkspace([chat])
-    getChatFn.mockResolvedValue(detail(chat))
 
     const paneId = openChatPane('c1')
     await renderPane(store, paneId)
@@ -250,7 +237,6 @@ describe('reopening an already-run conversation', () => {
     // than render a chat that can never name its own provider.
     const chat = dormantChat('c2', 'claude')
     const store = unmountedWorkspace([chat])
-    getChatFn.mockResolvedValue(detail(chat))
 
     const paneId = openChatPane('c2')
     await renderPane(store, paneId)

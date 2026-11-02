@@ -1,8 +1,13 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { entityStore } from '@/core/entities/entity-store'
+import {
+  entityStore,
+  forgetEntities,
+  patchEntities,
+  placeEntities,
+} from '@/core/entities/entity-store'
 import { holdScope, startStream } from '@/core/stream/stream'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
-import { operationsState, putLocalOperation, type Operation } from '@/lib/store/operations'
+import { operationsState, putLocalOperation, type Operation } from '@/core/entities/operations'
 
 const socket = vi.hoisted(() => ({ deliver: (_data: unknown) => {}, drop: () => {} }))
 
@@ -54,12 +59,7 @@ beforeAll(() => {
 })
 beforeEach(() => {
   epochs++
-  entityStore.setState({
-    byKind: { operation: {}, review_thread: {} },
-    members: {},
-    fresh: {},
-    synced: {},
-  })
+  entityStore.setState(entityStore.getInitialState(), true)
   useLocalOperationsStore.setState({ ops: {} })
   release = holdScope('projects')
   reconnect(`e${epochs}`)
@@ -178,5 +178,64 @@ describe('entity store', () => {
     socket.deliver({ t: 'synced', scope: 'ws:w1' })
     expect(threads().t1).toBeUndefined()
     stop()
+  })
+
+  it('the projects snapshot marks the store loaded, and a later resubscribe keeps it so', () => {
+    expect(entityStore.getState().loaded.projects).toBe(true)
+    reconnect(`e${epochs}`)
+    expect(entityStore.getState().synced.projects).toBeUndefined()
+    expect(entityStore.getState().loaded.projects).toBe(true)
+  })
+})
+
+describe('a write answer applied before its frames', () => {
+  const folder = (id: string, order: number) => ({
+    id,
+    projectId: 'p1',
+    repoId: 'r1',
+    parentId: '',
+    name: id,
+    order,
+    createdAt: '2026-10-31T12:00:00Z',
+  })
+  const folderFrame = (id: string, v: number, order: number) =>
+    socket.deliver({
+      t: 'entity',
+      scope: 'projects',
+      kind: 'folder',
+      id,
+      v,
+      data: folder(id, order),
+    })
+  const folders = () => entityStore.getState().byKind.folder
+
+  it('places a row no frame carried yet, which its first frame then replaces', () => {
+    placeEntities('folder', { f1: folder('f1', 3) })
+    expect(folders().f1).toMatchObject({ v: 0, data: { order: 3 } })
+    folderFrame('f1', 1, 4)
+    expect(folders().f1).toMatchObject({ v: 1, data: { order: 4 } })
+  })
+
+  it('patches a held row at its version, and the revert yields to a newer frame', () => {
+    folderFrame('f1', 2, 0)
+    const revert = patchEntities('folder', { f1: { order: 5 } })
+    expect(folders().f1).toMatchObject({ v: 2, data: { order: 5 } })
+    revert()
+    expect(folders().f1?.data.order).toBe(0)
+
+    const second = patchEntities('folder', { f1: { order: 6 } })
+    folderFrame('f1', 3, 6)
+    second()
+    expect(folders().f1).toMatchObject({ v: 3, data: { order: 6 } })
+  })
+
+  it('forgets rows a delete answered for, and leaves the store alone for one it never held', () => {
+    folderFrame('f1', 1, 0)
+    expect(Object.keys(folders())).toEqual(['f1'])
+    const before = entityStore.getState()
+    forgetEntities('folder', ['f-unknown'])
+    expect(entityStore.getState()).toBe(before)
+    forgetEntities('folder', ['f1'])
+    expect(folders()).toEqual({})
   })
 })

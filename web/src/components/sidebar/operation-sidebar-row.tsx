@@ -12,7 +12,7 @@ import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/si
 import { cancelCreateDraft, confirmCreateDraft } from '@/components/layout/create-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { RowGlyph } from '@/components/sidebar/sidebar-row-glyph'
-import { dismissOperation } from '@/lib/store/run-operation'
+import { dismissOperation } from '@/core/entities/run-operation'
 import { report } from '@/lib/errors/report'
 
 function DraftNameInput({ row }: { row: SidebarRowType }) {

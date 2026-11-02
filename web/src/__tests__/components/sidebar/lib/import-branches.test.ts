@@ -1,34 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { performImportBranches } from '@/components/sidebar/lib/import-branches'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { ApiError } from '@/lib/errors/api-error'
 import * as api from '@/lib/api'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const importBranches = vi.spyOn(api, 'importBranches')
 
 beforeEach(() => {
   importBranches.mockReset()
   resetOperations()
-  useSidebarStore.setState({
-    ...getInitialState(),
-    repos: [
-      {
-        id: 'repo-1',
-        projectId: 'proj-1',
-        name: 'crowbar',
-        avatarLabel: 'C',
-        avatarColor: 'bg-indigo-700',
-        defaultWorkspaceId: 'ws-home',
-        defaultOwningChatId: 'home-row',
-        defaultBranch: 'main',
-        workspaces: [],
-        folders: [],
-        chats: [],
-      },
-    ],
-  })
+  seedRepos([
+    {
+      id: 'repo-1',
+      projectId: 'proj-1',
+      name: 'crowbar',
+      avatarLabel: 'C',
+      avatarColor: 'bg-indigo-700',
+      defaultWorkspaceId: 'ws-home',
+      defaultOwningChatId: 'home-row',
+      defaultBranch: 'main',
+      workspaces: [],
+      folders: [],
+      chats: [],
+    },
+  ])
 })
 
 const opRows = () => operationRows('proj-1')

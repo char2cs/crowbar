@@ -1,13 +1,12 @@
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { createChatWithOwnWorktree } from '@/features/agent/api/agent-chat-creates'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { runOperation, whenSettled } from '@/lib/store/run-operation'
+import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { report } from '@/lib/errors/report'
-import type { OperationItem } from '@/lib/store/operations'
+import type { OperationItem } from '@/core/entities/operations'
 import { toast } from '@/features/window/stores/toast-store'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import { renderedProjectRows } from '@/components/sidebar/lib/rendered-rows'
 import { resolveHomeOwnerId } from '@/components/sidebar/lib/workspace-owners'
 import {
@@ -43,7 +42,7 @@ export function handleCreate(
     return
   }
 
-  const currentRepos = useSidebarStore.getState().repos
+  const currentRepos = readSelect(selectRepos)
   // A bubble's Fork/Thread resolve against its GROUND workspace
   // (`Chat.workspaceId`); with no ground at all there is nothing to act on.
   const chatRow = resolveChatRow(currentRepos, parentId)
@@ -108,7 +107,6 @@ export function handleCreate(
     parentId,
     presentation,
     onCreated: (chatId) => {
-      announceTreeChange(repo.id)
       if (!openChatInOwnView(chatId, wsId)) {
         void navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, chatId)
       }
@@ -149,7 +147,6 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
     (opId) =>
       createChatWithOwnWorktree(chatId, opId, projectId, repoId, provider.id, parentId, name)
         .then((created) => {
-          announceTreeChange(repoId)
           const workspace: OperationItem = {
             ref: { kind: 'workspace', id: created.workspaceId },
             label,
@@ -172,21 +169,4 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
 /** Closes the naming input; nothing was sent, so nothing rolls back. */
 export function cancelCreateDraft(): void {
   treeUiStore.getState().cancelDraft()
-}
-
-/**
- * Tell `repoId`'s sidebar tree to re-read its rows after this client created
- * one.
- *
- * See `removal-commit.ts`'s `bumpRepoTree` for the full story — same signal,
- * same reason, the create half. The daemon really does mint the chat and its
- * worktree (measured live: the repo's chat count went 9 -> 11 on two clicks),
- * but `openRepoTreeSubscription` reseeds `crowbar_chats` only on this
- * generation moving, and the only thing that normally moves it is a chat frame
- * arriving for a MOUNTED workspace of this repo. Fork from the sidebar with no
- * workspace of that repo open — on the project-home route, say — and the row
- * never appeared at all. The button had worked; nothing had drawn it.
- */
-function announceTreeChange(repoId: string): void {
-  if (repoId) useFolderSignalStore.getState().bump(repoId)
 }

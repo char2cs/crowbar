@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Operation } from '@/lib/store/operations'
+import type { Operation } from '@/core/entities/operations'
 
 /** Operations the stream has not delivered: started here and unanswered, or a
  *  daemon reply that beat its frame. The stream's copy replaces each (core/entities). */

@@ -19,7 +19,7 @@ let submit: MockInstance<typeof commands.submitAgentPrompt>
 const actions = { retry: vi.fn(), edit: vi.fn(), cancel: vi.fn() }
 
 beforeEach(() => {
-  chatStore.setState({ feeds: {}, outbox: {}, chats: {} })
+  chatStore.setState({ feeds: {}, outbox: {} })
   HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
     return { ...rect, toJSON: () => rect } as DOMRect
   }

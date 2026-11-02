@@ -8,7 +8,7 @@ import {
 } from '@/lib/store/applied-placement'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
 import { getOwningChatId } from '@/lib/workspace-scope'
-import { runOperation, whenSettled } from '@/lib/store/run-operation'
+import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { report } from '@/lib/errors/report'
 import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import {
@@ -19,13 +19,6 @@ import {
 } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
-import {
-  refreshRepoPlacements,
-  applyHomeChatPlacement,
-  applyHomeFolders,
-  resolveHomeRowScope,
-} from '@/lib/store/home-tree'
-import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { planRowDrop, UNSUPPORTED } from '@/components/sidebar/lib/drop-plan'
 import type { RowPlacementCall } from '@/components/sidebar/lib/drop-plan-tree'
 import { performRecentsDrop } from '@/components/sidebar/lib/pane-drop-actions'
@@ -61,10 +54,6 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       return
     }
     case 'folder': {
-      // Applied directly, same as row-actions.ts's folder writes: there is no
-      // dedicated push channel for folders any more (Task 34), so this
-      // response is the only confirmation the drop gets — written through to
-      // the cache every rebuild reads before the store (applied-placement.ts).
       const { folder, shifted, shiftedRows } = await placeFolder(
         call.projectId,
         call.repoId,
@@ -75,53 +64,25 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       return
     }
     case 'homeFolder': {
-      // {@link applyHomeFolders}, same direct-apply reasoning as the repo
-      // `'folder'` case above — home has no dedicated folder push channel
-      // either. No `bump`/`crowbar_folders` write to mirror: `useHomeTreeStore`
-      // is its own cache, already updated by the apply itself.
       const { folder, shifted } = await placeHomeFolder(call.projectId, call.folderId, {
         ...(call.parentId !== undefined && { parentId: call.parentId }),
         order: call.order,
       })
-      applyHomeFolders(call.projectId, [folder, ...shifted].map(toSidebarFolder))
+      await applyFolderPlacements('', [folder, ...shifted])
       return
     }
     case 'chat': {
-      // Reported live as "can't parent a chat into a folder": the request
-      // succeeded every time (confirmed live — the daemon had the chat under
-      // its new parent, survived a reload), but nothing on screen ever
-      // moved. `setChatPlacement`'s own response used to be discarded here,
-      // same shape the folder case above already fixed for exactly this
-      // reason (Task 34: no dedicated push channel) — a chat reparent turns
-      // out to be the same story: whatever broadcast this was meant to ride
-      // does not confirm a folder-nested move in practice, so the row just
-      // sat wherever it started until an unrelated full reseed happened to
-      // catch it up. Applied directly now, the same "already the daemon's
-      // own committed state, arriving over the request instead of a
-      // stream" reasoning `performRenameFolder` documents for its own case.
       const { chat, shifted } = await setChatPlacement(call.workspaceId, call.chatId, {
         parentId: call.parentId,
         order: call.order,
       })
-      // A home chat lives in `useHomeTreeStore`, never in a repo: its own
-      // response is applied there (the reseed its frame triggers is the
-      // backstop); every other chat writes through the entity cache first.
-      const home = resolveHomeRowScope(chat.id)
-      if (home) {
-        applyHomeChatPlacement(home.projectId, chat, shifted)
-        return
-      }
       await applyChatPlacement(chat, shifted)
       return
     }
     case 'repoHome':
-      // C7: no optimistic write. The PATCH answers 204, so the order shown is
-      // the daemon's own answer, read straight back (the one placement
-      // writer, `applyRepoPlacements`) — a refused move never paints, so
-      // there is nothing to revert, and collateral shifts to sibling repos
-      // land with it.
+      // No optimistic write: the order shown is the daemon's, as the repo frames carry it,
+      // so a refused move never paints and sibling shifts land with it.
       await placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })
-      await refreshRepoPlacements(call.projectId)
       return
   }
 }

@@ -9,10 +9,10 @@ import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
-import { useChatListReady } from '@/features/agent/hooks/use-chat-scope'
-import { fetchChat, releaseChats } from '@/features/agent/stores/chat-scopes'
+import { useChatListReady } from '@/features/agent/hooks/use-chat-providers'
 import { discardUnsent, holdForTerminal } from '@/features/agent/stores/chat-outbox'
 import { useChatStore } from '@/features/agent/stores/chat-store'
+import { selectRunnerChat, useSelect } from '@/core/entities/select'
 import { deliveryPending as promptOnItsWay } from '@/features/agent/stores/lib/outbox'
 import { switchProvider } from '@/features/agent/api/agent-chat-commands'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
@@ -40,8 +40,6 @@ import { useTerminalEscort } from '@/features/agent/components/use-terminal-esco
 import { useWindowChord } from '@/features/agent/components/use-window-chord'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
-import { isNotFoundError } from '@/lib/errors/api-error'
-import { report } from '@/lib/errors/report'
 
 interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
@@ -85,11 +83,11 @@ export function AgentChatPane({
   const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
 
   // My runner's chat, '' when it is nowhere; a move shows up as a different id.
-  const runnerChatId = useChatStore((s) => (runnerId ? (s.byRunner[runnerId] ?? '') : ''))
+  const runnerChatId = useSelect((s) => (runnerId ? selectRunnerChat(s, runnerId) : ''))
   const shownChatId = runnerChatId || chatId
 
   // A landed list turns `!known` from "not yet" into "not in it".
-  const listSeeded = useChatListReady(wsId)
+  const listSeeded = useChatListReady()
   // The pane's recorded workspace vouches for the chat until the list lands.
   const placed = useStore(windowPaneStore, (s) => s.panes[paneId]?.workspaceId != null)
   const activeProviderId = useChatField(shownChatId, (c) => c?.activeProviderId ?? '')
@@ -179,25 +177,6 @@ export function AgentChatPane({
     windowPaneStore.getState().paneActions.setPaneRunner(paneId, liveRunnerId || null)
   }, [paneId, known, chatId, runnerId, shownChatId, liveRunnerId])
 
-  // A read can land after the pane is gone; what it read outside a scope goes with it.
-  const mountedRef = useRef(true)
-  const fetchedRef = useRef(new Set<string>())
-  const readChat = useCallback(
-    (id: string) => {
-      fetchedRef.current.add(id)
-      return fetchChat(wsId, id, () => mountedRef.current)
-    },
-    [wsId],
-  )
-  useEffect(() => {
-    mountedRef.current = true
-    const fetched = fetchedRef.current
-    return () => {
-      mountedRef.current = false
-      releaseChats(fetched)
-    }
-  }, [])
-
   // A pick not sent yet, provider included: it commits with the next prompt.
   const [stagedSelection, setStagedSelection] = useState<StagedSelection | null>(null)
   // Derived at render, so a change made elsewhere wins over a stale pick.
@@ -219,18 +198,6 @@ export function AgentChatPane({
     },
     [activeProviderId, chatModel, chatEffort],
   )
-
-  // A chat the seeded list never mentions would wait forever: ask once per chat per mount.
-  const resolvedRef = useRef(new Set<string>())
-  useEffect(() => {
-    if (!listSeeded || known || !shownChatId) return
-    if (resolvedRef.current.has(shownChatId)) return
-    resolvedRef.current.add(shownChatId)
-    void readChat(shownChatId).catch((err: unknown) => {
-      // Gone: `pending` is now an honest "nothing to show"; any other failure is news.
-      if (!isNotFoundError(err)) report(err, { action: 'Open the chat' })
-    })
-  }, [readChat, listSeeded, known, shownChatId])
 
   const escort = useTerminalEscort({
     wsId,

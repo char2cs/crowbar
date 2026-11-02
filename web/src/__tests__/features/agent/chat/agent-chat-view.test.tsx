@@ -28,7 +28,6 @@ beforeEach(() => {
     return { ...rect, toJSON: () => rect } as DOMRect
   }
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-  vi.spyOn(reads, 'getChatTelemetry').mockRejectedValue(new Error('no telemetry'))
   vi.spyOn(reads, 'getSlashCatalog').mockResolvedValue({
     providerId: 'codex',
     completeness: 'model_visible',

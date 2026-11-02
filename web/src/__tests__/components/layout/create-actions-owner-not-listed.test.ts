@@ -19,12 +19,11 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 import { handleCreate } from '@/components/layout/create-actions'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const navigate = vi.fn(() => Promise.resolve()) as unknown as Parameters<typeof handleCreate>[2]
 
@@ -57,10 +56,10 @@ const repo = (): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   treeUiStore.setState({ draft: null })
-  useSidebarStore.setState(getInitialState())
-  useSidebarStore.getState().setRepos([repo()])
+  resetEntities()
+  seedRepos([repo()])
   useAgentProvidersStore.setState({
     status: 'ready',
     providers: [{ id: 'claude', name: 'Claude', enabled: true } as never],

@@ -28,16 +28,15 @@ import {
 import { toastManager } from '@/lib/toast-manager'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
-import { selectEntityProblem, operationsState, type Operation } from '@/lib/store/operations'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectEntityProblem, operationsState, type Operation } from '@/core/entities/operations'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { ApiError, type WorkAtRisk } from '@/lib/errors/api-error'
 import { DISCARD_WORK_INIT } from '@/lib/api'
 import type { Problem } from '@/lib/errors/problem'
+import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectHomeTree } from '@/core/entities/select'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -109,9 +108,8 @@ beforeEach(() => {
   resetOperations()
   __resetWorkspaceScopesForTest()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set<string>() } as never)
-  useSidebarStore.setState({ repos: [repo()] })
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
+  seedRepos([repo()])
   resetOperations()
 })
 
@@ -139,38 +137,11 @@ describe('committing a workspace removal', () => {
   it('falls back to the chat’s own ownership claim when the Workspace has no owningChatId', async () => {
     const half = repo()
     half.workspaces = [{ id: 'ws-fork', branch: 'feature/one', age: '', order: 0 }]
-    useSidebarStore.setState({ repos: [half] })
+    seedRepos([half])
 
     await commitRemoval(entry(), context)
 
     expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-fork', 'chat-fork')
-  })
-
-  /**
-   * Without this the daemon really did take the chat and the ROW stayed on
-   * screen: `openRepoTreeSubscription` reseeds `crowbar_chats` only when this
-   * generation moves, and the only thing that normally moves it is a chat frame
-   * arriving for a MOUNTED workspace of the repo. The sidebar deletes from
-   * routes where no workspace of that repo is mounted at all.
-   */
-  it('bumps the repo’s tree signal so the chat row actually leaves', async () => {
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
-    await commitRemoval(entry(), context)
-
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
-  })
-
-  it('bumps it for a bare chat removal too', async () => {
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
-    await commitRemoval(
-      entry({ kind: 'chat', id: 'chat-bubble', wsId: 'ws-home', hiddenIds: ['chat-bubble'] }),
-      context,
-    )
-
-    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-home', 'chat-bubble')
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
   })
 
   // The create's spinner row would otherwise stand in for the deleted chat forever.
@@ -256,7 +227,7 @@ describe('committing a workspace removal', () => {
 
   it('names the chats the delete took beyond the selection, not those it held', async () => {
     const child = { id: 'chat-child', repoId: 'r1', title: 'Child', order: 1 }
-    useSidebarStore.setState({ repos: [repo({ chats: [...repo().chats!, child] })] })
+    seedRepos([repo({ chats: [...repo().chats!, child] })])
     deleteChat.mockResolvedValueOnce(['chat-child'])
 
     await commitRemoval(entry(), context)
@@ -270,9 +241,9 @@ describe('committing a workspace removal', () => {
   })
 
   it('still refuses when nothing anywhere knows the owning chat', async () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-fork', branch: 'x', age: '', order: 0 }], chats: [] })],
-    })
+    seedRepos([
+      repo({ workspaces: [{ id: 'ws-fork', branch: 'x', age: '', order: 0 }], chats: [] }),
+    ])
 
     await commitRemoval(entry(), context)
 
@@ -289,17 +260,11 @@ describe('committing a workspace removal', () => {
 // the repo-scoped calls a `repoId: ''` entry would otherwise 404 or (worse,
 // per handleTrash's own doc on the folder-list bleed) misresolve against.
 describe('committing a project-home removal', () => {
-  it('a home chat deletes through its own home workspace, never bumping a repo signal that has none to bump', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }],
-          folders: [],
-        },
-      },
+  it('a home chat deletes through its own home workspace', async () => {
+    seedHomeTree('p1', {
+      chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }],
+      folders: [],
     })
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
     await commitRemoval(
       entry({
         kind: 'chat',
@@ -314,14 +279,10 @@ describe('committing a project-home removal', () => {
 
     expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'c1')
     expect(toastError).not.toHaveBeenCalled()
-    // bumpRepoTree's own no-op guard: there is no such repo.
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBe(before)
   })
 
   it('a home folder deletes through deleteHomeFolder, and its tombstone is applied directly (no live channel to wait on)', async () => {
-    useHomeTreeStore.setState({
-      trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
-    })
+    seedHomeTree('p1', { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] })
 
     await commitRemoval(
       entry({
@@ -337,18 +298,14 @@ describe('committing a project-home removal', () => {
     )
 
     expect(deleteHomeFolder).toHaveBeenCalledExactlyOnceWith('p1', 'f1')
-    expect(useHomeTreeStore.getState().trees.p1?.folders).toEqual([])
+    expect(readSelect((st) => selectHomeTree(st, 'p1')).folders).toEqual([])
   })
 
   it('un-hides a home chat and says why when its delete is refused', async () => {
     deleteChat.mockRejectedValueOnce(new Error('not found'))
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }],
-          folders: [],
-        },
-      },
+    seedHomeTree('p1', {
+      chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }],
+      folders: [],
     })
     treeUiStore.getState().hold([
       {
@@ -415,7 +372,7 @@ describe('committing a repo removal', () => {
     streamOperation(removeOp(sentOpId(), 2, { state: 'succeeded' }))
     expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(true)
 
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
 
     await vi.waitFor(() => expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(false))
     expect(toastError).not.toHaveBeenCalled()

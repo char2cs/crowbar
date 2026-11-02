@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { detachHolder } from '@/lib/api/workspace'
-import { runOperation } from '@/lib/store/run-operation'
+import { runOperation } from '@/core/entities/run-operation'
 
 // The consent modal for freeing a protected branch from a live holder. Framed as
 // disruptive-not-destructive: per the git engine's contract, detach never touches

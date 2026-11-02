@@ -70,6 +70,15 @@ describe('owningChatIdOfWorkspace', () => {
 })
 
 describe('workspaceIdOfBranchRow', () => {
+  it('resolves the root id to no workspace, even beside one no chat owns yet', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      defaultOwningChatId: '',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'develop', owningChatId: '' })],
+    })
+    expect(workspaceIdOfBranchRow([repo], '')).toBeNull()
+  })
+
   it('resolves a locked branch row id back to its workspace id', () => {
     const repo = makeTestRepo({
       workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'develop', owningChatId: 'chat-1' })],

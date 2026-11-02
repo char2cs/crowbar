@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api/fetch'
-import { operationHeaders, type OperationReply } from '@/lib/store/run-operation'
+import { operationHeaders, type OperationReply } from '@/core/entities/run-operation'
 import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 /**

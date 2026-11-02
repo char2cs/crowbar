@@ -7,9 +7,9 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/components/sidebar/lib/row-actions', () => ({
   performRenameChat: vi.fn().mockResolvedValue(undefined),
@@ -61,7 +61,12 @@ function renderHeader({
   working = false,
   title = 'Seeding test',
   wsId = 'w1' as string | null,
-  repos = [makeRepo([makeWorkspace()])],
+  repos = [
+    makeRepo(
+      [makeWorkspace({ owningChatId: 'chat-1' })],
+      [makeSidebarChat({ workspaceId: 'w1', ownsWorktree: true })],
+    ),
+  ],
 }: {
   working?: boolean
   title?: string
@@ -70,8 +75,8 @@ function renderHeader({
 } = {}) {
   const store = createWorkspaceStore('w1')
   resetChatStore()
+  seedRepos(repos)
   writeChat({ ...makeChat({ title }), working })
-  useSidebarStore.setState({ repos })
 
   return render(
     createElement(
@@ -87,7 +92,7 @@ function renderHeader({
 function renderHeaderWithoutChatRecord() {
   const store = createWorkspaceStore('w1')
   resetChatStore()
-  useSidebarStore.setState({ repos: [makeRepo([makeWorkspace()])] })
+  seedRepos([makeRepo([makeWorkspace()])])
 
   return render(
     createElement(
@@ -99,7 +104,7 @@ function renderHeaderWithoutChatRecord() {
 }
 
 afterEach(() => {
-  useSidebarStore.setState({ repos: [] })
+  seedRepos([])
   vi.clearAllMocks()
 })
 

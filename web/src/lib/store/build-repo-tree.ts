@@ -3,8 +3,7 @@ import { createdInstant } from '@/lib/store/created-instant'
 import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/core/entities/repo-types'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
-// Re-export the canonical §5 DTOs so existing importers (workspace-list, tests)
-// keep a single source of truth instead of a divergent local shape.
+// Re-export the canonical §5 DTOs so importers keep one source of truth.
 export type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const AVATAR_COLORS = [
@@ -232,10 +231,7 @@ export function sortReposByOrder(repos: readonly Repo[]): Repo[] {
 //
 // It is deliberately PROJECT-AGNOSTIC: it groups whatever repos it is handed and
 // tags each with its own `projectId`, so the sidebar can hold several projects
-// at once. The single-active-project filter that used to live here
-// (`buildScopedRepoTree`) has moved to lib/store/project-visibility.ts, where it
-// is expressed as "which projects are VISIBLE" rather than "which one is
-// active" — see readVisibleRepoTree.
+// at once.
 export function buildRepoTree(
   repos: RepoDTO[],
   workspaces: WorkspaceDTO[],

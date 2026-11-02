@@ -17,9 +17,8 @@ import {
   CommandPanel,
 } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
-import { selectRepos, useSelect } from '@/core/entities/select'
-import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
-import { dataOf } from '@/lib/loadable'
+import { selectRepos, useSelect, selectProjects } from '@/core/entities/select'
+import { useProjectStore } from '@/core/entities/active-project'
 import { fuzzyMatch } from '@/utils/search-match'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { RepoIconMark } from './repo-icon-mark'
@@ -42,9 +41,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSelect(selectRepos)
-  // Live project list — the import-only useProjectStore.projects starts empty
-  // (see context-pill).
-  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
+  const projects = useSelect(selectProjects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
 
   const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]

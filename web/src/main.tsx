@@ -16,7 +16,8 @@ import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/inst
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
 import { installGlobalReporting, report } from '@/lib/errors/report'
-import { holdScope, startStream } from '@/core/stream/stream'
+import { startStream } from '@/core/stream/stream'
+import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import '@/core/entities/entity-store'
 import './index.css'
 
@@ -32,12 +33,12 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => uninstallGlobalReporting())
 }
 
-// The one stream; every operation's outcome rides the projects scope, whatever is mounted.
+// The one stream, holding the projects scope every route and the sidebar read.
 const stopStream = startStream()
-const releaseProjects = holdScope('projects')
+const stopFollowingChats = followChatLifecycle()
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    releaseProjects()
+    stopFollowingChats()
     stopStream()
   })
 }

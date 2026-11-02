@@ -5,7 +5,7 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { selectRepos, useSelect } from '@/core/entities/select'
-import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
+import { isWorkspaceLockedInSidebar } from '@/core/entities/repo-queries'
 import { SidebarEmptyActionState } from '@/components/ui/sidebar'
 import { cn } from '@/utils/cn'
 import { useFileExplorerContextMenu } from '../hooks/use-file-explorer-context-menu'

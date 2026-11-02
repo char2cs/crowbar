@@ -1,7 +1,10 @@
-import type { AgentChat, AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
+import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { forgetOutbox } from '@/features/agent/stores/chat-outbox'
-import { applyChat, chatStore, setChatScope } from '@/features/agent/stores/chat-store'
+import { chatStore } from '@/features/agent/stores/chat-store'
+import { entityStore } from '@/core/entities/entity-store'
+import type { ChatEntity } from '@/core/entities/chat-entity'
+import { markProjectsSynced } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
 // The store applies a chat only when its version is newer than the one held,
@@ -14,9 +17,15 @@ export function nextVersion(): number {
   return clock
 }
 
+/** Lists a chat under no repo the tree holds, so it reads on the chat surfaces without
+ *  drawing a sidebar row or a project-home one. */
+const UNLISTED_REPO = 'unlisted-repo'
+
 /** A chat snapshot with every required field defaulted. */
-export function chatSnapshot(chat: Partial<AgentChat> & { id: string }): AgentChat {
+export function chatSnapshot(chat: Partial<ChatEntity> & { id: string }): ChatEntity {
   return {
+    projectId: 'p1',
+    repoId: UNLISTED_REPO,
     workspaceId: 'w1',
     title: '',
     liveRunnerId: '',
@@ -34,21 +43,17 @@ export function chatSnapshot(chat: Partial<AgentChat> & { id: string }): AgentCh
 export function resetChatStore(): void {
   // Releases the feeds the outbox held, which outlive a state reset.
   for (const chatId of Object.keys(chatStore.getState().outbox)) forgetOutbox(chatId)
-  chatStore.setState({
-    feeds: {},
-    chats: {},
-    byWorkspace: {},
-    byRunner: {},
-    scopes: {},
-    telemetry: {},
-    outbox: {},
-  })
+  chatStore.setState({ feeds: {}, outbox: {} })
+  entityStore.setState((s) => ({ byKind: { ...s.byKind, chat: {}, telemetry: {} } }))
 }
 
-/** Writes a chat into the ChatStore as a newer snapshot of what it holds. */
-export function writeChat(chat: Partial<AgentChat> & { id: string }): void {
-  const held = chatStore.getState().chats[chat.id]
-  applyChat(chatSnapshot({ ...held, ...chat, version: nextVersion() }))
+/** Writes a chat into the entity store as a newer snapshot of what it holds. */
+export function writeChat(chat: Partial<ChatEntity> & { id: string }): void {
+  const held = entityStore.getState().byKind.chat[chat.id]?.data
+  const data = chatSnapshot({ ...held, ...chat, version: nextVersion() })
+  entityStore.setState((s) => ({
+    byKind: { ...s.byKind, chat: { ...s.byKind.chat, [chat.id]: { v: data.version, data } } },
+  }))
 }
 
 /** The daemon reporting a chat's working flag moved. */
@@ -61,10 +66,10 @@ export function setChatTerminalWait(chatId: string, wait: AgentTerminalWait | nu
   writeChat({ id: chatId, terminalWait: wait ?? undefined })
 }
 
-/** A landed list for `wsId`: every row a fresh snapshot, and the scope ready. */
-export function seedChats(chats: Array<Partial<AgentChat> & { id: string }>, wsId = 'w1'): void {
+/** A landed list: every row a fresh snapshot, and the projects scope synced. */
+export function seedChats(chats: Array<Partial<ChatEntity> & { id: string }>): void {
   for (const chat of chats) writeChat(chat)
-  setChatScope(wsId, 'ready')
+  markProjectsSynced()
 }
 
 /** The machine's provider list, loaded. */

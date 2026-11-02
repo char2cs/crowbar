@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveWorkspaceRootPath, workspaceRootPath } from '@/lib/workspace/resolve-root-path'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
-import { useProjectDataStore } from '@/lib/store/projects'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
-import { success } from '@/lib/loadable'
+import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const { getActiveWorkspaceId } = vi.hoisted(() => ({
   getActiveWorkspaceId: vi.fn<() => string | null>(() => null),
@@ -33,7 +31,7 @@ const repo: Repo = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ repos: [repo] })
+  seedRepos([repo])
   __resetWorkspaceScopesForTest()
   window.location.hash = ''
 })
@@ -68,9 +66,7 @@ describe('workspaceRootPath', () => {
 
   it("maps a project's home workspace to the project's own path", () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
-    useProjectDataStore.setState({
-      data: success([{ id: 'p1', path: '/disk/project' }] as never),
-    })
+    seedProjects([{ id: 'p1', path: '/disk/project' }] as never)
     expect(workspaceRootPath('ws-home')).toBe('/disk/project')
   })
 })

@@ -1,9 +1,7 @@
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
 import type { Repo } from '@/core/entities/repo-types'
-import { readSelect, selectHomeTrees, selectRepos } from '@/core/entities/select'
-import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
-import { dataOf } from '@/lib/loadable'
+import { readSelect, selectHomeTrees, selectRepos, selectProjects } from '@/core/entities/select'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { applyPendingRemovals, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
@@ -66,7 +64,7 @@ export function projectOfWorkspace(repos: readonly Repo[], wsId: string): string
   const scope = resolveRowRepo(repos, wsId)
   if (scope?.projectId) return scope.projectId
   const projectIds = new Set<string>([
-    ...(dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS).map((p) => p.id),
+    ...readSelect(selectProjects).map((p) => p.id),
     ...Object.keys(readSelect(selectHomeTrees)),
     ...repos.flatMap((r) => (r.projectId ? [r.projectId] : [])),
   ])

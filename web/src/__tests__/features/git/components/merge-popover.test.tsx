@@ -4,10 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Button } from '@/components/ui/button'
 import { MergePopover } from '@/features/git/components/merge-popover'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { operationsState } from '@/core/entities/operations'
 import type { Repo } from '@/core/entities/repo-types'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { forgetEntities } from '@/core/entities/entity-store'
 
 const { patchMergeStrategy, mergeIntoParent, navigateMock } = vi.hoisted(() => ({
   patchMergeStrategy: vi.fn().mockResolvedValue('squash'),
@@ -22,9 +23,7 @@ vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigateMock }))
 
 /** The fold's frame: the child workspace leaves the sidebar. */
 function removeTheChild() {
-  useSidebarStore.setState((s) => ({
-    repos: s.repos.map((r) => ({ ...r, workspaces: r.workspaces.filter((w) => w.id !== 'w1') })),
-  }))
+  forgetEntities('workspace', ['w1'])
 }
 
 /** The merge folded the child away before its operation settled. */
@@ -40,17 +39,15 @@ beforeEach(() => {
   mergeIntoParent.mockImplementation(mergeFoldsTheChild)
   setActiveWorkspaceId('w1')
   resetOperations()
-  useSidebarStore.setState({
-    repos: [
-      {
-        id: 'r1',
-        projectId: 'p1',
-        defaultWorkspaceId: 'parent-ws',
-        // The production shape: the repo home is never in `workspaces`.
-        workspaces: [{ id: 'w1', branch: 'feature/a', parentId: 'parent-ws' }],
-      } as unknown as Repo,
-    ],
-  })
+  seedRepos([
+    {
+      id: 'r1',
+      projectId: 'p1',
+      defaultWorkspaceId: 'parent-ws',
+      // The production shape: the repo home is never in `workspaces`.
+      workspaces: [{ id: 'w1', branch: 'feature/a', parentId: 'parent-ws' }],
+    } as unknown as Repo,
+  ])
 })
 
 const renderPopover = () =>

@@ -81,72 +81,22 @@ describe('a database newer than this build', () => {
   })
 })
 
-describe('a database at the right version but missing a store', () => {
-  it('creates what is absent rather than reading an empty list forever', async () => {
-    // An object store only comes into existence inside an upgrade. A database
-    // that reached this version without running the branch that adds a store
-    // can never acquire it on its own, because the version no longer changes.
-    const partial = await openDB('crowbar', 9, {
-      upgrade(db) {
-        for (const name of ENTITY_STORES) {
-          if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })
-        }
-      },
-    })
-    expect(Array.from(partial.objectStoreNames)).not.toContain('crowbar_folders')
-    partial.close()
-
-    const db = await getDB()
-    expect(Array.from(db.objectStoreNames)).toContain('crowbar_folders')
-    await db.put('crowbar_folders', {
-      id: 'f1',
-      repoId: 'r1',
-      projectId: 'p1',
-      name: 'spikes',
-      order: 0,
-    })
-    expect(await db.get('crowbar_folders', 'f1')).toMatchObject({ name: 'spikes' })
-  })
-
-  it('leaves everything else in place — healing is not wiping', async () => {
-    // The entity stores re-seed from GET; editor state and layout do not. A
-    // delete-and-recreate would cost the user real work to repair a cache.
-    const partial = await openDB('crowbar', 9, {
-      upgrade(db) {
-        for (const name of ENTITY_STORES) {
-          if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })
-        }
-        db.createObjectStore('sidebar-ui')
-      },
-    })
-    await partial.put('sidebar-ui', { collapsedChatRows: ['c1'] }, 'global')
-    await partial.put('crowbar_repos', { id: 'r1', projectId: 'p1', name: 'myrepo' })
-    partial.close()
-
-    const db = await getDB()
-    expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
-    expect(await db.get('crowbar_repos', 'r1')).toMatchObject({ name: 'myrepo' })
-  })
-})
-
 describe('concurrent callers', () => {
   it('share ONE open, so a version change cannot deadlock against itself', async () => {
     // Memoizing only the settled handle lets every caller that arrives during
     // startup begin its own open. That is harmless until an open has to change
     // the version — then the second connection blocks the upgrade, the upgrade
     // holds the second open, and every cache read hangs for the session.
-    const partial = await openDB('crowbar', 9, {
+    const older = await openDB('crowbar', 9, {
       upgrade(db) {
-        for (const name of ENTITY_STORES) {
-          if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })
-        }
+        for (const name of ENTITY_STORES) db.createObjectStore(name, { keyPath: 'id' })
       },
     })
-    partial.close()
+    older.close()
 
     const [a, b, c] = await Promise.all([getDB(), getDB(), getDB()])
     expect(a).toBe(b)
     expect(b).toBe(c)
-    expect(Array.from(a.objectStoreNames)).toContain('crowbar_folders')
+    expect(a.version).toBe(11)
   })
 })

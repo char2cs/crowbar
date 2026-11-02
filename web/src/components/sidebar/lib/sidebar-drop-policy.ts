@@ -10,14 +10,14 @@ import {
 } from '@/components/tree-dnd/drop-core'
 import { readSelect, selectRepos } from '@/core/entities/select'
 import type { Repo } from '@/core/entities/repo-types'
-import { selectEntityBusy, operationsState } from '@/lib/store/operations'
-import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
-import { chatStore } from '@/features/agent/stores/chat-store'
+import { selectEntityBusy, operationsState } from '@/core/entities/operations'
+import { isWorkspaceLockedInSidebar } from '@/core/entities/repo-queries'
+import { entityStore } from '@/core/entities/entity-store'
 import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { legacyTreeIndex } from '@/features/workspace/tree/legacy-tree-index'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -279,9 +279,9 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
       return NO_MODES
     }
     // A tree chat row is built with `working: false` (deriveRows), so the
-    // refusal above cannot answer it: ask the ChatStore at the instant of the drag.
-    const { chats } = chatStore.getState()
-    if (subjects.some((s) => chats[s.id]?.working)) return NO_MODES
+    // refusal above cannot answer it: ask the entity store at the instant of the drag.
+    const { chat } = entityStore.getState().byKind
+    if (subjects.some((s) => chat[s.id]?.data.working)) return NO_MODES
     // A BRANCH row — a repo's own header, a locked branch, or an ordinary
     // fork folded to look like one (`deriveRows`'s own doc: `kind:
     // 'branch'` either way) — is never a container a chat can thread INTO

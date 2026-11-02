@@ -21,13 +21,13 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 import { SidebarTreeChrome } from '@/components/layout/sidebar-tree-chrome'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   treeUiStore.setState(treeUiStore.getInitialState(), true)
 })

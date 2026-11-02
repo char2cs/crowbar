@@ -13,7 +13,7 @@ import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
-import { importProjectAndSync, useProjectStore } from '@/lib/store/projects'
+import { useProjectStore } from '@/core/entities/active-project'
 import { fetchPrerequisites } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
 import './oobe-gradient.css'
@@ -289,7 +289,6 @@ export function OobeScreen() {
   }, [step, retryCount])
 
   function handleImport(project: Project) {
-    importProjectAndSync(project)
     useProjectStore.getState().setActiveProject(project.id)
     setImportOpen(false)
     void navigate({ to: '/' })

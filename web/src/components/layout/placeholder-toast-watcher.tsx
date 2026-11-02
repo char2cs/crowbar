@@ -10,7 +10,7 @@ import {
   selectFailedOps,
   useOperations,
   operationsState,
-} from '@/lib/store/operations'
+} from '@/core/entities/operations'
 
 // Watches sidebar state and fires ONE error toast per newly-observed
 // UNPROVISIONED workspace (spec §3.6). Per CLAUDE.md the toast is fired from a

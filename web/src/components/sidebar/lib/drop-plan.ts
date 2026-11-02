@@ -6,7 +6,7 @@ import {
 } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { homeOwnerRowId } from '@/features/workspace/tree/legacy-tree-index'
-import { useHomeTreeStore, resolveHomeRowScope } from '@/lib/store/home-tree'
+import { getHomeTree, resolveHomeRowScope } from '@/core/entities/home-rows'
 import {
   getHomeOwningChatId,
   getHomeWorkspaceId,
@@ -99,7 +99,7 @@ function planChatDrop(
 
 /**
  * A project-home FOLDER drop — `planTreeRowDrop`'s sibling, scoped to
- * `useHomeTreeStore` instead of a repo. Home never forks (no worktree to
+ * the project's home instead of a repo. Home never forks (no worktree to
  * clone), so nothing but a folder ever reaches this: the fork-lineage half
  * of `planTreeRowDrop` (reparent calls, `workspaceAnchor`) has no home
  * counterpart to mirror — only the container/sibling-index math does.
@@ -113,8 +113,7 @@ function planHomeFolderDrop(
   target: SidebarRow,
   mode: DropMode,
 ): RowPlacementCall[] {
-  const tree = useHomeTreeStore.getState().trees[projectId]
-  if (!tree) return []
+  const tree = getHomeTree(projectId)
   // A repo header is a root sibling to reorder past, never a container.
   if (target.kind === 'branch' && mode === 'into') return []
   const homeRowId = homeOwnerRowId(

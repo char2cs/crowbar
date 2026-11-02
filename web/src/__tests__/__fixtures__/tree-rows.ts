@@ -1,5 +1,5 @@
 import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
-import type { EntityRef, Operation } from '@/lib/store/operations'
+import type { EntityRef, Operation } from '@/core/entities/operations'
 import { type CreateDraft, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { legacyTreeIndex, type LegacyHome } from '@/features/workspace/tree/legacy-tree-index'

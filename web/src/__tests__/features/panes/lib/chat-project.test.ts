@@ -3,19 +3,16 @@
 // with project home resolving through the project's own home workspace. This
 // is the derivation the pane store deliberately never performs; it runs when
 // a record is minted and once per drop, never in a render path.
-import { describe, expect, it, beforeEach, vi } from 'vitest'
-
-const homeWorkspaces: Record<string, string> = {}
-
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  getHomeWorkspaceId: (projectId: string) => homeWorkspaces[projectId] ?? null,
-  getHomeOwningChatId: () => null,
-}))
+import { describe, expect, it, beforeEach } from 'vitest'
 
 import { resolveChatProjectId, resolveWorkspaceProjectId } from '@/features/panes/lib/chat-project'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import {
+  resetEntities,
+  seedHome,
+  seedHomeTree,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 const workspace = (id: string): Workspace => ({ id, branch: id, age: '1m' })
 
@@ -37,37 +34,31 @@ const repo = (over: Partial<Repo>): Repo => ({
 })
 
 beforeEach(() => {
-  for (const key of Object.keys(homeWorkspaces)) delete homeWorkspaces[key]
-  useSidebarStore.setState({ repos: [] })
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
+  seedRepos([])
 })
 
 describe('resolveWorkspaceProjectId', () => {
   it("finds a fork's project through its repo", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'repo-1',
-          projectId: 'project-a',
-          workspaces: [workspace('ws-1')],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'repo-1',
+        projectId: 'project-a',
+        workspaces: [workspace('ws-1')],
+      }),
+    ])
 
     expect(resolveWorkspaceProjectId('ws-1')).toBe('project-a')
   })
 
   it("finds the repo-home workspace's project too", () => {
-    useSidebarStore.setState({
-      repos: [repo({ id: 'repo-1', projectId: 'project-a', defaultWorkspaceId: 'ws-main' })],
-    })
+    seedRepos([repo({ id: 'repo-1', projectId: 'project-a', defaultWorkspaceId: 'ws-main' })])
 
     expect(resolveWorkspaceProjectId('ws-main')).toBe('project-a')
   })
 
   it('finds a PROJECT HOME workspace, which rides no repo at all', () => {
-    homeWorkspaces['project-b'] = 'ws-home-b'
-    useHomeTreeStore.setState({ trees: { 'project-b': { chats: [], folders: [] } } })
+    seedHome('project-b', 'ws-home-b')
 
     expect(resolveWorkspaceProjectId('ws-home-b')).toBe('project-b')
   })
@@ -79,40 +70,31 @@ describe('resolveWorkspaceProjectId', () => {
 
 describe('resolveChatProjectId', () => {
   it("reads a repo chat's project straight off the repo that lists it", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'repo-1',
-          projectId: 'project-a',
-          chats: [chat('chat-1', 'ws-1')],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'repo-1',
+        projectId: 'project-a',
+        chats: [chat('chat-1', 'ws-1')],
+      }),
+    ])
 
     expect(resolveChatProjectId('chat-1')).toBe('project-a')
   })
 
-  it('resolves a PROJECT-HOME chat through the home tree, never through repos', () => {
-    homeWorkspaces['project-b'] = 'ws-home-b'
-    useHomeTreeStore.setState({
-      trees: {
-        'project-b': { chats: [chat('chat-home', 'ws-home-b')], folders: [] },
-      },
-    })
+  it('resolves a PROJECT-HOME chat off its own entity, never through repos', () => {
+    seedHomeTree('project-b', { chats: [chat('chat-home', 'ws-home-b')], folders: [] })
 
     expect(resolveChatProjectId('chat-home')).toBe('project-b')
   })
 
   it("falls back to the row's own workspace hint when no list names the chat", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'repo-1',
-          projectId: 'project-a',
-          workspaces: [workspace('ws-1')],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'repo-1',
+        projectId: 'project-a',
+        workspaces: [workspace('ws-1')],
+      }),
+    ])
 
     expect(resolveChatProjectId('chat-unlisted', 'ws-1')).toBe('project-a')
   })

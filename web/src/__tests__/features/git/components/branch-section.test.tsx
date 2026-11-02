@@ -4,7 +4,7 @@ import { BranchSection } from '@/features/git/components/branch-section'
 import type { GitFile } from '@/features/git/types/git-types'
 import { pushChanges } from '@/features/git/api/git-remotes-api'
 import { streamOperation } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
+import { operationsState } from '@/core/entities/operations'
 
 // Stub the heavy children so this test isolates BranchSection's own rendering.
 vi.mock('@/features/git/components/commit-box', () => ({

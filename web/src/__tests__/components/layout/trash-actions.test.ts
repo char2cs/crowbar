@@ -25,12 +25,11 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleTrash } from '@/components/layout/trash-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -55,9 +54,9 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
@@ -67,9 +66,7 @@ beforeEach(() => {
 
 describe('handleTrash', () => {
   it('holds a real workspace row in the removal tray, and reports it', () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
 
     expect(handleTrash('ws-a')).toBe(true)
 
@@ -78,45 +75,11 @@ describe('handleTrash', () => {
   })
 
   it('is a no-op for the repo-home row (no matching row for planRemoval to draft), and reports it', () => {
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     expect(handleTrash('home-1')).toBe(false)
 
     expect(treeUiStore.getState().removals).toEqual([])
-  })
-
-  // The literal live-caught bug: the daemon's ListInRepo never filters by
-  // the repo id in its own URL (fetchFolders's own doc — a known, unfixed
-  // backend leniency), so a home folder bleeds into every REPO's own
-  // folders array too, stamped with THAT repo's id. `resolveRow`'s
-  // repo-scoped walk found this FALSE match, and the removal tray then
-  // committed a real DELETE against a repo that had no business resolving
-  // it at all — silently destroying a home folder dragged onto the trash
-  // target. `resolveHomeRowScope` must resolve a home row BEFORE that walk
-  // ever runs, regardless of what a repo's own (bled-into) folders array
-  // claims — proven here by the held draft's OWN `repoId`: '' (home), never
-  // 'r1' (the bled repo the walk would have found instead).
-  it('holds a home folder through the HOME path even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
-    getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] },
-      },
-    })
-    useSidebarStore.setState({
-      repos: [repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })],
-    })
-
-    expect(handleTrash('home-folder-1')).toBe(true)
-
-    const entries = treeUiStore.getState().removals
-    expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({
-      kind: 'folder',
-      id: 'home-folder-1',
-      projectId: 'p1',
-      repoId: '',
-    })
   })
 
   // Task 25 review round 1, Important: a user-locked, non-home workspace
@@ -126,15 +89,13 @@ describe('handleTrash', () => {
   // the user rather than silently swallowing a click it just walked them
   // through a confirmation for.
   it('is a no-op for a locked (non-home) workspace, and reports it', () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          workspaces: [
-            { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
-          ],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        workspaces: [
+          { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
+        ],
+      }),
+    ])
 
     expect(handleTrash('ws-locked')).toBe(false)
 
@@ -147,16 +108,14 @@ describe('handleTrash', () => {
   // immediate `deleteChat` call.
   describe('a chat row', () => {
     it('holds a bubble chat in the removal tray, scoped through any workspace of its own repo', () => {
-      useSidebarStore.setState({
-        repos: [
-          repo({
-            defaultWorkspaceId: undefined,
-            workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-            // No `workspaceId` — a bubble, not a worktree chat.
-            chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
-          }),
-        ],
-      })
+      seedRepos([
+        repo({
+          defaultWorkspaceId: undefined,
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          // No `workspaceId` — a bubble, not a worktree chat.
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ])
 
       expect(handleTrash('c1')).toBe(true)
 
@@ -167,15 +126,13 @@ describe('handleTrash', () => {
     })
 
     it('refuses when the repo has no workspace at all to scope the request through', () => {
-      useSidebarStore.setState({
-        repos: [
-          repo({
-            defaultWorkspaceId: undefined,
-            workspaces: [],
-            chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
-          }),
-        ],
-      })
+      seedRepos([
+        repo({
+          defaultWorkspaceId: undefined,
+          workspaces: [],
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ])
 
       expect(handleTrash('c1')).toBe(false)
 

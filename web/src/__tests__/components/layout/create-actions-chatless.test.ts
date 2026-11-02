@@ -25,12 +25,11 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { performSetWorkspaceLock, performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const ANY = expect.any(String)
 const navigate = vi.fn(() => Promise.resolve()) as unknown as Parameters<typeof handleCreate>[2]
@@ -56,10 +55,10 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
   treeUiStore.setState({ draft: null })
-  useSidebarStore.setState(getInitialState())
-  useSidebarStore.getState().setRepos([repo()])
+  resetEntities()
+  seedRepos([repo()])
   useAgentProvidersStore.setState({
     status: 'ready',
     providers: [{ id: 'claude', name: 'Claude', enabled: true } as never],

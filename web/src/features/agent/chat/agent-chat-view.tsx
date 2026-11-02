@@ -134,7 +134,7 @@ export function AgentChatView({
       ? feedError || 'Couldn’t reach this chat. Crowbar keeps trying.'
       : undefined
   const { working, compacting } = facts
-  const telemetry = useChatTelemetry(wsId, chatId, visible)
+  const telemetry = useChatTelemetry(chatId)
   // Read once: the view remounts per chat, and the anchor restores on mount.
   const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
   const dock = useDock()

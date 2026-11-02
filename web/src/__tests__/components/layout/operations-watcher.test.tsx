@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { toast } from '@/features/window/stores/toast-store'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import { type Operation } from '@/lib/store/operations'
+import { type Operation } from '@/core/entities/operations'
 import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
 
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { show: vi.fn() } }))

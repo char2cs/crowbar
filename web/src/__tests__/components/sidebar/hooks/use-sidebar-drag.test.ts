@@ -20,10 +20,10 @@ import {
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { useDragStore } from '@/features/panes/stores/drag-store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
@@ -195,25 +195,22 @@ beforeEach(() => {
   // a row's own fields), so every id this suite drags or targets needs a
   // real entry here — one repo, so every pairing below is same-repo/
   // same-project and the matrix's own refusals are never what is under test.
-  useSidebarStore.setState({
-    ...getInitialState(),
-    repos: [
-      {
-        id: 'repo-1',
-        projectId: 'proj-1',
-        name: 'repo-1',
-        avatarLabel: 'R',
-        avatarColor: 'bg-indigo-700',
-        defaultWorkspaceId: 'home-1',
-        workspaces: [
-          { id: 'a', branch: 'a', age: '' },
-          { id: 'b', branch: 'b', age: '' },
-          { id: 'grandchild', branch: 'grandchild', age: '' },
-          { id: 'ab', branch: 'ab', age: '' },
-        ],
-      },
-    ],
-  })
+  seedRepos([
+    {
+      id: 'repo-1',
+      projectId: 'proj-1',
+      name: 'repo-1',
+      avatarLabel: 'R',
+      avatarColor: 'bg-indigo-700',
+      defaultWorkspaceId: 'home-1',
+      workspaces: [
+        { id: 'a', branch: 'a', age: '' },
+        { id: 'b', branch: 'b', age: '' },
+        { id: 'grandchild', branch: 'grandchild', age: '' },
+        { id: 'ab', branch: 'ab', age: '' },
+      ],
+    },
+  ])
 })
 
 afterEach(() => {

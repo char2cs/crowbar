@@ -9,18 +9,6 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
-// A repo header drop re-reads the project's repos after its PATCH (see the
-// `repoHome` case) — answered with the decided placement here, never a
-// network round trip.
-const { fetchRepos, fetchWorkspaces } = vi.hoisted(() => ({
-  fetchRepos: vi.fn(),
-  fetchWorkspaces: vi.fn(),
-}))
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  fetchRepos: (...args: unknown[]) => fetchRepos(...args),
-  fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
-}))
 vi.mock('@/lib/api/sidebar-placement', () => ({
   // Echoes the call back as the {workspace, shifted} envelope the real
   // .../workspaces/:wsId/placement PATCH answers with.
@@ -109,25 +97,20 @@ import {
   placeHomeFolder,
   placeRepo,
 } from '@/lib/api/sidebar-placement'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { idle, success } from '@/lib/loadable'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastManager } from '@/lib/toast-manager'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState, type Operation } from '@/lib/store/operations'
+import { operationsState, type Operation } from '@/core/entities/operations'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Folder, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
   windowPaneStore,
@@ -137,6 +120,13 @@ import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import {
+  resetEntities,
+  seedHomeTree,
+  seedProjects,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectHomeTree, selectRepos } from '@/core/entities/select'
 
 /**
  * `performSidebarDrop` — the row-to-row half of spec §8.1 (Task 33). Adapts
@@ -252,21 +242,19 @@ function expectReported(description: string): void {
 
 /** The WS frame a landed reparent sends: a fresh `Workspace` with the new parent. */
 function confirmReparent(wsId: string, parentId: string): void {
-  useSidebarStore.setState((s) => ({
-    repos: s.repos.map((r) => ({
+  seedRepos(
+    readSelect(selectRepos).map((r) => ({
       ...r,
       workspaces: r.workspaces.map((w) => (w.id === wsId ? { ...w, parentId } : w)),
     })),
-  }))
+  )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ ...getInitialState(), repos: [makeRepo()] })
+  resetEntities()
+  seedRepos([makeRepo()])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useHomeTreeStore.setState({ trees: {} })
-  useProjectDataStore.setState({ data: idle() })
-  fetchWorkspaces.mockResolvedValue([])
   setActiveWorkspaceId('ws-1')
   resetOperations()
   vi.spyOn(toastManager, 'add')
@@ -325,8 +313,7 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
       'before',
     )
 
-    expect(fetchWorkspaces).not.toHaveBeenCalled()
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'repo-1')!
+    const repo = readSelect(selectRepos).find((r) => r.id === 'repo-1')!
     const orderOf = (id: string) => repo.workspaces.find((w) => w.id === id)?.order
     expect([orderOf('ws-c'), orderOf('ws-a'), orderOf('ws-b')]).toEqual([0, 1, 2])
     expect(repo.folders?.find((f) => f.id === 'folder-1')?.order).toBe(4)
@@ -351,23 +338,21 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
   // never found its target and clamped to the end of the chat-less list.
   describe('a branch beside its CHAT siblings', () => {
     beforeEach(() => {
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...makeRepo(),
-            chats: [
-              repoChat('chat-1', { repoId: 'repo-1', workspaceId: 'home-1', order: 5 }),
-              repoChat('chat-2', { repoId: 'repo-1', workspaceId: 'home-1', order: 6 }),
-              repoChat('thread-b', {
-                repoId: 'repo-1',
-                workspaceId: 'ws-b',
-                parentId: 'ws-b',
-                order: 0,
-              }),
-            ],
-          },
-        ],
-      })
+      seedRepos([
+        {
+          ...makeRepo(),
+          chats: [
+            repoChat('chat-1', { repoId: 'repo-1', workspaceId: 'home-1', order: 5 }),
+            repoChat('chat-2', { repoId: 'repo-1', workspaceId: 'home-1', order: 6 }),
+            repoChat('thread-b', {
+              repoId: 'repo-1',
+              workspaceId: 'ws-b',
+              parentId: 'ws-b',
+              order: 0,
+            }),
+          ],
+        },
+      ])
     })
 
     it('indexes a branch dropped past a root-level chat over the rows the tree draws', async () => {
@@ -490,18 +475,16 @@ describe('performSidebarDrop — clearing a stale folder edge', () => {
 // showed the reorder because the row had just left that branch's own level.
 describe('performSidebarDrop — folder edge for a workspace container that owns a chat', () => {
   it("landing directly under a workspace container writes that workspace's OWNING CHAT id, never bare ''", async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...makeRepo(),
-          workspaces: [
-            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
-            { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
-            { id: 'ws-e', branch: 'e', age: '', order: 1, parentId: 'ws-a' },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...makeRepo(),
+        workspaces: [
+          { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
+          { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+          { id: 'ws-e', branch: 'e', age: '', order: 1, parentId: 'ws-a' },
+        ],
+      },
+    ])
 
     // The tree draws ws-a by its owner's id (deriveRows folds on the
     // DTO's `owningChatId` alone), so its children's rows carry that parent.
@@ -530,20 +513,18 @@ describe('performSidebarDrop — folder edge for a workspace container that owns
 // REBASED onto the repo's default checkout before the placement even ran.
 describe('performSidebarDrop — folder nested under a workspace container that owns a chat', () => {
   it('filing a fork into a folder under its OWN locked fork parent is a placement only — no reparent', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...makeRepo(),
-          workspaces: [
-            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
-            { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
-          ],
-          folders: [
-            { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...makeRepo(),
+        workspaces: [
+          { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
+          { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+        ],
+        folders: [
+          { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
+        ],
+      },
+    ])
 
     await performSidebarDrop(
       [branchRow('ws-fork')],
@@ -571,18 +552,16 @@ describe('performSidebarDrop — folder nested under a workspace container that 
 // skipping the context check outright the way omitting the field does.
 describe('performSidebarDrop — reordering a folder within its own current container', () => {
   it('sends no parentId at all when the folder is not actually changing container', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...makeRepo(),
-          workspaces: [{ id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' }],
-          folders: [
-            { id: 'folder-first', repoId: 'repo-1', name: 'First', parentId: 'chat-a', order: 0 },
-            { id: 'folder-second', repoId: 'repo-1', name: 'Second', parentId: 'chat-a', order: 1 },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...makeRepo(),
+        workspaces: [{ id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' }],
+        folders: [
+          { id: 'folder-first', repoId: 'repo-1', name: 'First', parentId: 'chat-a', order: 0 },
+          { id: 'folder-second', repoId: 'repo-1', name: 'Second', parentId: 'chat-a', order: 1 },
+        ],
+      },
+    ])
 
     // Drag "folder-second" to become the FIRST item of the same sibling list
     // — dropped "before" "folder-first", the row currently occupying that
@@ -603,20 +582,18 @@ describe('performSidebarDrop — reordering a folder within its own current cont
   })
 
   it('still sends parentId for a genuine cross-container move', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...makeRepo(),
-          workspaces: [{ id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' }],
-          folders: [
-            { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
-            // folder-1 stays at the bare repo root — a genuinely different
-            // container than folder-nested's own ("chat-a").
-            { id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...makeRepo(),
+        workspaces: [{ id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' }],
+        folders: [
+          { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
+          // folder-1 stays at the bare repo root — a genuinely different
+          // container than folder-nested's own ("chat-a").
+          { id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 },
+        ],
+      },
+    ])
 
     // folder-1/folder-2 sit at the bare repo root — a genuinely different
     // container than folder-nested's own ("chat-a").
@@ -735,14 +712,14 @@ describe('performSidebarDrop — a reparent runs as an operation', () => {
   // The daemon refuses a fork parent with no checkout (guardReparent); the
   // DTO says which branches those are, so the drop is refused before any call.
   it('refuses a reparent onto a placeholder branch before calling the daemon', async () => {
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((r) => ({
+    seedRepos(
+      readSelect(selectRepos).map((r) => ({
         ...r,
         workspaces: r.workspaces.map((w) =>
           w.id === 'ws-b' ? { ...w, provisioning: 'placeholder' as const } : w,
         ),
       })),
-    }))
+    )
 
     await performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
 
@@ -857,7 +834,7 @@ describe('performSidebarDrop — the repo home row', () => {
 
 describe('performSidebarDrop — unresolvable rows', () => {
   it('a target the live store does not recognise is a no-op, not a throw', async () => {
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
 
     await expect(
       performSidebarDrop([branchRow('ws-a')], branchRow('ghost'), 'before'),
@@ -920,22 +897,20 @@ const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentCha
  * workspace's pane happens to be mounted.
  */
 function seedRepoChats(chats: Chat[], folders: Folder[] = []): void {
-  useSidebarStore.setState((s) => ({
-    repos: [
-      ...s.repos.filter((r) => r.id !== 'repo-chat-x'),
-      {
-        id: 'repo-chat-x',
-        projectId: 'proj-1',
-        name: 'repo-chat-x',
-        avatarLabel: 'X',
-        avatarColor: 'bg-indigo-700',
-        defaultWorkspaceId: 'ws-x',
-        workspaces: [],
-        chats,
-        folders,
-      },
-    ],
-  }))
+  seedRepos([
+    ...readSelect(selectRepos).filter((r) => r.id !== 'repo-chat-x'),
+    {
+      id: 'repo-chat-x',
+      projectId: 'proj-1',
+      name: 'repo-chat-x',
+      avatarLabel: 'X',
+      avatarColor: 'bg-indigo-700',
+      defaultWorkspaceId: 'ws-x',
+      workspaces: [],
+      chats,
+      folders,
+    },
+  ])
 }
 
 const repoChat = (id: string, over: Partial<Chat> = {}): Chat => ({
@@ -1039,42 +1014,33 @@ describe('performSidebarDrop — chats', () => {
   // the sidebar tree's own `repos` (what `deriveRows` actually reads,
   // separate from the ChatStore the other tests in
   // this block seed) was never told. Pins the fix: the response is now
-  // applied straight to `useSidebarStore`, and the SAME repo/workspace
-  // `folder-signal.ts` bump the folder case already gets, so a later
-  // unrelated reseed reads this move back instead of reverting it.
+  // applied straight to the entity store.
   it('applies its own setChatPlacement response directly to the sidebar tree store', async () => {
-    useSidebarStore.setState((s) => ({
-      repos: [
-        ...s.repos,
-        {
-          id: 'repo-chat-x',
-          projectId: 'proj-1',
-          name: 'repo-chat-x',
-          avatarLabel: 'X',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-x',
-          workspaces: [],
-          chats: [
-            { id: 'chat-c', repoId: 'repo-chat-x', workspaceId: 'ws-x', title: 'c', order: 2 },
-          ],
-        },
-      ],
-    }))
+    seedRepos([
+      ...readSelect(selectRepos),
+      {
+        id: 'repo-chat-x',
+        projectId: 'proj-1',
+        name: 'repo-chat-x',
+        avatarLabel: 'X',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-x',
+        workspaces: [],
+        chats: [{ id: 'chat-c', repoId: 'repo-chat-x', workspaceId: 'ws-x', title: 'c', order: 2 }],
+      },
+    ])
     seedChats([
       chat('chat-a', 'ws-x', { order: 0 }),
       chat('chat-b', 'ws-x', { order: 1 }),
       chat('chat-c', 'ws-x', { order: 2 }),
     ])
-    const bumpSpy = vi.spyOn(useFolderSignalStore.getState(), 'bump')
 
     await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into')
 
-    const patched = useSidebarStore
-      .getState()
-      .repos.find((r) => r.id === 'repo-chat-x')
+    const patched = readSelect(selectRepos)
+      .find((r) => r.id === 'repo-chat-x')
       ?.chats?.find((c) => c.id === 'chat-c')
     expect(patched).toMatchObject({ parentId: 'chat-a', order: 0 })
-    expect(bumpSpy).toHaveBeenCalledWith('repo-chat-x')
   })
 
   it('computes the insert index against the REAL sibling order, not a raw [...chats, ...folders] concat', async () => {
@@ -1148,13 +1114,9 @@ describe('performSidebarDrop — chats', () => {
   // on any other way.
   it('a chat dropped onto a home folder still resolves the home workspace off the chat itself', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'c1', order: 0 }],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'F', order: 1 }],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'c1', order: 0 }],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'F', order: 1 }],
     })
 
     await performSidebarDrop(
@@ -1197,31 +1159,27 @@ describe('performSidebarDrop — chats', () => {
 
     beforeEach(() => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [
-              {
-                id: 'home-owning-chat',
-                repoId: '',
-                ownsWorktree: true,
-                workspaceId: 'home-ws-1',
-                title: '',
-                order: 0,
-              },
-              {
-                id: 'home-chat-1',
-                repoId: '',
-                ownsWorktree: false,
-                workspaceId: 'home-ws-1',
-                title: 'a home chat',
-                parentId: '',
-                order: 1,
-              },
-            ],
-            folders: [],
+      seedHomeTree('proj-1', {
+        chats: [
+          {
+            id: 'home-owning-chat',
+            repoId: '',
+            ownsWorktree: true,
+            workspaceId: 'home-ws-1',
+            title: '',
+            order: 0,
           },
-        },
+          {
+            id: 'home-chat-1',
+            repoId: '',
+            ownsWorktree: false,
+            workspaceId: 'home-ws-1',
+            title: 'a home chat',
+            parentId: '',
+            order: 1,
+          },
+        ],
+        folders: [],
       })
     })
 
@@ -1252,11 +1210,11 @@ describe('performSidebarDrop — chats', () => {
     // list has to hold the id the row actually carries or the target is
     // never found and the index clamps to the end.
     it('finds a repo header id’d by its owning chat among the home siblings', async () => {
-      useSidebarStore.setState((s) => ({
-        repos: s.repos.map((r) =>
+      seedRepos(
+        readSelect(selectRepos).map((r) =>
           r.id === 'repo-1' ? { ...r, defaultOwningChatId: 'chat-main-1' } : r,
         ),
-      }))
+      )
 
       await performSidebarDrop(
         [chatRow('home-chat-1', 'home-ws-1')],
@@ -1294,22 +1252,20 @@ describe('performSidebarDrop — chats', () => {
     // REGRESSION (K3, repo-scoped half): two threads under a locked branch,
     // reordered while a DIFFERENT workspace's pane is the active one.
     it('reorders a thread past its sibling under an unmounted locked branch, indexed off the rendered rows', async () => {
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...makeRepo(),
-            workspaces: [
-              { id: 'ws-a', branch: 'a', age: '', order: 0, status: 'locked' },
-              { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
-            ],
-            folders: [],
-            chats: [
-              repoChat('t1', { repoId: 'repo-1', workspaceId: 'ws-a', parentId: 'ws-a', order: 1 }),
-              repoChat('t2', { repoId: 'repo-1', workspaceId: 'ws-a', parentId: 'ws-a', order: 2 }),
-            ],
-          },
-        ],
-      })
+      seedRepos([
+        {
+          ...makeRepo(),
+          workspaces: [
+            { id: 'ws-a', branch: 'a', age: '', order: 0, status: 'locked' },
+            { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+          ],
+          folders: [],
+          chats: [
+            repoChat('t1', { repoId: 'repo-1', workspaceId: 'ws-a', parentId: 'ws-a', order: 1 }),
+            repoChat('t2', { repoId: 'repo-1', workspaceId: 'ws-a', parentId: 'ws-a', order: 2 }),
+          ],
+        },
+      ])
       expect(getAllActiveWorkspaceIds()).not.toContain('ws-a')
 
       // ws-a's level: [ws-fork(0), t1(1), t2(2)] — t1 lifted, after t2 -> 2.
@@ -1360,16 +1316,12 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
   })
 
   it('reorders a home folder among its siblings via placeHomeFolder', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT],
-          folders: [
-            { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
-            { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
-          ],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT],
+      folders: [
+        { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
+        { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
+      ],
     })
 
     await performSidebarDrop(
@@ -1389,16 +1341,12 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
   })
 
   it('files a home folder into another home folder', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT],
-          folders: [
-            { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
-            { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
-          ],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT],
+      folders: [
+        { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
+        { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
+      ],
     })
 
     await performSidebarDrop(
@@ -1414,16 +1362,12 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
   })
 
   it('applies the response directly to useHomeTreeStore — no dedicated push channel to wait on', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT],
-          folders: [
-            { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
-            { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
-          ],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT],
+      folders: [
+        { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
+        { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
+      ],
     })
 
     await performSidebarDrop(
@@ -1433,7 +1377,7 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
     )
 
     expect(
-      useHomeTreeStore.getState().trees['proj-1']?.folders.find((f) => f.id === 'home-folder-a')
+      readSelect((st) => selectHomeTree(st, 'proj-1')).folders.find((f) => f.id === 'home-folder-a')
         ?.parentId,
     ).toBe('home-folder-b')
   })
@@ -1457,13 +1401,9 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
 
     beforeEach(() => {
       // Root rows as drawn: repo-1's header (order 0), then home-folder-a.
-      useHomeTreeStore.setState({
-        trees: {
-          'proj-1': {
-            chats: [HOME_OWNING_CHAT],
-            folders: [{ id: 'home-folder-a', repoId: '', name: 'a', order: 1 }],
-          },
-        },
+      seedHomeTree('proj-1', {
+        chats: [HOME_OWNING_CHAT],
+        folders: [{ id: 'home-folder-a', repoId: '', name: 'a', order: 1 }],
       })
     })
 
@@ -1529,51 +1469,12 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
 
   beforeEach(() => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    fetchRepos.mockResolvedValue([])
-  })
-
-  // K3: the PATCH answers 204 and the moved header rode the repos broadcast
-  // alone — a frame that raced the Node projection carried the OLD order and
-  // the row never moved until a reload. The drop now re-reads the project's
-  // repos itself and merges the decided placement.
-  it('re-reads the project repos after the PATCH so the header lands without a broadcast', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-          folders: [],
-        },
-      },
-    })
-    fetchRepos.mockResolvedValue([
-      {
-        id: 'repo-1',
-        projectId: 'proj-1',
-        name: 'repo-1',
-        path: '/repo-1',
-        order: 1,
-        folderId: '',
-      },
-    ])
-
-    await performSidebarDrop(
-      [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
-      chatRow('home-chat-1', '', { parentId: null }),
-      'after',
-    )
-
-    expect(fetchRepos).toHaveBeenCalledWith('proj-1')
-    expect(useSidebarStore.getState().repos.find((r) => r.id === 'repo-1')?.order).toBe(1)
   })
 
   it('files a repo into a project-home folder', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],
     })
 
     await performSidebarDrop(
@@ -1589,13 +1490,9 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
   })
 
   it('reorders relative to a home chat, in the same project', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-          folders: [],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+      folders: [],
     })
 
     await performSidebarDrop(
@@ -1608,21 +1505,19 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
   })
 
   it('reorders relative to another repo header in the same project', async () => {
-    useSidebarStore.setState((s) => ({
-      repos: [
-        ...s.repos,
-        {
-          id: 'repo-2',
-          projectId: 'proj-1',
-          name: 'repo-2',
-          avatarLabel: 'B',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'home-2',
-          workspaces: [],
-        },
-      ],
-    }))
-    useHomeTreeStore.setState({ trees: { 'proj-1': { chats: [HOME_OWNING_CHAT], folders: [] } } })
+    seedRepos([
+      ...readSelect(selectRepos),
+      {
+        id: 'repo-2',
+        projectId: 'proj-1',
+        name: 'repo-2',
+        avatarLabel: 'B',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'home-2',
+        workspaces: [],
+      },
+    ])
+    seedHomeTree('proj-1', { chats: [HOME_OWNING_CHAT], folders: [] })
 
     await performSidebarDrop(
       [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
@@ -1635,13 +1530,9 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
 
   it('a failed placement is reported, not thrown', async () => {
     vi.mocked(placeRepo).mockRejectedValueOnce(new Error('locked'))
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],
     })
 
     await expect(
@@ -1663,15 +1554,11 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
   // `planRepoHomeDrop` itself for the same case, same as every other plan
   // function in this file keeps one.
   it('refuses (no placeRepo call) reordering past a home folder nested inside a CHAT', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-          folders: [
-            { id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 },
-          ],
-        },
-      },
+    seedHomeTree('proj-1', {
+      chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+      folders: [
+        { id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 },
+      ],
     })
 
     await performSidebarDrop(
@@ -1736,19 +1623,16 @@ describe('performSidebarPaneDrop — a workspace row', () => {
   const workspaceRow = (chatId: string, wsId: string) => branchRow(chatId, { workspaceId: wsId })
 
   beforeEach(() => {
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          ...makeRepo(),
-          workspaces: [
-            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'owner-a' },
-            // No owner resolvable — its row keeps its own WORKSPACE id.
-            { id: 'ws-b', branch: 'b', age: '', order: 1 },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...makeRepo(),
+        workspaces: [
+          { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'owner-a' },
+          // No owner resolvable — its row keeps its own WORKSPACE id.
+          { id: 'ws-b', branch: 'b', age: '', order: 1 },
+        ],
+      },
+    ])
   })
 
   it('opens the chat that owns the workspace', () => {
@@ -2205,7 +2089,7 @@ function makeChatRepo(): Repo {
 
 describe('performSidebarDrop — targetInRecents', () => {
   beforeEach(() => {
-    useSidebarStore.setState((s) => ({ repos: [...s.repos, makeChatRepo()] }))
+    seedRepos([...readSelect(selectRepos), makeChatRepo()])
   })
 
   it('middle of an already-LIVE Recents entry merges the dragged chat beside it, not a tree placement', async () => {
@@ -2300,8 +2184,8 @@ describe('performSidebarDrop — targetInRecents', () => {
     /** `ws-x` with its owning chat recorded, so a branch-kind row for
      *  `chat-b` resolves to that chat the same way the tree's own copy does. */
     function ownedByChatB(): void {
-      useSidebarStore.setState((s) => ({
-        repos: s.repos.map((r) =>
+      seedRepos(
+        readSelect(selectRepos).map((r) =>
           r.id === 'repo-2'
             ? {
                 ...r,
@@ -2311,7 +2195,7 @@ describe('performSidebarDrop — targetInRecents', () => {
               }
             : r,
         ),
-      }))
+      )
     }
 
     /** Two independent views, `chat-a` in root and `chat-b` in its own —
@@ -2366,16 +2250,12 @@ describe('performSidebarDrop — targetInRecents', () => {
   // so a drop above/below one returned before ever reordering the band.
   it('reorders above/below a HOME chat’s Recents entry — its workspace is the project home, not a repo', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-2')
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-2': {
-          chats: [{ id: 'home-chat', repoId: '', workspaceId: 'home-ws-2', title: 'h', order: 0 }],
-          folders: [],
-        },
-      },
+    seedHomeTree('proj-2', {
+      chats: [{ id: 'home-chat', repoId: '', workspaceId: 'home-ws-2', title: 'h', order: 0 }],
+      folders: [],
     })
-    seedChats([chat('chat-a', 'ws-x')], 'ws-x')
-    seedChats([chat('home-chat', 'home-ws-2')], 'home-ws-2')
+    seedChats([chat('chat-a', 'ws-x')])
+    seedChats([chat('home-chat', 'home-ws-2')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.openChat('home-chat', { runnerId: 'runner-2' })
     const homePane = paneOfChat('home-chat')
@@ -2399,12 +2279,10 @@ describe('performSidebarDrop — targetInRecents', () => {
     getHomeWorkspaceId.mockImplementation((projectId: string) =>
       projectId === 'proj-2' ? 'home-ws-2' : null,
     )
-    useHomeTreeStore.setState({ trees: {} })
-    useProjectDataStore.setState({
-      data: success([{ id: 'proj-2', name: 'p2', path: '', lastActivity: new Date() }]),
-    })
-    seedChats([chat('chat-a', 'ws-x')], 'ws-x')
-    seedChats([chat('home-chat', 'home-ws-2')], 'home-ws-2')
+    resetEntities()
+    seedProjects([{ id: 'proj-2', name: 'p2', path: '', lastActivity: new Date() }])
+    seedChats([chat('chat-a', 'ws-x')])
+    seedChats([chat('home-chat', 'home-ws-2')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.openChat('home-chat', { runnerId: 'runner-2' })
     const homePane = paneOfChat('home-chat')
@@ -2455,7 +2333,7 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
   }
 
   beforeEach(() => {
-    useSidebarStore.setState({ ...getInitialState(), repos: [repoWithBranchRows()] })
+    seedRepos([repoWithBranchRows()])
   })
 
   it('dropping INTO the repo-home row places at the repo root, not silently nothing', async () => {

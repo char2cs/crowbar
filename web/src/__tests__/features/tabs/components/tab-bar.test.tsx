@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
@@ -13,7 +13,6 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
@@ -37,6 +36,9 @@ vi.mock('@/features/tabs/components/tab-context-menu', () => ({
 
 import TabBar from '@/features/tabs/components/tab-bar'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+
+beforeEach(resetChatStore)
 
 function makeEditorBuffer(i: number): EditorContent {
   return {
@@ -78,8 +80,7 @@ function setupPaneStore({
   activeEditorTabId?: string | null
 }) {
   const store = createWorkspaceStore('w1')
-  resetChatStore()
-  if (chatId) writeChat(makeChat({ id: chatId }))
+  if (chatId) writeChat({ repoId: 'repo-1', ...makeChat({ id: chatId }) })
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
     s.buffers = buffers
@@ -292,7 +293,7 @@ describe('TabBar pane-top-row anatomy', () => {
 // never gate this) — only the owning chat gets branch chrome.
 describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', () => {
   afterEach(() => {
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
     vi.clearAllMocks()
   })
 
@@ -305,34 +306,32 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
       workspaceId: 'w1',
       ownsWorktree: true,
     }
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'crowbar',
-          avatarLabel: 'C',
-          avatarColor: '#000',
-          workspaces: [],
-          defaultWorkspaceId: 'w1',
-          defaultOwningChatId: owner.id,
-          chats: chatOwnsWorktree
-            ? [owner]
-            : [
-                owner,
-                {
-                  id: 'chat-1',
-                  repoId: 'repo-1',
-                  title: 'My Chat',
-                  order: 1,
-                  workspaceId: 'w1',
-                  ownsWorktree: false,
-                  parentId: 'chat-main',
-                },
-              ],
-        } as Repo,
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: '#000',
+        workspaces: [],
+        defaultWorkspaceId: 'w1',
+        defaultOwningChatId: owner.id,
+        chats: chatOwnsWorktree
+          ? [owner]
+          : [
+              owner,
+              {
+                id: 'chat-1',
+                repoId: 'repo-1',
+                title: 'My Chat',
+                order: 1,
+                workspaceId: 'w1',
+                ownsWorktree: false,
+                parentId: 'chat-main',
+              },
+            ],
+      } as Repo,
+    ])
   }
 
   it('hides it for a pane whose chat is a thread', () => {

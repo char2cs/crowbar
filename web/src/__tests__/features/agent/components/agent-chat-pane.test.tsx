@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
-import type { AgentChat, AgentChatDetail } from '@/features/agent/api/agent-chat-reads'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { ApiError } from '@/lib/errors/api-error'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -20,7 +20,6 @@ import { nanoid } from 'nanoid'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
 const {
-  getChatFn,
   switchProviderFn,
   resumeChatFn,
   submitPromptFn,
@@ -29,7 +28,6 @@ const {
   switchToTerminalFn,
   switchToNativeFn,
 } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
   switchProviderFn: vi.fn(),
   resumeChatFn: vi.fn(),
   submitPromptFn: vi.fn(),
@@ -57,9 +55,7 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
-vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
@@ -146,7 +142,6 @@ import {
   resetChatStore,
   setProviders,
 } from '@/__tests__/__fixtures__/agent-chat'
-import { expectReported, watchToasts } from '@/__tests__/__fixtures__/reports'
 
 /**
  * Land this pane on the TERMINAL surface.
@@ -271,10 +266,6 @@ function liveChatNoTerminal(o: { id: string; runnerId: string; title?: string })
   }
 }
 
-function detail(chat: AgentChat): AgentChatDetail {
-  return { ...chat, conversations: [] }
-}
-
 /** A promise this test resolves by hand. The pane is asserted MID-FLIGHT (the spinner is
  *  a real state, not a frame of one), and nothing here waits on a clock — the test drives
  *  the request's completion itself. */
@@ -301,7 +292,7 @@ const paneWorkspace = new Map<string, string>()
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
   setProviders(providers)
-  seedChats(chats, wsId)
+  seedChats(chats)
   return store
 }
 
@@ -373,7 +364,6 @@ beforeEach(() => {
   resetChatStore()
   resetChatPresentationMemoryForTests()
   paneWorkspace.clear()
-  getChatFn.mockReset()
   switchProviderFn.mockReset()
   resumeChatFn.mockReset()
   submitPromptFn.mockReset()
@@ -395,11 +385,6 @@ beforeEach(() => {
     items: [],
     warnings: [],
   })
-  getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
-    Promise.resolve(
-      detail(liveChat({ id: String(id), runnerId: 'r-revived', pty: 'pty-revived' })),
-    ),
-  )
   useTerminalStore.setState({ sessions: new Map() })
   // Global singleton, same as the settings store above — reset so a zoom test
   // never leaks its level into the next test.
@@ -785,7 +770,6 @@ describe('AgentChatPane', () => {
     // Attach-only: a reconnect can never spawn a bare shell into the agent frame.
     expect(xterm.getAttribute('data-attach-only')).toBe('true')
     // liveRunnerId IS the liveness answer — no second round trip asks the daemon.
-    expect(getChatFn).not.toHaveBeenCalled()
   })
 
   it('renders nothing (not the exited state) while the chat list is still loading', async () => {
@@ -1379,35 +1363,6 @@ describe('AgentChatPane', () => {
       // The input itself is gone — one occupant, not an input rendered dead
       // beneath the question.
       expect(screen.queryByRole('textbox', { name: /message the agent/i })).not.toBeInTheDocument()
-    })
-  })
-
-  // ── A 404 from the WRONG ambient workspace must not close the pane ──
-  // Every kept-alive workspace renders the one global pane; a copy whose own
-  // chat list never names the chat 404s, and that is no ground to close it.
-  describe('a 404 from a workspace that does not know the chat', () => {
-    it('does not close the pane when the ambient workspace never lists the chat', async () => {
-      // 'w1' never lists 'c1', like a WorkspaceView whose ambient workspace isn't the chat's own.
-      const toasts = watchToasts()
-      const store = seedWorkspace([], 'w1')
-      const read = new ApiError('not found', 404)
-      getChatFn.mockRejectedValue(read)
-      const paneId = openChatPane(store, 'c1', '', 'Chat', 'w1')
-
-      await renderPane(store, paneId)
-      await act(() => vi.mocked(getChatFn).mock.results[0]?.value.catch(() => read))
-
-      expect(paneOf(store, paneId)?.chatId).toBe('c1')
-      expect(toasts).not.toHaveBeenCalled()
-    })
-
-    it('reports a read that failed for any other reason', async () => {
-      const toasts = watchToasts()
-      const store = seedWorkspace([], 'w1')
-      getChatFn.mockRejectedValue(new ApiError('chat store unreadable', 500))
-      await renderPane(store, openChatPane(store, 'c1', '', 'Chat', 'w1'))
-
-      await waitFor(() => expectReported(toasts, 'Open the chat', 'chat store unreadable'))
     })
   })
 })

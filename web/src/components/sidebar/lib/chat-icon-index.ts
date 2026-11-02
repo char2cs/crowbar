@@ -1,5 +1,5 @@
 import type { Repo, Workspace } from '@/core/entities/repo-types'
-import { EMPTY_CHATS } from '@/lib/store/repo-tree'
+import { EMPTY_CHATS } from '@/core/entities/views-from-entities'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import type { Problem } from '@/lib/errors/problem'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'

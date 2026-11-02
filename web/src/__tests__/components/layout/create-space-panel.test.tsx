@@ -12,10 +12,8 @@ vi.mock('@/lib/native-dialog', () => ({
 import * as api from '@/lib/api'
 import { CreateSpacePanel } from '@/components/layout/create-space-panel'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
-import { useProjectDataStore } from '@/lib/store/projects'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState, type Operation } from '@/lib/store/operations'
-import { success } from '@/lib/loadable'
+import { operationsState, type Operation } from '@/core/entities/operations'
 import type { Project } from '@/lib/types'
 import {
   expectMigratingShown,
@@ -24,6 +22,7 @@ import {
   refusal,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+import { seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 
 function createOp(opId: string, version: number, state: Operation['state']): Operation {
   return {
@@ -47,7 +46,7 @@ beforeEach(() => {
     operation: createOp(opId, 1, 'accepted'),
   }))
   resetOperations()
-  useProjectDataStore.setState({ data: success([]) })
+  seedProjects([])
 })
 
 test('import waits on the operation and hands over the project from the store', async () => {
@@ -71,7 +70,7 @@ test('import waits on the operation and hands over the project from the store', 
     path: '/tmp/space',
     lastActivity: new Date(0),
   }
-  useProjectDataStore.setState({ data: success([space]) })
+  seedProjects([space])
 
   await waitFor(() => expect(onCreate).toHaveBeenCalledWith(space))
 })

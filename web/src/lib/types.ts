@@ -96,57 +96,12 @@ export interface WorkspaceDTO {
 }
 
 /**
- * The worktree a chat row HOLDS, nested on `RepoChatWireDTO` — the workspace's
- * git half, now served off the chat list instead of a resource of its own.
- *
- * Several chats can carry the same `workspaceId` (a thread carries its parent's)
- * and every one of them gets this object, all naming the SAME `owningChatId`.
- * Exactly one row therefore satisfies `row.id === row.worktree.owningChatId`,
- * and that row is the one the worktree's `WorkspaceDTO` is built from — see
- * `workspaceDTOFromChat` in lib/api.ts.
- *
- * Optional here means `omitempty` on the wire, not "a daemon that predates the
- * field": an absent string/flag is the empty/false value, never unknown.
- */
-/**
  * What stands behind a workspace's localPath, recorded by the daemon — never
  * inferred from the path: a managed worktree Crowbar made (`provisioned`), none
  * yet because another checkout holds the branch (`placeholder`), or the user's
  * own checkout adopted in place (`shared`).
  */
 export type WorkspaceProvisioning = 'provisioned' | 'placeholder' | 'shared'
-
-export interface ChatWorktreeDTO {
-  branch: string
-  status?: WorkspaceStatusDTO
-  working: boolean
-  isDefault?: boolean
-  added: number
-  deleted: number
-  mergeStrategy: string
-  canMergeLocally: boolean
-  mergeConflicts: boolean
-  parentBranch?: string
-  prUrl?: string
-  prTitle?: string
-  prTargetBranch?: string
-  localPath?: string
-  heldByPath?: string
-  provisioning: WorkspaceProvisioning
-  forkPointSha?: string
-  /** The FORK parent — another workspace's id, not a sidebar placement. */
-  parentId?: string
-  /** Which chat owns this worktree. Always sent, on every row carrying it. */
-  owningChatId: string
-  /** Sidebar grouping folder this workspace belongs to, or absent for the
-   *  repo root. A SEPARATE field from parentId, which stays the fork parent. */
-  folderId?: string
-  /** Dense sibling sort key within its level. Absent on frames from a daemon
-   *  that predates ordering. */
-  order?: number
-  /** ISO creation time — see WorkspaceDTO.createdAt. */
-  createdAt?: string
-}
 
 export interface RepoDTO {
   id: string
@@ -236,11 +191,9 @@ export interface ChatDTO {
    * (`worktree.owningChatId === id` — see `chatDTOFromWire`), which is the
    * entire point: it makes "this row is a workspace" a fact the chat carries
    * itself, delivered atomically with it, instead of a JOIN against the
-   * separately-streamed `WorkspaceDTO`. Those two arrive on different channels
-   * (`crowbar_chats` reseeds on a folder-signal bump, `crowbar_workspaces` on
-   * its own entity stream) and are routinely skewed by a frame or more — and
-   * before this field the sidebar answered that skew by silently drawing a
-   * DIFFERENT KIND OF ROW (a chat bubble where a branch row belongs).
+   * separately-streamed `WorkspaceDTO`. The two are separate entities and can
+   * land a frame apart; without this field the sidebar would draw a DIFFERENT
+   * KIND OF ROW (a chat bubble where a branch row belongs) in between.
    *
    * Optional only because a row cached before the daemon emitted it carries
    * none; `deriveRows` falls back to the old `Workspace.owningChatId`

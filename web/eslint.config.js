@@ -8,7 +8,6 @@ import globals from 'globals'
 // Files over the 600-line cap when the cap landed (2026-09-24). This list is
 // the backlog: split a file, then delete its entry. Never add to it.
 const MAX_LINES_BASELINE = [
-  'src/__tests__/components/app-sync-provider-folders.test.tsx',
   'src/__tests__/components/layout/sidebar-carousel.test.tsx',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
@@ -24,8 +23,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/panes/components/pane-container.test.tsx',
   'src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
-  'src/__tests__/lib/persistence/hydrate.test.ts',
-  'src/components/app-sync-engine.ts',
   'src/components/sidebar/hooks/use-sidebar-drag.ts',
   'src/components/ui/dropdown.tsx',
   'src/components/ui/table-icons.tsx',

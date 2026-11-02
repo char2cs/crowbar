@@ -2,7 +2,15 @@ import type { Problem } from '@/lib/errors/problem'
 
 /** Mirrors `api/internal/domain/stream` by hand (index R20); its golden file is the contract. */
 type EntityKind =
-  'project' | 'repo' | 'workspace' | 'chat' | 'tree' | 'operation' | 'review_thread' | 'telemetry'
+  | 'project'
+  | 'repo'
+  | 'workspace'
+  | 'chat'
+  | 'folder'
+  | 'tree'
+  | 'operation'
+  | 'review_thread'
+  | 'telemetry'
 
 export type Frame =
   | { t: 'ready'; epoch: string }
@@ -50,6 +58,7 @@ const KINDS = new Set<string>([
   'repo',
   'workspace',
   'chat',
+  'folder',
   'tree',
   'operation',
   'review_thread',

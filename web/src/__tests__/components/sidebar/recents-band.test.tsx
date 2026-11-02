@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { RecentsBand } from '@/components/sidebar/recents-band'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import {
   resetWindowPaneStoreForTests,
@@ -11,6 +10,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { resetChatStore, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
@@ -45,7 +45,7 @@ beforeEach(() => {
   writeChat({ id: 'chat-1', workspaceId: 'ws-1', title: 'Chat One' })
   writeChat({ id: 'chat-2', workspaceId: 'ws-1', title: 'Chat Two' })
   writeChat({ id: 'chat-3', workspaceId: 'ws-1', title: 'Chat Three' })
-  useSidebarStore.setState({ ...getInitialState(), repos: [repo(SIDEBAR_CHATS)] })
+  seedRepos([repo(SIDEBAR_CHATS)])
   resetWindowPaneStoreForTests()
   windowPaneStore.getState().paneActions.setActiveProject('p1')
 })
@@ -190,20 +190,18 @@ describe('RecentsBand', () => {
   })
 
   it("draws a workspace-owning chat's real icon, not the generic bubble", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo(SIDEBAR_CHATS, [
-          {
-            id: 'ws-1',
-            branch: 'feature/x',
-            age: '',
-            owningChatId: 'chat-1',
-            status: 'locked',
-            provisioning: 'placeholder',
-          },
-        ]),
-      ],
-    })
+    seedRepos([
+      repo(SIDEBAR_CHATS, [
+        {
+          id: 'ws-1',
+          branch: 'feature/x',
+          age: '',
+          owningChatId: 'chat-1',
+          status: 'locked',
+          provisioning: 'placeholder',
+        },
+      ]),
+    ])
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     actions().openChat('chat-2', { workspaceId: 'ws-1' })
     renderBand()
@@ -213,24 +211,12 @@ describe('RecentsBand', () => {
     ).not.toBeInTheDocument()
   })
 
-  // A background chat whose endpoint detached keeps its row, drawn from the
-  // sidebar's own chat list.
-  it('a background row survives its chat leaving the ChatStore', () => {
-    actions().adoptBackgroundChat('chat-2', 'p1', 'ws-1')
-    resetChatStore()
-    renderBand()
-    expect(screen.getByTestId('recents-row-chat-2')).toBeInTheDocument()
-    expect(screen.getByText('Chat Two')).toBeInTheDocument()
-  })
-
   // Regression: a record whose chat no cache knew rendered null — an
   // invisible row nobody could close. It draws from its record (loading)
   // until the sidebar's tree names the chat; nothing is fetched for it.
   describe('a row whose chat data has not resolved', () => {
     const unknownChat = () => {
-      useSidebarStore.setState({
-        repos: [{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }],
-      })
+      seedRepos([{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }])
       actions().adoptBackgroundChat('chat-9', 'p1', 'ws-1')
     }
 

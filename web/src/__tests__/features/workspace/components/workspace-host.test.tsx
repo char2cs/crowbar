@@ -80,8 +80,8 @@ vi.mock('@/features/workspace/components/workspace-layout-root', async () => {
 
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
-import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) {
   const repo: Repo = {
@@ -93,7 +93,7 @@ function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) 
     ...(opts.defaultWorkspaceId ? { defaultWorkspaceId: opts.defaultWorkspaceId } : {}),
   }
   act(() => {
-    useSidebarStore.setState({ repos: [repo] })
+    seedRepos([repo])
   })
 }
 
@@ -113,7 +113,7 @@ beforeEach(() => {
   rendering.mintedWhileRendering = 0
   layoutMounts.current = 0
   ambientSeen.length = 0
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
 })
 
 afterEach(() => {

@@ -12,6 +12,7 @@
  * the workspace's provider list, resolved by id, whatever that id turns out to be.
  */
 import { nextVersion, resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -76,7 +77,7 @@ const chat = (id: string, title: string): AgentChat => ({
 function seed(chats: AgentChat[]) {
   act(() => {
     useAgentProvidersStore.setState({ status: 'ready', providers: PROVIDERS })
-    seedChats(chats, WS)
+    seedChats(chats)
   })
 }
 
@@ -131,6 +132,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   resetChatStore()
+  resetEntities()
 })
 
 describe('review message — which agent wrote it', () => {

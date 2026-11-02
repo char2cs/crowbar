@@ -3,7 +3,7 @@ import { fireEvent, render } from '@testing-library/react'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
+import { operationsState } from '@/core/entities/operations'
 
 const { retryProvision } = vi.hoisted(() => ({
   retryProvision: vi.fn().mockResolvedValue({ items: [] }),

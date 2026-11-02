@@ -20,14 +20,10 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn } = vi.hoisted(() => ({ getChatFn: vi.fn() }))
-
 import { stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
 stubPaneChrome()
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(vi.fn())
-vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
@@ -231,8 +227,6 @@ async function focusInto(testId: string) {
 
 beforeEach(() => {
   resetChatStore()
-  getChatFn.mockReset()
-  getChatFn.mockImplementation(() => Promise.resolve({ ...liveChat(), conversations: [] }))
   useTerminalStore.setState({ sessions: new Map() })
   useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   localStorage.clear()

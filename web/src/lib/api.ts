@@ -1,17 +1,9 @@
-import type { ChatDTO, FolderDTO, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type { Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
-import { getOwningChatId } from '@/lib/workspace-scope'
 import { API_BASE, apiFetch } from '@/lib/api/fetch'
-import {
-  chatDTOFromWire,
-  folderDTOFromWire,
-  workspaceDTOFromChat,
-  type ChatsFolderWireDTO,
-  type RepoChatWireDTO,
-} from '@/lib/api/wire'
-import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
-// Type-only: the store module reaches back into this one through the sidebar stores.
-import type { OperationReply } from '@/lib/store/run-operation'
+import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+// Type-only: keeps this module out of the entity store's import graph.
+import type { OperationReply } from '@/core/entities/run-operation'
 
 /**
  * Turn a daemon-relative asset path into one the webview can actually load.
@@ -33,10 +25,6 @@ export function assetURL(path: string): string {
 
 /** The request options that consent to a delete destroying work at risk. */
 export const DISCARD_WORK_INIT: RequestInit = { headers: { 'Crowbar-Discard-Work': 'true' } }
-
-export function fetchProjects(): Promise<Project[]> {
-  return apiFetch('/v0/projects')
-}
 
 // ---------------------------------------------------------------------------
 // Hierarchical READ API (§3/§7).
@@ -72,112 +60,10 @@ export async function fetchWorkspaces(projectId: string, repoId: string): Promis
   return rows ?? []
 }
 
-/**
- * One repo's sidebar folders, in sidebar order.
- *
- * There is no dedicated push channel for this any more — folders lost their
- * own REST+WS resource (backend plan closed; see app-sync-provider.tsx's
- * folders subscription for how a change now reaches the sidebar tree).
- *
- * KNOWN BACKEND LIMITATION, not fixed here: the daemon's `ListInRepo`
- * (api/internal/app/usecases/chat/internal/tree/tree.go) never actually
- * filters by its own `repoID` argument — it filters only by
- * `Type == folder`, so `GET .../chats/folders` returns EVERY folder in the
- * whole daemon, not just this repo's (already self-disclosed in the
- * backend's own container.go comment on the folder push frame's repo
- * scoping). `folderDTOFromWire` below stamps every row it gets back with
- * THIS call's own `repoId`/`projectId` regardless of which repo the row
- * really belongs to, since the wire carries neither — so with more than one
- * repo open, each repo's folder list can end up claiming another repo's
- * folders as its own. There is no correct frontend workaround (the wire row
- * carries no real repoId to filter on); this needs a Go-side fix, out of
- * scope for this task and the closed backend plan.
- */
-export async function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(
-    `/v0/projects/${projectId}/repos/${repoId}/chats/folders`,
-  )
-  return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, repoId))
-}
-
-/**
- * One repo's chat rows, in sidebar order.
- *
- * Genuinely repo-scoped, unlike `fetchFolders` above: the daemon's
- * `ListChatsInRepo` (api/internal/app/usecases/chat/repo_scope.go) resolves each
- * row's owning repo by walking its ancestry to the nearest provisioned workspace
- * and keeps only the rows that land in THIS repo. A row whose whole ancestry owns
- * no workspace resolves to no repo and is served to none — so a root bubble the
- * spec's §9.1 open question flags as unplaceable never arrives here at all,
- * rather than arriving in every repo's list at once.
- *
- * Stamping this call's own repoId/projectId onto the rows is therefore honest
- * here, where the same line in `fetchFolders` is the documented cross-repo bleed:
- * the server already guaranteed every row belongs to the repo in the URL.
- *
- * Live updates ride `folder-signal.ts`'s per-repo generation, which
- * `use-workspace-agent-chats-stream.ts` bumps on the structural chat frames
- * (created / deleted / title_set / moved) as well as the folder ones — one
- * signal, because chats and folders are ONE aggregate (`domain.Chat`) and one
- * tree.
- */
-export async function fetchRepoChats(projectId: string, repoId: string): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/chats`)
-  return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
-}
-
-/**
- * One workspace, read through the CHAT that owns its worktree.
- *
- * Callers still hold only a wsId, so the owning chat is resolved from the scope
- * registry the sidebar records — and a missing one throws rather than guessing a
- * URL, the same contract `worktreeVerbBaseForWorkspace` keeps.
- */
-export async function fetchWorkspace(
-  projectId: string,
-  repoId: string,
-  wsId: string,
-): Promise<WorkspaceDTO> {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  const row = await apiFetch<RepoChatWireDTO>(
-    `/v0/projects/${projectId}/repos/${repoId}/chats/${chatId}`,
-  )
-  const workspace = row ? workspaceDTOFromChat(row, projectId, repoId) : null
-  if (!workspace) throw new Error(`chat ${chatId} holds no worktree for workspace ${wsId}`)
-  return workspace
-}
-
-// The PROJECT-level home workspace, which is a different entity from a repo's
-// default branch: it rides no repo at all, so it appears in NO repo's chat list
-// and cannot be derived from one. This route stays as it is.
-export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
-  return apiFetch(`/v0/projects/${projectId}/home`)
-}
-
-/**
- * The project-home workspace's own chat rows and folders, in sidebar order.
- *
- * Same wire shapes as a repo's `/chats` and `/chats/folders` (the daemon
- * mounts the SAME `chathandlers.Handlers` at both routes — see
- * `api/internal/api/v0/endpoints/home/routes.go`), just with no `repoId` to
- * stamp: `''` is the sentinel every home-scoped `ChatDTO`/`FolderDTO` carries,
- * matching `WorkspaceDTO.repoId` for the home workspace itself.
- */
-export async function fetchHomeChats(projectId: string): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/home/chats`)
-  return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
-}
-
-export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(`/v0/projects/${projectId}/home/chats/folders`)
-  return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, ''))
-}
-
 // ---------------------------------------------------------------------------
 // Hierarchical WRITE API (§3/§7). A create or a delete answers 202 with its
 // operation under the caller's Idempotency-Key; the entity itself arrives over
-// the scoped WS broadcaster, and `whenSettled` waits for both.
+// the projects scope, and `whenSettled` waits for the operation.
 // ---------------------------------------------------------------------------
 
 export function postProject(name: string, path: string, opId: string): Promise<OperationReply> {

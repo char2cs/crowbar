@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
@@ -11,9 +11,11 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+
+beforeEach(resetChatStore)
 
 const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))
 vi.mock('@/features/panes/utils/pane-command-actions', () => ({
@@ -73,27 +75,24 @@ function seedRepoChats(chatOwnsWorktree: boolean) {
           parentId: 'chat-main',
         },
       ]
-  useSidebarStore.setState({
-    repos: [
-      {
-        id: 'repo-1',
-        projectId: 'proj-1',
-        name: 'crowbar',
-        avatarLabel: 'C',
-        avatarColor: '#000',
-        workspaces: [],
-        defaultWorkspaceId: 'w1',
-        defaultOwningChatId: owner.id,
-        chats,
-      } as Repo,
-    ],
-  })
+  seedRepos([
+    {
+      id: 'repo-1',
+      projectId: 'proj-1',
+      name: 'crowbar',
+      avatarLabel: 'C',
+      avatarColor: '#000',
+      workspaces: [],
+      defaultWorkspaceId: 'w1',
+      defaultOwningChatId: owner.id,
+      chats,
+    } as Repo,
+  ])
 }
 
 function renderHeader(pane: PaneGroup, wsId: string | null = 'w1') {
   const store = createWorkspaceStore('w1')
-  resetChatStore()
-  writeChat(makeChat())
+  writeChat({ repoId: 'repo-1', ...makeChat() })
   resetWindowPaneStoreForTests()
   // The bottom tray never holds a chat; the header is handed its pane directly.
   if (pane.id !== BOTTOM_PANE_ID && pane.chatId) {
@@ -113,7 +112,7 @@ function renderHeader(pane: PaneGroup, wsId: string | null = 'w1') {
 // window-chrome duties (drag region) plus its right-pinned actions.
 describe('ChatOnlyPaneHeader', () => {
   afterEach(() => {
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
     vi.clearAllMocks()
   })
 

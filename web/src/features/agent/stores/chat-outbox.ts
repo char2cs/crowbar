@@ -7,12 +7,8 @@ import {
   submitAgentPrompt,
 } from '@/features/agent/api/agent-chat-commands'
 import { attachFeed } from '@/features/agent/stores/chat-feed'
-import {
-  chatStore,
-  setChatSelection,
-  setStopping,
-  type ChatStoreState,
-} from '@/features/agent/stores/chat-store'
+import { chatStore, setStopping, type ChatStoreState } from '@/features/agent/stores/chat-store'
+import { entityStore, patchEntities } from '@/core/entities/entity-store'
 import {
   mayBeHeld,
   newestRetractable,
@@ -91,10 +87,10 @@ function failureOf(error: unknown): SendFailure {
 
 /** Sends the head when the rows say the chat can take it; never on a clock. */
 function drain(chatId: string) {
-  const { feeds, chats } = chatStore.getState()
-  const feed = feeds[chatId]
+  const feed = chatStore.getState().feeds[chatId]
   if (feed?.status !== 'live' || terminalHolds.has(chatId)) return
-  const head = nextToSend(itemsOf(chatId), feed, chats[chatId]?.terminalWait !== undefined)
+  const waits = entityStore.getState().byKind.chat[chatId]?.data.terminalWait !== undefined
+  const head = nextToSend(itemsOf(chatId), feed, waits)
   if (head) void send(chatId, head)
 }
 
@@ -111,9 +107,9 @@ async function send(chatId: string, item: OutboxItem) {
       item.model,
       item.effort,
     )
-    // The 202 is the only word that a staged pick was taken.
+    // The 202 is the only word that a staged pick was taken; the chat's frame confirms it.
     if (item.model !== undefined || item.effort !== undefined) {
-      setChatSelection(chatId, item.model ?? '', item.effort ?? '')
+      patchEntities('chat', { [chatId]: { model: item.model ?? '', effort: item.effort ?? '' } })
     }
     update(chatId, (items) => onSent(items, item.requestId))
   } catch (error) {
@@ -194,10 +190,15 @@ function watch() {
     for (const chatId of Object.keys(state.outbox)) {
       const feed = state.feeds[chatId]
       const was = prev.feeds[chatId]
-      const same = feed?.facts === was?.facts && feed?.status === was?.status
-      if (same && state.chats[chatId] === prev.chats[chatId]) continue
+      if (feed?.facts === was?.facts && feed?.status === was?.status) continue
       if (feed) update(chatId, (items) => onRowsApplied(items, feed.facts))
       drain(chatId)
+    }
+  })
+  entityStore.subscribe((s, prev) => {
+    if (s.byKind.chat === prev.byKind.chat) return
+    for (const chatId of Object.keys(chatStore.getState().outbox)) {
+      if (s.byKind.chat[chatId] !== prev.byKind.chat[chatId]) drain(chatId)
     }
   })
 }

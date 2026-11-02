@@ -10,10 +10,10 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repoWithOwnPath: Repo = {
   id: 'r1',
@@ -26,7 +26,7 @@ const repoWithOwnPath: Repo = {
 }
 
 beforeEach(() => {
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
   resetWindowPaneStoreForTests()
 })
 
@@ -47,7 +47,7 @@ afterEach(() => {
  */
 describe('useIdeShellWorkspaceRetention — project-home chat, before it resolves via a pane', () => {
   it("resolves sidebarWorkspacePath to the home workspace's REAL path, not the empty state", () => {
-    useSidebarStore.getState().setRepos([repoWithOwnPath])
+    seedRepos([repoWithOwnPath])
     const { paneActions } = windowPaneStore.getState()
     // A freshly opened project-home chat: no workspace store has it yet, and
     // it is not (and never is) present in any repo's own `chats` array, so
@@ -75,7 +75,7 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
   })
 
   it("still falls back to a project repo's path when the real home path is not known yet", () => {
-    useSidebarStore.getState().setRepos([repoWithOwnPath])
+    seedRepos([repoWithOwnPath])
     const { paneActions } = windowPaneStore.getState()
     paneActions.openChat('home-chat-1')
 
@@ -121,7 +121,7 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
  */
 describe('useIdeShellWorkspaceRetention — home route with a split pane focused on a branch workspace', () => {
   it('resolves to the focused pane workspace, not home, when the active pane holds a branch-workspace chat', () => {
-    useSidebarStore.getState().setRepos([
+    seedRepos([
       {
         id: 'r2',
         projectId: 'p1',
@@ -161,7 +161,7 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
   })
 
   it('falls back to the home workspace when the active pane is the chatless stage (no branch pane focused)', () => {
-    useSidebarStore.getState().setRepos([repoWithOwnPath])
+    seedRepos([repoWithOwnPath])
     // No `openChat` call: the active pane is the chatless stage/tray, so
     // `activePaneWorkspaceId` resolves to null.
 
@@ -203,7 +203,7 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
   })
 
   it("resolves sidebarWorkspacePath to the home workspace's own path even though isHomeRoute is false", () => {
-    useSidebarStore.getState().setRepos([repoWithOwnPath])
+    seedRepos([repoWithOwnPath])
     const { paneActions } = windowPaneStore.getState()
     // The active pane's chat resolving to the home workspace via the
     // REGISTRY (not the sidebar hint, which can't name a home chat — see the

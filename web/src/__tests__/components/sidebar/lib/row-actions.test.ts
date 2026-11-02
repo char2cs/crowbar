@@ -4,9 +4,6 @@ import {
   performSetWorkspaceLock,
   performCreateFolder,
 } from '@/components/sidebar/lib/row-actions'
-import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { toast } from '@/features/window/stores/toast-store'
 import { resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import * as api from '@/lib/api'
@@ -21,6 +18,8 @@ import {
   UNWORDED,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
@@ -69,26 +68,22 @@ describe('row-actions', () => {
     vi.clearAllMocks()
     // A working flag left in the ChatStore would refuse a later promote case.
     resetChatStore()
-    useHomeTreeStore.setState({ trees: {} })
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-home',
-          defaultBranch: 'main',
-          defaultWorking: false,
-          workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
-          folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
-          chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'Fix the parser', order: 0 }],
-        },
-      ],
-    })
-    useFolderSignalStore.setState({ generations: {} })
+    resetEntities()
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main',
+        defaultWorking: false,
+        workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
+        folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
+        chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'Fix the parser', order: 0 }],
+      },
+    ])
   })
 
   it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
@@ -109,7 +104,7 @@ describe('row-actions', () => {
   // or the rename would never show up anywhere.
   it('renaming a folder applies the response to the sidebar store', async () => {
     await performRenameRow('folder-1', 'Fixes')
-    expect(useSidebarStore.getState().repos[0].folders).toEqual([
+    expect(readSelect(selectRepos)[0].folders).toEqual([
       { id: 'folder-1', repoId: 'repo-1', parentId: undefined, name: 'Fixes', order: 0 },
     ])
   })
@@ -141,19 +136,9 @@ describe('row-actions', () => {
     expect(sidebarPlacement.placeFolder).not.toHaveBeenCalled()
   })
 
-  // The sidebar's copy of a chat row is rebuilt from the `crowbar_chats` cache,
-  // and only a reseed writes that. Without the bump the acting user waits on a
-  // `title_set` frame — which only arrives if a workspace of this repo is
-  // mounted — to see the name they just typed.
-  it('renaming a chat bumps its repo’s tree signal so the row actually reseeds', async () => {
-    await performRenameRow('chat-1', 'Parser rewrite')
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
-  })
-
   it('renaming a chat to its current title is a no-op', async () => {
     await performRenameRow('chat-1', 'Fix the parser')
     expect(agentApi.renameChat).not.toHaveBeenCalled()
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
   })
 
   // The rename dialog seeds its input from the row's LABEL
@@ -163,39 +148,34 @@ describe('row-actions', () => {
   // does, or a blank chat's title gets permanently locked to "Untitled chat"
   // and the agent's own auto-title is rejected forever after.
   it('submitting an untitled chat’s placeholder label unedited is a no-op', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...useSidebarStore.getState().repos[0],
-          chats: [{ id: 'chat-1', repoId: 'repo-1', title: '', order: 0 }],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...readSelect(selectRepos)[0],
+        chats: [{ id: 'chat-1', repoId: 'repo-1', title: '', order: 0 }],
+      },
+    ])
     await performRenameRow('chat-1', 'Untitled chat')
     expect(agentApi.renameChat).not.toHaveBeenCalled()
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
   })
 
   // The URL is repo-scoped (Task 17), so any of the REPO's own recorded
   // workspaces builds it — but never the chat's own `workspaceId`, which spec
   // §9.2 allows to name a workspace in a different repo entirely.
   it('builds the repo-scoped URL from the repo’s own workspace, not the chat’s', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...useSidebarStore.getState().repos[0],
-          chats: [
-            {
-              id: 'chat-1',
-              repoId: 'repo-1',
-              title: 'Fix the parser',
-              order: 0,
-              workspaceId: 'ws-in-another-repo',
-            },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...readSelect(selectRepos)[0],
+        chats: [
+          {
+            id: 'chat-1',
+            repoId: 'repo-1',
+            title: 'Fix the parser',
+            order: 0,
+            workspaceId: 'ws-in-another-repo',
+          },
+        ],
+      },
+    ])
     await performRenameRow('chat-1', 'Parser rewrite')
     expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'chat-1', 'Parser rewrite')
   })
@@ -205,28 +185,11 @@ describe('row-actions', () => {
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', true)
   })
 
-  // A lock is the one mutation that CHANGES WHAT A ROW IS: the daemon mints the
-  // workspace's `branch` row synchronously inside the lock call
-  // (`workspace.go`'s reconcileOwningChat, "so the row exists before the caller
-  // is told the lock succeeded"), and from that instant `deriveRows`
-  // identifies the row by that chat. The client only hears about the lock
-  // through `applyWorkspaceDTO`, which writes `status` and nothing else — so
-  // without a reseed the store holds `status: 'locked'` for a workspace whose
-  // `repo.chats` has never seen its branch row, and `deriveRows` THROWS in
-  // render ("workspace <id> owns no branch row"). Nothing wraps
-  // `SidebarTreeSurface` in an ErrorBoundary, so that throw takes the whole
-  // sidebar down with no recovery UI.
-  it('locking a workspace bumps its repo’s tree signal so the new branch row is actually read', async () => {
-    await performSetWorkspaceLock('ws-1', true)
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
-  })
-
-  it('a refused lock reports the daemon’s reason and bumps nothing', async () => {
+  it('a refused lock reports the daemon’s reason', async () => {
     const toasts = watchToasts()
     vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(refusal('branch is protected'))
     await expect(performSetWorkspaceLock('ws-1', true)).resolves.toBeUndefined()
     expectReported(toasts, 'Failed to update lock', 'branch is protected')
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
     vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(UNWORDED)
     await performSetWorkspaceLock('ws-1', true)
     expect(toasts).toHaveBeenLastCalledWith(expect.objectContaining({ description: undefined }))
@@ -249,7 +212,7 @@ describe('row-actions', () => {
     )
     // Applied straight to the store — no dedicated push channel exists for
     // folders any more (Task 34), so this response is the only confirmation.
-    expect(useSidebarStore.getState().repos[0].folders?.map((f) => f.id)).toContain('folder-new')
+    expect(readSelect(selectRepos)[0].folders?.map((f) => f.id)).toContain('folder-new')
   })
 
   it('creating a folder under the project-home row roots it at the repo instead', async () => {
@@ -273,56 +236,53 @@ describe('row-actions', () => {
  */
 describe('performRenameRow — a branch row is not a chat', () => {
   beforeEach(() => {
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-home',
-          defaultBranch: 'main',
-          workspaces: [
-            {
-              id: 'ws-locked',
-              branch: 'develop',
-              age: '',
-              status: 'locked',
-              owningChatId: 'locked-row',
-            },
-            { id: 'ws-1', branch: 'feature-x', age: '', owningChatId: 'ws-1-row' },
-          ],
-          chats: [
-            {
-              id: 'home-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-home',
-              title: '',
-              order: 0,
-            },
-            {
-              id: 'locked-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-locked',
-              title: '',
-              order: 1,
-            },
-            {
-              id: 'ws-1-row',
-              repoId: 'repo-1',
-              type: 'chat',
-              workspaceId: 'ws-1',
-              title: 'Fix the parser',
-              order: 2,
-            },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main',
+        workspaces: [
+          {
+            id: 'ws-locked',
+            branch: 'develop',
+            age: '',
+            status: 'locked',
+            owningChatId: 'locked-row',
+          },
+          { id: 'ws-1', branch: 'feature-x', age: '', owningChatId: 'ws-1-row' },
+        ],
+        chats: [
+          {
+            id: 'home-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-home',
+            title: '',
+            order: 0,
+          },
+          {
+            id: 'locked-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-locked',
+            title: '',
+            order: 1,
+          },
+          {
+            id: 'ws-1-row',
+            repoId: 'repo-1',
+            type: 'chat',
+            workspaceId: 'ws-1',
+            title: 'Fix the parser',
+            order: 2,
+          },
+        ],
+      },
+    ])
   })
 
   it('renaming the repo-home row still renames the REPO', async () => {
@@ -364,43 +324,39 @@ describe('performRenameRow — a branch row is not a chat', () => {
 describe('a branch row addressed by its owning chat id — lock and create-folder', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-home',
-          defaultBranch: 'main',
-          workspaces: [
-            { id: 'ws-1', branch: 'develop', age: '', status: 'locked', owningChatId: 'ws-1-row' },
-          ],
-          folders: [],
-          chats: [
-            {
-              id: 'home-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-home',
-              title: '',
-              order: 0,
-            },
-            {
-              id: 'ws-1-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-1',
-              title: '',
-              order: 1,
-            },
-          ],
-        },
-      ],
-    })
-    useFolderSignalStore.setState({ generations: {} })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main',
+        workspaces: [
+          { id: 'ws-1', branch: 'develop', age: '', status: 'locked', owningChatId: 'ws-1-row' },
+        ],
+        folders: [],
+        chats: [
+          {
+            id: 'home-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-home',
+            title: '',
+            order: 0,
+          },
+          {
+            id: 'ws-1-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-1',
+            title: '',
+            order: 1,
+          },
+        ],
+      },
+    ])
   })
 
   it('unlocking a locked branch row calls setWorkspaceLock for the WORKSPACE it owns', async () => {
@@ -448,24 +404,20 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
 describe('performRenameRow — a project-home row', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useSidebarStore.setState({ ...getInitialState(), repos: [] })
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [
-            {
-              id: 'home-branch-chat',
-              repoId: '',
-              ownsWorktree: true,
-              workspaceId: 'home-ws-1',
-              title: '',
-              order: 0,
-            },
-            { id: 'home-chat-1', repoId: '', title: 'Old title', order: 1 },
-          ],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'Old name', order: 0 }],
+    seedRepos([])
+    seedHomeTree('proj-1', {
+      chats: [
+        {
+          id: 'home-branch-chat',
+          repoId: '',
+          ownsWorktree: true,
+          workspaceId: 'home-ws-1',
+          title: '',
+          order: 0,
         },
-      },
+        { id: 'home-chat-1', repoId: '', title: 'Old title', order: 1 },
+      ],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Old name', order: 0 }],
     })
   })
 

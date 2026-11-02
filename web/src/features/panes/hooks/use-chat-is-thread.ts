@@ -1,6 +1,6 @@
 import { selectHomeTrees, selectRepos, useSelect } from '@/core/entities/select'
 import type { Chat, Repo } from '@/core/entities/repo-types'
-import type { HomeTree } from '@/lib/store/home-tree'
+import type { HomeTree } from '@/core/entities/home-rows'
 
 /**
  * Whether the sidebar tree POSITIVELY names `chatId` as a thread — a chat row
@@ -22,10 +22,9 @@ import type { HomeTree } from '@/lib/store/home-tree'
  * while the daemon catches up.
  *
  * A project-home chat is a different, PERMANENT case, not a loading gap: it
- * rides no repo at all (`home-tree.ts`'s own doc), so it structurally can
- * never own a worktree — there is no "not yet" to wait out. Any chat found in
- * `homeTrees` (the per-project home map, entirely separate from
- * `repos`) therefore answers `true` unconditionally, the moment it is found,
+ * rides no repo at all, so it structurally can never own a worktree — there
+ * is no "not yet" to wait out. Any chat found in `homeTrees` (the per-project
+ * home map, entirely separate from `repos`) therefore answers `true` unconditionally, the moment it is found,
  * rather than falling through to the `repos`-only loading default.
  */
 export function chatIsThreadIn(
@@ -43,7 +42,7 @@ export function chatIsThreadIn(
 
 /**
  * `chatId` among any project's home chats. Mirrors `resolveHomeRowScope`'s own
- * `Object.keys(trees)` scan (home-tree.ts) rather than importing it directly:
+ * `Object.keys(trees)` scan (home-rows.ts) rather than importing it directly:
  * that resolver also matches folders, returns a `{ kind, projectId,
  * homeWorkspaceId }` shape this call site has no use for, and fails closed
  * (returns `null`) when `getHomeWorkspaceId` can't resolve — a strictness this

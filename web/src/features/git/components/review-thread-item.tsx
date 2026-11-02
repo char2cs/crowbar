@@ -94,7 +94,7 @@ function MessageRow({
   onSubmitEdit: (body: string) => void
   onCancelEdit: () => void
 }) {
-  const agent = useAgentAttribution(wsId, message)
+  const agent = useAgentAttribution(message)
   const display = resolveAuthorDisplay(message, currentIdentity, agent)
   // Show the menu only when at least one management action (Edit or Delete) is
   // available for this message; Copy-as-Markdown then rides along inside it.

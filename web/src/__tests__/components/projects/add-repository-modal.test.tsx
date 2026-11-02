@@ -18,12 +18,10 @@ import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { inputOf } from '@/__tests__/__fixtures__/tree-rows'
-import { useProjectStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState, type Operation, type OperationItem } from '@/lib/store/operations'
+import { operationsState, type Operation, type OperationItem } from '@/core/entities/operations'
 import { toastManager } from '@/lib/toast-manager'
-import { wipeEntityCache } from '@/lib/persistence/idb'
+import { useProjectStore } from '@/core/entities/active-project'
 import type { Problem } from '@/lib/errors/problem'
 import {
   expectMigratingShown,
@@ -32,6 +30,7 @@ import {
   refusal,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 function repoDTO(over: Partial<RepoDTO> = {}): RepoDTO {
   return {
@@ -126,9 +125,8 @@ beforeEach(async () => {
     home,
   ])
   useProjectStore.setState({ activeProjectId: 'proj-1' })
-  useSidebarStore.setState({ repos: [] })
+  seedRepos([])
   resetOperations()
-  await wipeEntityCache()
 })
 
 test('Add button is disabled when the path is empty', () => {
@@ -161,16 +159,6 @@ test('adding waits on the operation, then opens the default workspace', async ()
   streamOperation(
     addOp(opId, 2, { state: 'succeeded', items: [{ ...repoItem, state: 'succeeded' }] }),
   )
-  useSidebarStore.getState().mergeRepos([
-    {
-      id: 'repo-9',
-      projectId: 'proj-1',
-      name: 'my-repo',
-      avatarLabel: 'M',
-      avatarColor: '',
-      workspaces: [],
-    },
-  ])
 
   await waitFor(() =>
     expect(navigateMock).toHaveBeenCalledWith({

@@ -1,17 +1,10 @@
 import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { DaemonEvent } from './types'
 
 type EventOf<T extends DaemonEvent['type']> = Extract<DaemonEvent, { type: T }>
 
 export function connectDaemonEvents(): () => void {
   const unlisteners: Array<() => void> = []
-
-  unlisteners.push(
-    window.__CROWBAR__.on<EventOf<'workspace:updated'>>('workspace:updated', () => {
-      void useWorkspaceListStore.getState().fetch()
-    }),
-  )
 
   unlisteners.push(
     window.__CROWBAR__.on<EventOf<'git:changed'>>('git:changed', (p) => {

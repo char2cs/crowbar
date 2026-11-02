@@ -1,11 +1,10 @@
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { readSelect, selectRepos } from '@/core/entities/select'
-import { useProjectDataStore } from '@/lib/store/projects'
+import { entityStore } from '@/core/entities/entity-store'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
-import { dataOf } from '@/lib/loadable'
 
 function projectPath(projectId: string): string | undefined {
-  return dataOf(useProjectDataStore.getState().data)?.find((p) => p.id === projectId)?.path
+  return entityStore.getState().byKind.project[projectId]?.data.path
 }
 
 /**

@@ -14,7 +14,8 @@ import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
 import { toastManager } from '@/lib/toast-manager'
-
+import { readSelect, selectAgentChat } from '@/core/entities/select'
+import { resetChatStore, setChatTerminalWait, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 let submit: MockInstance<typeof commands.submitAgentPrompt>
 let retract: MockInstance<typeof commands.retractPrompt>
 let stop: MockInstance<typeof commands.stopChat>
@@ -23,11 +24,10 @@ let detach: ReturnType<typeof vi.fn<() => void>>
 let reported: MockInstance<typeof errors.report>
 let toasts: MockInstance<typeof toastManager.add>
 let closed: MockInstance<typeof toastManager.close>
-
 const accepted = { runnerId: 'r1', terminalSessionId: 'pty1' }
 
 beforeEach(() => {
-  chatStore.setState({ feeds: {}, outbox: {}, chats: {} })
+  resetChatStore()
   submit = vi.spyOn(commands, 'submitAgentPrompt').mockResolvedValue(accepted)
   retract = vi.spyOn(commands, 'retractPrompt')
   stop = vi.spyOn(commands, 'stopChat').mockResolvedValue()
@@ -373,11 +373,11 @@ describe('chat outbox', () => {
 
   it('commits a staged pick only once the daemon took the prompt', async () => {
     seedFeed('c1', [])
-    chatStore.setState({ chats: { c1: { id: 'c1', model: 'old', effort: 'low' } as never } })
+    writeChat({ id: 'c1', model: 'old', effort: 'low' })
     sendPrompt('w1', 'c1', { text: 'go', steer: false, model: 'big', effort: '' })
     expect(submit.mock.calls[0]?.slice(4)).toEqual(['', 'big', ''])
     await flush()
-    expect(chatStore.getState().chats.c1).toMatchObject({ model: 'big', effort: '' })
+    expect(readSelect((s) => selectAgentChat(s, 'c1'))).toMatchObject({ model: 'big', effort: '' })
   })
 
   it('Retry on a refused prompt row sends it again as a new request', async () => {
@@ -478,11 +478,11 @@ describe('chat outbox', () => {
   it('holds the outbox while a terminal prompt waits on the chat', () => {
     const l = ledger('c1')
     seedFeed('c1', [l.start('turn-0'), l.end('turn-0')])
-    chatStore.setState({ chats: { c1: { id: 'c1', terminalWait: { kind: 'trust' } } as never } })
+    setChatTerminalWait('c1', { kind: 'trust' } as never)
     send('after the trust prompt')
     expect(submit).not.toHaveBeenCalled()
 
-    act(() => chatStore.setState({ chats: { c1: { id: 'c1' } as never } }))
+    act(() => setChatTerminalWait('c1', null))
     expect(submit).toHaveBeenCalledTimes(1)
   })
 

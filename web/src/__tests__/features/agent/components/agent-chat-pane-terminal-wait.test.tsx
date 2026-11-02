@@ -5,8 +5,7 @@ import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
+const { slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
   slashCatalogFn: vi.fn(),
   switchToTerminalFn: vi.fn(),
 }))
@@ -20,9 +19,7 @@ vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 import { chatPane, renderChatPane, stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
 stubPaneChrome()
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
-vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
@@ -110,7 +107,6 @@ const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
   resetChatPresentationMemoryForTests()
-  getChatFn.mockReset()
   resetChatStore()
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
@@ -121,7 +117,6 @@ beforeEach(() => {
     items: [],
     warnings: [],
   })
-  getChatFn.mockImplementation(() => Promise.resolve({ ...liveChat(), conversations: [] }))
   useTerminalStore.setState({ sessions: new Map() })
   localStorage.clear()
   setActiveWorkspaceId('w1')
@@ -413,14 +408,6 @@ describe('AgentChatPane — waiting in the terminal', () => {
 describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () => {
   it('calls switchToTerminal before showing the terminal on the automatic escort', async () => {
     const store = seedNonHotswap()
-    getChatFn.mockImplementation(() =>
-      Promise.resolve({
-        // The daemon's snapshot carries the wait it is reporting.
-        ...nonHotswapChat({ kind: 'workspace_trust' }),
-        terminalSessionId: 'term-session-1',
-        conversations: [],
-      }),
-    )
     await renderPane(store)
     expect(showing()).toBe('chat')
 
@@ -435,14 +422,6 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
 
   it("calls switchToTerminal when the wait banner's Open Terminal button is used", async () => {
     const store = seedNonHotswap()
-    getChatFn.mockImplementation(() =>
-      Promise.resolve({
-        // The daemon's snapshot carries the wait it is reporting.
-        ...nonHotswapChat({ kind: 'workspace_trust' }),
-        terminalSessionId: 'term-session-1',
-        conversations: [],
-      }),
-    )
     await renderPane(store, { isVisible: false })
     await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')

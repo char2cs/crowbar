@@ -37,25 +37,24 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo } from '@/core/entities/repo-types'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { planRemoval } from '@/components/layout/removal-plan'
-import * as api from '@/lib/api'
-import {
-  __resetHomeWorkspaceResolverForTest,
-  ensureHomeWorkspaceResolved,
-  getHomeWorkspaceId,
-} from '@/features/workspace/lib/home-workspace-resolver'
 import {
   loadPinFixture,
   outline,
   PIN_OUTLINE,
   SIDEBAR_TREE_ROWS,
 } from '@/__tests__/__fixtures__/hierarchy-pin'
-import type { Project, WorkspaceDTO } from '@/lib/types'
+import type { Project } from '@/lib/types'
+import {
+  markProjectsSynced,
+  resetEntities,
+  seedHome,
+  seedHomeTree,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 const projectA: Project = { id: 'p1', name: 'proj-a', path: '/p1', lastActivity: new Date(0) }
 const projectB: Project = { id: 'p2', name: 'proj-b', path: '/p2', lastActivity: new Date(0) }
@@ -92,36 +91,18 @@ const repo = (over: Partial<Repo> = {}): Repo => {
   }
 }
 
-/** Put repos in the store AND declare their trees read, which is the only state
- *  in which rows are drawn at all. */
-const seedRepos = (repos: Repo[]) => {
-  useSidebarStore.setState({ repos })
-  useFolderSignalStore.setState({ seededRepoIds: new Set(repos.map((r) => r.id)) })
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   // jsdom does not implement scrollTo — SpaceScroller calls it on mount to
   // align its panel.
   HTMLElement.prototype.scrollTo = vi.fn()
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
+  markProjectsSynced()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
-  useHomeTreeStore.setState({ trees: {} })
-  // GET /home: p1's home resolves, every other project's stays in flight.
-  __resetHomeWorkspaceResolverForTest()
-  vi.spyOn(api, 'fetchHomeWorkspace').mockImplementation((projectId) =>
-    projectId === 'p1'
-      ? Promise.resolve({ id: 'home-ws-1', owningChatId: '' } as WorkspaceDTO)
-      : new Promise(() => {}),
-  )
 })
 
-/** The chrome reads the home workspace id without subscribing, so it must resolve before render. */
-const homeResolved = async (projectId: string) => {
-  ensureHomeWorkspaceResolved(projectId)
-  await waitFor(() => expect(getHomeWorkspaceId(projectId)).not.toBeNull())
-}
+/** p1's home as the projects scope carries it; every other project's is not known yet. */
+const homeResolved = (projectId: string) => seedHome(projectId, 'home-ws-1')
 
 describe('SidebarTreeSurface', () => {
   it("shows each project's own repo, excluding the other project's", () => {
@@ -180,10 +161,7 @@ describe('SidebarTreeSurface', () => {
       treeUiStore
         .getState()
         .hold(
-          planRemoval(
-            [{ kind: 'workspace', id: 'ws-a', repoId: 'r1' }],
-            useSidebarStore.getState().repos,
-          ),
+          planRemoval([{ kind: 'workspace', id: 'ws-a', repoId: 'r1' }], readSelect(selectRepos)),
         )
     })
 
@@ -284,21 +262,10 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
   })
 })
 
-/**
- * `Repo.chats`'s own contract: an absent chat list means "not yet", never
- * "this repo has no chats" — the chats/folders reseed loop is independent of
- * the repo and workspace streams. A branch row's identity comes from the chat
- * that owns its workspace, so building rows during that window would hand out
- * ids that change the moment the seed lands. A row id is the React key, the
- * collapse key and the selection key: the tree would silently drop the user's
- * folds a beat after painting. So it draws nothing until the seed is in.
- */
-describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
-  it('draws no rows for a repo whose chat seed has not landed', () => {
-    useSidebarStore.setState({
-      repos: [repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' })],
-    })
-    // Deliberately NOT marked seeded.
+describe('SidebarTreeSurface — before the projects scope answers', () => {
+  it('draws a skeleton, not an empty tree, until the snapshot lands', () => {
+    seedRepos([repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' })])
+    resetEntities()
 
     render(
       <SidebarTreeSurface
@@ -308,28 +275,8 @@ describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
       />,
     )
 
+    expect(screen.getByTestId('sidebar-skeleton')).toBeInTheDocument()
     expect(screen.queryByText('repo-a')).not.toBeInTheDocument()
-  })
-
-  it('draws them once the seed lands, and only for the repo that seeded', () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' }),
-        repo({ id: 'r2', projectId: 'p1', defaultWorkspaceId: 'home-b', name: 'repo-b' }),
-      ],
-    })
-    useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('repo-a')).toBeInTheDocument()
-    expect(screen.queryByText('repo-b')).not.toBeInTheDocument()
   })
 })
 
@@ -344,24 +291,20 @@ describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
  */
 describe('SidebarTreeSurface — a project-home row is reachable by the context menu', () => {
   it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [
-            {
-              id: 'home-branch-chat',
-              repoId: '',
-              ownsWorktree: true,
-              workspaceId: 'home-ws-1',
-              title: '',
-              order: 0,
-            },
-          ],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
+    seedHomeTree('p1', {
+      chats: [
+        {
+          id: 'home-branch-chat',
+          repoId: '',
+          ownsWorktree: true,
+          workspaceId: 'home-ws-1',
+          title: '',
+          order: 0,
         },
-      },
+      ],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
     })
-    await homeResolved('p1')
+    homeResolved('p1')
 
     render(
       <SidebarTreeSurface
@@ -387,7 +330,6 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
 describe('hierarchy pin', () => {
   const renderPin = async () => {
     loadPinFixture()
-    await homeResolved('p1')
     return render(
       <SidebarTreeSurface
         projects={[projectA]}

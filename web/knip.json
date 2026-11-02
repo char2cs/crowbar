@@ -9,7 +9,6 @@
   ],
   "project": ["src/**/*.{ts,tsx,css}!", "scripts/**/*.mjs"],
   "ignoreIssues": {
-    "src/components/app-sync-provider.tsx": ["exports"],
     "src/components/editor/plugins/block-selection-kit.tsx": ["exports"],
     "src/components/editor/plugins/link-kit.tsx": ["exports"],
     "src/components/editor/transforms.ts": ["exports"],
@@ -167,14 +166,12 @@
     "src/lib/persistence/schemas.ts": ["types"],
     "src/lib/persistence/workspace-layout.ts": ["exports"],
     "src/lib/store/build-repo-tree.ts": ["exports"],
-    "src/lib/store/sidebar.ts": ["exports", "types"],
     "src/lib/toast-manager.ts": ["exports"],
     "src/lib/types.ts": ["types"],
     "src/lib/workspace-scope.ts": ["exports"],
     "src/lib/workspace/branch-workspace.ts": ["files"],
     "src/lib/ws/connection-store.ts": ["exports", "types"],
     "src/lib/ws/manager.ts": ["exports"],
-    "src/lib/ws/types.ts": ["types"],
     "src/routes/_shell/ide/$projectId/home.tsx": ["exports"],
     "src/utils/platform.ts": ["exports"],
     "src/utils/search-match.ts": ["exports"]

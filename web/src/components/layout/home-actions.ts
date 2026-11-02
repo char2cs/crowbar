@@ -3,7 +3,7 @@ import { openHomeChat, type NavigateFn } from './open-actions'
 import { startThread } from './thread-create'
 
 // Creates in a project's home: it rides no repo, so its rows live in
-// `useHomeTreeStore`; the operation's row stands in until the chat lands there.
+// the entity store; the operation's row stands in until the chat lands there.
 
 /** A thread under a project-home chat or folder; it runs in the home workspace. */
 export function startHomeRowThread(
@@ -32,7 +32,7 @@ export function startHomeRowThread(
  * chat: navigate to project home, wait for it to become the active
  * workspace, then open the chat in its own pane. `homeWorkspaceId` is the
  * caller's job to resolve (home-workspace-resolver.ts's
- * `useHomeWorkspaceState`/`ensureHomeWorkspaceResolved`) — this function
+ * `useHomeWorkspaceState`) — this function
  * only spends it.
  */
 export function handleCreateHomeThread(

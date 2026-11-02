@@ -87,17 +87,14 @@ import { deleteRepo } from '@/lib/api'
 import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
-import { idle, success } from '@/lib/loadable'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { RemovalTray } from '@/components/layout/removal-tray'
 import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
+import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 const project: Project = {
   id: 'p1',
@@ -168,7 +165,7 @@ const rows = () =>
 /** Put `subjects` in the tray, exactly as a drop on the pane would. */
 function hold(...subjects: DragSubject[]) {
   act(() => {
-    treeUiStore.getState().hold(planRemoval(subjects, useSidebarStore.getState().repos))
+    treeUiStore.getState().hold(planRemoval(subjects, readSelect(selectRepos)))
   })
 }
 
@@ -201,13 +198,11 @@ beforeEach(() => {
   // race with however long the test itself took to get there.
   vi.useFakeTimers()
   router.pathname = '/'
-  useWorkspaceListStore.setState({ data: idle() })
-  useProjectDataStore.setState({ data: success([project]) })
+  seedProjects([project])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  useSidebarStore.setState({ repos: [repo()] })
+  seedRepos([repo()])
   // Rows are only built for a repo whose tree has been read back — see
   // SidebarTreeSurface's own gate.
-  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
   // Which CHAT holds each worktree. Removing a workspace deletes that chat (the
   // DELETE cascades the worktree), so a row with no owning chat recorded cannot
   // be removed at all — the sidebar records these off WorkspaceDTO.owningChatId
@@ -460,7 +455,7 @@ describe('a ghost row during the DELETE round trip', () => {
   // The bug this pins: `settle()` drops the tray ROW (`entries`) the instant
   // the drain ends, before `deleteChat`'s promise has resolved. The
   // countdown UI is gone (`attachRemovalState` has nothing left to mark), but
-  // the row's underlying data is still sitting in `useSidebarStore` — nothing
+  // the row's underlying data is still sitting in the entity store — nothing
   // has deleted it yet. If the tree's row-building only ever consults
   // `entries` (via `renderedHiddenIds`) rather than the tray's own
   // `hiddenIds` (populated at `hold()`, cleared only at `release()`), the row
