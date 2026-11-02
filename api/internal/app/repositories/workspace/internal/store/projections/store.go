@@ -18,6 +18,7 @@ import (
 	gormdb "gorm.io/gorm"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -57,7 +58,8 @@ type Store struct {
 	// versions is each workspace's newest announced event version.
 	versions map[string]int64
 	// announce broadcasts a saved event's frame; nil until RegisterHub.
-	announce atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
+	announce   atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
+	unreadable serialize.Unreadable
 }
 
 // NewStore builds the durable read-model store over the read-model DB
@@ -190,7 +192,8 @@ func (s *Store) List(
 	for _, row := range rows {
 		ws, err := unmarshalWorkspace(row.Data)
 		if err != nil {
-			return nil, err
+			s.unreadable.Skip(ctx, "workspace", row.ID, err)
+			continue
 		}
 		result = append(result, *ws)
 	}

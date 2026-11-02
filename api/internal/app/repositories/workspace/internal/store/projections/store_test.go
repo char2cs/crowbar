@@ -233,16 +233,17 @@ func (corruptInner) FindByKey(context.Context, string) (*workspaceRow, error) {
 }
 
 func (corruptInner) FindAll(context.Context) ([]workspaceRow, error) {
-	return []workspaceRow{{ID: "w1", Data: []byte("not valid json")}}, nil
+	return []workspaceRow{{ID: "w0", Data: []byte(`{"id":"w0"}`)}, {ID: "w1", Data: []byte("not valid json")}}, nil
 }
 
-func TestStore_List_ErrorOnCorruptRow(t *testing.T) {
+func TestStore_List_SkipsACorruptRow(t *testing.T) {
 	st := &Store{inner: corruptInner{}}
 
-	_, err := st.List(context.Background())
+	got, err := st.List(t.Context())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unmarshal")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "w0", got[0].ID)
 }
 
 func TestStore_Get_ErrorOnCorruptRow(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	gormdb "gorm.io/gorm"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -52,6 +53,7 @@ type storageStore struct {
 		FindByKey(ctx context.Context, key string) (*agentChatRow, error)
 		FindAll(ctx context.Context) ([]agentChatRow, error)
 	}
+	unreadable serialize.Unreadable
 }
 
 func newStorageStore(
@@ -107,7 +109,8 @@ func (s *storageStore) FindAll(
 	for _, row := range rows {
 		chat, err := unmarshalAgentChat(row.Data)
 		if err != nil {
-			return nil, err
+			s.unreadable.Skip(ctx, "chat", row.ID, err)
+			continue
 		}
 		result = append(result, *chat)
 	}

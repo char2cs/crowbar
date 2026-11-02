@@ -59,3 +59,44 @@ func TestRegression_AnUnreadableLedgerRowBreaksOnlyItsChat(t *testing.T) {
 	require.NotNil(t, refused.Problem)
 	assert.Equal(t, problem.Unavailable, refused.Problem.Code)
 }
+
+// One chat whose read-model row will not decode leaves its own repo's list and
+// nothing else: the repo and the project home still read, with every other row.
+func TestRegression_AnUndecodableChatRowLeavesOnlyThatChat(t *testing.T) {
+	home := t.TempDir()
+	h1 := newHarnessAt(t, home)
+	writeProviderDescriptor(t, h1, "streamstub", streamStubProviderDescriptorYAML)
+	writeLiveStubProviderDescriptor(t, h1)
+	imported := importWritableWorkspace(t, h1)
+	healthy, _ := createStubChat(t, h1, imported, "streamstub")
+	broken, _ := createStubChat(t, h1, imported, "streamstub")
+	homeChat := createHomeChat(t, h1, imported.projectID)
+	h1.Quiesce()
+	h1.shutdown()
+
+	db := openSQLite(t, filepath.Join(homeAt(t, home).Store(), "agent_chat.db"))
+	corrupted := db.Exec(`UPDATE agent_chats_read SET data = ? WHERE id = ?`, []byte("{not json"), broken)
+	require.NoError(t, corrupted.Error)
+	require.Equal(t, int64(1), corrupted.RowsAffected, "precondition: the broken chat has a read row")
+	closeSQLite(t, db)
+
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	listed := map[string]bool{}
+	for _, row := range listChats(t, h2, imported.projectID, imported.repoID) {
+		listed[row.ID] = true
+	}
+	assert.True(t, listed[healthy], "the repo's list still answers with its healthy chat")
+	assert.False(t, listed[broken], "and leaves the undecodable one out")
+	c := dialStream(t, h2)
+	c.Sub(t, "projects", 0)
+	snapshot := map[string]bool{}
+	synced := c.Next(t, func(f stream.Frame) bool {
+		snapshot[f.Kind+"/"+f.ID] = f.T == stream.FrameEntity
+		return isSynced("projects")(f)
+	})
+	assert.Empty(t, synced.Unread, "no repo or home is unread over one bad row")
+	assert.True(t, snapshot["chat/"+healthy], "the healthy chat is snapshotted")
+	assert.True(t, snapshot["chat/"+homeChat], "and so is the home's chat")
+}

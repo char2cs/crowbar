@@ -100,12 +100,21 @@ func TestStorage_FindAll_InnerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "agentchat storage: find all")
 }
 
-func TestStorage_FindAll_BadData(t *testing.T) {
-	ctx := context.Background()
-	st := &storageStore{inner: &badDataInner{}}
-	_, err := st.FindAll(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "agentchat storage: unmarshal")
+func TestStorage_FindAll_SkipsARowThatWillNotRead(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := newStorageStore(db)
+	require.NoError(t, err)
+	ctx := t.Context()
+	require.NoError(t, st.Save(ctx, domain.Chat{ID: "a", WorkspaceID: "w1"}))
+	require.NoError(t, st.Save(ctx, domain.Chat{ID: "b", WorkspaceID: "w2"}))
+	require.NoError(t, db.Exec("UPDATE agent_chats_read SET data = ? WHERE id = ?", []byte("{not json"), "a").Error)
+
+	all, err := st.FindAll(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, "b", all[0].ID)
 }
 
 func TestStorage_Save_InnerError(t *testing.T) {
