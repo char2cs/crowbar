@@ -798,7 +798,7 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	now := time.Unix(1000, 0).UTC()
 
 	var frames atomic.Int32
-	_, err := workspace.RegisterHubProjection(repo,
+	err := workspace.RegisterHubProjection(repo,
 		func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
 		func(domain.Workspace) { frames.Add(1) },
 	)
@@ -883,7 +883,7 @@ func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
 		_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 		require.NoError(t, err)
 		release := make(chan struct{})
-		_, err = workspace.RegisterHubProjection(repo, func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
+		err = workspace.RegisterHubProjection(repo, func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
 			func(ws domain.Workspace) {
 				if ws.Added == 3 {
 					<-release

@@ -39,19 +39,14 @@ func Subscriber(
 // RegisterHubProjection registers the hub (WS fan-out) projection on repo's
 // axWorkspace: each event's frame is built from evt.Aggregate, enriched with the
 // container's overlays, broadcast, and its tombstone reported to the read model.
-// It answers each workspace's newest announced version, which a frame carries.
 func RegisterHubProjection[F any](
 	repo Workspace,
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
-) (func(id string) int64, error) {
+) error {
 	w, ok := repo.(*workspace)
 	if !ok {
-		return nil, fmt.Errorf("workspace: hub projection needs the concrete repository")
+		return fmt.Errorf("workspace: hub projection needs the concrete repository")
 	}
-	version, err := store.RegisterHub(w.readModel, enrich, broadcast)
-	if err != nil {
-		return nil, fmt.Errorf("workspace: hub projection: %w", err)
-	}
-	return version, nil
+	return store.RegisterHub(w.readModel, enrich, broadcast)
 }

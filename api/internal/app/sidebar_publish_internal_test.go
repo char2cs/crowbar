@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,4 +121,27 @@ func TestSidebarPublish_ADeletedRowIsGone(t *testing.T) {
 		assert.Equal(t, want.kind, f.Kind)
 		assert.Equal(t, want.id, f.ID)
 	}
+}
+
+// A workspace row read before one already sent is dropped, and no row read
+// before its tombstone brings it back.
+func TestSidebarPublish_AStaleWorkspaceRowNeverOverwrites(t *testing.T) {
+	late, out := holdProjects(t)
+
+	late.workspace(dto.WorkspaceDTO{ID: "w1", FolderID: "f2"}, 5)
+	late.workspace(dto.WorkspaceDTO{ID: "w1", FolderID: "f1"}, 4)
+	late.workspace(dto.WorkspaceDTO{ID: "w1", Status: domain.WorkspaceStatusDeleted}, 6)
+	late.workspace(dto.WorkspaceDTO{ID: "w1", FolderID: "f2"}, 6)
+	late.workspace(dto.WorkspaceDTO{ID: "w2"}, 1)
+
+	var got []string
+	for range 3 {
+		f := <-out
+		var row dto.WorkspaceDTO
+		if !f.Gone {
+			require.NoError(t, json.Unmarshal(f.Data, &row))
+		}
+		got = append(got, fmt.Sprintf("%s:%s:%t", f.ID, row.FolderID, f.Gone))
+	}
+	assert.Equal(t, []string{"w1:f2:false", "w1::true", "w2::false"}, got)
 }

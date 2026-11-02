@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -37,11 +38,11 @@ type Container struct {
 	// ChatBlobs holds the tool payloads the ledger's rows name.
 	ChatBlobs *ledgerstore.Blobs
 	// publishWorkspace sends a workspace's enriched row to the projects scope at
-	// rev, the newest workspace event version the row was read at or after.
+	// rev, taken before the row was read (see nextRev).
 	publishWorkspace func(w dto.WorkspaceDTO, rev int64)
-	// workspaceVersion is a workspace's newest announced event version.
-	workspaceVersion func(id string) int64
-	git              wsusecase.MergeConflictBatchChecker
+	// revs is the last rev a workspace row was read at.
+	revs atomic.Int64
+	git  wsusecase.MergeConflictBatchChecker
 	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
 	// CLIs on it, its conversation record and telemetry, its conversation history
 	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
@@ -112,10 +113,9 @@ func New(
 	c.Workspace = ws
 	// Every event-driven workspace row goes through the SAME enrichFrame as the
 	// agent-turn republishes, so its Working and merge fields agree with them.
-	c.workspaceVersion, err = workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, func(w dto.WorkspaceDTO) {
-		c.publishWorkspace(w, c.workspaceVersion(w.ID))
-	})
-	if err != nil {
+	if err := workspace.RegisterHubProjection(c.Workspace, c.revFrame, func(f revFrame) {
+		c.publishWorkspace(f.row, f.rev)
+	}); err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
 	// reviewthread owns its own central per-type read model at

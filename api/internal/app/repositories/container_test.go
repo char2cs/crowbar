@@ -91,8 +91,17 @@ func newRepos(
 	h *captureHub,
 ) (*repositories.Container, error) {
 	t.Helper()
-	a := newAggregates(t, ad)
-	return repositories.New(context.Background(), ad, a.rm, h.publish, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
+	return newReposPublishing(t, ad, newAggregates(t, ad), h.publish)
+}
+
+func newReposPublishing(
+	t *testing.T,
+	ad *adapter.Container,
+	a aggregates,
+	publish func(dto.WorkspaceDTO, int64),
+) (*repositories.Container, error) {
+	t.Helper()
+	return repositories.New(context.Background(), ad, a.rm, publish, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
 // noChatWatch is the announcement seam for tests that assert nothing about chat frames.
@@ -171,9 +180,8 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// A created workspace is projected and published; each row goes out at the
-// version of the newest event it was read at or after, so the hub drops a
-// republish an event's frame overtook.
+// A created workspace is projected and published; each row goes out at a rev
+// above every row read before it, so the hub drops a read another overtook.
 func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
@@ -194,7 +202,7 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	assert.Equal(t, "w1", list[0].ID)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	assert.Equal(t, []int64{1, 2, 2}, h.revs)
+	assert.Equal(t, []int64{1, 2, 3}, h.revs)
 }
 
 // TestBroadcastWorkspace_WorkingFalse pins the idle baseline of the working

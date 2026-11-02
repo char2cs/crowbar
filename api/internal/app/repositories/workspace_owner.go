@@ -7,6 +7,7 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
@@ -82,10 +83,8 @@ func (c *Container) ownerForgotten(ctx context.Context, chat domain.Chat) {
 }
 
 // republishHearing is Republish with heard folded over the workspace's chats.
-// The row goes out at the version announced before it was read, so a read that
-// a newer event's frame overtook, or the tombstone's, is dropped as stale.
 func (c *Container) republishHearing(ctx context.Context, wsID string, heard *heardChat) {
-	rev := max(c.workspaceVersion(wsID), 1)
+	rev := c.nextRev()
 	ws, err := c.Workspace.Get(ctx, wsID)
 	if err != nil {
 		if !errors.Is(err, problem.ErrNotFound) {
@@ -94,4 +93,22 @@ func (c *Container) republishHearing(ctx context.Context, wsID string, heard *he
 		return
 	}
 	c.publishWorkspace(c.enrichFrameHearing(ctx, ws, heard), rev)
+}
+
+// revFrame is a workspace event's row and the rev taken before it was read.
+type revFrame struct {
+	row dto.WorkspaceDTO
+	rev int64
+}
+
+func (c *Container) revFrame(ctx context.Context, ws domain.Workspace) revFrame {
+	rev := c.nextRev()
+	return revFrame{row: c.enrichFrame(ctx, ws), rev: rev}
+}
+
+// nextRev is a rev above every row read before it. Each workspace row, an
+// event's or a republish's, is read after taking one, so a read that a later
+// one overtook carries the lower rev and the hub drops it.
+func (c *Container) nextRev() int64 {
+	return c.revs.Add(1)
 }
