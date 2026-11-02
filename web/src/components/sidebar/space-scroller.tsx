@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
 import { RecentsBand } from './recents-band'
+import { UnreadNotice } from './unread-notice'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
@@ -147,6 +148,7 @@ function SpacePanel({
       <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} projectId={project.id} />
       <ScrollArea className="flex-1">
         <div ref={contentRef} data-testid="space-scroll-content">
+          <UnreadNotice projectId={projectId} />
           {!folded && (
             <SidebarTree
               rows={rows}
