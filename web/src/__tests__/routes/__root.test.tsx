@@ -11,11 +11,6 @@ import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { OobeScreen } from '@/components/oobe/oobe-screen'
 import { ApiError } from '@/lib/errors/api-error'
 
-// The sync engine needs a daemon; the root's halt handling does not.
-vi.mock('@/components/app-sync-provider', () => ({
-  AppSyncProvider: ({ children }: { children: React.ReactNode }) => children,
-}))
-
 const postProject = vi.fn()
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),

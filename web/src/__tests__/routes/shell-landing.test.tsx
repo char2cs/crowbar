@@ -97,6 +97,18 @@ describe('the landing', () => {
     expect(await screen.findByText('project home proj-1')).toBeTruthy()
   })
 
+  // Projects imported without a reorder all sit at order 0, so the id decides, as on REST.
+  it('with no saved selection, enters the project the sidebar draws first', async () => {
+    renderLanding()
+    act(() =>
+      seedProjects([
+        projectDTO({ id: 'b-first-made', order: 0 }),
+        projectDTO({ id: 'a-later', order: 0 }),
+      ]),
+    )
+    expect(await screen.findByText('project home a-later')).toBeTruthy()
+  })
+
   it('opens the first-run screen when the daemon has no projects', async () => {
     renderLanding()
     act(() => seedProjects([]))
