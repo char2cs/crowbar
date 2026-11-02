@@ -135,6 +135,7 @@ type ToastOptions = Parameters<ToastManager['add']>[0]
 // failure, a route without the shell) would be lost, so it waits for the next one.
 function heldUntilShown(manager: ToastManager): ToastManager {
   const held = new Map<string, ToastOptions>()
+  const heldPromises: (() => void)[] = []
   let listening = 0
   return {
     ...manager,
@@ -143,6 +144,7 @@ function heldUntilShown(manager: ToastManager): ToastManager {
       listening++
       for (const options of held.values()) manager.add(options)
       held.clear()
+      for (const replay of heldPromises.splice(0)) replay()
       return () => {
         listening--
         stop()
@@ -158,6 +160,11 @@ function heldUntilShown(manager: ToastManager): ToastManager {
       if (id === undefined) held.clear()
       else held.delete(id)
       manager.close(id)
+    },
+    promise(value, options) {
+      if (listening > 0) return manager.promise(value, options)
+      heldPromises.push(() => void manager.promise(value, options))
+      return value
     },
     update(id, updates) {
       const options = held.get(id)

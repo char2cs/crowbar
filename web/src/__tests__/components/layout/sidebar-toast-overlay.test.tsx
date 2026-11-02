@@ -108,6 +108,19 @@ describe('SidebarToastOverlay mounting after a report', () => {
     expect(screen.getByText('state file is unreadable')).toBeInTheDocument()
   })
 
+  it('shows a promise toast started before any viewport was mounted, and its outcome', async () => {
+    let finish!: () => void
+    const saving = new Promise<void>((resolve) => (finish = resolve))
+    void toastManager.promise(saving, { loading: 'Saving', success: 'Saved', error: 'Not saved' })
+
+    render(<SidebarToastOverlay sidebarOpen sidebarSide="left" />)
+    expect(screen.getByText('Saving')).toBeInTheDocument()
+    await act(async () => finish())
+
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    act(() => toastManager.close())
+  })
+
   it('does not show a held toast that was closed before the mount', () => {
     act(() => toastManager.close(toastManager.add({ title: 'superseded', type: 'info' })))
 

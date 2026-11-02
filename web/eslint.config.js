@@ -160,6 +160,7 @@ export default tseslint.config(
         },
         {
           // A thrown value's own text skips report(): a migrating refusal becomes a toast.
+          // A heuristic: it misses `${err}`, a message a helper returns, other names.
           selector:
             "CallExpression[callee.object.name=/^(toast|toastManager)$/] :matches(ConditionalExpression[test.operator='instanceof'][test.right.name='Error'], MemberExpression[object.name=/^(e|err|error)$/][property.name='message'], CallExpression[callee.name='String'][arguments.0.name=/^(e|err|error)$/])",
           message: "A toast of a thrown value's text skips report(): report(err, { action }) it.",
