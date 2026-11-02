@@ -15,7 +15,8 @@ import (
 type ChatMoved func(ctx context.Context, chatID string, p tree.Placement, kind string)
 
 // NodeMoved hears a chat or workspace row whose position Node a Tree write
-// changed or minted; a chat the Tree places by its own record is ChatMoved's.
+// changed or minted. A chat with a Node is drawn where its Node is, so its
+// own record's moves are not heard.
 type NodeMoved func(ctx context.Context, n tree.Node)
 
 // FolderChanged hears a folder a Tree write created, renamed, moved or (gone)
@@ -49,6 +50,9 @@ func announce(
 	chatMoved ChatMoved,
 ) {
 	for id, p := range after.Chats {
+		if _, drawn := after.Nodes[id]; drawn {
+			continue
+		}
 		was, ok := before.Chats[id]
 		switch {
 		case !ok || was.ParentID != p.ParentID:
@@ -64,7 +68,7 @@ func announceNodes(ctx context.Context, before, after tree.Tree, moved NodeMoved
 		if n.Kind != tree.KindChat && n.Kind != tree.KindWorkspace {
 			continue
 		}
-		if _, own := after.Chats[id]; own || before.Nodes[id] == n {
+		if before.Nodes[id] == n {
 			continue
 		}
 		moved(ctx, n)

@@ -91,7 +91,7 @@ func TestAnnounce_AMoveReemitsTheChatFrame(t *testing.T) {
 }
 
 // A row the panel reads from its position Node is heard when that Node moves;
-// a chat placed by its own record is heard as that record alone.
+// a chat with a Node is heard through it, never through its own record.
 func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
 	ctx := context.Background()
 	ax := openTree(t, t.TempDir())
@@ -111,9 +111,13 @@ func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
 
 	_, err = repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-1"})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"c-q@f-1:placement_set"}, h.take(), "a chat with no Node is drawn by its own record")
 	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-q", Kind: tree.KindChat, ParentID: "f-2"})
 	require.NoError(t, err)
-	assert.Empty(t, h.takeNodes(), "a chat placed by its own record")
+	_, err = repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-3"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"chat:c-q@f-2"}, h.takeNodes())
+	assert.Empty(t, h.take(), "its own record no longer says where it is drawn")
 }
 
 func TestAnnounce_AFolderChangeIsHeardAtItsVersion(t *testing.T) {
