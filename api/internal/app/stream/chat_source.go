@@ -15,12 +15,23 @@ type Feeds interface {
 	OpenFeed(ctx context.Context, chatID string, since int64) (<-chan agentusecase.FeedFrame, error)
 }
 
-// ChatSource serves the chat scope: the chat's ledger after since, then what
-// it records next. Wire it as Following.
-type ChatSource struct{ feeds Feeds }
+// Telemetries answers a chat's newest usage report a client may show.
+type Telemetries interface {
+	TelemetryOf(ctx context.Context, chatID string) (any, bool)
+}
+
+// ChatSource serves the chat scope: the chat's usage report, its ledger after
+// since, then what it records next. Wire it as Following.
+type ChatSource struct {
+	feeds     Feeds
+	telemetry Telemetries
+	encode    Encoder
+}
 
 // NewChatSource builds the chat scope's source over feeds.
-func NewChatSource(feeds Feeds) *ChatSource { return &ChatSource{feeds: feeds} }
+func NewChatSource(feeds Feeds, telemetry Telemetries, encode Encoder) *ChatSource {
+	return &ChatSource{feeds: feeds, telemetry: telemetry, encode: encode}
+}
 
 // Attach follows chatID's feed until it ends or ctx does. An unknown chat is
 // not found and an unreadable one unavailable, each in words for the client.
@@ -33,6 +44,7 @@ func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emi
 	if err != nil {
 		return unreadable(ctx, chatID, err)
 	}
+	s.emitTelemetry(ctx, chatID, emit)
 	for f := range frames {
 		if f.Type == agentusecase.FeedFailed {
 			return unreadable(ctx, chatID, errors.New("its feed failed"))
@@ -40,6 +52,20 @@ func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emi
 		emit(chatFrame(f))
 	}
 	return nil
+}
+
+// emitTelemetry emits the chat's report, when it has one to show.
+func (s *ChatSource) emitTelemetry(ctx context.Context, chatID string, emit func(stream.Frame)) {
+	report, ok := s.telemetry.TelemetryOf(ctx, chatID)
+	if !ok {
+		return
+	}
+	data, err := s.encode(stream.KindTelemetry, report)
+	if err != nil {
+		slog.ErrorContext(ctx, "stream: encode a chat's telemetry", "chat_id", chatID, "err", err)
+		return
+	}
+	emit(stream.Frame{T: stream.FrameEntity, Kind: string(stream.KindTelemetry), ID: chatID, Data: data})
 }
 
 // unreadable refuses a chat whose ledger cannot be read: asking again at once

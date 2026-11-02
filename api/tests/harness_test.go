@@ -84,7 +84,7 @@ func newHarnessAt(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity)
+	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
 	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{})

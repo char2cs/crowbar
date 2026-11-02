@@ -213,7 +213,7 @@ func (s *stack) open(
 	if err != nil {
 		return fmt.Errorf("internal: adapter: %w", err)
 	}
-	s.app, err = app.New(ctx, s.engines, s.adapter, post, v0.EncodeEntity)
+	s.app, err = app.New(ctx, s.engines, s.adapter, post, v0.EncodeEntity, v0.NewSidebar)
 	if err != nil {
 		return fmt.Errorf("internal: app: %w", err)
 	}

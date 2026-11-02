@@ -27,7 +27,7 @@ func newSweepContainer(
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(eng.Close)
-	c, err := New(context.Background(), eng, adapters, migratetest.NoPostOpen(), encodeJSON)
+	c, err := New(context.Background(), eng, adapters, migratetest.NoPostOpen(), encodeJSON, noSidebar)
 	require.NoError(t, err)
 	return c
 }

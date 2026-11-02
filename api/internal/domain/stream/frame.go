@@ -16,6 +16,15 @@ const (
 	KindOperation EntityKind = "operation"
 	// KindReviewThread is one review thread of a workspace.
 	KindReviewThread EntityKind = "review_thread"
+	// The sidebar's entities, each on the projects scope.
+	KindProject   EntityKind = "project"
+	KindRepo      EntityKind = "repo"
+	KindWorkspace EntityKind = "workspace"
+	// KindChatEntity is named apart from the chat scope kind.
+	KindChatEntity EntityKind = "chat"
+	KindFolder     EntityKind = "folder"
+	// KindTelemetry is a chat's newest usage report, on its chat scope.
+	KindTelemetry EntityKind = "telemetry"
 )
 
 // Frame types, the value of Frame.T.

@@ -95,8 +95,16 @@ func (h *Handlers) folderDTOList(
 	ctx *gin.Context,
 	rows []domain.Chat,
 ) []dto.AgentChatDTO {
-	worktreeFn := h.repoWorktrees(
-		ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"), rows)
+	return h.foldersIn(ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"), rows)
+}
+
+func (h *Handlers) foldersIn(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+	rows []domain.Chat,
+) []dto.AgentChatDTO {
+	worktreeFn := h.repoWorktrees(ctx, projectID, repoID, rows)
 	out := dto.AgentChatDTOList(rows, nil, worktreeFn)
 	slices.SortFunc(out, compareFolderDTOs)
 	return out
@@ -112,20 +120,21 @@ func compareFolderDTOs(
 	return strings.Compare(a.ID, b.ID)
 }
 
+// listFolders is a repo's folders, or with no repo the home workspace's.
+func (h *Handlers) listFolders(ctx context.Context, repoID, homeID string) ([]domain.Chat, error) {
+	if repoID == "" {
+		return h.folders.ListInHome(ctx, homeID)
+	}
+	return h.folders.ListInRepo(ctx, repoID)
+}
+
 // ListFolders handles GET .../chats/folders, returning the repo's folders in
 // panel order. It is the read a reconnect reseeds from: the Chats socket
 // carries no snapshot, so this list is the only full answer there is.
 func (h *Handlers) ListFolders(
 	ctx *gin.Context,
 ) {
-	repoID := ctx.Param("repoId")
-	var rows []domain.Chat
-	var err error
-	if repoID == "" {
-		rows, err = h.folders.ListInHome(ctx.Request.Context(), ctx.Param("wsId"))
-	} else {
-		rows, err = h.folders.ListInRepo(ctx.Request.Context(), repoID)
-	}
+	rows, err := h.listFolders(ctx.Request.Context(), ctx.Param("repoId"), ctx.Param("wsId"))
 	if err != nil {
 		libs.Fail(ctx, err)
 		return

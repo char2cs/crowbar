@@ -88,7 +88,7 @@ func newAppAndEngine(
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
-	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), EncodeEntity)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), EncodeEntity, NewSidebar)
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 	return a, eng

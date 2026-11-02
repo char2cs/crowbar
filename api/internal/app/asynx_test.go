@@ -17,6 +17,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
@@ -26,6 +27,12 @@ import (
 
 // encodeJSON stands in for the API layer's encoder, which this package cannot import.
 func encodeJSON(_ domainstream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
+
+type emptySidebar struct{}
+
+func (emptySidebar) Entities(context.Context) ([]stream.Entity, error) { return nil, nil }
+
+func noSidebar(*Container) stream.Sidebar { return emptySidebar{} }
 
 func ignoreParked[T any](context.Context, asynxModels.Event[T], error) {}
 
@@ -144,7 +151,7 @@ func TestNewAggregates_AChatHistoryThatPatchedPlacementLoads(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(eng.Close)
 
-	c, err := New(ctx, eng, adapters, migratetest.NoPostOpen(), encodeJSON)
+	c, err := New(ctx, eng, adapters, migratetest.NoPostOpen(), encodeJSON, noSidebar)
 	require.NoError(t, err)
 
 	got, err := c.Repositories.AgentChat.LoadChat(ctx, "c-1")

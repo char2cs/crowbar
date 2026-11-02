@@ -16,5 +16,5 @@ func (t threadStream) Push(d dto.ThreadDTO) {
 		t.hub.Gone(scope, stream.KindReviewThread, d.ID)
 		return
 	}
-	t.hub.Entity(scope, stream.KindReviewThread, d.ID, d)
+	t.hub.Entity(scope, stream.KindReviewThread, d.ID, d, 0)
 }

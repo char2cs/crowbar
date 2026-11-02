@@ -59,7 +59,20 @@ type Hub struct {
 	conns  map[*connection]struct{}
 	scopes map[string]map[*connection]struct{}
 	refs   *refcount
+	// stamps is the newest frame each entity key carried (index R19).
+	stamps map[string]stamp
+	// reads are the snapshot reads in flight, which Close waits out.
+	reads sync.WaitGroup
 }
+
+// stamp is the newest frame of one entity key: rev is its publisher's own
+// version (0 when it has none), v the version the stream stamped.
+type stamp struct {
+	rev int64
+	v   uint64
+}
+
+func entityKey(scope, kind, id string) string { return scope + "|" + kind + "|" + id }
 
 // New builds the hub for one daemon epoch.
 func New(
@@ -75,23 +88,26 @@ func New(
 		conns:  map[*connection]struct{}{},
 		scopes: map[string]map[*connection]struct{}{},
 		refs:   newRefcount(resources),
+		stamps: map[string]stamp{},
 	}
 }
 
 // Entity publishes data as the current value of (kind, id) to every
 // connection holding scope, and returns the version it stamped (0 for none).
-func (h *Hub) Entity(scope stream.Scope, kind stream.EntityKind, id string, data any) uint64 {
+// rev is the publisher's own version of data: one older than a rev already
+// published for the key is stale and dropped; 0 has none and always publishes.
+func (h *Hub) Entity(scope stream.Scope, kind stream.EntityKind, id string, data any, rev int64) uint64 {
 	raw, err := h.encode(kind, data)
 	if err != nil {
 		slog.Error("stream: encode an entity", "kind", kind, "id", id, "err", err)
 		return 0
 	}
-	return h.publish(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Data: raw}, true)
+	return h.publishEntity(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Data: raw}, rev)
 }
 
 // Gone tells every connection holding scope that (kind, id) no longer exists.
 func (h *Hub) Gone(scope stream.Scope, kind stream.EntityKind, id string) {
-	h.publish(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Gone: true}, true)
+	h.publishEntity(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Gone: true}, 0)
 }
 
 // Signal tells every connection holding scope news that has no version.
@@ -101,25 +117,34 @@ func (h *Hub) Signal(scope stream.Scope, kind string, data any) {
 		slog.Error("stream: encode a signal", "scope", scope.String(), "kind", kind, "err", err)
 		return
 	}
-	h.publish(stream.Frame{T: stream.FrameSignal, Scope: scope.String(), Kind: kind, Data: raw}, false)
-}
-
-func (h *Hub) publish(f stream.Frame, versioned bool) uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.closed {
+	if !h.closed {
+		h.fanOutLocked(stream.Frame{T: stream.FrameSignal, Scope: scope.String(), Kind: kind, Data: raw})
+	}
+}
+
+func (h *Hub) publishEntity(f stream.Frame, rev int64) uint64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	key := entityKey(f.Scope, f.Kind, f.ID)
+	held := h.stamps[key]
+	if h.closed || rev > 0 && rev < held.rev {
 		return 0
 	}
-	if versioned {
-		h.seq++
-		f.V = h.seq
-	}
+	h.seq++
+	f.V = h.seq
+	h.stamps[key] = stamp{rev: max(rev, held.rev), v: f.V}
+	h.fanOutLocked(f)
+	return f.V
+}
+
+func (h *Hub) fanOutLocked(f stream.Frame) {
 	for c := range h.scopes[f.Scope] {
 		if !c.push(f, true) {
 			h.dropLocked(c, stream.CloseResync, "resync")
 		}
 	}
-	return f.V
 }
 
 // Serve reads one client's requests until its socket or ctx ends, then
@@ -161,11 +186,12 @@ func (h *Hub) Serve(ctx context.Context, conn Conn) error {
 // Close ends every connection; later Serve calls are refused.
 func (h *Hub) Close() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.closed = true
 	for c := range h.conns {
 		h.dropLocked(c, closeGoingAway, "shutting down")
 	}
+	h.mu.Unlock()
+	h.reads.Wait()
 }
 
 func (h *Hub) handle(ctx context.Context, c *connection, req stream.Request) {
@@ -212,6 +238,8 @@ func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
 		held = h.subLive(ctx, c, scope, s.Source, req.Since)
 	case following:
 		held = h.subFollow(ctx, c, scope, s.Source, req.Since)
+	case Reader:
+		held = h.subReading(ctx, c, scope, s, req.Since)
 	default:
 		held = h.subLocked(ctx, c, scope, src, req.Since)
 	}
@@ -230,23 +258,18 @@ func (h *Hub) subLocked(ctx context.Context, c *connection, scope stream.Scope, 
 	if !h.admitLocked(c, name, holding) {
 		return holding
 	}
-	start, frames, full := time.Now(), 0, false
-	err := src.Attach(ctx, scope.Key, since, func(f stream.Frame) {
-		f.Scope = name
-		if f.T == stream.FrameEntity {
-			f.V = h.seq
-		}
-		frames++
-		full = full || !c.push(f, false)
-	})
-	if err != nil || full || !c.push(stream.Synced(name), false) {
-		h.snapshotFailedLocked(ctx, c, name, err)
+	start := time.Now()
+	if !h.attachLocked(ctx, c, name, src, scope.Key, since) {
+		return false
+	}
+	if !c.push(stream.Synced(name), false) {
+		h.snapshotFailedLocked(ctx, c, name, nil)
 		return false
 	}
 	if !holding {
 		h.registerLocked(c, scope)
 	}
-	slog.DebugContext(ctx, "stream: snapshot", "scope", name, "frames", frames, "locked", time.Since(start))
+	slog.DebugContext(ctx, "stream: snapshot", "scope", name, "locked", time.Since(start))
 	return true
 }
 
@@ -376,6 +399,7 @@ func (h *Hub) releaseLocked(c *connection, name string) {
 		return
 	}
 	delete(c.scopes, name)
+	delete(c.reads, name)
 	if f, ok := c.follows[name]; ok {
 		f.cancel()
 		delete(c.follows, name)

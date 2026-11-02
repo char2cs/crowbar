@@ -21,6 +21,9 @@ func Following(src Source) Source { return following{src} }
 type follow struct {
 	cancel context.CancelFunc
 	synced bool
+	// since is the seq the hold went live at; an entity the follow emits that a
+	// live frame carried after it is stale.
+	since uint64
 }
 
 // subFollow starts following scope for c, unless c already does: that hold is current.
@@ -36,7 +39,7 @@ func (h *Hub) subFollow(ctx context.Context, c *connection, scope stream.Scope, 
 		return false
 	}
 	fctx, cancel := context.WithCancel(ctx)
-	f := &follow{cancel: cancel}
+	f := &follow{cancel: cancel, since: h.seq}
 	c.follows[name] = f
 	h.registerLocked(c, scope)
 	go h.runFollow(fctx, c, scope, src, since, f)
@@ -80,6 +83,12 @@ func (h *Hub) followed(ctx context.Context, c *connection, name string, f *follo
 		return
 	}
 	fr.Scope = name
+	if fr.T == stream.FrameEntity {
+		if h.stamps[entityKey(name, fr.Kind, fr.ID)].v > f.since {
+			return
+		}
+		fr.V = h.seq
+	}
 	if fr.T == stream.FrameClosed {
 		h.releaseLocked(c, name)
 		c.push(fr, false)

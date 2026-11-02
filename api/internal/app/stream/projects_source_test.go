@@ -23,15 +23,70 @@ type fixedOperations struct {
 func (f fixedOperations) Snapshot(context.Context) ([]domain.Operation, error) { return f.ops, f.err }
 
 func encodeOperation(kind stream.EntityKind, v any) (json.RawMessage, error) {
-	if kind != stream.KindOperation {
+	if kind == "" {
 		return nil, errors.New("unknown kind")
 	}
 	return json.Marshal(v)
 }
 
+// sidebar is a fake sidebar read; with gate set it waits there, after telling entered.
+type sidebar struct {
+	entities []appstream.Entity
+	err      error
+	entered  chan struct{}
+	gate     chan struct{}
+}
+
+func (s *sidebar) Entities(context.Context) ([]appstream.Entity, error) {
+	if s.gate != nil {
+		s.entered <- struct{}{}
+		<-s.gate
+	}
+	return s.entities, s.err
+}
+
+func TestProjectsSource_SnapshotsEveryKindThenSynced(t *testing.T) {
+	ops := []domain.Operation{{ID: "op1", State: domain.OpRunning}}
+	side := &sidebar{entities: []appstream.Entity{
+		{Kind: stream.KindProject, ID: "p1", Data: "project"},
+		{Kind: stream.KindRepo, ID: "r1", Data: "repo"},
+		{Kind: stream.KindWorkspace, ID: "w1", Data: "workspace"},
+		{Kind: stream.KindChatEntity, ID: "c1", Data: "chat"},
+		{Kind: stream.KindFolder, ID: "f1", Data: "folder"},
+	}}
+	src := appstream.NewProjectsSource(fixedOperations{ops: ops}, side, encodeOperation)
+	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "projects")
+	frames := conn.until(t, syncedOn("projects"))
+
+	var kinds []string
+	for _, f := range frames[:len(frames)-1] {
+		assert.Equal(t, "projects", f.Scope)
+		kinds = append(kinds, f.Kind+":"+f.ID)
+	}
+	assert.Equal(t, []string{"operation:op1", "project:p1", "repo:r1", "workspace:w1", "chat:c1", "folder:f1"}, kinds)
+	assert.Equal(t, `"chat"`, string(frames[4].Data))
+}
+
+// A broken read is transient like any failed snapshot.
+func TestProjectsSource_AFailedReadClosesTheConnectionWithResync(t *testing.T) {
+	src := appstream.NewProjectsSource(fixedOperations{}, &sidebar{err: problem.ErrUnavailable}, encodeOperation)
+	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
+	conn := newFakeConn()
+	done := served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "projects")
+
+	ended(t, done)
+	assert.Equal(t, stream.CloseResync, conn.closeCode())
+}
+
 func TestProjectsSource_SnapshotsEveryOperationInOrder(t *testing.T) {
 	ops := []domain.Operation{{ID: "op1", State: domain.OpFailed}, {ID: "op2", State: domain.OpRunning}}
-	src := appstream.NewProjectsSource(fixedOperations{ops: ops}, encodeOperation)
+	src := appstream.NewProjectsSource(fixedOperations{ops: ops}, &sidebar{}, encodeOperation)
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
 	conn := newFakeConn()
 	served(t, hub, conn)
@@ -50,7 +105,7 @@ func TestProjectsSource_SnapshotsEveryOperationInOrder(t *testing.T) {
 
 // A failing source is transient: the client reconnects and asks again.
 func TestProjectsSource_AFailedSnapshotClosesTheConnectionWithResync(t *testing.T) {
-	src := appstream.NewProjectsSource(fixedOperations{err: problem.ErrUnavailable}, encodeOperation)
+	src := appstream.NewProjectsSource(fixedOperations{err: problem.ErrUnavailable}, &sidebar{}, encodeOperation)
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
 	conn := newFakeConn()
 	done := served(t, hub, conn)

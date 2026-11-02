@@ -31,29 +31,39 @@ func (h *Handlers) List(
 	worktrees := h.beginWorktrees(rctx, ctx.Param("projectId"), ctx.Param("repoId"), nil)
 	defer worktrees.done()
 
-	chats, err := h.listChats(rctx, ctx.Param("wsId"), ctx.Param("repoId"))
+	chats, runtimes, err := h.chatsWithRuntimes(rctx, ctx.Param("wsId"), ctx.Param("repoId"))
 	if err != nil {
 		libs.Fail(ctx, err)
 		return
 	}
+	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats, runtimes, worktrees.rowFn(rctx, chats)))
+}
 
+// chatsWithRuntimes is the chats List serves and the snapshot each renders from.
+func (h *Handlers) chatsWithRuntimes(
+	ctx context.Context,
+	wsID string,
+	repoID string,
+) ([]domain.Chat, map[string]dto.ChatRuntime, error) {
+	chats, err := h.listChats(ctx, wsID, repoID)
+	if err != nil {
+		return nil, nil, err
+	}
 	// Every row is its versioned snapshot — the same answer, from the same
 	// in-memory owner, the chat feed's frames carry. No per-row query.
 	ids := make([]string, len(chats))
 	for i, c := range chats {
 		ids[i] = c.ID
 	}
-	snaps, err := h.chats.ChatSnapshotsOf(rctx, ids)
+	snaps, err := h.chats.ChatSnapshotsOf(ctx, ids)
 	if err != nil {
-		libs.Fail(ctx, err)
-		return
+		return nil, nil, err
 	}
 	runtimes := make(map[string]dto.ChatRuntime, len(chats))
 	for i, s := range snaps {
 		chats[i], runtimes[ids[i]] = snapshotParts(s)
 	}
-
-	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats, runtimes, worktrees.rowFn(rctx, chats)))
+	return chats, runtimes, nil
 }
 
 // listChats backs List: wsID scopes to ListChatsByWorkspace when the request

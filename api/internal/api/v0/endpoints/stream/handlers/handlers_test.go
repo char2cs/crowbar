@@ -24,11 +24,15 @@ type noOperations struct{}
 
 func (noOperations) Snapshot(context.Context) ([]domain.Operation, error) { return nil, nil }
 
+type noSidebar struct{}
+
+func (noSidebar) Entities(context.Context) ([]appstream.Entity, error) { return nil, nil }
+
 func serve(t *testing.T, keep ws.KeepAlive) string {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	hub := appstream.New("e1", map[stream.ScopeKind]appstream.Source{
-		stream.KindProjects: appstream.NewProjectsSource(noOperations{}, nil),
+		stream.KindProjects: appstream.NewProjectsSource(noOperations{}, noSidebar{}, nil),
 	}, nil, nil)
 	r := gin.New()
 	r.GET("/v0/stream", handlers.New(hub, keep).Stream)

@@ -122,7 +122,7 @@ func TestRefcount_StartRunsOutsideTheHubLock(t *testing.T) {
 	slow.send(t, stream.OpSub, "git:w1")
 	res.enteredAs(t, "start w1")
 	other.sub(t, "projects")
-	hub.Entity(stream.Projects, stream.KindOperation, "op1", "live")
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "live", 0)
 	assert.Equal(t, "op1", other.next(t).ID)
 
 	close(res.gate)

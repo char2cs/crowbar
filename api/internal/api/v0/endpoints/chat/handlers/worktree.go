@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
@@ -459,29 +460,32 @@ func (h *Handlers) OwnerOf(
 func (h *Handlers) Workspaces(
 	ctx *gin.Context,
 ) {
-	rctx := ctx.Request.Context()
-	projectID, repoID := ctx.Param("projectId"), ctx.Param("repoId")
-
-	if h.worktrees == nil {
-		libs.WriteQueryOK(ctx, []dto.WorkspaceDTO{})
-		return
-	}
-	rows, err := h.worktrees.ListInRepo(rctx, projectID, repoID)
+	rows, err := h.workspacesIn(ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"))
 	if err != nil {
 		libs.Fail(ctx, err)
 		return
 	}
+	libs.WriteQueryOK(ctx, rows)
+}
 
+// workspacesIn is a repo's workspaces as Workspaces serves them.
+func (h *Handlers) workspacesIn(ctx context.Context, projectID, repoID string) ([]dto.WorkspaceDTO, error) {
+	if h.worktrees == nil {
+		return []dto.WorkspaceDTO{}, nil
+	}
+	rows, err := h.worktrees.ListInRepo(ctx, projectID, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("chat: workspaces of %s: %w", repoID, err)
+	}
 	scope := h.newScope(rows)
-	scope.warm(rctx, rows)
-
-	libs.WriteQueryOK(ctx, dto.WorkspaceDTOList(
-		rctx,
+	scope.warm(ctx, rows)
+	return dto.WorkspaceDTOList(
+		ctx,
 		rows,
-		func(w domain.Workspace) workspace.MergeEligibility { return scope.eligibility(rctx, w) },
+		func(w domain.Workspace) workspace.MergeEligibility { return scope.eligibility(ctx, w) },
 		func(w domain.Workspace) string {
-			return scope.owner(rctx, domain.Chat{WorkspaceID: w.ID})
+			return scope.owner(ctx, domain.Chat{WorkspaceID: w.ID})
 		},
 		scope.placements(),
-	))
+	), nil
 }

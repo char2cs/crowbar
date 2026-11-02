@@ -44,7 +44,7 @@ func TestHub_SnapshotThenSyncedThenLiveFrames(t *testing.T) {
 	assert.Equal(t, "op1", snapshot[0].ID)
 	assert.JSONEq(t, `"accepted"`, string(snapshot[0].Data))
 
-	v := hub.Entity(stream.Projects, stream.KindOperation, "op1", "running")
+	v := hub.Entity(stream.Projects, stream.KindOperation, "op1", "running", 0)
 	live := conn.next(t)
 	assert.Equal(t, stream.Frame{
 		T: stream.FrameEntity, Scope: "projects", Kind: "operation", ID: "op1", V: v, Data: []byte(`"running"`),
@@ -68,12 +68,12 @@ func TestHub_LiveFramesNeverPrecedeOrUndercutTheSnapshot(t *testing.T) {
 			id := ids[i%len(ids)]
 			value := fmt.Sprint(i)
 			src.set(id, value)
-			hub.Entity(stream.Projects, stream.KindOperation, id, value)
+			hub.Entity(stream.Projects, stream.KindOperation, id, value, 0)
 		}()
 	}
 	snapshot := conn.sub(t, "projects")
 	writers.Wait()
-	marker := hub.Entity(stream.Projects, stream.KindOperation, "marker", "")
+	marker := hub.Entity(stream.Projects, stream.KindOperation, "marker", "", 0)
 	live := conn.until(t, func(f stream.Frame) bool { return f.ID == "marker" })
 
 	require.Len(t, snapshot, len(ids))
@@ -98,8 +98,8 @@ func TestHub_AnEntityFrameReachesOnlyConnectionsHoldingItsScope(t *testing.T) {
 	projects.sub(t, "projects")
 	chat.sub(t, "chat:c1")
 
-	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x")
-	hub.Entity(chatC1, stream.KindOperation, "op2", "y")
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)
+	hub.Entity(chatC1, stream.KindOperation, "op2", "y", 0)
 
 	assert.Equal(t, "op1", projects.next(t).ID)
 	assert.Equal(t, "op2", chat.next(t).ID, "the projects frame never reached the chat holder")
@@ -111,8 +111,8 @@ func TestHub_EntityReturnsTheVersionItStamped(t *testing.T) {
 	served(t, hub, conn)
 	conn.sub(t, "projects")
 
-	first := hub.Entity(stream.Projects, stream.KindOperation, "op1", "a")
-	second := hub.Entity(stream.Projects, stream.KindOperation, "op1", "b")
+	first := hub.Entity(stream.Projects, stream.KindOperation, "op1", "a", 0)
+	second := hub.Entity(stream.Projects, stream.KindOperation, "op1", "b", 0)
 
 	assert.Equal(t, first, conn.next(t).V)
 	assert.Equal(t, second, conn.next(t).V)
@@ -145,8 +145,8 @@ func TestHub_UnsubStopsFramesForThatScope(t *testing.T) {
 	conn.send(t, stream.OpUnsub, "projects")
 	conn.sub(t, "chat:c1") // requests are handled in order: the unsub has landed
 
-	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x")
-	hub.Entity(chatC1, stream.KindOperation, "op2", "y")
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)
+	hub.Entity(chatC1, stream.KindOperation, "op2", "y", 0)
 
 	assert.Equal(t, "op2", conn.next(t).ID)
 }
@@ -181,7 +181,7 @@ func TestHub_CloseEndsEveryConnection(t *testing.T) {
 	hub.Close()
 	ended(t, done)
 
-	assert.Equal(t, uint64(0), hub.Entity(stream.Projects, stream.KindOperation, "op1", "x"), "a closed hub stamps nothing")
+	assert.Equal(t, uint64(0), hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0), "a closed hub stamps nothing")
 }
 
 func TestHub_TooManyScopesAreRefused(t *testing.T) {
@@ -230,7 +230,7 @@ func TestHub_AnUnknownOpIsAConnectionLevelError(t *testing.T) {
 	assert.Equal(t, stream.FrameError, got.T)
 	assert.Empty(t, got.Scope)
 
-	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x")
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)
 	assert.Equal(t, "op1", conn.next(t).ID, "projects is still held")
 }
 
@@ -270,7 +270,7 @@ func TestHub_ALiveFrameRacingASnapshotFollowsIt(t *testing.T) {
 	conn.send(t, stream.OpSub, "projects")
 	<-g.entered
 	published := make(chan uint64)
-	go func() { published <- hub.Entity(stream.Projects, stream.KindOperation, "op1", "live") }()
+	go func() { published <- hub.Entity(stream.Projects, stream.KindOperation, "op1", "live", 0) }()
 	frames := conn.until(t, func(f stream.Frame) bool { return f.ID == "op1" && string(f.Data) == `"live"` })
 	v := <-published
 
@@ -303,7 +303,7 @@ func TestHub_GoneIsAVersionedEntityFrameWithoutData(t *testing.T) {
 	served(t, hub, conn)
 	conn.sub(t, "projects")
 
-	v := hub.Entity(stream.Projects, stream.KindOperation, "op1", "running")
+	v := hub.Entity(stream.Projects, stream.KindOperation, "op1", "running", 0)
 	hub.Gone(stream.Projects, stream.KindOperation, "op1")
 
 	conn.next(t)
@@ -331,7 +331,7 @@ func TestHub_AnUnorderedSourceSnapshotsAfterGoingLiveAndOutsideTheLock(t *testin
 
 	conn.send(t, stream.OpSub, "git:w1")
 	ended(t, src.entered)
-	hub.Entity(stream.Projects, stream.KindOperation, "op1", "free") // the lock is not held
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "free", 0) // the lock is not held
 	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w1"}, "git_status", "live")
 	close(src.release)
 
@@ -385,10 +385,30 @@ func TestHub_ARefusedLiveSourceHearsNothingMore(t *testing.T) {
 	conn.sub(t, "projects")
 
 	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w9"}, stream.SignalGitStatus, map[string]string{})
-	hub.Entity(stream.Projects, stream.KindOperation, "marker", "")
+	hub.Entity(stream.Projects, stream.KindOperation, "marker", "", 0)
 	seen := conn.until(t, func(f stream.Frame) bool { return f.ID == "marker" })
 
 	for _, f := range seen {
 		assert.NotEqual(t, "git:w9", f.Scope, "a refused scope heard a signal")
 	}
+}
+
+// An aggregate's subscribers may deliver out of order: an older revision of a
+// key never replaces a newer one, and a value without one always publishes.
+func TestHub_AStaleRevisionIsDropped(t *testing.T) {
+	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: newEntities(map[string]string{})}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+	conn.sub(t, "projects")
+
+	newer := hub.Entity(stream.Projects, stream.KindChatEntity, "c1", "v5", 5)
+	stale := hub.Entity(stream.Projects, stream.KindChatEntity, "c1", "v4", 4)
+	unversioned := hub.Entity(stream.Projects, stream.KindChatEntity, "c1", "working", 0)
+	other := hub.Entity(stream.Projects, stream.KindChatEntity, "c2", "v1", 1)
+
+	assert.Zero(t, stale)
+	assert.Equal(t, []string{`"v5"`, `"working"`, `"v1"`},
+		[]string{string(conn.next(t).Data), string(conn.next(t).Data), string(conn.next(t).Data)})
+	assert.Less(t, newer, unversioned)
+	assert.Less(t, unversioned, other)
 }

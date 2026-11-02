@@ -36,7 +36,7 @@ func newRealAPI(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 

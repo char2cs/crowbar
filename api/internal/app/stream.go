@@ -24,7 +24,7 @@ import (
 type lateStream struct{ hub *stream.Hub }
 
 func (l *lateStream) operation(op domain.Operation) {
-	l.hub.Entity(domainstream.Projects, domainstream.KindOperation, op.ID, op)
+	l.hub.Entity(domainstream.Projects, domainstream.KindOperation, op.ID, op, int64(op.Version))
 }
 
 // reviewThread is how an agent's review comment reaches an open review pane,
@@ -33,7 +33,7 @@ func (l *lateStream) reviewThread() agentusecase.ToolThreadBroadcast {
 	return func(thread domain.ReviewThread, projectID, repoID string) {
 		scope := domainstream.Scope{Kind: domainstream.KindWs, Key: thread.WsID}
 		l.hub.Entity(scope, domainstream.KindReviewThread, thread.ID,
-			stream.ReviewThread{Thread: thread, ProjectID: projectID, RepoID: repoID})
+			stream.ReviewThread{Thread: thread, ProjectID: projectID, RepoID: repoID}, 0)
 	}
 }
 
@@ -47,6 +47,7 @@ func newStream(
 	repos *repositories.Container,
 	ucs *usecases.Container,
 	engines *engine.Container,
+	sidebar stream.Sidebar,
 ) *resources.Set {
 	set := resources.NewSet(ctx, signals{late}, resources.Deps{
 		Workspace: repos.Workspace,
@@ -57,8 +58,8 @@ func newStream(
 		Now:       time.Now,
 	})
 	late.hub = stream.New(uuid.NewString(), map[domainstream.ScopeKind]stream.Source{
-		domainstream.KindProjects: stream.NewProjectsSource(ops, encode),
-		domainstream.KindChat:     stream.Following(stream.NewChatSource(ucs.AgentChat)),
+		domainstream.KindProjects: stream.NewProjectsSource(ops, sidebar, encode),
+		domainstream.KindChat:     stream.Following(stream.NewChatSource(ucs.AgentChat, chatTelemetry{ucs.AgentTurn}, encode)),
 		domainstream.KindWs:       stream.NewWsSource(repos.Workspace, repos.ReviewThread, encode),
 		domainstream.KindGit:      stream.Unordered(stream.NewGitSource(repos.Workspace, ucs.Git)),
 		domainstream.KindFiles:    stream.Quiet{},
@@ -70,6 +71,17 @@ func newStream(
 		late.hub.Signal(domainstream.Scope{Kind: domainstream.KindLsp, Key: ev.WsID}, domainstream.SignalDiagnostics, ev)
 	})
 	return set
+}
+
+// chatTelemetry is a chat's usage report as GET .../telemetry answers it.
+type chatTelemetry struct{ turns agentusecase.TurnUsecase }
+
+func (t chatTelemetry) TelemetryOf(ctx context.Context, chatID string) (any, bool) {
+	report, ok := t.turns.Telemetry(chatID)
+	if !ok || !t.turns.TelemetryOnChatSurface(ctx, chatID) {
+		return nil, false
+	}
+	return report, true
 }
 
 // signals is the late stream as the resources see it.

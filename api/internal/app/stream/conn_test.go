@@ -23,7 +23,7 @@ func TestHub_AFullQueueClosesTheConnectionWithResync(t *testing.T) {
 
 	// The writer may hold one popped frame, so the bound is passed at QueueSize+2.
 	for i := range stream.QueueSize + 2 {
-		hub.Entity(stream.Projects, stream.KindOperation, fmt.Sprint(i), i)
+		hub.Entity(stream.Projects, stream.KindOperation, fmt.Sprint(i), i, 0)
 	}
 
 	ended(t, done)
@@ -94,7 +94,7 @@ func TestHub_AResubWhileItsSnapshotIsPendingIsCoalesced(t *testing.T) {
 	for range 3 * stream.QueueSize {
 		conn.allow <- struct{}{}
 	}
-	hub.Entity(stream.Projects, stream.KindOperation, "marker", "")
+	hub.Entity(stream.Projects, stream.KindOperation, "marker", "", 0)
 	seen := conn.until(t, func(f stream.Frame) bool { return f.ID == "marker" })
 
 	assert.Len(t, seen, 3+1+1, "one snapshot, its synced, the marker")

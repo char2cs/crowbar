@@ -140,7 +140,7 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	require.NoError(t, err)
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
-	container, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity)
+	container, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 	router := gin.New()
 	hooks := &hookLog{}

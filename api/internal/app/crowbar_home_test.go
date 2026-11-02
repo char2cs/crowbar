@@ -19,7 +19,7 @@ func TestApp_CrowbarHome_IsTheHomeTheAdapterOpened(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
+	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
 	assert.Equal(t, root, c.CrowbarHome())

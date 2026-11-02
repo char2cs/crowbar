@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // An operation goes out as the row the daemon recorded, nothing added.
@@ -51,4 +52,37 @@ func TestEncodeEntity_RefusesAnUnknownKindOrAMismatchedValue(t *testing.T) {
 
 	_, err = EncodeEntity(stream.KindOperation, "not an operation")
 	require.Error(t, err)
+}
+
+// The sidebar's kinds go out as the DTOs their list routes answer with.
+func TestEncodeEntity_TheSidebarKindsAreTheirListDTOs(t *testing.T) {
+	cases := map[stream.EntityKind]any{
+		stream.KindProject:    dto.ProjectDTO{ID: "p1", Name: "P"},
+		stream.KindRepo:       dto.RepoDTO{ID: "r1", ProjectID: "p1", Order: 2},
+		stream.KindWorkspace:  dto.WorkspaceDTO{ID: "w1", RepoID: "r1", Branch: "main"},
+		stream.KindChatEntity: dto.ChatEntityFrom(dto.AgentChatDTO{ID: "c1", Title: "t"}, "p1", "r1", true),
+		stream.KindFolder:     dto.FolderEntityDTO{ID: "f1", RepoID: "r1", Name: "Docs"},
+	}
+	for kind, v := range cases {
+		want, err := json.Marshal(v)
+		require.NoError(t, err)
+		got, err := EncodeEntity(kind, v)
+		require.NoError(t, err, kind)
+		assert.JSONEq(t, string(want), string(got), kind)
+		_, err = EncodeEntity(kind, "not its DTO")
+		assert.Error(t, err, kind)
+	}
+}
+
+// A usage report goes out as the GET answered it.
+func TestEncodeEntity_TelemetryIsItsReportDTO(t *testing.T) {
+	used := 9
+	report := agents.Telemetry{Source: "statusline", Context: &agents.ContextUsage{UsedTokens: &used}}
+	want, err := json.Marshal(dto.AgentTelemetryDTOFrom(report))
+	require.NoError(t, err)
+
+	got, err := EncodeEntity(stream.KindTelemetry, report)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), string(got))
 }

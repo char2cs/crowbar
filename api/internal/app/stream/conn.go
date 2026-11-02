@@ -36,6 +36,8 @@ type connection struct {
 	resources map[string]stream.Scope
 	// follows is each ledger scope it follows, guarded by the hub's lock.
 	follows map[string]*follow
+	// reads is each scope whose snapshot is being read, guarded by the hub's lock.
+	reads map[string]*pendingRead
 
 	mu      sync.Mutex
 	pending []outgoing
@@ -59,6 +61,7 @@ func newConnection(conn Conn) *connection {
 		scopes:       map[string]stream.Scope{},
 		resources:    map[string]stream.Scope{},
 		follows:      map[string]*follow{},
+		reads:        map[string]*pendingRead{},
 		snapshotting: map[string]bool{},
 		wake:         make(chan struct{}, 1),
 		room:         make(chan struct{}, 1),

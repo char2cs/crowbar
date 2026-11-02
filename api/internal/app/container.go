@@ -71,6 +71,7 @@ func New(
 	adapters *adapter.Container,
 	post migrate.PostOpenRunner,
 	encode stream.Encoder,
+	newSidebar func(*Container) stream.Sidebar,
 ) (*Container, error) {
 	h := hub.NewHub()
 	rm, err := repositories.OpenReadModels(adapters)
@@ -115,7 +116,6 @@ func New(
 	// own PurgeChat, which exists only now (it is built from repos); see
 	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
-	set := newStream(ctx, late, encode, ops, repos, ucs, engines)
 	c := &Container{
 		Hub:          h,
 		Repositories: repos,
@@ -125,8 +125,6 @@ func New(
 		RepoPlacements: dto.NewPlacements(repos.Placement.GetNode, func(ctx context.Context, projectID string, err error) {
 			slog.ErrorContext(ctx, "repos: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
 		}),
-		Stream:         late.hub,
-		resources:      set,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,
@@ -134,6 +132,8 @@ func New(
 		axAgentChat:    ax.agentChat,
 		axTree:         ax.tree,
 	}
+	c.resources = newStream(ctx, late, encode, ops, repos, ucs, engines, newSidebar(c))
+	c.Stream = late.hub
 
 	// Before the API opens: nothing a restart interrupted may still read as running.
 	if err := c.Operations.Recover(ctx); err != nil {
