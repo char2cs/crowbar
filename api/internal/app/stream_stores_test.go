@@ -69,7 +69,6 @@ func (s *heldStore[T]) FindWhere(context.Context, T) ([]T, error) { return nil, 
 // The last frame a client hears for a row is the row the store last saved,
 // though the write that saved it returns before an earlier one.
 func TestPublishingStores_AnOvertakenSaveDoesNotRepublishItsStaleRow(t *testing.T) {
-	ctx := context.Background()
 	lastName := func(out chan domainstream.Frame, n int) string {
 		var name string
 		for range n {
@@ -89,10 +88,10 @@ func TestPublishingStores_AnOvertakenSaveDoesNotRepublishItsStaleRow(t *testing.
 		saveOld := make(chan struct{})
 		go func() {
 			defer close(saveOld)
-			_ = projects.Save(ctx, domain.Project{ID: "p1", Name: "old"})
+			_ = projects.Save(t.Context(), domain.Project{ID: "p1", Name: "old"})
 		}()
 		<-rows.landed
-		require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "new"}))
+		require.NoError(t, projects.Save(t.Context(), domain.Project{ID: "p1", Name: "new"}))
 		close(rows.release)
 		<-saveOld
 		assert.Equal(t, "new", lastName(out, 2))
@@ -108,10 +107,10 @@ func TestPublishingStores_AnOvertakenSaveDoesNotRepublishItsStaleRow(t *testing.
 		saveOld := make(chan struct{})
 		go func() {
 			defer close(saveOld)
-			_ = repos.Save(ctx, domain.Repository{ID: "r1", Name: "old"})
+			_ = repos.Save(t.Context(), domain.Repository{ID: "r1", Name: "old"})
 		}()
 		<-rows.landed
-		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", Name: "new"}))
+		require.NoError(t, repos.Save(t.Context(), domain.Repository{ID: "r1", Name: "new"}))
 		close(rows.release)
 		<-saveOld
 		assert.Equal(t, "new", lastName(out, 2))
