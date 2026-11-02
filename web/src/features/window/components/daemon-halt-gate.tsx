@@ -4,8 +4,8 @@ import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
 /**
  * Renders `children` unless the daemon halted, in which case the halt replaces
- * them. It is the one place a halt is told to the user: a toast has no viewport
- * outside the IDE shell, so a halt on a first run would never be seen.
+ * them. It is the one place a halt is told to the user: the toast viewport lives
+ * inside the routes the halt replaces, so a toast would never be seen.
  */
 export function DaemonHaltGate({ children }: { children: ReactNode }) {
   const message = useDaemonHaltStore((state) => state.message)

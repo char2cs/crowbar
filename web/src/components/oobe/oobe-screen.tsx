@@ -12,6 +12,7 @@ import {
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
+import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
 import { importProjectAndSync, useProjectStore } from '@/lib/store/projects'
 import { fetchPrerequisites } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
@@ -399,6 +400,8 @@ export function OobeScreen() {
           onOpenChange={setImportOpen}
           onImport={handleImport}
         />
+        {/* No sidebar here: toasts float in the corner, as with the sidebar closed. */}
+        <SidebarToastOverlay sidebarOpen={false} sidebarSide="left" />
       </div>
     </LazyMotion>
   )

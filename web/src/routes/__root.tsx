@@ -5,11 +5,13 @@ import { AppSyncProvider } from '@/components/app-sync-provider'
 import { AnchoredToastProvider } from '@/components/ui/toast'
 import { DaemonHaltGate } from '@/features/window/components/daemon-halt-gate'
 import { DaemonHealthListener } from '@/features/window/components/daemon-health-listener'
+import { ConnectionIndicator } from '@/components/layout/connection-indicator'
+import { OperationsWatcher } from '@/components/layout/operations-watcher'
 
 // Note: there is deliberately NO global viewport for `toastManager` here.
-// SidebarToastOverlay (inside IDEShell) is the one and only viewport for it —
-// a second Toast.Provider on the same manager gives each provider its own copy
-// of the toast list, so every toast renders twice whenever both are mounted.
+// SidebarToastOverlay is its one viewport, mounted by IDEShell or the OOBE (one
+// route at a time): a second Toast.Provider on the same manager renders every
+// toast twice. The watchers that raise toasts live here, so no route misses one.
 // The anchored manager is separate and keeps its own root-level viewport.
 //
 // Boot hydration (main.tsx's `hydrateCriticalStores`) runs and resolves
@@ -23,6 +25,8 @@ function RootComponent() {
       <AppSyncProvider>
         <AnchoredToastProvider>
           <DaemonHealthListener />
+          <ConnectionIndicator />
+          <OperationsWatcher />
           <DaemonHaltGate>
             <Outlet />
           </DaemonHaltGate>

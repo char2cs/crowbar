@@ -159,8 +159,8 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
 }
 
 /**
- * The ONE AND ONLY viewport for `toastManager`. Do not add a second
- * `Toast.Provider` for this manager anywhere else in the tree.
+ * The ONE AND ONLY viewport for `toastManager`, mounted by IDEShell or the OOBE
+ * route, never both. Do not add a second `Toast.Provider` for this manager.
  *
  * `createToastManager()` is a stateless emitter — every subscribed provider
  * builds its OWN copy of the toast list, so two providers means every toast
@@ -170,8 +170,8 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
  * remount race (HMR, route transition, unmount-after-mount ordering) left it
  * reading false while IDEShell was up and duplicated every toast.
  *
- * Toasts fired while IDEShell is unmounted (boot, the /oobe route) wait in
- * the manager and show when this mounts (components/ui/toast.tsx).
+ * Toasts fired while neither is mounted (boot) wait in the manager and show
+ * when this mounts (components/ui/toast.tsx).
  */
 export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   return (

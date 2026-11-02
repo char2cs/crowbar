@@ -21,11 +21,9 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
-import { ConnectionIndicator } from './connection-indicator'
 import { FpsOverlay } from './fps-overlay'
 import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
-import { OperationsWatcher } from './operations-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
@@ -345,11 +343,9 @@ function IdeShellBody() {
         onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
       />
       <FontStyleInjector />
-      <ConnectionIndicator />
       <FpsOverlay />
       <DetachHolderModal />
       <PlaceholderToastWatcher />
-      <OperationsWatcher />
       <NavigationHistoryRecorder />
     </SidebarProvider>
   )
