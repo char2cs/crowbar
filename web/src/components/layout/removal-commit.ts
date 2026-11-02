@@ -223,7 +223,8 @@ function announceTaken(entry: RemovalEntry): (taken: string[]) => void {
   const titleOf = chatTitles()
   return (taken) => {
     bumpRepoTree(entry.repoId)
-    const extra = taken.filter((id) => !entry.hiddenIds.includes(id))
+    const chosen = new Set(entry.hiddenIds)
+    const extra = taken.filter((id) => !chosen.has(id))
     if (extra.length === 0) return
     const noun = extra.length === 1 ? 'chat' : 'chats'
     toast.info(`Also removed ${extra.length} ${noun}`, extra.map(titleOf).join(', '))
