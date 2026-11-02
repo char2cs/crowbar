@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/char2cs/asynx"
@@ -28,6 +29,7 @@ import (
 	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
+	"github.com/char2cs/crowbar/api/internal/core/readonce"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -193,6 +195,13 @@ func (s *service) ListByWorkspace(
 // funnels through this so a read-DB loss is repaired regardless of which method
 // observes it first.
 func (s *service) allHealed(
+	ctx context.Context,
+) ([]domain.Chat, error) {
+	rows, err := readonce.Do(ctx, "agentchat:all", func() ([]domain.Chat, error) { return s.healedRows(ctx) })
+	return slices.Clone(rows), err
+}
+
+func (s *service) healedRows(
 	ctx context.Context,
 ) ([]domain.Chat, error) {
 	rows, err := s.storage.FindAll(ctx)

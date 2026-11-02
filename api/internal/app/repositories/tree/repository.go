@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
+	"github.com/char2cs/crowbar/api/internal/core/readonce"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
@@ -27,6 +28,10 @@ func New(ax asynx.Asynx[tree.Tree]) *Repository {
 
 // Get is projectID's tree; a project nothing was placed in has an empty one.
 func (r *Repository) Get(ctx context.Context, projectID string) (tree.Tree, error) {
+	return readonce.Do(ctx, "tree:"+projectID, func() (tree.Tree, error) { return r.get(ctx, projectID) })
+}
+
+func (r *Repository) get(ctx context.Context, projectID string) (tree.Tree, error) {
 	t, err := r.ax.Get(ctx, projectID)
 	if errors.Is(err, asynxModels.ErrNotFound) {
 		return tree.Empty(projectID), nil

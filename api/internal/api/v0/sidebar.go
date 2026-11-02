@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	appstream "github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/core/readonce"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
@@ -46,6 +47,8 @@ func NewSidebar(c *app.Container) appstream.Sidebar {
 // the client keeps what it holds of it. Only a failed project or repo list
 // fails the read.
 func (s *sidebar) Entities(ctx context.Context) (appstream.Snapshot, error) {
+	ctx, end := readonce.Begin(ctx)
+	defer end()
 	projects, err := s.app.GORM.Projects.FindAll(ctx)
 	if err != nil {
 		return appstream.Snapshot{}, fmt.Errorf("v0: sidebar: projects: %w", err)
