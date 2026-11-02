@@ -2,9 +2,7 @@ package repositories
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -21,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Container holds the aggregate repositories (each owning its read model).
@@ -39,8 +36,11 @@ type Container struct {
 	ChatLedger *ledgerstore.Store
 	// ChatBlobs holds the tool payloads the ledger's rows name.
 	ChatBlobs *ledgerstore.Blobs
-	// publishWorkspace sends a workspace's enriched row to the projects scope.
-	publishWorkspace func(dto.WorkspaceDTO)
+	// publishWorkspace sends a workspace's enriched row to the projects scope at
+	// rev, the newest workspace event version the row was read at or after.
+	publishWorkspace func(w dto.WorkspaceDTO, rev int64)
+	// workspaceVersion is a workspace's newest announced event version.
+	workspaceVersion func(id string) int64
 	git              wsusecase.MergeConflictBatchChecker
 	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
 	// CLIs on it, its conversation record and telemetry, its conversation history
@@ -90,7 +90,7 @@ func New(
 	ctx context.Context,
 	adapters *adapter.Container,
 	rm *ReadModels,
-	publishWorkspace func(dto.WorkspaceDTO),
+	publishWorkspace func(w dto.WorkspaceDTO, rev int64),
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
@@ -112,7 +112,10 @@ func New(
 	c.Workspace = ws
 	// Every event-driven workspace row goes through the SAME enrichFrame as the
 	// agent-turn republishes, so its Working and merge fields agree with them.
-	if err := workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, c.publishWorkspace); err != nil {
+	c.workspaceVersion, err = workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, func(w dto.WorkspaceDTO) {
+		c.publishWorkspace(w, c.workspaceVersion(w.ID))
+	})
+	if err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
 	// reviewthread owns its own central per-type read model at
@@ -139,6 +142,9 @@ func New(
 	c.AgentChat = agentChat
 	if _, err := axAgentChat.OnForget(c.forgetAgentWorking); err != nil {
 		return nil, fmt.Errorf("repositories: agent working overlay: %w", err)
+	}
+	if _, err := axAgentChat.Subscribe(asynx.Topic("agentchat.workspace_set.*"), c.ownerMoved); err != nil {
+		return nil, fmt.Errorf("repositories: workspace owner: %w", err)
 	}
 
 	if c.ChatLedger, err = ledgerstore.Open(ctx, adapters.ChatLedgerDB(), time.Now); err != nil {
@@ -181,38 +187,32 @@ func (c *Container) enrichFrame(
 	ctx context.Context,
 	ws domain.Workspace,
 ) dto.WorkspaceDTO {
-	ws.Working = c.WorkingFor(ws.ID)
-	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws), c.nodePlacement(ctx, ws))
+	return c.enrichFrameHearing(ctx, ws, nil)
 }
 
-// nodePlacement resolves ws's own sidebar placement for the wire DTO. An
-// ordinary fork's placement lives on its OWNING CHAT's own ParentID/Order —
-// PlaceWorkspace's write for exactly this case (place_workspace.go's nodeID
-// doc) lands there via Chats.SetPlacement/SetOrder, a real AgentChat
-// aggregate field, never a Node row: no Node is ever minted for a plain
-// chat, so reading one back via this container's Node store always missed,
-// silently degrading to "" / 0 regardless of how long ago the drag landed.
-// Caught live: a fork dragged into a folder showed it there for a moment,
-// then reseeded straight back to the repo root on the very next broadcast —
-// the PATCH response's own echoed placement was right, only this read (fed
-// straight into every subsequent WS frame) was wrong. Only a LOCKED branch,
-// whose owning chat carries no Node of its own, is genuinely addressed by
-// ws.ID's own Node{Kind:workspace} row — the one case the Node store below
-// still answers.
-//
-// Resolved eagerly here, once, rather than inside Placement: enrichFrame
-// already holds ws and calls this exactly once per frame, and
-// owningChatIDFor's own resolution is the identical one this needs — no
-// second, independently-drifting copy.
-func (c *Container) nodePlacement(
+// enrichFrameHearing is enrichFrame with heard folded over ws's chats as the
+// read model lists them; nil hears nothing.
+func (c *Container) enrichFrameHearing(
 	ctx context.Context,
 	ws domain.Workspace,
+	heard *heardChat,
+) dto.WorkspaceDTO {
+	ws.Working = c.WorkingFor(ws.ID)
+	elig := c.eligibilityFor(ctx, ws)
+	owner, owned := c.resolveOwningChat(ctx, ws, heard)
+	return dto.WorkspaceDTOFrom(ctx, ws, elig, owner.ID, c.nodePlacement(ws, owner, owned))
+}
+
+// nodePlacement is ws's own sidebar placement for the wire DTO: an ordinary
+// fork sits where its owning chat does; only a locked branch, whose owning
+// chat has no Node, is placed by ws.ID's own workspace Node.
+func (c *Container) nodePlacement(
+	ws domain.Workspace,
+	owner domain.Chat,
+	owned bool,
 ) dto.WorkspacePlacementReader {
-	if !ws.RendersAsBranch() {
-		if owner, ok := c.resolveOwningChat(ctx, ws); ok {
-			return chatPlacementReader{parentID: owner.ParentID, order: owner.Order}
-		}
+	if !ws.RendersAsBranch() && owned {
+		return chatPlacementReader{parentID: owner.ParentID, order: owner.Order}
 	}
 	if c.Placement == nil {
 		return nil
@@ -251,34 +251,6 @@ func (r nodePlacementReader) Placement(
 	return n.ParentID, n.Order
 }
 
-// owningChatIDFor resolves wsID's real owning chat id for the wire DTO,
-// reusing domain.ResolveOwningChat over this container's own AgentChat read —
-// never a second, independently derived answer. An unwired AgentChat (a test
-// Container built with only the fields its own assertion needs, matching
-// eligibilityFor's own zero-value tolerance below) or an unresolvable read
-// degrades to "".
-//
-// Deliberately left resolving through the CHAT side, unchanged, by 2026-09-08
-// sidebar-placement-unification Task 7: every workspace now also mints its own
-// Node row (ID == ws.ID), but dozens of live frontend call sites still address
-// a workspace's sidebar position through THIS chat id (see
-// web/src/components/sidebar/lib/branch-row-id.ts), not ws.ID — repointing it
-// here with no frontend migration would break them. Task 9 deleted the
-// backfill machinery that used to MAINTAIN this chat id (a fresh workspace's
-// owning chat is minted chat-first at creation regardless, independent of
-// that machinery); the frontend migration, and retiring this field, is still
-// pending.
-func (c *Container) owningChatIDFor(
-	ctx context.Context,
-	ws domain.Workspace,
-) string {
-	owner, ok := c.resolveOwningChat(ctx, ws)
-	if !ok {
-		return ""
-	}
-	return owner.ID
-}
-
 // resolveOwningChat resolves ws's real owning chat ROW (not just its id),
 // reusing domain.ResolveOwningChat over this container's own AgentChat read —
 // never a second, independently derived answer. An unwired AgentChat (a test
@@ -287,6 +259,7 @@ func (c *Container) owningChatIDFor(
 func (c *Container) resolveOwningChat(
 	ctx context.Context,
 	ws domain.Workspace,
+	heard *heardChat,
 ) (domain.Chat, bool) {
 	if c.AgentChat == nil {
 		return domain.Chat{}, false
@@ -295,16 +268,7 @@ func (c *Container) resolveOwningChat(
 	if err != nil {
 		return domain.Chat{}, false
 	}
-	return domain.ResolveOwningChat(rows)
-}
-
-// broadcastWorkspace enriches ws and publishes it, through the SAME
-// enrichFrame as the workspace projection so both agree.
-func (c *Container) broadcastWorkspace(
-	ctx context.Context,
-	ws domain.Workspace,
-) {
-	c.publishWorkspace(c.enrichFrame(ctx, ws))
+	return domain.ResolveOwningChat(heard.over(rows, ws.ID))
 }
 
 // WorkingFor reports whether an agent chat in the workspace is mid-turn. The
@@ -318,32 +282,13 @@ func (c *Container) WorkingFor(
 
 // Republish pushes the workspace's current row to the hub so a change no
 // workspace event carries (an agent-turn transition, a move of its position
-// Node) is visible without waiting for the next event. Best-effort: a missing
-// row (already deleted) skips silently.
-//
-// A read failure here is LOGGED rather than dropped in silence, because the frame
-// it costs us is not interchangeable with the next one. Working is transported as
-// a delta and nothing repeats it: the transition that turns the spinner OFF is
-// broadcast exactly once, so a Get that fails leaves every client spinning over an
-// idle workspace until some unrelated event happens to re-broadcast the row. That
-// wedge is invisible from the outside — the daemon's own state is correct and the
-// event log is clean — and it stayed invisible precisely because this returned
-// without a word. ErrNotFound is the expected case (the op deleted its own row)
-// and is not worth a line.
+// Node) is visible without waiting for the next event. A failed read is
+// logged: the Working flip it carried is sent once and nothing repeats it.
 func (c *Container) Republish(
 	ctx context.Context,
 	wsID string,
 ) {
-	ws, err := c.Workspace.Get(ctx, wsID)
-	if err != nil {
-		if !errors.Is(err, problem.ErrNotFound) {
-			slog.WarnContext(ctx, "repositories: republish: get workspace "+
-				"(client overlay may be stale until the next event)",
-				"workspace_id", wsID, "err", err)
-		}
-		return
-	}
-	c.broadcastWorkspace(ctx, ws)
+	c.republishHearing(ctx, wsID, nil)
 }
 
 // eligibilityFor resolves the merge-eligibility overlay (incl. the predicted

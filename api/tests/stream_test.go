@@ -327,3 +327,46 @@ func TestStream_ALiveChatIsFiledUnderItsOwnScope(t *testing.T) {
 }
 
 func scopeOf(chat map[string]any) []any { return []any{chat["projectId"], chat["repoId"]} }
+
+// A tab open while a repo imports, a branch chat forks and an owning chat is
+// deleted ends holding each workspace's owner as a fresh tab reads it.
+func TestStream_AnOpenTabHoldsEachWorkspacesOwner(t *testing.T) {
+	h := newHarness(t)
+	writePromoteStubProviderDescriptor(t, h)
+	feed := recordSidebar(t, h)
+	imported := importProject(t, h)
+	forkFromSidebar(t, h, imported, imported.chatID, "feat/owner")
+	forked, _ := forkFromSidebar(t, h, imported, imported.chatID, "feat/orphan")
+	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+forked, nil, http.StatusOK).Body.Close()
+	h.QuiesceReactors()
+	h.Quiesce()
+
+	fresh := recordSidebar(t, h)
+	held, _ := fresh.snapshot()
+	owned := 0
+	for _, r := range held {
+		if r.Kind != string(stream.KindWorkspace) {
+			continue
+		}
+		owner := r.Data["owningChatId"]
+		if owner != "" {
+			owned++
+		}
+		feed.await(fmt.Sprintf("workspace %s owned by %q", r.ID, owner), func(i int, live feedRow) bool {
+			return live.Kind == r.Kind && live.ID == r.ID && i == lastRowOf(feed, r.Kind, r.ID) &&
+				!live.Gone && live.Data["owningChatId"] == owner
+		})
+	}
+	require.Positive(t, owned, "the fresh tab holds owned workspaces")
+}
+
+// lastRowOf is the index of the newest row f recorded for kind/id.
+func lastRowOf(f *sidebarFeed, kind, id string) int {
+	last := -1
+	for i, r := range f.rows() {
+		if r.Kind == kind && r.ID == id {
+			last = i
+		}
+	}
+	return last
+}

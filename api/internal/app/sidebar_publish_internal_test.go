@@ -107,7 +107,7 @@ func TestSidebarPublish_ADeletedRowIsGone(t *testing.T) {
 	deleted.Deleted = true
 
 	late.chatPublisher(context.Background(), fakeWorkspaces{}, fakeWalk{})(deleted)
-	late.workspace(dto.WorkspaceDTO{ID: "w1", Status: domain.WorkspaceStatusDeleted})
+	late.workspace(dto.WorkspaceDTO{ID: "w1", Status: domain.WorkspaceStatusDeleted}, 4)
 	publishRepo(late.hub, dto.RepoDTO{ID: "r1", Status: statusDeleted})
 
 	for _, want := range []struct{ kind, id string }{

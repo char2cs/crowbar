@@ -94,13 +94,13 @@ func RegisterHub[F any](
 	s Store,
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
-) error {
+) (func(id string) int64, error) {
 	svc, ok := s.(*service)
 	if !ok {
-		return fmt.Errorf("workspace store: hub needs the projection store")
+		return nil, fmt.Errorf("workspace store: hub needs the projection store")
 	}
 	projections.RegisterHub(svc.store, enrich, broadcast)
-	return nil
+	return svc.store.Version, nil
 }
 
 // List returns the durable read model directly (no replay).

@@ -19,7 +19,7 @@ const statusDeleted = "deleted"
 // PublishProject sends a project a route changed; a deleted one is gone.
 func (c *Container) PublishProject(p dto.ProjectDTO) {
 	if p.Status == statusDeleted {
-		c.Stream.Gone(domainstream.Projects, domainstream.KindProject, p.ID)
+		c.Stream.Gone(domainstream.Projects, domainstream.KindProject, p.ID, 0)
 		return
 	}
 	c.Stream.Entity(domainstream.Projects, domainstream.KindProject, p.ID, p, 0)
@@ -30,19 +30,19 @@ func (c *Container) PublishRepo(r dto.RepoDTO) { publishRepo(c.Stream, r) }
 
 func publishRepo(h *stream.Hub, r dto.RepoDTO) {
 	if r.Status == statusDeleted {
-		h.Gone(domainstream.Projects, domainstream.KindRepo, r.ID)
+		h.Gone(domainstream.Projects, domainstream.KindRepo, r.ID, 0)
 		return
 	}
 	h.Entity(domainstream.Projects, domainstream.KindRepo, r.ID, r, 0)
 }
 
 // workspace sends a tombstoned workspace as gone: no sidebar reader draws one.
-func (l *lateStream) workspace(w dto.WorkspaceDTO) {
+func (l *lateStream) workspace(w dto.WorkspaceDTO, rev int64) {
 	if w.Status == domain.WorkspaceStatusDeleted {
-		l.hub.Gone(domainstream.Projects, domainstream.KindWorkspace, w.ID)
+		l.hub.Gone(domainstream.Projects, domainstream.KindWorkspace, w.ID, rev)
 		return
 	}
-	l.hub.Entity(domainstream.Projects, domainstream.KindWorkspace, w.ID, w, 0)
+	l.hub.Entity(domainstream.Projects, domainstream.KindWorkspace, w.ID, w, rev)
 }
 
 // telemetry sends a usage report on its chat's scope, ordered by when it was observed.
@@ -71,7 +71,7 @@ func (l *lateStream) chatPublisher(
 	return func(f agentusecase.ChatSnapshotFrame) {
 		chat := f.Snapshot.Chat
 		if f.Deleted {
-			l.hub.Gone(domainstream.Projects, domainstream.KindChatEntity, chat.ID)
+			l.hub.Gone(domainstream.Projects, domainstream.KindChatEntity, chat.ID, f.Snapshot.Version)
 			return
 		}
 		projectID, repoID := chatScope(ctx, workspaces, walk, chat.ID, chat.WorkspaceID)

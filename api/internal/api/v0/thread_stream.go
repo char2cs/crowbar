@@ -13,7 +13,7 @@ type threadStream struct{ hub *appstream.Hub }
 func (t threadStream) Push(d dto.ThreadDTO) {
 	scope := stream.Scope{Kind: stream.KindWs, Key: d.WorkspaceID}
 	if d.Deleted {
-		t.hub.Gone(scope, stream.KindReviewThread, d.ID)
+		t.hub.Gone(scope, stream.KindReviewThread, d.ID, 0)
 		return
 	}
 	t.hub.Entity(scope, stream.KindReviewThread, d.ID, d, 0)

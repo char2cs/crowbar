@@ -69,10 +69,12 @@ type Hub struct {
 }
 
 // stamp is the newest frame of one entity key: rev is its publisher's own
-// version (0 when it has none), v the version the stream stamped.
+// version (0 when it has none), v the version the stream stamped, gone whether
+// it was a deletion.
 type stamp struct {
-	rev int64
-	v   uint64
+	rev  int64
+	v    uint64
+	gone bool
 }
 
 func entityKey(scope, kind, id string) string { return scope + "|" + kind + "|" + id }
@@ -110,9 +112,11 @@ func (h *Hub) Entity(scope stream.Scope, kind stream.EntityKind, id string, data
 	return h.publishEntity(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Data: raw}, rev)
 }
 
-// Gone tells every connection holding scope that (kind, id) no longer exists.
-func (h *Hub) Gone(scope stream.Scope, kind stream.EntityKind, id string) {
-	h.publishEntity(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Gone: true}, 0)
+// Gone tells every connection holding scope that (kind, id) no longer exists,
+// as of its publisher's rev: no value at that rev or before, or without one,
+// brings it back.
+func (h *Hub) Gone(scope stream.Scope, kind stream.EntityKind, id string, rev int64) {
+	h.publishEntity(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Gone: true}, rev)
 }
 
 // Signal tells every connection holding scope news that has no version.
@@ -134,12 +138,12 @@ func (h *Hub) publishEntity(f stream.Frame, rev int64) uint64 {
 	defer h.mu.Unlock()
 	key := entityKey(f.Scope, f.Kind, f.ID)
 	held := h.stamps[key]
-	if h.closed || rev > 0 && rev < held.rev {
+	if h.closed || rev > 0 && rev < held.rev || held.gone && !f.Gone && rev <= held.rev {
 		return 0
 	}
 	h.seq++
 	f.V = h.seq
-	h.stamps[key] = stamp{rev: max(rev, held.rev), v: f.V}
+	h.stamps[key] = stamp{rev: max(rev, held.rev), v: f.V, gone: f.Gone}
 	h.fanOutLocked(f)
 	return f.V
 }

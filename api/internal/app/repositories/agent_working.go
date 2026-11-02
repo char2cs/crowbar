@@ -19,9 +19,11 @@ func (c *Container) SetAgentWorking(ctx context.Context, wsID, chatID string, wo
 	c.scheduleAgentBroadcast(ctx, wsID)
 }
 
-// forgetAgentWorking drops a deleted chat from its workspace's overlay.
+// forgetAgentWorking drops a deleted chat from its workspace's overlay and,
+// for its owning chat, from its owner.
 func (c *Container) forgetAgentWorking(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
 	c.SetAgentWorking(ctx, evt.Aggregate.WorkspaceID, evt.AggregateID, false)
+	c.ownerForgotten(ctx, evt.Aggregate)
 }
 
 // setAgentTurn adds or removes chatID from wsID's busy set and reports

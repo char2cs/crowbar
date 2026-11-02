@@ -304,7 +304,7 @@ func TestHub_GoneIsAVersionedEntityFrameWithoutData(t *testing.T) {
 	conn.sub(t, "projects")
 
 	v := hub.Entity(stream.Projects, stream.KindOperation, "op1", "running", 0)
-	hub.Gone(stream.Projects, stream.KindOperation, "op1")
+	hub.Gone(stream.Projects, stream.KindOperation, "op1", 0)
 
 	conn.next(t)
 	gone := conn.next(t)
@@ -411,4 +411,24 @@ func TestHub_AStaleRevisionIsDropped(t *testing.T) {
 		[]string{string(conn.next(t).Data), string(conn.next(t).Data), string(conn.next(t).Data)})
 	assert.Less(t, newer, unversioned)
 	assert.Less(t, unversioned, other)
+}
+
+// A gone key stays gone: a value read before its deletion and published after
+// it, at a revision no newer than the deletion's or with none, is dropped.
+func TestHub_AGoneKeyIsNotBroughtBackByAStaleValue(t *testing.T) {
+	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: newEntities(map[string]string{})}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+	conn.sub(t, "projects")
+
+	hub.Entity(stream.Projects, stream.KindWorkspace, "w1", "live", 3)
+	hub.Gone(stream.Projects, stream.KindWorkspace, "w1", 4)
+	assert.Zero(t, hub.Entity(stream.Projects, stream.KindWorkspace, "w1", "read before the delete", 3))
+	assert.Zero(t, hub.Entity(stream.Projects, stream.KindWorkspace, "w1", "read at the delete", 4))
+	assert.Zero(t, hub.Entity(stream.Projects, stream.KindWorkspace, "w1", "unversioned", 0))
+	hub.Entity(stream.Projects, stream.KindWorkspace, "w2", "other", 1)
+
+	assert.Equal(t, `"live"`, string(conn.next(t).Data))
+	assert.True(t, conn.next(t).Gone)
+	assert.Equal(t, "w2", conn.next(t).ID, "nothing of w1 followed its gone")
 }

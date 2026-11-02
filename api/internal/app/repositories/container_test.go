@@ -103,14 +103,17 @@ func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 type captureHub struct {
 	mu         sync.Mutex
 	workspaces []dto.WorkspaceDTO
+	revs       []int64
 }
 
 func (h *captureHub) publish(
 	ws dto.WorkspaceDTO,
+	rev int64,
 ) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.workspaces = append(h.workspaces, ws)
+	h.revs = append(h.revs, rev)
 }
 
 func (h *captureHub) count() int {
@@ -195,6 +198,28 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, "w1", list[0].ID)
 	assert.GreaterOrEqual(t, h.count(), 1)
+}
+
+// Each workspace row goes out at the version of the newest event it was read at
+// or after, so the hub drops a republish an event's frame overtook.
+func TestContainer_AWorkspaceRowCarriesItsEventVersion(t *testing.T) {
+	ctx := context.Background()
+	h := &captureHub{}
+	c := newContainer(t, h)
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+		Provisioning: domain.WorkspacePlaceholder,
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Workspace.RenameBranch(ctx, "w1", "b2")
+	require.NoError(t, err)
+	c.WaitQuiescent()
+
+	c.Republish(ctx, "w1")
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	assert.Equal(t, []int64{1, 2, 2}, h.revs)
 }
 
 // TestBroadcastWorkspace_WorkingFalse pins the idle baseline of the working

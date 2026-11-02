@@ -41,7 +41,7 @@ type discardHub struct {
 	last dto.WorkspaceDTO
 }
 
-func (h *discardHub) publish(w dto.WorkspaceDTO) { h.last = w }
+func (h *discardHub) publish(w dto.WorkspaceDTO, _ int64) { h.last = w }
 
 func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 	h := &discardHub{}
@@ -50,7 +50,7 @@ func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 		Workspace:        stubWorkspaceRepo{},
 	}
 
-	c.broadcastWorkspace(context.Background(), domain.Workspace{ID: "w1", ProjectID: "p1", RepoID: "r1"})
+	h.last = c.enrichFrame(context.Background(), domain.Workspace{ID: "w1", ProjectID: "p1", RepoID: "r1"})
 
 	assert.False(t, h.last.CanMergeLocally)
 	assert.Equal(t, "", h.last.ParentBranch)
@@ -63,7 +63,7 @@ func TestBroadcastWorkspace_ListError_DegradesToEmptyEligibility(t *testing.T) {
 		Workspace:        stubWorkspaceRepo{err: errors.New("list failed")},
 	}
 
-	c.broadcastWorkspace(
+	h.last = c.enrichFrame(
 		context.Background(),
 		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 	)
@@ -84,7 +84,7 @@ func TestBroadcastWorkspace_SkipsWrongRepoSiblings(t *testing.T) {
 		}},
 	}
 
-	c.broadcastWorkspace(
+	h.last = c.enrichFrame(
 		context.Background(),
 		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 	)
@@ -102,7 +102,7 @@ func TestBroadcastWorkspace_ParentMissing_EmptyEligibility(t *testing.T) {
 		}},
 	}
 
-	c.broadcastWorkspace(
+	h.last = c.enrichFrame(
 		context.Background(),
 		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 	)
@@ -120,7 +120,7 @@ func TestBroadcastWorkspace_ParentLocked_NotEligible(t *testing.T) {
 		}},
 	}
 
-	c.broadcastWorkspace(
+	h.last = c.enrichFrame(
 		context.Background(),
 		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 	)
@@ -155,7 +155,7 @@ func TestBroadcastWorkspace_PredictsTheConflictThroughTheBatchedDryRun(t *testin
 		}},
 	}
 
-	c.broadcastWorkspace(
+	h.last = c.enrichFrame(
 		context.Background(),
 		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent", Branch: "feature/c"},
 	)

@@ -30,7 +30,7 @@ func (s publishingProjects) Delete(ctx context.Context, id string) error {
 	if err := s.Store.Delete(ctx, id); err != nil {
 		return fmt.Errorf("app: delete project %s: %w", id, err)
 	}
-	s.late.hub.Gone(domainstream.Projects, domainstream.KindProject, id)
+	s.late.hub.Gone(domainstream.Projects, domainstream.KindProject, id, 0)
 	return nil
 }
 
@@ -58,6 +58,6 @@ func (s publishingRepos) Delete(ctx context.Context, id string) error {
 	if err := s.ScopedStore.Delete(ctx, id); err != nil {
 		return fmt.Errorf("app: delete repo %s: %w", id, err)
 	}
-	s.late.hub.Gone(domainstream.Projects, domainstream.KindRepo, id)
+	s.late.hub.Gone(domainstream.Projects, domainstream.KindRepo, id, 0)
 	return nil
 }

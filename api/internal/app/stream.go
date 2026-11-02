@@ -32,7 +32,7 @@ func (l *lateStream) operation(op domain.Operation) {
 // folder publishes a folder a Tree write changed, as the folder routes list it.
 func (l *lateStream) folder(_ context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64) {
 	if gone {
-		l.hub.Gone(domainstream.Projects, domainstream.KindFolder, f.ID)
+		l.hub.Gone(domainstream.Projects, domainstream.KindFolder, f.ID, rev)
 		return
 	}
 	l.hub.Entity(domainstream.Projects, domainstream.KindFolder, f.ID, dto.FolderEntityDTO{

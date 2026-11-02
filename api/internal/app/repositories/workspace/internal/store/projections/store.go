@@ -54,6 +54,8 @@ type Store struct {
 	// left the client holding a ghost row it was never told had gone.
 	expectAnnouncements bool
 	announced           map[string]struct{}
+	// versions is each workspace's newest announced event version.
+	versions map[string]int64
 	// announce broadcasts a saved event's frame; nil until RegisterHub.
 	announce atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
 }
@@ -71,6 +73,7 @@ func NewStore(
 		inner:            inner,
 		tombstoneWaiters: map[string][]chan struct{}{},
 		announced:        map[string]struct{}{},
+		versions:         map[string]int64{},
 	}, nil
 }
 
@@ -245,6 +248,7 @@ func (s *Store) delete(
 ) error {
 	s.mu.Lock()
 	delete(s.announced, id)
+	delete(s.versions, id)
 	s.mu.Unlock()
 	return s.inner.Delete(ctx, id)
 }
@@ -292,8 +296,19 @@ func (s *Store) handle(
 	if err := s.save(ctx, evt.Aggregate); err != nil {
 		return fmt.Errorf("workspace store projection: save %q: %w", evt.Aggregate.ID, err)
 	}
+	s.mu.Lock()
+	s.versions[evt.Aggregate.ID] = max(s.versions[evt.Aggregate.ID], evt.Version)
+	s.mu.Unlock()
 	if announce := s.announce.Load(); announce != nil {
 		(*announce)(ctx, evt.Aggregate)
 	}
 	return nil
+}
+
+// Version is the newest event version of id this store has announced, 0 for
+// one it has not since boot.
+func (s *Store) Version(id string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.versions[id]
 }

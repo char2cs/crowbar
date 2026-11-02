@@ -67,7 +67,7 @@ func newContainerDeps(
 		context.Background(),
 		adapters,
 		rm,
-		func(dto.WorkspaceDTO) {},
+		func(dto.WorkspaceDTO, int64) {},
 		newTestAsynx(t, adapters.ReviewThreadES(), reviewthread.Subscriber(rm.ReviewThread)),
 		newTestAsynx(t, adapters.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
 		newTestAsynx(t, adapters.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
