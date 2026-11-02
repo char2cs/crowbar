@@ -130,3 +130,29 @@ func TestHub_CloseWaitsOutTheReadsInFlight(t *testing.T) {
 	close(side.gate)
 	<-closed
 }
+
+// A read whose every joiner let go before it started is not run at all.
+func TestHub_ANextReadNoJoinerWaitsOnIsNotRun(t *testing.T) {
+	side := &sidebar{
+		entities: []appstream.Entity{{Kind: stream.KindChatEntity, ID: "c1", Data: "read"}},
+		entered:  make(chan struct{}, 2), gate: make(chan struct{}),
+	}
+	hub := newHub(map[stream.ScopeKind]appstream.Source{
+		stream.KindProjects: appstream.NewProjectsSource(fixedOperations{}, side, encodeOperation),
+		stream.KindChat:     newEntities(map[string]string{}),
+	}, nil)
+	first, gone := newFakeConn(), newFakeConn()
+	served(t, hub, first)
+	served(t, hub, gone)
+	first.send(t, stream.OpSub, "projects")
+	<-side.entered
+	gone.send(t, stream.OpSub, "projects")
+	gone.send(t, stream.OpUnsub, "projects")
+	gone.sub(t, "chat:c9")
+
+	close(side.gate)
+	first.until(t, syncedOn("projects"))
+	hub.AwaitReads()
+
+	assert.Equal(t, int32(1), side.reads.Load(), "the let-go joiner's read was skipped")
+}
