@@ -231,6 +231,16 @@ describe('a write answer applied before its frames', () => {
     expect(folders().f1).toMatchObject({ v: 1, data: { order: 4 } })
   })
 
+  it('places over a held row at its version, so only a newer frame replaces it', () => {
+    folderFrame('f1', 2, 0)
+    placeEntities('folder', { f1: folder('f1', 7) })
+    expect(folders().f1).toMatchObject({ v: 2, data: { order: 7 } })
+    folderFrame('f1', 1, 9)
+    expect(folders().f1?.data.order).toBe(7)
+    folderFrame('f1', 3, 8)
+    expect(folders().f1?.data.order).toBe(8)
+  })
+
   it('patches a held row at its version, and the revert yields to a newer frame', () => {
     folderFrame('f1', 2, 0)
     const revert = patchEntities('folder', { f1: { order: 5 } })

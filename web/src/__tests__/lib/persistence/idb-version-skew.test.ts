@@ -2,25 +2,20 @@
  * Opening the database when what is on disk does not match what this build
  * declares.
  *
- * Both cases below were found by running the app, not by reading the code, and
- * both fail the same way: silently. Every entity-cache call is best-effort, so
- * a database that cannot be opened or is missing a store does not raise — the
- * feature behind it simply has no data, forever, with a green typecheck and a
- * green suite.
- *
- * The skew is ordinary rather than exotic: every build carrying the same bundle
- * id shares one origin, so a checkout, a second checkout and an installed
- * release all open the same database, and running an older one after a newer
- * one is routine.
+ * Every build carrying the same bundle id shares one origin, so a checkout, a
+ * second checkout and an installed release all open the same database, and
+ * running an older one after a newer one is routine. A database that cannot be
+ * opened fails silently: every persistence call is best-effort, so the feature
+ * behind it simply has no data, with a green typecheck and a green suite.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { openDB } from 'idb'
 import { IDBFactory } from 'fake-indexeddb'
 import { getDB, resetDB } from '@/lib/persistence/idb'
+import { hydrateCriticalStores } from '@/lib/boot'
 
-// The stores the app expects to exist. Kept as a literal rather than imported:
-// this file is asserting the contract, so reading it from the module under test
-// would let both sides drift together.
+// The entity stores an earlier build filled and this one leaves alone, as a literal:
+// read from the module under test, both sides would drift together.
 const ENTITY_STORES = [
   'crowbar_projects',
   'crowbar_repos',
@@ -78,6 +73,26 @@ describe('a database newer than this build', () => {
       order: 0,
     })
     expect(await db.get('crowbar_folders', 'f1')).toMatchObject({ name: 'spikes' })
+  })
+})
+
+describe('a database an earlier build left at v11', () => {
+  it('an S4 build opens a v11 database without changing its version or its stores', async () => {
+    const earlier = await getDB()
+    await earlier.put('crowbar_chats', { id: 'c1', title: 'kept' } as never)
+    const stores = Array.from(earlier.objectStoreNames).sort()
+    localStorage.setItem('crowbar:cache-version', '2')
+    resetDB()
+
+    await hydrateCriticalStores()
+    resetDB()
+
+    const after = await openDB('crowbar')
+    expect(after.version).toBe(11)
+    expect(Array.from(after.objectStoreNames).sort()).toEqual(stores)
+    expect(await after.get('crowbar_chats', 'c1')).toEqual({ id: 'c1', title: 'kept' })
+    after.close()
+    expect(localStorage.getItem('crowbar:cache-version')).toBe('2')
   })
 })
 
