@@ -35,7 +35,7 @@ type fakeWorkspaceRepo struct {
 	syncs chan workspacerepo.SyncInput
 }
 
-func (f *fakeWorkspaceRepo) SyncWorkingTreeState(
+func (f *fakeWorkspaceRepo) ObserveWorkingTreeState(
 	_ context.Context,
 	in workspacerepo.SyncInput,
 	_ time.Time,

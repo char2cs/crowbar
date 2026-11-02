@@ -329,7 +329,7 @@ func (r *eventSourced) SeedPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.ax.Send(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
+	evt, err := r.ax.SendWait(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: seed permission level: %w", err)
 	}

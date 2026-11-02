@@ -64,6 +64,10 @@ func (m *mockWorkspace) SyncWorkingTreeState(ctx context.Context, in workspace.S
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) ObserveWorkingTreeState(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (m *mockWorkspace) SyncProviderState(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }

@@ -60,7 +60,7 @@ func (d *watcherDispatcher) OnSyncWorkingTreeState(
 	ctx context.Context,
 	input enginefs.SyncInput,
 ) {
-	if _, err := d.workspace.SyncWorkingTreeState(
+	if _, err := d.workspace.ObserveWorkingTreeState(
 		ctx,
 		workspacerepo.SyncInput{
 			ID:           input.WsID,

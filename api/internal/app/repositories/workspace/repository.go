@@ -57,7 +57,15 @@ type Workspace interface {
 		in CreateInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	// SyncWorkingTreeState returns once the synced row is published, so a
+	// write an operation makes reaches clients before the operation settles.
 	SyncWorkingTreeState(
+		ctx context.Context,
+		in SyncInput,
+		now time.Time,
+	) (domain.Workspace, error)
+	// ObserveWorkingTreeState is a watcher's sync: nothing waits on its publish.
+	ObserveWorkingTreeState(
 		ctx context.Context,
 		in SyncInput,
 		now time.Time,

@@ -109,18 +109,34 @@ func (w *workspace) SyncWorkingTreeState(
 	in SyncInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.SyncWorkingTreeState{
+	evt, err := w.ax.SendWait(ctx, syncCommand(in, now))
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: sync: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) ObserveWorkingTreeState(
+	ctx context.Context,
+	in SyncInput,
+	now time.Time,
+) (domain.Workspace, error) {
+	evt, err := w.ax.Send(ctx, syncCommand(in, now))
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: observe: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func syncCommand(in SyncInput, now time.Time) commands.SyncWorkingTreeState {
+	return commands.SyncWorkingTreeState{
 		ID:           in.ID,
 		Added:        in.Added,
 		Deleted:      in.Deleted,
 		HasConflicts: in.HasConflicts,
 		HasCommits:   in.HasCommits,
 		Now:          now,
-	})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: sync: %w", err)
 	}
-	return evt.Aggregate, nil
 }
 
 func (w *workspace) Get(

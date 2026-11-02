@@ -264,22 +264,42 @@ func TestStream_OperationSucceededFollowsItsEntities(t *testing.T) {
 	f := newImportFixture(t, h)
 	f.pushFileToOrigin(t, "feature/a", "main", "a.txt", "a\n")
 	f.pushFileToOrigin(t, "feature/b", "main", "b.txt", "b\n")
-	rows := importedRows(t, h, f, "feature/a", "feature/b")
-	child, parent := rows["feature/b"].WorkspaceID, rows["feature/a"].WorkspaceID
 	c := dialStream(t, h)
 	c.Hold(t, "projects")
 
-	op := startOperation(t, h, f.repoBase()+"/chats/"+owningChatID(t, h, child)+"/reparent",
-		map[string]any{"newParentId": parent})
-	var moved bool
-	settled := c.Next(t, func(fr stream.Frame) bool {
-		if fr.Kind == string(stream.KindWorkspace) && fr.ID == child && entityIn(t, fr).ParentID == parent {
-			moved = true
+	heard := map[string]bool{}
+	await := func(op domain.Operation, also func(stream.Frame)) domain.Operation {
+		settled := c.Next(t, func(fr stream.Frame) bool {
+			heard[fr.Kind+"/"+fr.ID] = true
+			if also != nil && fr.T == stream.FrameEntity && !fr.Gone && fr.Kind == string(stream.KindWorkspace) {
+				also(fr)
+			}
+			return isOperationFrame(fr, op.ID) && operationSettled(operationIn(t, fr))
+		})
+		return operationIn(t, settled)
+	}
+	imported := await(startOperation(t, h, f.repoBase()+"/chats/import-batch", importBranches("feature/a", "feature/b")), nil)
+	require.Equal(t, domain.OpSucceeded, imported.State)
+	h.Quiesce()
+	rows := map[string]chatRow{}
+	for _, row := range listChats(t, h, f.projectID, f.repoID) {
+		if row.Worktree != nil && row.WorkspaceID != "" {
+			rows[row.Worktree.Branch] = row
 		}
-		return isOperationFrame(fr, op.ID) && operationSettled(operationIn(t, fr))
-	})
+	}
+	for _, b := range []string{"feature/a", "feature/b"} {
+		require.Contains(t, rows, b)
+		assert.True(t, heard[string(stream.KindWorkspace)+"/"+rows[b].WorkspaceID], "%s's workspace preceded the import's success", b)
+		assert.True(t, heard[string(stream.KindChatEntity)+"/"+owningChatID(t, h, rows[b].WorkspaceID)], "%s's chat preceded the import's success", b)
+	}
 
-	require.Equal(t, domain.OpSucceeded, operationIn(t, settled).State)
+	child, parent := rows["feature/b"].WorkspaceID, rows["feature/a"].WorkspaceID
+	var moved bool
+	reparented := await(startOperation(t, h, f.repoBase()+"/chats/"+owningChatID(t, h, child)+"/reparent",
+		map[string]any{"newParentId": parent}), func(fr stream.Frame) {
+		moved = moved || fr.ID == child && entityIn(t, fr).ParentID == parent
+	})
+	require.Equal(t, domain.OpSucceeded, reparented.State)
 	assert.True(t, moved, "the moved workspace reached the client before its operation settled")
 }
 

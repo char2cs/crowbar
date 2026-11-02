@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -20,8 +23,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// captureBroadcast records every (chatID, workspaceID, kind) frame the hub
-// projection fans out, mirroring reviewthread's test capture.
+// captureBroadcast records every (chatID, workspaceID) the hub projection
+// announces, mirroring reviewthread's test capture.
 type captureBroadcast struct {
 	mu   sync.Mutex
 	rows []string
@@ -30,13 +33,13 @@ type captureBroadcast struct {
 // watch adapts the repository's announcement seam onto the frame this fixture's
 // assertions already use, so the change is proven against the existing suite.
 func (c *captureBroadcast) watch(e chat.ChatEvent) {
-	c.push(e.ChatID, e.WorkspaceID, e.Kind)
+	c.push(e.ChatID, e.WorkspaceID)
 }
 
-func (c *captureBroadcast) push(chatID, workspaceID, kind string) {
+func (c *captureBroadcast) push(chatID, workspaceID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.rows = append(c.rows, chatID+":"+workspaceID+":"+kind)
+	c.rows = append(c.rows, chatID+":"+workspaceID)
 }
 
 func (c *captureBroadcast) count() int {
@@ -421,4 +424,50 @@ func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
 
 	_, err = repo.ListByWorkspace(ctx, "w1")
 	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
+}
+
+// A seeded permission level is published before the seed returns: a chat an
+// operation mints must not reach a client after the operation settled.
+func TestAgentChat_SeedPermissionLevelReturnsOnceItIsPublished(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		es := asynxstore.New()
+		db, err := storesqlite.OpenDB(":memory:")
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = sqlDB.Close() })
+		rm, err := chat.OpenReadModel(db)
+		require.NoError(t, err)
+		b := asynx.New[domain.Chat]().WithEventStore(es).WithSnapshotStore(asynxstore.NewSnapshots())
+		chat.Subscriber(rm)(b)
+		ax, err := b.Build()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+		release := make(chan struct{})
+		free := sync.OnceFunc(func() { close(release) })
+		t.Cleanup(free)
+		watch := func(e chat.ChatEvent) {
+			if e.Chat.PermissionLevel == "guarded" {
+				<-release
+			}
+		}
+		ctx := context.Background()
+		repo, err := chat.NewEventSourced(ctx, ax, es, rm, watch, testutil.Placements(t))
+		require.NoError(t, err)
+		createChat(t, ctx, repo, "c1", "w1", time.Unix(1000, 0))
+
+		returned := make(chan error, 1)
+		go func() {
+			_, err := repo.SeedPermissionLevel(ctx, "c1", "guarded")
+			returned <- err
+		}()
+		synctest.Wait()
+		select {
+		case <-returned:
+			t.Fatal("the seed returned while its chat was still being published")
+		default:
+		}
+		free()
+		require.NoError(t, <-returned)
+	})
 }

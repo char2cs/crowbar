@@ -133,6 +133,15 @@ func (f *fakeWorkspace) Delete(
 	return f.DeleteFn(ctx, id)
 }
 
+// ObserveWorkingTreeState is the watcher's; the hierarchy's syncs are awaited.
+func (f *fakeWorkspace) ObserveWorkingTreeState(
+	context.Context,
+	workspace.SyncInput,
+	time.Time,
+) (domain.Workspace, error) {
+	panic("hierarchy: a working-tree sync must be awaited")
+}
+
 func (f *fakeWorkspace) SyncWorkingTreeState(
 	ctx context.Context,
 	in workspace.SyncInput,

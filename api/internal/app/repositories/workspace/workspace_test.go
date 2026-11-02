@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -904,4 +905,39 @@ func TestRegression_RepoHomeID_ConcurrentAdoptsYieldOneDefault(t *testing.T) {
 	}
 	wg.Wait()
 	assert.Equal(t, 1, wins)
+}
+
+// A working-tree sync an operation writes is published before it returns, so
+// the operation's success never reaches a client ahead of the status it changed.
+func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, repo := newRepo(t)
+		now := time.Unix(1000, 0).UTC()
+		_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
+		require.NoError(t, err)
+		release := make(chan struct{})
+		free := sync.OnceFunc(func() { close(release) })
+		t.Cleanup(free)
+		require.NoError(t, workspace.RegisterHubProjection(repo,
+			func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
+			func(ws domain.Workspace) {
+				if ws.Added == 3 {
+					<-release
+				}
+			}))
+
+		returned := make(chan error, 1)
+		go func() {
+			_, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "w1", Added: 3}, now)
+			returned <- err
+		}()
+		synctest.Wait()
+		select {
+		case <-returned:
+			t.Fatal("the sync returned while its row was still being published")
+		default:
+		}
+		free()
+		require.NoError(t, <-returned)
+	})
 }
