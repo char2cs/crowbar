@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,9 +37,11 @@ type sidebar struct {
 	err      error
 	entered  chan struct{}
 	gate     chan struct{}
+	reads    atomic.Int32
 }
 
 func (s *sidebar) Entities(context.Context) (appstream.Snapshot, error) {
+	s.reads.Add(1)
 	if s.gate != nil {
 		s.entered <- struct{}{}
 		<-s.gate

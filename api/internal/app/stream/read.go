@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -39,7 +40,8 @@ type pendingRead struct {
 }
 
 // subReading emits Attach's frames and registers scope under the lock, then
-// reads the rest on a goroutine of its own, so the client's other requests go on.
+// joins the scope's next read, which runs on a goroutine of its own so the
+// client's other requests go on.
 func (h *Hub) subReading(ctx context.Context, c *connection, scope stream.Scope, src Reader, since int64) bool {
 	name := scope.String()
 	h.mu.Lock()
@@ -56,34 +58,95 @@ func (h *Hub) subReading(ctx context.Context, c *connection, scope stream.Scope,
 	}
 	read := &pendingRead{since: h.seq}
 	c.reads[name] = read
-	h.reads.Add(1)
-	go h.read(ctx, c, name, scope.Key, src, read)
+	f := h.flights[name]
+	if f == nil {
+		f = &readFlight{}
+		h.flights[name] = f
+	}
+	f.next = append(f.next, joiner{c: c, read: read})
+	if !f.running {
+		f.running = true
+		h.reads.Add(1)
+		go h.fly(context.WithoutCancel(ctx), name, scope.Key, src, f)
+	}
 	return true
 }
 
-// read finishes read's snapshot, unless its hold was let go of meanwhile.
-func (h *Hub) read(ctx context.Context, c *connection, name, key string, src Reader, read *pendingRead) {
-	defer h.reads.Done()
-	defer safego.Recover("stream.read")
-	start := time.Now()
-	snap, err := src.Read(ctx, key)
-	frames := h.encodeRead(snap.Entities)
+// readFlight is one scope's reads, shared by every connection that asks for it.
+// A sub arriving while a read runs joins the next: that read starts after the
+// sub went live, so the live frames it missed are older than what it reads.
+type readFlight struct {
+	running bool
+	next    []joiner
+}
 
+type joiner struct {
+	c    *connection
+	read *pendingRead
+}
+
+// fly reads for each batch of joiners until none is waiting.
+func (h *Hub) fly(ctx context.Context, name, key string, src Reader, f *readFlight) {
+	defer h.reads.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(h.life, cancel)
+	defer stop()
+	for {
+		batch := h.takeBatch(name, f)
+		if batch == nil {
+			return
+		}
+		start := time.Now()
+		snap, err := readSafely(ctx, src, key)
+		frames := h.encodeRead(snap.Entities)
+		h.mu.Lock()
+		for _, j := range batch {
+			h.answerLocked(ctx, j, name, snap.Unread, frames, err)
+		}
+		h.mu.Unlock()
+		slog.DebugContext(ctx, "stream: read snapshot", "scope", name, "joiners", len(batch), "entities", len(frames), "took", time.Since(start))
+	}
+}
+
+// takeBatch claims the joiners still waiting on f's next read, retiring f when none is.
+func (h *Hub) takeBatch(name string, f *readFlight) []joiner {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if c.reads[name] != read {
+	var batch []joiner
+	for _, j := range f.next {
+		if j.c.reads[name] == j.read {
+			batch = append(batch, j)
+		}
+	}
+	f.next = nil
+	if len(batch) == 0 {
+		f.running = false
+		delete(h.flights, name)
+		return nil
+	}
+	return batch
+}
+
+// readSafely is src's read, a panic in it failing the read rather than the flight.
+func readSafely(ctx context.Context, src Reader, key string) (snap Snapshot, err error) {
+	defer safego.RecoverFn("stream.read", func(r any) { err = fmt.Errorf("stream: read panicked: %v", r) })
+	return src.Read(ctx, key)
+}
+
+// answerLocked finishes j's snapshot, unless its hold was let go of meanwhile.
+func (h *Hub) answerLocked(ctx context.Context, j joiner, name string, unread []string, frames []stream.Frame, err error) {
+	if j.c.reads[name] != j.read {
 		return
 	}
-	delete(c.reads, name)
+	delete(j.c.reads, name)
 	if err != nil {
-		h.snapshotFailedLocked(ctx, c, name, err)
+		h.snapshotFailedLocked(ctx, j.c, name, err)
 		return
 	}
-	if !h.emitReadLocked(c, name, read, frames, snap.Unread) {
-		h.snapshotFailedLocked(ctx, c, name, nil)
-		return
+	if !h.emitReadLocked(j.c, name, j.read, frames, unread) {
+		h.snapshotFailedLocked(ctx, j.c, name, nil)
 	}
-	slog.DebugContext(ctx, "stream: read snapshot", "scope", name, "entities", len(frames), "took", time.Since(start))
 }
 
 // attachLocked queues src's own snapshot frames, stamped with the current seq.

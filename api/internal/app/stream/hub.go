@@ -61,8 +61,11 @@ type Hub struct {
 	refs   *refcount
 	// stamps is the newest frame each entity key carried (index R19).
 	stamps map[string]stamp
-	// reads are the snapshot reads in flight, which Close waits out.
-	reads sync.WaitGroup
+	// reads are the snapshot reads in flight, which Close ends and waits out.
+	reads   sync.WaitGroup
+	flights map[string]*readFlight
+	life    context.Context
+	end     context.CancelFunc
 }
 
 // stamp is the newest frame of one entity key: rev is its publisher's own
@@ -81,8 +84,10 @@ func New(
 	resources map[stream.ScopeKind][]Resource,
 	encode Encoder,
 ) *Hub {
+	life, end := context.WithCancel(context.Background())
 	return &Hub{
-		epoch: epoch, sources: sources, encode: encode,
+		epoch: epoch, sources: sources, encode: encode, life: life, end: end,
+		flights: map[string]*readFlight{},
 		// A snapshot is stamped with the current seq and the first live frame with seq+1.
 		seq:    1,
 		conns:  map[*connection]struct{}{},
@@ -191,6 +196,7 @@ func (h *Hub) Close() {
 		h.dropLocked(c, closeGoingAway, "shutting down")
 	}
 	h.mu.Unlock()
+	h.end()
 	h.reads.Wait()
 }
 
