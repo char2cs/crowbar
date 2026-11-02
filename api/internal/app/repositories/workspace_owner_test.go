@@ -64,9 +64,7 @@ func (h *revHub) row(id string) dto.WorkspaceDTO {
 func TestRepublishOwnedBy_AnOvertakenReadDoesNotWin(t *testing.T) {
 	ctx := context.Background()
 	hub := newRevHub()
-	ad := newAdapter(t)
-	a := newAggregates(t, ad)
-	c, err := newReposPublishing(t, ad, a, hub.publish)
+	c, err := newRepos(t, newAdapter(t), hub.publish)
 	require.NoError(t, err)
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", Provisioning: domain.WorkspacePlaceholder,

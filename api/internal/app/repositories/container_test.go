@@ -88,19 +88,10 @@ func newAggregates(
 func newRepos(
 	t *testing.T,
 	ad *adapter.Container,
-	h *captureHub,
-) (*repositories.Container, error) {
-	t.Helper()
-	return newReposPublishing(t, ad, newAggregates(t, ad), h.publish)
-}
-
-func newReposPublishing(
-	t *testing.T,
-	ad *adapter.Container,
-	a aggregates,
 	publish func(dto.WorkspaceDTO, int64),
 ) (*repositories.Container, error) {
 	t.Helper()
+	a := newAggregates(t, ad)
 	return repositories.New(context.Background(), ad, a.rm, publish, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
@@ -156,7 +147,7 @@ func newContainer(
 	h *captureHub,
 ) *repositories.Container {
 	t.Helper()
-	c, err := newRepos(t, newAdapter(t), h)
+	c, err := newRepos(t, newAdapter(t), h.publish)
 	require.NoError(t, err)
 	return c
 }
@@ -333,7 +324,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := newRepos(t, ad, &captureHub{})
+	c, err := newRepos(t, ad, (&captureHub{}).publish)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -392,7 +383,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := newRepos(t, ad, &captureHub{})
+	c, err := newRepos(t, ad, (&captureHub{}).publish)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
