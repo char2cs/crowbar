@@ -2,6 +2,8 @@ package chatledger
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -288,6 +290,31 @@ func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T)
 	for _, r := range res.Rows {
 		assert.Equal(t, micros(info.ModTime()), r.At, "%s", r.Kind)
 	}
+}
+
+// readByVersion pins what the reader makes of the fixture chats with damaged
+// cells, as convertedByVersion pins the conversion: when this test fails the
+// reader changed, so raise converterVersion and add its line; never edit one.
+var readByVersion = map[int]string{
+	4: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
+}
+
+func TestReadLegacy_AChangedReaderRaisesTheConverterVersion(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	spoil(t, h, RunnerDB, "agent_chat_conversations", "session_id", "chat-b", "")
+	spoil(t, h, RunnerDB, "agent_chat_conversations", "first_seen_at", "chat-a", "garbled")
+	spoil(t, h, ActivityDB, "agent_turns", "seq", "chat-a", "four")
+	spoil(t, h, ActivityDB, "agent_tool_calls", "duration_ms", "chat-a", "long")
+	spoil(t, h, ActivityDB, "agent_choices", "multi", "chat-a", "maybe")
+
+	got, err := ReadLegacy(context.Background(), h)
+	require.NoError(t, err)
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	sum := sha256.Sum256(raw)
+
+	assert.Equal(t, readByVersion[converterVersion], hex.EncodeToString(sum[:]))
 }
 
 // Any one cell of any legacy table, overwritten with any value a damaged disk
