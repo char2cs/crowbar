@@ -381,7 +381,7 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 		turns:   noopTurns{},
 		term:    term,
 		agents:  engineagents.New(),
-		answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 		ledger:  newTestLedger(t),
 	}
 	// Registered directly, as if SwitchToTerminal had already run and torn the
@@ -517,7 +517,7 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 		term:    &fakeTermForAttach{},
 		chats:   chats,
 		agents:  engineagents.New(),
-		answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 		ledger:  turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{

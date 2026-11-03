@@ -39,16 +39,9 @@ type Store struct {
 	persist Persistence
 }
 
-// New returns a process-local-only store: nothing survives a restart. Used by
-// every test and by any caller with no durable backing.
-func New() *Store {
-	return &Store{reports: map[string]engineagents.Telemetry{}}
-}
-
 // NewDurable returns a Store seeded from persist's rows, that writes every
 // Set/Forget through to it — so a chat's last report survives a daemon
-// restart. persist may be nil, in which case this behaves exactly like New:
-// the one seam production and every non-durable test share.
+// restart. A nil persist keeps reports in this process only.
 //
 // A hydration failure is logged and swallowed: it must not stop the daemon
 // from starting, it just means every chat opens gauge-less until its provider

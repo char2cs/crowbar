@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	apptree "github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -53,52 +52,26 @@ func (s stubListChats) LoadChat(_ context.Context, id string) (domain.Chat, erro
 	return domain.Chat{}, problem.ErrNotFound
 }
 
-func treeFrom(
-	chats map[string]domain.Chat,
-) apptree.Tree {
-	nodes := make([]apptree.Node, 0, len(chats))
-	for _, c := range chats {
-		nodes = append(nodes, apptree.Node{
-			ID:        c.ID,
-			ParentID:  c.ParentID,
-			Order:     c.Order,
-			CreatedAt: c.CreatedAt,
-		})
-	}
-	return apptree.New(nodes)
-}
-
-func TestCwdWorkspaceID_SkipsUnprovisionedAncestor(t *testing.T) {
+func TestResolveCwdWorkspaceID_SkipsUnprovisionedAncestor(t *testing.T) {
 	chats := map[string]domain.Chat{
 		"root":    {ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
 		"folder":  {ID: "folder", Type: domain.ChatTypeFolder, ParentID: "root"},
 		"blocked": {ID: "blocked", Type: domain.ChatTypeBranch, ParentID: "folder", WorkspaceID: ""},
 		"leaf":    {ID: "leaf", Type: domain.ChatTypeChat, ParentID: "blocked"},
 	}
-	tr := treeFrom(chats)
+	rows := make([]domain.Chat, 0, len(chats))
+	for _, c := range chats {
+		rows = append(rows, c)
+	}
 
-	got, ok := tree.CwdWorkspaceID(tr, chats, "leaf")
+	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), stubListChats{rows: rows}, nil, nil, nil, "leaf")
 
-	if !ok || got != "ws-root" {
+	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("want ws-root (walk past the unprovisioned blocked row), got %q ok=%v", got, ok)
 	}
 }
 
-func TestForkParentID_ExcludesSelf(t *testing.T) {
-	chats := map[string]domain.Chat{
-		"root": {ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
-		"self": {ID: "self", Type: domain.ChatTypeBranch, ParentID: "root", WorkspaceID: "ws-self"},
-	}
-	tr := treeFrom(chats)
-
-	got, ok := tree.ForkParentID(tr, chats, "self")
-
-	if !ok || got != "ws-root" {
-		t.Fatalf("fork parent must exclude self's own workspace, want ws-root, got %q ok=%v", got, ok)
-	}
-}
-
-func TestResolveForkParent_ReadsEveryRowAndWalksLikeForkParentID(t *testing.T) {
+func TestResolveForkParent_ExcludesSelf(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
 		{ID: "self", Type: domain.ChatTypeBranch, ParentID: "root", WorkspaceID: "ws-self"},
@@ -275,21 +248,6 @@ func TestResolveForkParent_NilFoldersAndNodesDegradesGracefully(t *testing.T) {
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("nil folders/nodes must degrade, not fail; got (%q, %v, %v)", got, ok, err)
-	}
-}
-
-func TestChatLineage_StopsAtNonChatRow(t *testing.T) {
-	chats := map[string]domain.Chat{
-		"folder": {ID: "folder", Type: domain.ChatTypeFolder},
-		"parent": {ID: "parent", Type: domain.ChatTypeChat, ParentID: "folder"},
-		"child":  {ID: "child", Type: domain.ChatTypeChat, ParentID: "parent"},
-	}
-	tr := treeFrom(chats)
-
-	got := tree.ChatLineage(tr, chats, "child")
-
-	if len(got) != 1 || got[0] != "parent" {
-		t.Fatalf("lineage must only include Type==chat ancestors, got %v", got)
 	}
 }
 

@@ -50,7 +50,7 @@ func TestReconcileRunnerExit_RecordsWhatTheRunnerStreamedWithItsExit(t *testing.
 		live:   liveWith(t, agents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		turns: spy, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
-		answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 	}
 	appendStarted(t, rs.ledger, "chat-1", "runner-1")
 	appendTurn(t, rs.ledger, "chat-1", "runner-1")
@@ -292,7 +292,7 @@ func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
 			agents.Runner{ID: "runner-b", CurrentChatID: "chat-b"}),
 		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
 		turns: noopTurns{}, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
-		answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
+		answers:  answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 		apiConns: newAPIConnRegistry(), chatLock: newTestLock(), parks: newParks(), background: newBackgroundWork(),
 	}
 	chatIDs := []string{"chat-a", "chat-b"}

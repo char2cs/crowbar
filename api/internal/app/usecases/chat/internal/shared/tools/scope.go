@@ -55,14 +55,6 @@ type RunnerReader interface {
 	RunnerByID(runnerID string) (agents.Runner, bool)
 }
 
-// ChatGetter is the single-chat read port: one chat looked up by id. It is
-// declared separately from ChatReader because the resolver authenticates and
-// never enumerates — handing it the listing half would give the authority path a
-// capability it has no use for.
-type ChatGetter interface {
-	Get(ctx context.Context, chatID string) (domain.Chat, error)
-}
-
 // ChatReader is the read port the chat-facing tools need from the chat store:
 // one chat by id, plus every chat in ONE read.
 //
@@ -73,7 +65,7 @@ type ChatGetter interface {
 // V times over to answer a single question. Bucketing one read by WorkspaceID
 // costs one pass instead.
 type ChatReader interface {
-	ChatGetter
+	Get(ctx context.Context, chatID string) (domain.Chat, error)
 	ListChats(ctx context.Context) ([]domain.Chat, error)
 }
 
@@ -177,19 +169,17 @@ func (v *visibleSet) get() ([]domain.Workspace, error) {
 type Resolver struct {
 	minter     *TokenMinter
 	runners    RunnerReader
-	chats      ChatGetter
 	workspaces WorkspaceLister
 }
 
-// NewResolver wires a Resolver to the token minter and the three read-only
+// NewResolver wires a Resolver to the token minter and the two read-only
 // ports it consults to turn a (runnerID, token) pair into a Caller.
 func NewResolver(
 	minter *TokenMinter,
 	runners RunnerReader,
-	chats ChatGetter,
 	workspaces WorkspaceLister,
 ) *Resolver {
-	return &Resolver{minter: minter, runners: runners, chats: chats, workspaces: workspaces}
+	return &Resolver{minter: minter, runners: runners, workspaces: workspaces}
 }
 
 // Resolve authenticates (runnerID, token) and computes what that caller may

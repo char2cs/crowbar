@@ -70,8 +70,7 @@ func WithBudgetClock(after func(time.Duration) <-chan time.Time) Option {
 }
 
 // New returns an empty desk whose undelivered verdicts expire after retention and
-// whose outcomes are written back to ledger. A nil ledger is legal and simply
-// records nothing, which is what a test that only exercises the desk wants.
+// whose outcomes are written back to ledger.
 func New(retention time.Duration, ledger Ledger, opts ...Option) *Desk {
 	d := &Desk{
 		slots:     map[string]*Slot{},
@@ -175,9 +174,6 @@ func (d *Desk) record(
 	resolution string,
 	what string,
 ) {
-	if d.ledger == nil {
-		return
-	}
 	err := d.ledger.ResolveAsk(ctx, slot.ChatID, slot.ChoiceID, resolution)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		slog.WarnContext(ctx, what, "chat_id", slot.ChatID, "choice_id", slot.ChoiceID, "err", err)

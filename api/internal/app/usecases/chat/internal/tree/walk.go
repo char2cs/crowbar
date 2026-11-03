@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
@@ -22,28 +21,9 @@ type RepoRoots interface {
 	) (string, error)
 }
 
-// CwdWorkspaceID answers where rowID's CLI runs: the WorkspaceID of the
-// nearest ancestor-or-self that carries one. An unprovisioned row along the
-// way — WorkspaceID set to "" while its own workspace resolves — is skipped
-// rather than stopped on, so a blocked row still resolves a cwd from whatever
-// it hangs off.
-//
-// It takes t and chats as plain values rather than reading a store because it
-// is pure by construction: the same walk answers a read and a move still
-// being planned in memory, and a store re-read would only ever serve one of
-// the two.
-func CwdWorkspaceID(
-	t tree.Tree,
-	chats map[string]domain.Chat,
-	rowID string,
-) (string, bool) {
-	id, _, ok := cwdWalk(t, chats, rowID)
-	return id, ok
-}
-
-// cwdWalk is CwdWorkspaceID's body, also reporting the repo scope of the
-// outermost repo-scoped folder the walk crossed when it found no workspace —
-// the one fact a caller with a RepoRoots port needs to finish the answer.
+// cwdWalk answers where rowID's CLI runs: the nearest ancestor-or-self with a
+// WorkspaceID, walking past an unprovisioned row. With none it reports the repo
+// of the outermost repo-scoped folder crossed, for the RepoRoots fallback.
 func cwdWalk(
 	t tree.Tree,
 	chats map[string]domain.Chat,
@@ -206,21 +186,6 @@ func workspaceAnchorsReachable(
 	return found
 }
 
-// ForkParentID answers what a new branch under rowID forks from: the same
-// walk as CwdWorkspaceID, started one row up so rowID's own WorkspaceID is
-// never mistaken for what forks from it.
-func ForkParentID(
-	t tree.Tree,
-	chats map[string]domain.Chat,
-	rowID string,
-) (string, bool) {
-	node, ok := t.Node(rowID)
-	if !ok {
-		return "", false
-	}
-	return CwdWorkspaceID(t, chats, node.ParentID)
-}
-
 // freshForest reads every row the daemon knows and builds the tree.Tree plus
 // id->row map every Resolve* walk below needs, with rowID's OWN row corrected
 // from LoadChat's log fold first — exactly as globalSnapshotAround/
@@ -268,7 +233,7 @@ func freshForest(
 	return t, byID, nil
 }
 
-// ResolveForkParent is ForkParentID over freshForest's log-corrected read of
+// ResolveForkParent is the cwd walk started one row up, over freshForest's log-corrected read of
 // every row the daemon knows, for a caller with no snapshot of its own to walk
 // (Promote, own_worktree.go).
 func ResolveForkParent(
@@ -294,7 +259,7 @@ func ResolveForkParent(
 	return id, ok, nil
 }
 
-// ResolveCwdWorkspaceID is CwdWorkspaceID over freshForest's log-corrected
+// ResolveCwdWorkspaceID is cwdWalk over freshForest's log-corrected
 // read — the spawn path's own read+build step, alongside ResolveForkParent's.
 func ResolveCwdWorkspaceID(
 	ctx context.Context,
@@ -375,26 +340,4 @@ func foldersReachableFromRoots(
 		}
 	}
 	return found, nil
-}
-
-// ChatLineage answers what rowID reads: its CHAT ancestors, nearest first,
-// stepping through every folder between them transparently. It is the same
-// traversal internal/lineage.Walk already runs for the tree's own placement
-// reads, resolved here over the generic plan and a chat map instead of the
-// package's private snapshot.
-func ChatLineage(
-	t tree.Tree,
-	chats map[string]domain.Chat,
-	rowID string,
-) []string {
-	return lineage.Walk(
-		rowID,
-		func(id string) string {
-			node, _ := t.Node(id)
-			return node.ParentID
-		},
-		func(id string) bool {
-			return chats[id].IsChat()
-		},
-	)
 }

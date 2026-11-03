@@ -213,13 +213,3 @@ func composeContext(sections ...string) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
-
-// ComposeContext is composeContext, exposed for the chat usecase's own tests.
-//
-// The rule is reached directly rather than through a spawn because one of its
-// inputs comes from the process-wide config singleton, and config.Get MEMOISES on
-// first use — so a spawn-level test could not present a blanked
-// capabilities_instruction without depending on which test in the binary ran
-// first. A composition rule tested through a memoised global is a test that passes
-// for the wrong reason.
-var ComposeContext = composeContext

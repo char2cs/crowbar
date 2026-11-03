@@ -171,7 +171,7 @@ func (u *chatFolderUsecase) correctHomePlacement(
 // caller's, and appending it unscoped would let a densify in one project
 // renumber — and WRITE, via writeHomeNode's Nodes.SetOrder/.SetPlacement —
 // another project's repo Node row. nil means "do not filter":
-// globalSnapshot/globalSnapshotAround (folder CRUD, home AND repo scope
+// globalSnapshotAround (folder CRUD, home AND repo scope
 // alike) call it that way today because CreateInput/MoveInput carry no
 // project id to resolve one from at all — a real, deliberately deferred gap
 // (SDD review fix round 3; the folder-CRUD half of this same class of bug,

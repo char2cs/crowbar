@@ -121,7 +121,7 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
 		Blobs:     blobs,
-		Telemetry: telemetry.New(),
+		Telemetry: telemetry.NewDurable(context.Background(), nil),
 		Agents:    engineagents.New(),
 		Workspace: stubWorkspace{home: home, worktree: worktree},
 		Lineage:   lineage,

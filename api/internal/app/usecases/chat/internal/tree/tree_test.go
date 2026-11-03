@@ -771,7 +771,7 @@ func TestDeleteChat_RefusesWorkingSubtree(t *testing.T) {
 }
 
 // The most literal reading of "unconditional": the chat NAMED by the delete
-// is itself working, with no descendants at all. subtreeIDsOf's walk has to
+// is itself working, with no descendants at all. The subtree walk has to
 // include the root it is handed, or a leaf chat with a live turn could be
 // erased out from under it.
 func TestDeleteChat_RefusesTheNamedChatItselfWhenWorking(t *testing.T) {

@@ -113,7 +113,7 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			attached: newAttachRegistry(),
 			surfaces: newSurfaceRegistry(),
 			// The real registries a runner's death reconciles through.
-			answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+			answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 			turns:   noopTurns{},
 			ledger:  l,
 			// No vendor serve forks: a test that wants a connection seeds one.
@@ -248,7 +248,7 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 		surfaces:  newSurfaceRegistry(),
 		chatLock:  newTestLock(), parks: newParks(),
 		agents:     engineagents.New(),
-		answers:    answerdesk.New(answerdesk.DefaultRetention, nil),
+		answers:    answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 		turns:      noopTurns{},
 		chats:      stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:     l,

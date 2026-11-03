@@ -661,7 +661,6 @@ func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 			require.NoError(t, err)
 			deps.Resolver = tools.NewResolver(m,
 				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-				stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 				stubWorkspaces{all: tree()})
 			ts := tools.NewToolSet(deps, "RUN", m.Mint("RUN"))
 			for _, tool := range ts.Tools() {

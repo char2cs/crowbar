@@ -364,7 +364,7 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 
 	agent, apiConn, ctx := dialAPI(t, stdio)
 
-	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
+	answers := answerdesk.New(answerdesk.DefaultRetention, noLedger{})
 	spy := &spyTurns{answers: answers}
 	rs := &Runners{turns: spy, answers: answers, live: newLiveTable()}
 	conn := &apiconn{driver: apiConn, ctx: ctx}
@@ -388,6 +388,11 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 		t.Fatal("serve never received a reply")
 	}
 }
+
+// noLedger takes every outcome the desk writes back and keeps none.
+type noLedger struct{}
+
+func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }
 
 // closeLedger tells which resolution the desk closes each ask with.
 type closeLedger chan<- string
@@ -469,7 +474,7 @@ func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 
 	agent, apiConn, ctx := dialAPI(t, stdio)
 
-	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
+	answers := answerdesk.New(answerdesk.DefaultRetention, noLedger{})
 	spy := &spyTurns{answers: answers}
 	rs := &Runners{turns: spy, answers: answers, live: newLiveTable()}
 	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})

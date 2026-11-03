@@ -11,14 +11,6 @@ internal/app/repositories/workspace/internal/reconcile/reconcile.go: Reconciler.
 internal/app/repositories/workspace/internal/reconcile/reconcile.go: WithTimeout
 internal/app/repositories/workspace/workspace.go: WithReconciler
 internal/app/usecases/chat/aliases.go: NewToolSet
-internal/app/usecases/chat/internal/conversation/handoff.go: ComposeContext
-internal/app/usecases/chat/internal/shared/telemetry/telemetry.go: New
-internal/app/usecases/chat/internal/tree/plan.go: chatFolderUsecase.globalSnapshot
-internal/app/usecases/chat/internal/tree/subtree.go: subtreeIDsOf
-internal/app/usecases/chat/internal/tree/tree_snapshot.go: newTreeSnapshot
-internal/app/usecases/chat/internal/tree/walk.go: ChatLineage
-internal/app/usecases/chat/internal/tree/walk.go: CwdWorkspaceID
-internal/app/usecases/chat/internal/tree/walk.go: ForkParentID
 internal/core/binpath/git.go: InvalidateGit
 internal/core/paths/worktreepath/worktreepath.go: ProjectStorageDir
 internal/core/paths/worktreepath/worktreepath.go: RepoStorageDir

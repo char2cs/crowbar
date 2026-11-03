@@ -90,3 +90,21 @@ func TestRenderSpawnContext_RunsTheInjectedCrowbarBinElseTheHomes(t *testing.T) 
 		t.Fatalf("TemplateCtx.CrowbarBin = %q, want %q", installed.CrowbarBin, want)
 	}
 }
+
+// The preamble leads; a missing half (a blanked capabilities_instruction, a chat
+// with no conversation yet) leaves no stray blank line a model reads as a section.
+func TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap(t *testing.T) {
+	cases := []struct{ name, preamble, conversation, want string }{
+		{"a fresh chat has only the preamble", "PREAMBLE", "", "PREAMBLE"},
+		{"a chat taking a handoff, with the preamble leading", "PREAMBLE", "HANDOFF", "PREAMBLE\n\nHANDOFF"},
+		{"capabilities_instruction blanked in the user's own config.yaml", "", "HANDOFF", "HANDOFF"},
+		{"nothing to say", "", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := composeContext(tc.preamble, tc.conversation); got != tc.want {
+				t.Fatalf("composeContext = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

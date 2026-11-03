@@ -154,7 +154,7 @@ func New(d Deps) *Usecase {
 	u.tools.ChatLogs = u
 	u.tools.Lineage = u
 	u.tools.ToolAccess = u.providerMCPEnabled
-	u.tools.Resolver = agenttools.NewResolver(d.Minter, u, u.tools.ChatReads, u.tools.Scope)
+	u.tools.Resolver = agenttools.NewResolver(d.Minter, u, u.tools.Scope)
 
 	u.snapshots = d.Snapshots
 	if u.snapshots == nil {

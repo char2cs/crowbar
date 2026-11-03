@@ -178,13 +178,13 @@ func newRecorderFixture(t *testing.T, provider string) *recorderFixture {
 	require.NoError(t, err)
 	f := &recorderFixture{
 		ledger: store, agents: agents, agent: agent, runners: &recorderRunners{}, titles: &recordedTitles{},
-		answers: answerdesk.New(time.Minute, nil), feed: &feedSpy{}, blobs: blobs, blobDir: blobDir, db: db,
+		answers: answerdesk.New(time.Minute, noLedger{}), feed: &feedSpy{}, blobs: blobs, blobDir: blobDir, db: db,
 		runner: engineagents.Runner{ID: "run-1", ProviderID: provider, WorkspaceID: "ws-1", CurrentChatID: testChat},
 	}
 	f.r = NewRecorder(RecorderDeps{
 		Chats: fakeChats{}, Agents: agents, Workspace: fakeWorkspace{home: home},
 		Home: func() (string, error) { return home, nil }, Ledger: store, Blobs: blobs,
-		Telemetry: telemetry.New(), Answers: f.answers, Titles: f.titles, Frames: f.feed,
+		Telemetry: telemetry.NewDurable(context.Background(), nil), Answers: f.answers, Titles: f.titles, Frames: f.feed,
 	})
 	f.r.SetRunners(f.runners)
 	_, _, err = store.Append(t.Context(), testChat,
@@ -469,3 +469,8 @@ func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
 		assert.Contains(t, vocabulary, kind, "the mapper decides rows for a known event")
 	}
 }
+
+// noLedger takes every outcome the desk writes back and keeps none.
+type noLedger struct{}
+
+func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }

@@ -44,7 +44,7 @@ func retiring(t *testing.T, rs *Runners) *Runners {
 	t.Helper()
 	rs.live = liveWith(t, interruptRunner)
 	rs.surfaces = newSurfaceRegistry()
-	rs.answers = answerdesk.New(answerdesk.DefaultRetention, nil)
+	rs.answers = answerdesk.New(answerdesk.DefaultRetention, noLedger{})
 	rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}}
 	if rs.ledger == nil {
 		rs.ledger = newTestLedger(t)

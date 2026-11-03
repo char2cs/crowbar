@@ -84,7 +84,7 @@ func decide(d *answerdesk.Desk, slot *answerdesk.Slot, stdout string) error {
 }
 
 func fixtureRetaining(retention time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
-	d := answerdesk.New(retention, nil)
+	d := answerdesk.New(retention, &recordingLedger{})
 	slot := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1",
 		ChatID:   "chat-1",

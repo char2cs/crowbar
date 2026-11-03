@@ -420,48 +420,6 @@ func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
 	}
 }
 
-// TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap pins the {context}
-// document's shape at the one place it can be stated exactly.
-//
-// The preamble LEADS: it says which tools this CLI has and when to prefer them, and a
-// model should read that before a handoff it is explicitly told not to act on. Either
-// half can be missing — a user may blank capabilities_instruction in their own
-// config.yaml, and a brand-new chat has no conversation — and a missing half must
-// leave no stray blank line, which a model reads as a section that was meant to be
-// there.
-func TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap(
-	t *testing.T,
-) {
-	cases := []struct {
-		name         string
-		preamble     string
-		conversation string
-		wantDocument string
-	}{{
-		name:         "a fresh chat has only the preamble",
-		preamble:     "PREAMBLE",
-		wantDocument: "PREAMBLE",
-	}, {
-		name:         "a chat taking a handoff, with the preamble leading",
-		preamble:     "PREAMBLE",
-		conversation: "HANDOFF",
-		wantDocument: "PREAMBLE\n\nHANDOFF",
-	}, {
-		name:         "capabilities_instruction blanked in the user's own config.yaml",
-		conversation: "HANDOFF",
-		wantDocument: "HANDOFF",
-	}, {
-		name: "nothing to say",
-	}}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.wantDocument,
-				agentusecase.ComposeContext(tc.preamble, tc.conversation))
-		})
-	}
-}
-
 // TestResumeChat_GaplessRevive_SendsNoUserMessage is the regression the capability
 // preamble could very easily have caused. Reopening a closed tab resumes the same
 // provider with nothing recorded in between, and a resumed codex can be reached

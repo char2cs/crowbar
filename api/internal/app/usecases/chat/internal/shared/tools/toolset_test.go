@@ -111,8 +111,7 @@ func TestToolSet_RecordsEveryCallIncludingUnauthorized(t *testing.T) {
 	minter, err := tools.NewTokenMinter()
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{}, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 
 	ts := tools.NewToolSet(tools.Deps{
 		Resolver: res,
@@ -136,7 +135,6 @@ func TestToolSet_RecordsSuccessfulCalls(t *testing.T) {
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := minter.Mint("RUN")
 
@@ -166,7 +164,6 @@ func TestToolSet_FoldsUnknownToolNamesIntoOneBucket(t *testing.T) {
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	ts := tools.NewToolSet(tools.Deps{
@@ -198,7 +195,6 @@ func TestToolSet_FoldsAToolThisSetDidNotRegister(t *testing.T) {
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	// Chats only: list_review_threads is a real tool name, but not on this set.
@@ -427,7 +423,7 @@ func newPerfStack(
 	)
 
 	tools := tools.NewToolSet(tools.Deps{
-		Resolver:  tools.NewResolver(minter, runners, chats, workspaces),
+		Resolver:  tools.NewResolver(minter, runners, workspaces),
 		Review:    review,
 		Chats:     perfRenamer{},
 		ChatReads: chats,
@@ -1133,7 +1129,6 @@ func lazyResolverOn(
 	return tools.NewResolver(
 		m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		workspaces,
 	), m
 }
@@ -1158,8 +1153,7 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 			require.NoError(t, err)
 			chats := stubChats{c: domain.Chat{ID: "other", WorkspaceID: "ws-a1"}}
 			res := tools.NewResolver(m,
-				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-				chats, ws)
+				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, ws)
 			ts := tools.NewToolSet(tools.Deps{
 				Resolver:  res,
 				Chats:     &spyRenamer{},
@@ -1229,7 +1223,6 @@ func resolverOn(t *testing.T, callerWs string) (*tools.Resolver, *tools.TokenMin
 	return tools.NewResolver(
 		m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()},
 	), m
 }
@@ -1290,7 +1283,6 @@ func listWorkspacesToolsOn(
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	chats := &stubChatsByWorkspace{byWS: byWS}
 	return tools.NewToolSet(tools.Deps{
@@ -1390,8 +1382,7 @@ func chatLogToolsUnder(
 	require.NoError(t, err)
 	chats := stubChats{c: target}
 	res := tools.NewResolver(m,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		chats, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 	return tools.NewToolSet(tools.Deps{
 		Resolver: res, ChatReads: chats, ChatLogs: logs, Lineage: lineage,
 	}, "RUN", m.Mint("RUN"))
@@ -1595,7 +1586,6 @@ func newReplyIdemFixture(
 			WorkspaceID:   callerWs,
 			ProviderID:    callerProviderID,
 		}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	return &replyFixture{
 		ts: tools.NewToolSet(tools.Deps{
@@ -1903,7 +1893,6 @@ func reviewToolsetOn(
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
 	deps := tools.Deps{
@@ -1973,7 +1962,6 @@ func newPostFixture(
 			WorkspaceID:   callerWs,
 			ProviderID:    callerProviderID,
 		}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	review := &stubReviewReader{outline: outline}
 	deps := tools.Deps{
@@ -2068,7 +2056,6 @@ func reviewToolsOn(t *testing.T, threads *spyThreads) *tools.ToolSet {
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return tools.NewToolSet(tools.Deps{
 		Resolver:        res,
@@ -2094,7 +2081,6 @@ func newReplyResolveFixture(t *testing.T, callerWs string, thread domain.ReviewT
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	threads := &spyThreads{thread: thread}
 	broadcast := &spyThreadBroadcast{}
@@ -2169,7 +2155,6 @@ func attributedReviewToolsOn(
 			WorkspaceID:   "ws-a",
 			ProviderID:    providerID,
 		}},
-		stubChats{c: domain.Chat{ID: chatID, WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return tools.NewToolSet(tools.Deps{
 		Resolver:        res,
@@ -2215,7 +2200,6 @@ func toolsetOn(t *testing.T, renamer tools.ChatRenamer) (*tools.ToolSet, string)
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
 	// EVERY port is wired here (with empty-returning stubs) so the shared toolset
@@ -2309,8 +2293,7 @@ func TestToolSet_BadTokenCannotReachAnyTool(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{}, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 	ts := tools.NewToolSet(tools.Deps{Resolver: res, Chats: spy}, "RUN", "forged")
 
 	_, err = ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
@@ -2334,7 +2317,6 @@ func toolsetGatedOn(
 		stubRunners{r: agents.Runner{
 			ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a", ProviderID: "codex",
 		}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	asked := &[]string{}
 	deps := tools.Deps{

@@ -51,7 +51,7 @@ func TestAwait_ACancelledRelayLeavesItsAskToItsAbandon(t *testing.T) {
 
 func TestAwait_AnAskNobodyIsHoldingReturnsNothing(t *testing.T) {
 	t.Parallel()
-	d := answerdesk.New(answerdesk.DefaultRetention, nil)
+	d := answerdesk.New(answerdesk.DefaultRetention, &recordingLedger{})
 
 	answer, err := d.Await(context.Background(), "never-held", proceeded)
 

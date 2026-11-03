@@ -51,16 +51,7 @@ func (u *chatFolderUsecase) loadChat(
 	return u.correctHomePlacement(ctx, chat)
 }
 
-// globalSnapshot reads every row the daemon knows — the whole forest folder CRUD
-// plans against, since a folder carries no workspace of its own to scope a
-// narrower read by.
-func (u *chatFolderUsecase) globalSnapshot(
-	ctx context.Context,
-) (*treeSnapshot, error) {
-	return u.globalSnapshotAround(ctx, domain.Chat{})
-}
-
-// globalSnapshotAround is globalSnapshot with the SUBJECT's row corrected from
+// globalSnapshotAround reads every row the daemon knows, with the SUBJECT's row corrected from
 // the log fold the caller already holds — see corrected.
 //
 // Every FOLDER, home (RepoID=="") or repo-scoped (RepoID!="") alike since

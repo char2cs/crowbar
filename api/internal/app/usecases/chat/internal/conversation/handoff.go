@@ -55,16 +55,6 @@ func (c *Conversations) AssembleConversation(
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
 }
 
-func ComposeContext(sections ...string) string {
-	parts := make([]string, 0, len(sections))
-	for _, section := range sections {
-		if section != "" {
-			parts = append(parts, section)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
 func (c *Conversations) AssembleHandoff(
 	ctx context.Context,
 	chatID string,

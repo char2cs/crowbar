@@ -66,7 +66,7 @@ func getTelemetry(t *testing.T, h *harness, imported importedRepo, chatID string
 //
 // Root cause: telemetry.Store (internal/app/usecases/chat/internal/shared/
 // telemetry) held every chat's last usage report in a plain, process-local Go
-// map with no durable backing at all — telemetry.New() built an empty one on
+// map with no durable backing at all — the store was built empty on
 // every daemon boot, restart or not, so a chat that had reported before the
 // restart came back with NO report until its provider happened to report
 // again: GET .../chats/:id/telemetry went from 200 to 204 across a restart

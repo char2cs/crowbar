@@ -52,17 +52,8 @@ type treeSnapshot struct {
 // under; nothing is ever placed there and nothing is ever written back with it.
 const foreignRoot = "\x00foreign-root"
 
-// newTreeSnapshot builds the snapshot over one read of Chat rows — either one
-// workspace's (chat placement) or the wider set folder CRUD plans against (see
-// Chats.ListChats).
-func newTreeSnapshot(
-	rows []domain.Chat,
-) *treeSnapshot {
-	return newTreeSnapshotScoped(rows, nil, nil)
-}
-
-// newTreeSnapshotScoped is newTreeSnapshot with the rows foreign to this
-// snapshot's root level named — see treeSnapshot.foreign — and the level
+// newTreeSnapshotScoped builds the snapshot over one read of Chat rows, with the
+// rows foreign to its root level named (see treeSnapshot.foreign) and the level
 // aliases the plan folds together.
 func newTreeSnapshotScoped(
 	rows []domain.Chat,
@@ -222,7 +213,7 @@ func (t *treeSnapshot) container(
 	return id
 }
 
-// subtreeIDs is subtreeIDsOf over the plan's containers, so rows filed under
+// subtreeIDs is cascade.Plan over the plan's containers, so rows filed under
 // either id of one level are one subtree.
 func (t *treeSnapshot) subtreeIDs(
 	id string,
