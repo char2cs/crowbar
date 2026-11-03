@@ -166,3 +166,19 @@ func TestMergeSquash_RefusesAParentWithAnIntentToAddEntry(t *testing.T) {
 	require.NoError(t, opErr)
 	assert.Empty(t, op)
 }
+
+// A parent branch with no commit yet has no HEAD to squash onto: refused in
+// plain words, not as git's own error.
+func TestMergeSquash_RefusesAParentWithNoCommitYet(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "branch", "p1")
+	gitRun(t, repo, "switch", "-q", "--orphan", "empty")
+	e := git.New()
+
+	err := e.MergeSquash(context.Background(), repo, "p1", "squash p1")
+
+	require.ErrorIs(t, err, git.ErrDirtyTree)
+	assert.Equal(t, "the parent branch has no commits yet: commit to it first, then merge again", err.Error())
+	assert.Empty(t, gitOutput(t, repo, "status", "--porcelain"))
+}
