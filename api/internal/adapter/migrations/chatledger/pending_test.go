@@ -1,6 +1,7 @@
 package chatledger
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -144,4 +145,28 @@ func TestBoot_ASkippedChatIsRetriedOnceTheConverterChanges(t *testing.T) {
 func records(chat LegacyChat) int64 {
 	return int64(len(chat.Conversations) + len(chat.Turns) + len(chat.Tools) + len(chat.Subagents) +
 		len(chat.Interruptions) + len(chat.Choices) + len(chat.Prompts) + len(chat.Unreadable))
+}
+
+// A damaged cell of any size is named by its first bytes and its length: the
+// warning, the note and the run ledger stay small.
+func TestBoot_AHugeDamagedCellIsNamedShort(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	huge := strings.Repeat("x", 20<<20)
+	spoil(t, h, ActivityDB, "agent_turns", "seq", "chat-a", huge)
+	spoil(t, h, ActivityDB, "agent_turns", "role", "chat-b", huge)
+	spoil(t, h, RunnerDB, "agent_chat_conversations", "first_seen_at", "chat-b", huge)
+	log, warned := capture(testutil.AtLeast(slog.LevelWarn))
+
+	require.NoError(t, bootLogging(t, h, log))
+
+	for _, r := range *warned {
+		for k, v := range testutil.Attrs(r) {
+			assert.Less(t, len(fmt.Sprint(v.Any())), 4096, "%s of %q", k, r.Message)
+		}
+	}
+	info, err := os.Stat(filepath.Join(h.MigrateDir(), "ledger.jsonl"))
+	require.NoError(t, err)
+	assert.Less(t, info.Size(), int64(64<<10))
+	assert.Contains(t, migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")].Detail, "…(20971520 bytes)")
 }

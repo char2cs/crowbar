@@ -50,7 +50,7 @@ const (
 // input and owner give the same rows, ids included.
 func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	if in.SessionsUnreadable || len(in.Unreadable) > 0 && nothingRead(in) {
-		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errUnreadable, strings.Join(in.Unreadable, "; "))
+		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errUnreadable, clip(strings.Join(in.Unreadable, "; "), noteBytes))
 	}
 	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable), unreadable: len(in.Unreadable)}
 	c.bindSessions(in, owner)
@@ -135,7 +135,7 @@ func (c *conversion) emit(rule int, at time.Time, legacySeq int64, kind ledger.K
 }
 
 func (c *conversion) skipf(format string, args ...any) {
-	c.skipped = append(c.skipped, fmt.Sprintf(format, args...))
+	c.skipped = append(c.skipped, clip(fmt.Sprintf(format, args...), reasonBytes))
 }
 
 // ordered numbers the rows by time, then rule, then legacy seq; legacy seqs of

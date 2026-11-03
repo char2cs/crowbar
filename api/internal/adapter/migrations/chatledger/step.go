@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"time"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -43,6 +44,9 @@ type landed struct {
 	adopted map[string]bool
 	rows    int64
 }
+
+// noteBytes bounds what one chat's skip puts in the log and the run ledger.
+const noteBytes = 2048
 
 // errNotAsConverted is a converted chat whose ledger is not the rows imported.
 var errNotAsConverted = errors.New("chatledger: the ledger is not what the conversion wrote")
@@ -135,7 +139,7 @@ func convertAll(
 		}
 		res, err := importChat(ctx, log, store, chat)
 		if len(res.Skipped) > 0 {
-			log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", res.Skipped)
+			log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", clip(strings.Join(res.Skipped, "; "), noteBytes))
 		}
 		if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) {
 			if err := skip(ctx, log, cp, chat.ChatID, n, err); err != nil {
@@ -163,8 +167,9 @@ func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, 
 	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
 		msg = "chatledger: skipped a chat whose ledger already holds rows"
 	}
-	log.WarnContext(ctx, msg, "chat_id", chatID, "err", why)
-	note := migrate.Note{Detail: why.Error(), Counts: migrate.Counts{legacyRecords: n, "converter": converterVersion}}
+	detail := clip(why.Error(), noteBytes)
+	log.WarnContext(ctx, msg, "chat_id", chatID, "err", detail)
+	note := migrate.Note{Detail: detail, Counts: migrate.Counts{legacyRecords: n, "converter": converterVersion}}
 	if err := cp.Note(skippedKey(chatID), note); err != nil {
 		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
 	}

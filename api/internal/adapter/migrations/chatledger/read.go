@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
@@ -191,7 +192,7 @@ func (r *reader) choice(rows *sql.Rows) error {
 func (r *reader) add(chatID, row string, err error, keep func(*LegacyChat)) {
 	chat := r.chat(chatID)
 	if err != nil {
-		chat.Unreadable = append(chat.Unreadable, fmt.Sprintf("%s: %v", row, err))
+		chat.Unreadable = append(chat.Unreadable, clip(fmt.Sprintf("%s: %v", row, err), reasonBytes))
 		return
 	}
 	keep(chat)
@@ -255,6 +256,25 @@ func readDir(dir string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
+// How much of a legacy value, and of a reason naming one, the step repeats:
+// a damaged cell can be any size, and its reason goes to the log and ledger.
+const (
+	valueBytes  = 80
+	reasonBytes = 320
+)
+
+// clip is s cut to at most n bytes, on a rune boundary, saying how long it was.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return fmt.Sprintf("%s…(%d bytes)", s[:cut], len(s))
+}
+
 // cells is one legacy row read as text, then parsed column by column in
 // order: a value of the wrong type fails its own row, not the whole read.
 type cells struct {
@@ -283,9 +303,11 @@ func (c *cells) take() sql.NullString {
 
 func (c *cells) str() string { return c.take().String }
 
-func (c *cells) fail(column, value string, err error) {
+// fail names the column, its value's first bytes and what it should have been;
+// the parser's own error repeats the whole value, so it is left out.
+func (c *cells) fail(column, value, want string) {
 	if c.err == nil {
-		c.err = fmt.Errorf("%s %q: %w", column, value, err)
+		c.err = fmt.Errorf("%s %q: not %s", column, clip(value, valueBytes), want)
 	}
 }
 
@@ -293,7 +315,7 @@ func (c *cells) int(column string) int64 {
 	v := c.take()
 	n, err := strconv.ParseInt(v.String, 10, 64)
 	if err != nil {
-		c.fail(column, v.String, err)
+		c.fail(column, v.String, "an integer")
 	}
 	return n
 }
@@ -302,7 +324,7 @@ func (c *cells) flag(column string) bool {
 	v := c.take()
 	b, err := strconv.ParseBool(v.String)
 	if err != nil {
-		c.fail(column, v.String, err)
+		c.fail(column, v.String, "a boolean")
 	}
 	return b
 }
@@ -314,7 +336,7 @@ func (c *cells) optTime(column string) *time.Time {
 	}
 	t, err := time.Parse(time.RFC3339Nano, v.String)
 	if err != nil {
-		c.fail(column, v.String, err)
+		c.fail(column, v.String, "an RFC 3339 time")
 		return nil
 	}
 	t = t.UTC()

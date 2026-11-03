@@ -225,7 +225,7 @@ func TestApply_LogsWhatItSkippedAndWhy(t *testing.T) {
 	assert.Equal(t, "chat-b", testutil.Attrs(got[0])["chat_id"].String())
 	assert.Equal(t, "chatledger: skipped records", got[1].Message)
 	assert.Equal(t, "chat-a", testutil.Attrs(got[1])["chat_id"].String())
-	assert.Equal(t, convert(t, chatA(), nobody).Skipped, testutil.Attrs(got[1])["skipped"].Any())
+	assert.Equal(t, strings.Join(convert(t, chatA(), nobody).Skipped, "; "), testutil.Attrs(got[1])["skipped"].String())
 }
 
 // A chat whose records do not restate is skipped and named; the boot goes on
