@@ -1309,12 +1309,8 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	require.NoError(t, err)
 
 	call := f.term.calls[f.term.callCount()-1]
-	modelAt := indexOf(call.argv, "--model")
-	require.GreaterOrEqual(t, modelAt, 0)
-	assert.Equal(t, "opus", call.argv[modelAt+1])
-	effortAt := indexOf(call.argv, "--effort")
-	require.GreaterOrEqual(t, effortAt, 0)
-	assert.Equal(t, "high", call.argv[effortAt+1])
+	assert.Equal(t, "opus", argAfter(t, call.argv, "--model"))
+	assert.Equal(t, "high", argAfter(t, call.argv, "--effort"))
 
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -1333,12 +1329,8 @@ func TestSubmitPrompt_CommitsAStagedSelectionItselfBeforeSpawning(t *testing.T) 
 	require.NoError(t, err)
 
 	call := f.term.calls[f.term.callCount()-1]
-	modelAt := indexOf(call.argv, "--model")
-	require.GreaterOrEqual(t, modelAt, 0)
-	assert.Equal(t, "opus", call.argv[modelAt+1])
-	effortAt := indexOf(call.argv, "--effort")
-	require.GreaterOrEqual(t, effortAt, 0)
-	assert.Equal(t, "high", call.argv[effortAt+1])
+	assert.Equal(t, "opus", argAfter(t, call.argv, "--model"))
+	assert.Equal(t, "high", argAfter(t, call.argv, "--effort"))
 
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -1434,9 +1426,11 @@ func (undeliverableAgent) Capabilities() engineagents.Capabilities {
 	return engineagents.Capabilities{PromptSubmit: true, Delivery: "telepathy"}
 }
 
-func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone(t *testing.T) {
-	f := newFixture(t)
-	writeDescriptor(t, f, "claude", selectingDescriptorBody)
+// undeliverableClaude is a live claude chat under body whose descriptor names a
+// delivery this daemon has no channel for, so only a selection switch restarts it.
+func undeliverableClaude(t *testing.T, f testFixture, body string) (string, engineagents.Runner, undeliverableAgent) {
+	t.Helper()
+	writeDescriptor(t, f, "claude", body)
 	chatID, _ := f.spawn(t, "claude")
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -1445,8 +1439,14 @@ func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDon
 	descriptor := undeliverableAgent{Agent: shipped}
 	require.NotEqual(t, engineagents.DeliveryRestartTUI, descriptor.Capabilities().Delivery,
 		"the fixture must not restart for delivery reasons, or this proves nothing")
+	return chatID, live, descriptor
+}
 
-	err = agentusecase.RequirePromptRestart(f.ctx, f.usecase.RunnerUsecase, chatID, live, descriptor)
+func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone(t *testing.T) {
+	f := newFixture(t)
+	chatID, live, descriptor := undeliverableClaude(t, f, selectingDescriptorBody)
+
+	err := agentusecase.RequirePromptRestart(f.ctx, f.usecase.RunnerUsecase, chatID, live, descriptor)
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported,
 		"a delivery this daemon has no channel for is refused, never guessed at")
 
@@ -1486,20 +1486,11 @@ permission_levels:
 // readings apart.
 func TestRegression_PermissionLevelUnchangedDoesNotForceARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
-	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
-	chatID, _ := f.spawn(t, "claude")
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
+	chatID, live, descriptor := undeliverableClaude(t, f, permissionSelectingDescriptorBody)
 	require.Equal(t, "guarded", live.LaunchPermissionLevel,
 		"precondition: spawned under the fixture's own pinned default")
 
-	shipped, err := f.engine.Get(f.ctx, f.ws.home, "claude")
-	require.NoError(t, err)
-	descriptor := undeliverableAgent{Agent: shipped}
-	require.NotEqual(t, engineagents.DeliveryRestartTUI, descriptor.Capabilities().Delivery,
-		"the fixture must not restart for delivery reasons, or this proves nothing")
-
-	err = agentusecase.RequirePromptRestart(f.ctx, f.usecase.RunnerUsecase, chatID, live, descriptor)
+	err := agentusecase.RequirePromptRestart(f.ctx, f.usecase.RunnerUsecase, chatID, live, descriptor)
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported,
 		"the chat's permission level never changed from what this runner launched under; "+
@@ -1515,13 +1506,7 @@ func TestRegression_PermissionLevelUnchangedDoesNotForceARestartADeliveryWouldNo
 // which is the one that actually catches the bug.
 func TestSubmitPrompt_PermissionLevelSwitchAloneAuthorisesARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
-	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
-	chatID, _ := f.spawn(t, "claude")
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	shipped, err := f.engine.Get(f.ctx, f.ws.home, "claude")
-	require.NoError(t, err)
-	descriptor := undeliverableAgent{Agent: shipped}
+	chatID, live, descriptor := undeliverableClaude(t, f, permissionSelectingDescriptorBody)
 
 	require.NoError(t, f.usecase.SetChatPermissionLevel(f.ctx, chatID, "full-auto"))
 
@@ -1541,9 +1526,7 @@ func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	resumeAt := indexOf(call.argv, "--resume")
-	require.GreaterOrEqual(t, resumeAt, 0, "the forced restart must resume, not start fresh")
-	assert.Equal(t, "native-session", call.argv[resumeAt+1])
+	assert.Equal(t, "native-session", argAfter(t, call.argv, "--resume"), "the forced restart must resume, not start fresh")
 }
 
 func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T) {
@@ -1653,6 +1636,20 @@ func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) 
 	assert.Equal(t, 2, f.term.callCount(), "the original spawn plus the delivery restart")
 }
 
+// unseededChat is a claude chat that predates permission-level seeding:
+// f.chats.Create bypasses MintChat's SeedPermissionLevel on purpose.
+func unseededChat(t *testing.T, f testFixture) string {
+	t.Helper()
+	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
+	chatID := uuid.NewString()
+	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
+		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, Now: time.Now(),
+	})
+	require.NoError(t, err)
+	f.wait()
+	return chatID
+}
+
 // TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarded
 // guards a chat that predates PermissionLevel seeding entirely — the
 // "carried through the chat-model migration, never had this field" case
@@ -1663,14 +1660,7 @@ func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) 
 // through the ordinary helpers can never observe it.
 func TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarded(t *testing.T) {
 	f := newFixtureWithPermissionDefault(t, "full-auto")
-	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
-
-	chatID := uuid.NewString()
-	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, Now: time.Now(),
-	})
-	require.NoError(t, err)
-	f.wait()
+	chatID := unseededChat(t, f)
 	chat, err := f.chats.GetChat(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Empty(t, chat.PermissionLevel, "precondition: an unseeded chat")
@@ -1691,16 +1681,9 @@ func TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarde
 // must launch under that explicit choice, not fall back to guarded.
 func TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart(t *testing.T) {
 	f := newFixtureWithPermissionDefault(t, "guarded")
-	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
+	chatID := unseededChat(t, f)
 
-	chatID := uuid.NewString()
-	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, Now: time.Now(),
-	})
-	require.NoError(t, err)
-	f.wait()
-
-	_, err = f.usecase.StartRunner(f.ctx, chatID, "claude")
+	_, err := f.usecase.StartRunner(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 
 	require.NoError(t, f.usecase.SetChatPermissionLevel(f.ctx, chatID, "full-auto"))

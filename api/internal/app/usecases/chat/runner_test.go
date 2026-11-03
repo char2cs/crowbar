@@ -214,53 +214,22 @@ func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) 
 	assert.Empty(t, ints, "switching to the provider already on the chat is not a switch")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens drives
-// forward+back: spawn claude, bind its conversation, switch to codex, switch back. The
-// switch-back resumes claude's OWN conversation by expanding+tokenizing
-// descriptor.Session.Resume.Arg ("--resume {id}") into two SEPARATE argv tokens.
-func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sid-claude-native")
-
-	// A conversation id is not a conversation: the CLI only WRITES one once it has said
-	// something, so it is only resumable after a real turn.
-	exchange(t, f, runnerID, "claude", "claude said something")
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-	require.Equal(t, 2, f.term.callCount())
-
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, "claude", live.ProviderID)
-
-	require.Equal(t, 3, f.term.callCount())
-	argv := f.term.calls[2].argv
-
-	resumeIdx := indexOf(argv, "--resume")
-	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v must contain --resume as its own token", argv)
-	require.Less(t, resumeIdx+1, len(argv))
-	assert.Equal(t, "sid-claude-native", argv[resumeIdx+1])
-
-	assert.NotContains(t, argv, "--resume sid-claude-native")
-}
-
 // With no api connection (this fixture disables it, as production degrades to
 // when app-server fails), the hooks PTY is the only codex: it must carry the
 // native `resume {id}` itself, or codex mints a new thread on every switch back.
+// Its sessions live in its own home, which Crowbar must never own and so delete.
 func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, codexRunner := f.spawn(t, "codex")
 	f.announce(t, codexRunner, "sid-codex-native")
 	exchange(t, f, codexRunner, "codex", "codex ledger content")
+	for _, call := range f.term.calls {
+		for _, kv := range call.env {
+			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME=") && kv != "CODEX_HOME="+os.Getenv("CODEX_HOME"),
+				"Crowbar must never own codex's home — its sessions live there")
+		}
+	}
 
 	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
@@ -279,11 +248,7 @@ func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t
 
 	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
-	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0,
-		"with no api connection holding the thread, the PTY IS codex and must resume its own session: %v", argv)
-	require.Less(t, resumeIdx+1, len(argv))
-	assert.Equal(t, "sid-codex-native", argv[resumeIdx+1],
+	assert.Equal(t, "sid-codex-native", argAfter(t, argv, "resume"),
 		"the resume subcommand must name codex's own prior thread: %v", argv)
 	for _, tok := range argv {
 		assert.NotContains(t, tok, "[Crowbar]",
@@ -510,12 +475,10 @@ func waitForClockTick(t *testing.T) {
 	}
 }
 
-// A claude chat resumed into its own conversation is handed what happened while
-// it was away as a real user turn: silent config and a get_chat_log pointer are
-// both free for the model to ignore.
-func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
-	f := newFixture(t)
-
+// claudeAwayOnCodex is a claude chat that spoke, was switched to codex, and
+// codex spoke while claude was away; it returns the chat.
+func claudeAwayOnCodex(t *testing.T, f testFixture) string {
+	t.Helper()
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
 	exchange(t, f, claudeRunner, "claude", "claude ledger content")
@@ -527,14 +490,21 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 	require.NoError(t, err)
 	f.wait()
 	f.announce(t, codexRunner, "sid-codex-native")
-
-	// What claude misses while it is away. codex's turn_stop maps
-	// threadId/turn.items[type=agentMessage].text (see codex.yaml), NOT the flat
-	// last_assistant_message shape turn() builds for claude — using turn() here
-	// would silently extract an empty message and record nothing at all.
+	// codex's turn_stop maps turn.items[type=agentMessage].text (see codex.yaml),
+	// not the flat shape turn() builds for claude, which would record nothing.
 	codexTurnStop(t, f, codexRunner, "sid-codex-native", "codex spoke while claude was away")
+	return chatID
+}
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+// A claude chat resumed into its own conversation is handed what happened while
+// it was away as a real user turn: silent config and a get_chat_log pointer are
+// both free for the model to ignore.
+func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
+	f := newFixture(t)
+
+	chatID := claudeAwayOnCodex(t, f)
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
 
@@ -547,6 +517,7 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 
 	assert.Equal(t, "sid-claude-native", argAfter(t, argv, "--resume"),
 		"switch-back must resume claude's own conversation, not start a blank one")
+	assert.NotContains(t, argv, "--resume sid-claude-native", "the resume flag and its id are separate tokens")
 
 	msg := argv[len(argv)-1]
 	assert.Contains(t, msg, "codex spoke while claude was away",
@@ -572,21 +543,11 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, claudeRunner := f.spawn(t, "claude")
-	f.announce(t, claudeRunner, "sid-claude-native")
-	exchange(t, f, claudeRunner, "claude", "claude ledger content")
-	waitForClockTick(t)
-
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-	f.announce(t, codexRunner, "sid-codex-native")
-
-	codexTurnStop(t, f, codexRunner, "sid-codex-native", "codex spoke while claude was away")
+	chatID := claudeAwayOnCodex(t, f)
 
 	// The combined path: switch back to claude AND deliver a prompt in one
 	// call, exactly what the composer does on a staged-provider send.
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
 	require.NoError(t, err)
 	f.wait()
 
@@ -630,18 +591,9 @@ func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t 
 func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppressed(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, claudeRunner := f.spawn(t, "claude")
-	f.announce(t, claudeRunner, "sid-claude-native")
-	exchange(t, f, claudeRunner, "claude", "claude ledger content")
-	waitForClockTick(t)
+	chatID := claudeAwayOnCodex(t, f)
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-	f.announce(t, codexRunner, "sid-codex-native")
-	codexTurnStop(t, f, codexRunner, "sid-codex-native", "codex spoke while claude was away")
-
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
 	require.NoError(t, err)
 	f.wait()
 
@@ -670,18 +622,9 @@ func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppre
 func TestAudit_SubmitPromptWithStagedProvider_LedgerMustNotPermanentlyStoreTheInjectedContext(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, claudeRunner := f.spawn(t, "claude")
-	f.announce(t, claudeRunner, "sid-claude-native")
-	exchange(t, f, claudeRunner, "claude", "claude ledger content")
-	waitForClockTick(t)
+	chatID := claudeAwayOnCodex(t, f)
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-	f.announce(t, codexRunner, "sid-codex-native")
-	codexTurnStop(t, f, codexRunner, "sid-codex-native", "codex spoke while claude was away")
-
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
 	require.NoError(t, err)
 	f.wait()
 
@@ -719,20 +662,11 @@ func TestAudit_SubmitPromptWithStagedProvider_LedgerMustNotPermanentlyStoreTheIn
 func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDelivered(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, claudeRunner := f.spawn(t, "claude")
-	f.announce(t, claudeRunner, "sid-claude-native")
-	exchange(t, f, claudeRunner, "claude", "claude ledger content")
-	waitForClockTick(t)
-
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-	f.announce(t, codexRunner, "sid-codex-native")
-	codexTurnStop(t, f, codexRunner, "sid-codex-native", "codex spoke while claude was away")
+	chatID := claudeAwayOnCodex(t, f)
 
 	// Switch back to claude, stage a model/effort change, AND deliver a
 	// prompt — all in the one call a real staged-everything send makes.
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", &domain.ChatSelection{Model: "opus", Effort: "high"})
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", &domain.ChatSelection{Model: "opus", Effort: "high"})
 	require.NoError(t, err)
 
 	live, err := f.liveRunnerFor(t, chatID)
@@ -742,9 +676,7 @@ func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDeliver
 	assert.Equal(t, "high", live.LaunchEffort)
 
 	call := f.term.calls[f.term.callCount()-1]
-	modelAt := indexOf(call.argv, "--model")
-	require.GreaterOrEqual(t, modelAt, 0, "the staged model must still reach argv: %v", call.argv)
-	assert.Equal(t, "opus", call.argv[modelAt+1])
+	assert.Equal(t, "opus", argAfter(t, call.argv, "--model"))
 
 	last := call.argv[len(call.argv)-1]
 	assert.Contains(t, last, "codex spoke while claude was away",
@@ -932,52 +864,6 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsANewSession(t *te
 	assert.NotContains(t, argv, "--resume", "a session its CLI never wrote cannot be resumed")
 	assert.Contains(t, strings.Join(argv, "\x00"), "codex actually said something")
 	assert.Equal(t, assigned, f.conversation(t, chatID, "claude").SessionID)
-}
-
-// TestSwitchProvider_CodexKeepsItsOwnHome is the regression for the worst bug in this
-// feature: Crowbar used to point CODEX_HOME at a directory it owned and deleted, which
-// made it the custodian of codex's SESSIONS. It duly destroyed them — leaving codex
-// ended its segment, the directory went with it, and coming back resumed a thread that
-// no longer existed, so the CLI died on startup ("no rollout found for thread id ...")
-// and the chat could never return to codex.
-//
-// A provider owns its own sessions. Crowbar injects its hooks as config overrides and
-// never touches codex's home, so there is nothing left for it to delete.
-func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, codexRunner := f.spawn(t, "codex")
-	f.announce(t, codexRunner, "sid-codex")
-	exchange(t, f, codexRunner, "codex", "codex said something")
-
-	for _, call := range f.term.calls {
-		for _, kv := range call.env {
-			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME=") && kv != "CODEX_HOME="+os.Getenv("CODEX_HOME"),
-				"Crowbar must never own codex's home — its sessions live there")
-		}
-	}
-
-	// Leave codex and come back: it resumes its own conversation, and Crowbar had no
-	// session store to lose in between. This fixture has no api connection
-	// (NoAPITransport), so the PTY is the only codex there is and
-	// carries the resume itself — see apiResumes (resume_injection.go). Either
-	// way it is codex's OWN session id, not one this test could have papered over
-	// by owning CODEX_HOME.
-	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
-	require.NoError(t, err)
-	f.wait()
-	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
-
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-
-	require.Equal(t, 3, f.term.callCount())
-	argv := f.term.calls[2].argv
-	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0, "codex must resume its own conversation: %v", argv)
-	require.Less(t, resumeIdx+1, len(argv))
-	assert.Equal(t, "sid-codex", argv[resumeIdx+1],
-		"the resumed thread must be the one codex announced before it was switched away: %v", argv)
 }
 
 // ─── from midturn_test.go ─────────────────────────────────────────────
@@ -1567,10 +1453,7 @@ func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *te
 	// No api connection in this fixture, so the restart's PTY is the conversation
 	// and must resume durable-session itself (apiResumes, resume_injection.go).
 	argv := f.term.calls[f.term.callCount()-1].argv
-	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", argv)
-	require.Less(t, resumeIdx+1, len(argv))
-	assert.Equal(t, "durable-session", argv[resumeIdx+1])
+	assert.Equal(t, "durable-session", argAfter(t, argv, "resume"))
 }
 
 func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
@@ -1590,10 +1473,7 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 	// and must resume known-session itself (apiResumes, resume_injection.go) —
 	// never temporary-new-session, the one it announced in between.
 	argv := f.term.calls[f.term.callCount()-1].argv
-	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", argv)
-	require.Less(t, resumeIdx+1, len(argv))
-	assert.Equal(t, "known-session", argv[resumeIdx+1])
+	assert.Equal(t, "known-session", argAfter(t, argv, "resume"))
 }
 
 // A restart_tui provider delivers even the first message after a switch by
