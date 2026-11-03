@@ -225,14 +225,18 @@ func TestBoot_AChatWrittenToAfterAKilledRunNeverHaltsALaterOne(t *testing.T) {
 	assert.NotEmpty(t, held(t, h, "chat-c"))
 }
 
-// refuse makes the ledger refuse every row of chatID, as a busy or full disk
-// would refuse one import, until allow lifts it.
+// refuse makes the ledger refuse every row of chatID, or of every chat for "",
+// until allow lifts it.
 func refuse(t *testing.T, h home.Home, chatID string) {
 	t.Helper()
 	require.NoError(t, withStore(t.Context(), h, func(*ledgerstore.Store) error { return nil }))
 	conn := writable(t, filepath.Join(h.Store(), ledgerstore.FileName))
-	_, err := conn.ExecContext(t.Context(), "CREATE TRIGGER refuse BEFORE INSERT ON chat_ledger WHEN NEW.chat_id = '"+
-		chatID+"' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END")
+	when := ""
+	if chatID != "" {
+		when = "WHEN NEW.chat_id = '" + chatID + "' "
+	}
+	_, err := conn.ExecContext(t.Context(), "CREATE TRIGGER refuse BEFORE INSERT ON chat_ledger "+when+
+		"BEGIN SELECT RAISE(ABORT, 'refused'); END")
 	require.NoError(t, err)
 	require.NoError(t, conn.Close())
 }
@@ -281,14 +285,32 @@ func TestBoot_AChatWhoseImportKeepsFailingIsGivenUp(t *testing.T) {
 	require.Len(t, *tried, importAttempts)
 	assert.Contains(t, (*tried)[0].Message, "the next boot tries it again")
 	assert.Contains(t, (*tried)[importAttempts-1].Message, "not tried again")
+	assert.Equal(t, slog.LevelError, (*tried)[importAttempts-1].Level, "a chat given up is said once, as an error")
 	note := migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")]
 	assert.Equal(t, int64(converterVersion), note.Counts["converter"])
 	assert.Equal(t, int64(importAttempts), note.Counts["attempts"])
-	assert.Contains(t, note.Detail, "disk I/O error")
+	assert.Contains(t, note.Detail, "refused")
 	assert.Empty(t, held(t, h, "chat-b"))
 	before := testutil.TreeSnapshot(t, h)
 	boot(t, h)
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
+}
+
+// A ledger refusing every import, for more boots than a chat is given, costs
+// no chat an attempt: once it takes rows again, every chat converts.
+func TestBoot_ALedgerRefusingEveryImportGivesUpNoChat(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	refuse(t, h, "")
+	for range importAttempts + 1 {
+		require.Error(t, bootLogging(t, h, slog.Default()))
+	}
+	allow(t, h)
+
+	require.NoError(t, bootLogging(t, h, slog.Default()))
+
+	assert.Equal(t, convert(t, chatA(), nobody).Rows, held(t, h, "chat-a"))
+	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 }
 
 // notes is marks that also keeps the notes written.

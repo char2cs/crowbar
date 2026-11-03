@@ -462,15 +462,17 @@ func TestConvertAll_AChatWhoseImportFailsSkipsOnlyThatChat(t *testing.T) {
 	}
 }
 
-// Every import failing is the ledger failing, not a chat: the step fails.
+// Every import failing is the ledger failing, not a chat: the step fails and
+// no chat is charged an attempt.
 func TestConvertAll_EveryImportFailingFailsTheStep(t *testing.T) {
 	full := errors.New("database or disk is full")
 	store := &fakeLedger{onImport: func(string) error { return full }}
+	cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
 
-	_, err := convertAll(context.Background(), slog.Default(), store, notes{marks: marks{}, notes: map[string]migrate.Note{}},
-		legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
 
 	require.ErrorIs(t, err, full)
+	assert.Empty(t, cp.notes)
 }
 
 // An import that commits and then does not hold what was converted is kept as
@@ -490,4 +492,35 @@ func TestConvertAll_AnImportThatDidNotLandAsConvertedIsSkippedForGood(t *testing
 	assert.Equal(t, int64(converterVersion), cp.notes[skippedKey("chat-b")].Counts["converter"], "not tried again")
 	require.Len(t, *warned, 1)
 	assert.Equal(t, "chatledger: skipped a chat whose import did not land as converted; its rows are kept, it is not tried again", (*warned)[0].Message)
+}
+
+// storeFault is an error the ledger's database returns for the whole store.
+type storeFault int
+
+func (f storeFault) Error() string { return fmt.Sprintf("database or disk is full (%d)", int(f)) }
+
+func (f storeFault) Code() int { return int(f) }
+
+// A disk that fills partway through stops the step: the chats imported stay
+// converted, the rest cost no attempt and convert once there is room.
+func TestConvertAll_AStoreFaultStopsTheStepAndCostsNoAttempt(t *testing.T) {
+	full := true
+	store := &fakeLedger{onImport: func(chatID string) error {
+		if chatID == "chat-a" && full {
+			return fmt.Errorf("ledger: append to %s: %w", chatID, storeFault(13))
+		}
+		return nil
+	}}
+	cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
+	legacy := legacyHome{chats: []LegacyChat{chatB(), chatA()}}
+
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacy)
+
+	require.ErrorIs(t, err, storeFault(13))
+	assert.Contains(t, cp.marks, "chat-b")
+	assert.Empty(t, cp.notes, "no chat is charged for the store")
+	full = false
+	_, err = convertAll(context.Background(), slog.Default(), store, cp, legacy)
+	require.NoError(t, err)
+	assert.Contains(t, cp.marks, "chat-a")
 }
