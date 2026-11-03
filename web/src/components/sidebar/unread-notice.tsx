@@ -8,8 +8,6 @@ import { resubscribe } from '@/core/stream/stream'
 const NONE: readonly string[] = []
 
 const selectUnread = (s: EntityState) => s.unread.projects ?? NONE
-/** A sub clears the scope's synced and its snapshot's synced sets it again. */
-const selectAwaiting = (s: EntityState) => !s.synced.projects
 
 interface Line {
   key: string
@@ -20,7 +18,6 @@ interface Line {
  *  Retry asks for the snapshot again, which reads them anew. */
 export function UnreadNotice({ projectId }: { projectId: string }) {
   const unread = useStore(entityStore, selectUnread)
-  const awaiting = useStore(entityStore, selectAwaiting)
   const repos = useSelect(selectRepos)
   if (unread.length === 0) return null
   const ids = new Set(unread)
@@ -46,7 +43,7 @@ export function UnreadNotice({ projectId }: { projectId: string }) {
           </span>
         ))}
       </div>
-      <Button variant="ghost" size="xs" disabled={awaiting} onClick={() => resubscribe('projects')}>
+      <Button variant="ghost" size="xs" onClick={() => resubscribe('projects')}>
         Retry
       </Button>
     </div>

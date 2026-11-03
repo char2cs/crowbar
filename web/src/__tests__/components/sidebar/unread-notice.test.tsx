@@ -86,19 +86,6 @@ describe('the unread notice', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('holds Retry until the snapshot it asked for lands', () => {
-    render(<UnreadNotice projectId="p1" />)
-    snapshot(['r1'])
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(socket.sent).toHaveLength(2)
-
-    snapshot(['r1'])
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled()
-  })
-
   it('lists two unread repos of the same name, each once', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const twin: RepoDTO = { ...repo, id: 'r2', path: '/elsewhere/alpha', order: 1 }
