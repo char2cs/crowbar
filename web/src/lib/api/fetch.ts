@@ -73,7 +73,7 @@ export async function apiFetchRaw(
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
       // bounded backoff; surface the error once attempts are exhausted.
-      if (attempt >= maxAttempts) throw unreached(err)
+      if (attempt >= maxAttempts) throw transportFailure(err, read)
       await sleep(Math.min(retry.maxDelayMs, retry.baseDelayMs * 2 ** (attempt - 1)))
       continue
     }
@@ -109,9 +109,15 @@ export async function apiFetchRaw(
   }
 }
 
-// fetch rejects a request that reached no server with a TypeError, worded per engine.
-function unreached(err: unknown): unknown {
-  return err instanceof TypeError ? new UserFacingError(UNREACHED, { cause: err }) : err
+/** A write whose answer never came: the daemon may have applied it before the drop. */
+const ANSWER_LOST =
+  'The connection dropped, so the change may or may not have been applied. Check before trying again.'
+
+// fetch rejects with a TypeError, worded per engine, for a request that got no answer.
+// A read was retried; a write may have landed, so it never says to try again.
+function transportFailure(err: unknown, read: boolean): unknown {
+  if (!(err instanceof TypeError)) return err
+  return new UserFacingError(read ? UNREACHED : ANSWER_LOST, { cause: err })
 }
 
 interface EnvelopeBody {

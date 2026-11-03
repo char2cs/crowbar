@@ -93,10 +93,16 @@ describe('apiFetch transient-transport retry', () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Load failed'))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(apiFetch('/v0/projects', { method: 'POST' }, fastRetry(8))).rejects.toThrow(
-      UNREACHED,
+    const err: unknown = await apiFetch('/v0/projects', { method: 'POST' }, fastRetry(8)).catch(
+      (e) => e,
     )
+
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    // The daemon may have applied it before the connection dropped: never invite a blind retry.
+    expect(userWords(err)).toBe(
+      'The connection dropped, so the change may or may not have been applied. Check before trying again.',
+    )
+    expect((err as Error).cause).toBeInstanceOf(TypeError)
   })
 
   // Bounded: if the daemon never comes up, retries give up and say so rather
