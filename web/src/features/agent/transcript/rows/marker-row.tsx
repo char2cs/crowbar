@@ -41,6 +41,12 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
       return interruptPill(item.reason)
     case 'turn_failed':
       return { label: 'Turn failed', testId: 'agent-failed-divider' }
+    case 'session_conflict':
+      // Two chats never share a session: this one lost that binding, and says so.
+      return {
+        label: 'Another chat holds this session; this chat did not take it',
+        testId: 'agent-session-conflict-divider',
+      }
     case 'session_lost':
       return { label: 'The session was lost', testId: 'agent-session-lost-divider' }
     case 'runner_exited':

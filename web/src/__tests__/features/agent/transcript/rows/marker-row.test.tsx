@@ -164,6 +164,15 @@ describe('MarkerRow', () => {
     )
   })
 
+  it('says the chat could not take a session another chat holds, not the session id', () => {
+    const l = ledger()
+    const feed = seed([l.row('marker', { kind: 'session_conflict', detail: 'S-1' })])
+    draw(markerOf(feed)!)
+    expect(screen.getByTestId('agent-session-conflict-divider')).toHaveTextContent(
+      'Another chat holds this session; this chat did not take it',
+    )
+  })
+
   // Every marker kind the daemon accepts (written by the api's ledger tests),
   // and whether the transcript draws it; MarkerKind must name exactly these.
   const drawn: Record<MarkerKind, true | string> = {
@@ -175,7 +184,7 @@ describe('MarkerRow', () => {
     legacy_unreadable: true,
     stopped: 'the turn it ends draws “you stopped this turn”',
     session_changed: 'the CLI’s own bookkeeping; the transcript reads on',
-    session_conflict: 'which chat owns a session is the daemon’s to settle, not the reader’s',
+    session_conflict: true,
     dead_letter: 'counted in the daemon’s health, not drawn in a chat',
     notification:
       'what the CLI told its user repeats what the transcript shows; a legacy notice outside a turn stays in the ledger only',
