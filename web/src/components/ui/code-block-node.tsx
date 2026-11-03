@@ -2,16 +2,21 @@
 
 import * as React from 'react'
 
-import { formatCodeBlock, isLangSupported, resetCodeBlockDecorations } from '@platejs/code-block'
+import {
+  CODE_LINE_TO_DECORATIONS,
+  formatCodeBlock,
+  isLangSupported,
+  setCodeBlockToDecorations,
+} from '@platejs/code-block'
 import { Command as CommandPrimitive } from 'cmdk'
 import { BracketsCurlyIcon, CheckIcon, CopyIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
-import { type TCodeBlockElement, type TCodeSyntaxLeaf, NodeApi } from 'platejs'
+import { type TCodeBlockElement, type TCodeSyntaxLeaf, type TElement, NodeApi } from 'platejs'
 import { type PlateElementProps, type PlateLeafProps, PlateElement, PlateLeaf } from 'platejs/react'
-import { useEditorRef, useElement, useReadOnly } from 'platejs/react'
+import { useEditorRef, useElement, usePlateStore, useReadOnly } from 'platejs/react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { onGrammarReady } from '@/features/editor/lib/shiki-grammars'
+import { onGrammarReady, readyLanguageIds } from '@/features/editor/lib/shiki-grammars'
 
 // This file is `components/ui` only by shadcn-registry convention — it is
 // already Plate/markdown-specific (it imports `platejs` types and reads
@@ -225,22 +230,40 @@ function getCodeBlockLanguageLabel(lang?: string | null) {
   return codeBlockLanguages.find((language) => language.value === value)?.label ?? value
 }
 
+/** Text but no decorations: the block was decorated before its grammar was ready. */
+function decoratedPlain(element: TCodeBlockElement): boolean {
+  const lines = element.children as TElement[]
+  return (
+    lines.some((line) => NodeApi.string(line) !== '') &&
+    lines.every((line) => !CODE_LINE_TO_DECORATIONS.get(line)?.length)
+  )
+}
+
 export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlockElementProps) {
   const { editor, element } = props
   const isMermaid = element.lang === 'mermaid'
 
   // Highlighting grammars load on demand (shiki-grammars.ts): this block was
-  // decorated as plain text until its language landed, so drop that cached
-  // decoration and re-decorate once it has.
+  // decorated as plain text until its language landed, so re-decorate once it has.
+  // A version bump, not `editor.api.redecorate`: Plate binds that after this effect on mount.
+  const plateStore = usePlateStore()
   React.useEffect(() => {
     const lang = element.lang
     if (!lang) return
-    return onGrammarReady((ready) => {
-      if (ready !== lang) return
-      resetCodeBlockDecorations(element)
-      editor.api.redecorate()
+    const redecorate = () => {
+      const path = editor.api.findPath(element)
+      if (!path) return
+      // Filled before the bump: Slate re-queries the lines before their block.
+      setCodeBlockToDecorations(editor, [element, path])
+      plateStore.set('versionDecorate', (plateStore.get('versionDecorate') ?? 0) + 1)
+    }
+    const off = onGrammarReady((ready) => {
+      if (ready === lang) redecorate()
     })
-  }, [editor, element])
+    // A grammar that landed between the block's decoration and this subscription told no one.
+    if (readyLanguageIds().includes(lang) && decoratedPlain(element)) redecorate()
+    return off
+  }, [editor, element, plateStore])
 
   const codeBody = (
     <pre className="overflow-x-auto p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
