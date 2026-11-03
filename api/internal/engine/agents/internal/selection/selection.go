@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -27,11 +28,6 @@ func Efforts(
 	return append([]string(nil), d.Effort.Available[spec.EffortFallbackKey]...)
 }
 
-// permissionCanonicalOrder is Crowbar's least-to-most-permissive level order
-// for PermissionLevels' stable output; the engine does not import domain,
-// whose PermissionLevels is the same order on the usecase side.
-var permissionCanonicalOrder = []string{"guarded", "trusted", "full-auto"}
-
 // PermissionLevels reports which of Crowbar's own level names this provider
 // can actually reach — the descriptor's own permission_levels.levels map
 // keys, and nothing clamped or inferred beyond them, in Crowbar's fixed
@@ -45,7 +41,7 @@ func PermissionLevels(
 		return nil
 	}
 	out := make([]string, 0, len(d.PermissionLevels.Levels))
-	for _, level := range permissionCanonicalOrder {
+	for _, level := range domain.PermissionLevels() {
 		if _, ok := d.PermissionLevels.Levels[level]; ok {
 			out = append(out, level)
 		}
