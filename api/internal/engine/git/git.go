@@ -273,7 +273,7 @@ type Engine interface {
 
 	// OperationInProgress reports the in-progress git operation at repoPath, if
 	// any: "rebase", "merge", "squash", or "" when the worktree is at rest. It
-	// reads the .git marker files (MERGE_HEAD, rebase-merge/, AUTO_MERGE, …) and
+	// reads the .git marker files (MERGE_HEAD, rebase-merge/, SQUASH_MSG, …) and
 	// never mutates. The recovery sweep uses it to tell a workspace that is mid
 	// conflict-resolution (markers resolved + staged but the rebase/merge not yet
 	// continued) apart from a truly clean tree, so it doesn't prematurely clear a

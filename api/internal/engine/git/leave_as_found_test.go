@@ -221,6 +221,9 @@ func requireUsersChangesKept(t *testing.T, repo string) {
 	assert.Equal(t, "mine.txt", gitOutput(t, repo, "diff", "--cached", "--name-only"), "the staged file stays staged")
 	assert.Equal(t, "base.txt", gitOutput(t, repo, "diff", "--name-only"), "the dirty file stays dirty")
 	assert.FileExists(t, filepath.Join(repo, "mine.txt"))
+	op, err := git.New().OperationInProgress(context.Background(), repo)
+	require.NoError(t, err)
+	assert.Empty(t, op, "a refused command leaves nothing for an abort to undo")
 }
 
 func TestMergeVerbs_RefusedOverTheUsersChangesKeepThem(t *testing.T) {
