@@ -228,7 +228,11 @@ func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 	assert.Equal(t, "chat-b", testutil.Attrs((*got)[0])["chat_id"].String())
 	applied := migratetest.Applied(t, h)[stepNumber]
 	require.Len(t, applied, 1)
-	assert.Equal(t, int64(len(convert(t, chatA(), nobody).Skipped))+1, applied[0]["skipped_rows"])
+	assert.Equal(t, int64(1), applied[0]["skipped_chats"])
+	assert.Equal(t, int64(len(convert(t, chatA(), nobody).Skipped)), applied[0]["skipped_rows"])
+	note := migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")]
+	assert.Contains(t, note.Detail, "runner")
+	assert.Equal(t, migrate.Counts{legacyRecords: records(broken), "converter": converterVersion}, note.Counts)
 	for path, stamp := range before {
 		if filepath.Base(path) != ledgerstore.FileName && !strings.HasPrefix(filepath.Base(path), ledgerstore.FileName) {
 			assert.Equal(t, stamp, files(t, h.Store())[path], path)

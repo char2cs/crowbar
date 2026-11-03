@@ -2,6 +2,10 @@ package chatledger
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -88,4 +92,28 @@ func TestPlan_LegacyFilesAsTheLastRunLeftThemAreOnlyStatted(t *testing.T) {
 	testutil.WriteFile(t, h, "state/store/"+ActivityDB, "not a database any more")
 	_, err = Plan(t.Context(), migrate.Env{Home: h, Notes: notes})
 	require.Error(t, err, "a changed stamp is counted again")
+}
+
+// A skipped chat is tried again by the first build whose converter is newer
+// than the one that skipped it, and only then.
+func TestBoot_ASkippedChatIsRetriedOnceTheConverterChanges(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	broken := chatB()
+	broken.Runners = []LegacyRunner{{ID: "", ChatID: broken.ChatID, ProviderID: "codex"}}
+	writeLegacy(t, h, broken)
+	boot(t, h)
+	path := filepath.Join(h.MigrateDir(), "ledger.jsonl")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	now := strconv.Itoa(converterVersion)
+	older := strings.ReplaceAll(strings.ReplaceAll(string(raw),
+		`"converter":`+now, `"converter":0`), `converter `+now, `converter 0`)
+	require.NoError(t, os.WriteFile(path, []byte(older), 0o600))
+	log, warned := capture(testutil.Message("chatledger: skipped a chat that cannot be converted"))
+
+	require.NoError(t, bootLogging(t, h, log))
+	require.NoError(t, bootLogging(t, h, log))
+
+	assert.Len(t, *warned, 1, "retried by the newer converter, then not again")
+	assert.Equal(t, int64(converterVersion), migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")].Counts["converter"])
 }

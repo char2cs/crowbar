@@ -131,7 +131,7 @@ func convertAll(
 			if err := skip(ctx, log, cp, chat.ChatID, n, err); err != nil {
 				return nonZero(unmarked), err
 			}
-			unmarked.Add(skippedCounts(err))
+			unmarked.Add(migrate.Counts{"skipped_chats": 1})
 			continue
 		}
 		if err != nil {
@@ -146,21 +146,16 @@ func convertAll(
 	return nonZero(unmarked), nil
 }
 
-func skippedCounts(why error) migrate.Counts {
-	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
-		return migrate.Counts{"skipped_chats": 1}
-	}
-	return migrate.Counts{"skipped_rows": 1}
-}
-
-// skip notes why chat was not converted, so a later boot does not try it again.
+// skip notes why chat was not converted and by which converter: no later boot
+// tries it again until a newer converter might convert it.
 func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
 	msg := "chatledger: skipped a chat that cannot be converted"
 	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
 		msg = "chatledger: skipped a chat whose ledger already holds rows"
 	}
 	log.WarnContext(ctx, msg, "chat_id", chatID, "err", why)
-	if err := cp.Note(skippedKey(chatID), migrate.Note{Detail: why.Error(), Counts: migrate.Counts{legacyRecords: n}}); err != nil {
+	note := migrate.Note{Detail: why.Error(), Counts: migrate.Counts{legacyRecords: n, "converter": converterVersion}}
+	if err := cp.Note(skippedKey(chatID), note); err != nil {
 		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
 	}
 	return nil

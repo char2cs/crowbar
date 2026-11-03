@@ -14,6 +14,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
+// converterVersion is raised by a build that converts records an older one
+// refused, so the chats those builds skipped are tried again.
+const converterVersion = 1
+
 // legacyRecords is the count label under which a chat's checkpoint and notes
 // keep how many legacy records it had.
 const legacyRecords = "legacy_records"
@@ -38,13 +42,13 @@ type recorded struct {
 	noted  func(key string) (migrate.Note, bool)
 }
 
-// owed decides a chat of n legacy records: convert it unless it was converted
-// or skipped; a converted chat an older build has since added to is recorded,
+// owed decides a chat of n legacy records: convert it unless it was converted,
+// or skipped by this converter; a converted chat an older build has since added to is recorded,
 // once per count, and never imported over what the ledger holds.
 func (r recorded) owed(chatID string, n int64) duty {
 	counts, converted := r.marked(chatID)
 	if !converted {
-		if _, skipped := r.noted(skippedKey(chatID)); skipped {
+		if note, skipped := r.noted(skippedKey(chatID)); skipped && note.Counts["converter"] == converterVersion {
 			return dutyNone
 		}
 		return dutyConvert
@@ -101,9 +105,9 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 // stampKey is the note under which a run keeps the legacyStamp it saw.
 const stampKey = "legacy-files"
 
-// legacyStamp names the size and modification time of every legacy database
-// and prompt journal: an older build writing any of them changes it. It is ""
-// when the home has none.
+// legacyStamp names the converter and the size and modification time of every
+// legacy database and prompt journal: an older build writing any of them, or a
+// newer converter, changes it. It is "" when the home has no legacy file.
 func legacyStamp(h home.Home) (string, error) {
 	paths := []string{
 		filepath.Join(h.Store(), ActivityDB), filepath.Join(h.Store(), ActivityDB+"-wal"),
@@ -114,6 +118,8 @@ func legacyStamp(h home.Home) (string, error) {
 		return "", fmt.Errorf("chatledger: plan: %w", err)
 	}
 	var b strings.Builder
+	found := false
+	fmt.Fprintf(&b, "converter %d\n", converterVersion)
 	for _, path := range append(paths, journals...) {
 		info, err := os.Stat(path)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -127,6 +133,10 @@ func legacyStamp(h home.Home) (string, error) {
 			return "", fmt.Errorf("chatledger: plan: %w", err)
 		}
 		fmt.Fprintf(&b, "%s %d %d\n", rel, info.Size(), info.ModTime().UnixNano())
+		found = true
+	}
+	if !found {
+		return "", nil
 	}
 	return b.String(), nil
 }
