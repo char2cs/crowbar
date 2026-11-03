@@ -3,7 +3,13 @@ package ledger_test
 import (
 	"encoding/json"
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +36,33 @@ func TestCheck_TheKindsTheWebChecksAreTheOnesItAccepts(t *testing.T) {
 	want, err := os.ReadFile(kindsFixture)
 	require.NoError(t, err, "write it with -args -update-kinds-fixture")
 	assert.Equal(t, string(want), string(got), "the kinds drifted: rerun with -args -update-kinds-fixture")
+}
+
+// Every Marker* constant is a kind Check accepts: a new one missing from the
+// accepted list fails here, not on the first row a CLI sends of it.
+func TestCheck_EveryMarkerConstantIsAKindItAccepts(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "marker.go", nil, 0)
+	require.NoError(t, err)
+	var declared []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+		for i, name := range spec.Names {
+			lit, ok := spec.Values[i].(*ast.BasicLit)
+			if strings.HasPrefix(name.Name, "Marker") && ok && lit.Kind == token.STRING {
+				v, err := strconv.Unquote(lit.Value)
+				require.NoError(t, err)
+				declared = append(declared, v)
+			}
+		}
+		return true
+	})
+	slices.Sort(declared)
+
+	require.NotEmpty(t, declared)
+	assert.Equal(t, declared, ledger.MarkerKinds())
 }
 
 func TestCheck_AMarkerNeedsAKnownKind(t *testing.T) {

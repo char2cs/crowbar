@@ -12,7 +12,7 @@ const (
 	MarkerModelChanged      = "model_changed"     // Detail: the model selected
 	MarkerEffortChanged     = "effort_changed"    // Detail: the effort selected
 	MarkerNotification      = "notification"      // Detail: what the CLI told its user
-	MarkerUnreadable        = "legacy_unreadable" // Detail: in plain words, how many records the upgrade could not read
+	MarkerUnreadable        = "legacy_unreadable" // Detail: in plain words, how many records the upgrade could not convert
 )
 
 // markerKinds is every marker kind; a marker of any other kind is malformed.
