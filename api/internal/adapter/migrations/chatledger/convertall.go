@@ -34,36 +34,24 @@ func convertAll(
 			return nonZero(unmarked), err
 		}
 		n := legacy.counts[chat.ChatID]
-		switch owed.owed(chat.ChatID, n) {
-		case dutyNone:
-			continue
-		case dutyRecordChange:
-			if err := recordChange(ctx, log, cp, chat.ChatID, n); err != nil {
+		convert, err := due(ctx, log, cp, owed.owed(chat.ChatID, n), chat.ChatID, n)
+		if err != nil || !convert {
+			if err != nil {
 				return nonZero(unmarked), err
 			}
 			continue
-		case dutyConvert:
 		}
-		res, err := importChat(ctx, log, store, chat)
-		if errors.Is(err, errSessionIndex) || interrupted(ctx, err) || storeWide(err) {
-			return nonZero(unmarked), err
-		}
-		if retried(err) != nil {
+		landed, err := attempt(ctx, log, store, cp, chat, n)
+		switch {
+		case err != nil && !stops(ctx, err) && retried(err) != nil:
 			failed = append(failed, failedImport{chatID: chat.ChatID, n: n, err: err})
-			continue
-		}
-		if err != nil {
-			if err := giveUp(ctx, log, store, cp, chat.ChatID, n, err); err != nil {
-				return nonZero(unmarked), err
-			}
+		case err != nil:
+			return nonZero(unmarked), err
+		case landed:
+			imported++
+		default:
 			unmarked.Add(migrate.Counts{"skipped_chats": 1})
-			continue
 		}
-		counts := migrate.Counts{"rows": int64(len(res.Rows)), "skipped_rows": int64(len(res.Skipped)), legacyRecords: n}
-		if err := cp.Mark(chat.ChatID, counts); err != nil {
-			return nonZero(unmarked), fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
-		}
-		imported++
 	}
 	waiting, err := charge(ctx, log, cp, failed, imported)
 	if err == nil && len(failed) > 0 {
@@ -73,6 +61,42 @@ func convertAll(
 		unmarked.Add(migrate.Counts{retryingChats: waiting})
 	}
 	return nonZero(unmarked), err
+}
+
+// attempt imports chat and marks it, or gives it up, and reports whether it
+// landed. An import that failed is its error, for the caller to retry or stop.
+func attempt(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, chat LegacyChat, n int64) (bool, error) {
+	res, err := importChat(ctx, log, store, chat)
+	if err != nil && (stops(ctx, err) || retried(err) != nil) {
+		return false, err
+	}
+	if err != nil {
+		return false, giveUp(ctx, log, store, cp, chat.ChatID, n, err)
+	}
+	counts := migrate.Counts{"rows": int64(len(res.Rows)), "skipped_rows": int64(len(res.Skipped)), legacyRecords: n}
+	if err := cp.Mark(chat.ChatID, counts); err != nil {
+		return false, fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
+	}
+	return true, nil
+}
+
+// stops reports whether err stops the step: an unreadable session index, a
+// cancelled boot, or a fault of the whole store.
+func stops(ctx context.Context, err error) bool {
+	return errors.Is(err, errSessionIndex) || interrupted(ctx, err) || storeWide(err)
+}
+
+// due does what duty owes chatID short of converting it, and reports whether
+// it owes the conversion.
+func due(ctx context.Context, log *slog.Logger, cp checkpoints, duty duty, chatID string, n int64) (bool, error) {
+	switch duty {
+	case dutyConvert:
+		return true, nil
+	case dutyRecordChange:
+		return false, recordChange(ctx, log, cp, chatID, n)
+	case dutyNone:
+	}
+	return false, nil
 }
 
 // giveUp skips chat for good. One holding rows of its own is told, in a row
