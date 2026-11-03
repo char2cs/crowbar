@@ -8,6 +8,7 @@ import { problemOf } from '@/lib/errors/problem'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 // A terminal VIEW streams one daemon PTY session over its own WebSocket — a
@@ -455,6 +456,6 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
  * zip in ~/Downloads. Resolves to the bundle's absolute path.
  */
 export async function exportDiagnostics(): Promise<string> {
-  if (!isTauri()) throw new Error('Diagnostics export requires the desktop app')
+  if (!isTauri()) throw new UserFacingError('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')
 }

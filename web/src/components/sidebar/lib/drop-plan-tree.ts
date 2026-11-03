@@ -14,6 +14,7 @@ import {
   renderedSiblings,
   visibleRepos,
 } from '@/components/sidebar/lib/rendered-rows'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 /** One request `performSidebarDrop` fires, in the order it must land — the
  *  scoped-down `PlacementCall` from `drop-plan.ts` (git show 9ad89156), minus
@@ -210,7 +211,7 @@ export function planTreeRowDrop(
       // A fork parent must have a checkout to rebase onto; the daemon refuses
       // one without (guardReparent), so the drop is refused before any call.
       if (repo.workspaces.find((w) => w.id === nextFork)?.provisioning === 'placeholder') {
-        throw new Error("That branch hasn't been checked out yet — try again once it has")
+        throw new UserFacingError("That branch hasn't been checked out yet — try again once it has")
       }
       // `fireRowPlacementCall` places only once the reparent settled; the
       // reparent clears any folder edge, so the follow-up carries one back.

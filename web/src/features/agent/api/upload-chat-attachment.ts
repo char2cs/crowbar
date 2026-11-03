@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import { chatBase } from '@/features/agent/api/agent-chat-reads'
-import { API_BASE } from '@/lib/api/fetch'
+import { apiFetchRaw } from '@/lib/api/fetch'
 
 export interface UploadedChatAttachment {
   ref: string
@@ -25,26 +25,22 @@ export async function uploadChatAttachment(
   input: UploadChatAttachmentInput,
   id: string = nanoid(),
 ): Promise<UploadedChatAttachment> {
-  const url = `${API_BASE}${chatBase(wsId)}/${encodeURIComponent(chatId)}/attachments`
+  const path = `${chatBase(wsId)}/${encodeURIComponent(chatId)}/attachments`
   const response =
     'file' in input
-      ? await postMultipartAttachment(url, input.file, id)
-      : await fetch(url, {
+      ? await postMultipartAttachment(path, input.file, id)
+      : await apiFetchRaw(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: input.path, id }),
         })
-
-  if (!response.ok) {
-    throw new Error(`upload chat attachment failed: ${response.status} ${await response.text()}`)
-  }
   const { data } = (await response.json()) as UploadAttachmentResponseBody
   return { ref: data.ref, filename: data.fileName, size: data.size, contentType: data.contentType }
 }
 
-async function postMultipartAttachment(url: string, file: File, id: string): Promise<Response> {
+async function postMultipartAttachment(path: string, file: File, id: string): Promise<Response> {
   const { body, contentType } = await encodeMultipartAttachment(file, id)
-  return fetch(url, { method: 'POST', headers: { 'Content-Type': contentType }, body })
+  return apiFetchRaw(path, { method: 'POST', headers: { 'Content-Type': contentType }, body })
 }
 
 /**

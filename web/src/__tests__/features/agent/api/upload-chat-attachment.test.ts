@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
+import { ApiError } from '@/lib/errors/api-error'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 beforeEach(() => {
@@ -212,17 +213,17 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
-  it('throws an error carrying the status and body text on a non-ok response', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(() => Promise.resolve(new Response('too big', { status: 413 }))),
-    )
-    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
-      /413/,
-    )
-    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
-      /too big/,
-    )
+  it('rejects a refused upload with the daemon’s own words and code', async () => {
+    const refusal = { success: false, error: 'attachment exceeds 20 MB', code: 'too_large' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(refusal, 413)))
+
+    const upload = uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')
+
+    await expect(upload).rejects.toBeInstanceOf(ApiError)
+    await expect(upload).rejects.toMatchObject({
+      status: 413,
+      problem: { code: 'too_large', message: 'attachment exceeds 20 MB' },
+    })
     vi.unstubAllGlobals()
   })
 })

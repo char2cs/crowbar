@@ -11,6 +11,7 @@ import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-
 import { workspaceRef } from '@/lib/api/documents'
 import * as openDocumentModule from '@/features/editor/documents/open-document'
 import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 
 const { killTerminalSession } = vi.hoisted(() => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -262,7 +263,7 @@ describe('buffer-slice', () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
     const open = vi
       .spyOn(openDocumentModule, 'openDocument')
-      .mockRejectedValue(new Error('daemon unreachable'))
+      .mockRejectedValue(new ApiError('daemon unreachable', 500))
     onTestFinished(() => {
       open.mockRestore()
       toastAdd.mockRestore()

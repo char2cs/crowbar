@@ -16,6 +16,7 @@ import {
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 
 function identity(login: string): IdentityDTO {
   return { login, displayName: login, avatarUrl: `https://x/${login}.png` }
@@ -40,7 +41,7 @@ describe('useCurrentIdentity', () => {
   it('a failed identity read reports why', async () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
     onTestFinished(() => toastAdd.mockRestore())
-    mocks.getIdentity.mockRejectedValueOnce(new Error('no token'))
+    mocks.getIdentity.mockRejectedValueOnce(new ApiError('no token', 500))
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-fail-1', owningChatId: 'chat-1' })
 
     const { result } = renderHook(() => useCurrentIdentity('ws-fail-1'))
@@ -98,7 +99,7 @@ describe('useCurrentIdentity', () => {
       wsId: 'ws-error-1',
       owningChatId: 'chat-err',
     })
-    mocks.getIdentity.mockRejectedValue(new Error('502'))
+    mocks.getIdentity.mockRejectedValue(new ApiError('502', 500))
 
     const { result } = renderHook(() => useCurrentIdentity('ws-error-1'))
     await act(async () => {})

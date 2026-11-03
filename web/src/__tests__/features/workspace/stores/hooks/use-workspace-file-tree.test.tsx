@@ -9,6 +9,7 @@ import { setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { ApiError } from '@/lib/errors/api-error'
 
 const { fetchFileTree, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
@@ -74,7 +75,7 @@ describe('useWorkspaceFileTree', () => {
   })
 
   it('retries on the next activation after a failed load', async () => {
-    fetchFileTree.mockRejectedValueOnce(new Error('boom'))
+    fetchFileTree.mockRejectedValueOnce(new ApiError('boom', 500))
     const { store, rerender } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
 
@@ -87,7 +88,7 @@ describe('useWorkspaceFileTree', () => {
   it('a failed tree load reports why', async () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
     onTestFinished(() => toastAdd.mockRestore())
-    fetchFileTree.mockRejectedValueOnce(new Error('daemon unreachable'))
+    fetchFileTree.mockRejectedValueOnce(new ApiError('daemon unreachable', 500))
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
     expect(toastAdd).toHaveBeenCalledWith(
@@ -98,7 +99,7 @@ describe('useWorkspaceFileTree', () => {
   it('a failed check of open files against disk reports why', async () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
     onTestFinished(() => toastAdd.mockRestore())
-    reconcileBuffers.mockRejectedValueOnce(new Error('read failed'))
+    reconcileBuffers.mockRejectedValueOnce(new ApiError('read failed', 500))
     setup()
     await waitFor(() =>
       expect(toastAdd).toHaveBeenCalledWith(

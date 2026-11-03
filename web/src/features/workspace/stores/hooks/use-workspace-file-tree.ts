@@ -11,6 +11,7 @@ import { workspaceRef } from '@/lib/api/documents'
 import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
 import { useWorkspaceStore } from '../workspace-context'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 // Stable reference for a workspace with nothing expanded yet — a fresh
 // `new Set()` on every selector call would re-run the lazy-load effect each render.
@@ -73,7 +74,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       },
       refused: (problem) => {
         store.getState().fileTreeActions.setFileTreeStatus('failed')
-        report(new Error(problem?.message ?? `${scope} was refused`), {
+        report(new UserFacingError(problem?.message ?? `${scope} was refused`), {
           action: 'Follow the file tree',
         })
       },

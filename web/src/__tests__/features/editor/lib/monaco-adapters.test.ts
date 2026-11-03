@@ -74,6 +74,9 @@ import {
   realModelApi,
 } from '@/features/editor/lib/monaco-adapters'
 
+/** What report() shows for a client bug. */
+const UNEXPLAINED = 'Something went wrong — details are in the log'
+
 describe('monaco-adapters', () => {
   it('realModelApi exposes createModel + getModel functions', () => {
     const api = realModelApi()
@@ -125,8 +128,9 @@ describe('monaco-adapters', () => {
     expect(langForUri(documentUri(workspaceRef('ws-1', '/proj/main.ts')))).toBe('typescript')
   })
 
-  it('a failed language load reports why', async () => {
+  it('a failed language load is reported, its text kept to the log', async () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     const load = vi
       .spyOn(languages, 'loadLanguageForPath')
       .mockRejectedValue(new Error('chunk failed to load'))
@@ -137,10 +141,11 @@ describe('monaco-adapters', () => {
       expect(toastAdd).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Load language support',
-          description: 'chunk failed to load',
+          description: UNEXPLAINED,
         }),
       ),
     )
+    expect(logged).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
     load.mockRestore()
     toastAdd.mockRestore()
   })

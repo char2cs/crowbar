@@ -40,6 +40,7 @@ import { putDrafts } from '@/features/editor/documents/draft-store'
 import { setDocumentUnavailable } from '@/features/editor/documents/open-document'
 import * as openDocumentModule from '@/features/editor/documents/open-document'
 import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 
 const open = (path: string, opts: { isPreview?: boolean } = {}) =>
   openTestDocument(workspaceRef('ws-buffer', path), 'A', opts)
@@ -143,7 +144,7 @@ describe('EditorPane', () => {
     setDocumentUnavailable(doc, { title: 'File not found', message: 'src/flaky.ts' })
     const retry = vi
       .spyOn(openDocumentModule, 'retryLoad')
-      .mockRejectedValue(new Error('daemon unreachable'))
+      .mockRejectedValue(new ApiError('daemon unreachable', 500))
     const toastAdd = vi.spyOn(toastManager, 'add')
     onTestFinished(() => {
       retry.mockRestore()

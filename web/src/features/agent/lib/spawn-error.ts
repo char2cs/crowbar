@@ -1,5 +1,5 @@
 import { ApiError } from '@/lib/errors/api-error'
-import { problemOf } from '@/lib/errors/problem'
+import { UNREACHED, userWords } from '@/lib/errors/report'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** HTTP 424 Failed Dependency — the daemon could not find the provider's vendor CLI
@@ -54,10 +54,9 @@ export function describeSpawnError(
       description: 'Start a new conversation to continue.',
     }
   }
-  const detail = problemOf(err).message
   return {
     message: `Couldn’t ${action} ${providerName} chat`,
-    description: detail,
+    description: userWords(err, UNREACHED) ?? UNREACHED,
   }
 }
 

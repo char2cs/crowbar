@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installGlobalReporting, report } from '@/lib/errors/report'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toastManager } from '@/lib/toast-manager'
+
+/** What report() shows for a client bug. */
+const UNEXPLAINED = 'Something went wrong — details are in the log'
 
 vi.mock('@/lib/toast-manager', () => ({ toastManager: { add: vi.fn() } }))
 
@@ -66,16 +70,46 @@ describe('report', () => {
     reject(bug)
 
     expect(toastManager.add).toHaveBeenCalledWith(
-      expect.objectContaining({ description: 'Something went wrong' }),
+      expect.objectContaining({ description: UNEXPLAINED }),
     )
+    expect(logged).toHaveBeenCalledTimes(1)
     expect(logged).toHaveBeenCalledWith(expect.any(String), bug)
+    logged.mockRestore()
+  })
+
+  it('keeps a client Error’s own text out of an action’s toast, and logs it once', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const bug = new Error('no active workspace for paste')
+
+    report(bug, { action: 'Paste failed' })
+
+    expect(toastManager.add).toHaveBeenCalledWith({
+      id: 'Paste failed',
+      type: 'error',
+      title: 'Paste failed',
+      description: UNEXPLAINED,
+    })
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(logged).toHaveBeenCalledWith(expect.any(String), bug)
+    logged.mockRestore()
+  })
+
+  it('shows a sentence written for the user as it is, logging nothing', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    report(new UserFacingError('The saved prompts are full.'), { action: 'Save prompt' })
+
+    expect(toastManager.add).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'The saved prompts are full.' }),
+    )
+    expect(logged).not.toHaveBeenCalled()
     logged.mockRestore()
   })
 
   it('words a throw that is not an Error with the caller’s fallback, never its String()', () => {
     report({ status: 'gone' }, { action: 'Rename', fallback: 'request failed' })
     report({ status: 'gone' }, { action: 'Move' })
-    report(new Error('disk full'), { action: 'Save', fallback: 'request failed' })
+    report(new ApiError('disk full', 507), { action: 'Save', fallback: 'request failed' })
 
     const descriptions = vi.mocked(toastManager.add).mock.calls.map(([t]) => t.description)
     expect(descriptions).toEqual(['request failed', undefined, 'disk full'])

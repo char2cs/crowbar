@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { describeSpawnError } from '@/features/agent/lib/spawn-error'
 import { ApiError } from '@/lib/errors/api-error'
+import { UNREACHED } from '@/lib/errors/report'
+
+/** What report() shows for a client bug. */
+const UNEXPLAINED = 'Something went wrong — details are in the log'
 
 describe('describeSpawnError', () => {
   it('names the missing CLI on a 424 and tells the user what to do about it', () => {
@@ -58,8 +62,17 @@ describe('describeSpawnError', () => {
     expect(resumed.message).toBe('Couldn’t resume Codex chat')
   })
 
-  it('survives a non-Error rejection', () => {
+  it('keeps a client bug’s own text out of the notice', () => {
+    const notice = describeSpawnError(
+      new TypeError("cannot read properties of undefined (reading 'id')"),
+      'Codex',
+      'switch to',
+    )
+    expect(notice.description).toBe(UNEXPLAINED)
+  })
+
+  it('says a non-Error rejection reached no daemon', () => {
     const notice = describeSpawnError('kaboom', 'Claude Code', 'start')
-    expect(notice.description).toContain('kaboom')
+    expect(notice.description).toBe(UNREACHED)
   })
 })

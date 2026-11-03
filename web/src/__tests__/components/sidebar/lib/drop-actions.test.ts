@@ -127,6 +127,7 @@ import {
   seedRepos,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectHomeTree, selectRepos } from '@/core/entities/select'
+import { ApiError } from '@/lib/errors/api-error'
 
 /**
  * `performSidebarDrop` — the row-to-row half of spec §8.1 (Task 33). Adapts
@@ -757,16 +758,13 @@ describe('performSidebarDrop — multi-row moves', () => {
       folderId: '',
       order: 0,
     })
-    expect(placeWorkspace).toHaveBeenNthCalledWith(2, 'ws-c', {
-      folderId: '',
-      order: 1,
-    })
+    expect(placeWorkspace).toHaveBeenNthCalledWith(2, 'ws-c', { folderId: '', order: 1 })
   })
 })
 
 describe('performSidebarDrop — failures', () => {
   it('a failed API call is reported, not thrown', async () => {
-    vi.mocked(placeWorkspace).mockRejectedValueOnce(new Error('locked'))
+    vi.mocked(placeWorkspace).mockRejectedValueOnce(new ApiError('locked', 500))
 
     await expect(
       performSidebarDrop([branchRow('ws-c')], branchRow('ws-a', { parentId: 'home-1' }), 'before'),
@@ -1529,7 +1527,7 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
   })
 
   it('a failed placement is reported, not thrown', async () => {
-    vi.mocked(placeRepo).mockRejectedValueOnce(new Error('locked'))
+    vi.mocked(placeRepo).mockRejectedValueOnce(new ApiError('locked', 500))
     seedHomeTree('proj-1', {
       chats: [HOME_OWNING_CHAT],
       folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],

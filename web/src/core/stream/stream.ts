@@ -2,6 +2,7 @@ import { report } from '@/lib/errors/report'
 import { wsManager } from '@/lib/ws/manager'
 import { decodeFrame, FrameError, type Frame } from '@/core/stream/frames'
 import type { Problem } from '@/lib/errors/problem'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 /** What the store owning a scope kind hears; core imports no feature, so stores register. */
 export interface ScopeKindHandler {
@@ -159,7 +160,7 @@ function onReady(next: string): void {
 
 function onFrame(f: Frame): void {
   if (f.t === 'ready') return onReady(f.epoch)
-  if (f.t === 'error') return report(new Error(f.problem.message), { action: 'Stream' })
+  if (f.t === 'error') return report(new UserFacingError(f.problem.message), { action: 'Stream' })
   if (!holds.has(f.scope)) return
   handlers.get(kindOf(f.scope))?.frame(f)
   if (f.t === 'signal') for (const cb of [...(signals.get(f.scope) ?? [])]) cb(f)
@@ -171,7 +172,12 @@ function onFrame(f: Frame): void {
   }
   if (f.t !== 'closed') return
   if (f.reason === 'resync') sub(f.scope)
-  else dropScope(f.scope, new Error(f.problem?.message ?? `${f.scope} was ${f.reason}`), f.problem)
+  else
+    dropScope(
+      f.scope,
+      new UserFacingError(f.problem?.message ?? `${f.scope} was ${f.reason}`),
+      f.problem,
+    )
 }
 
 // A projects frame this client cannot read is never a reason to stop reading the projects:

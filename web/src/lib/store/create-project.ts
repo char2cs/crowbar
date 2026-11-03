@@ -2,6 +2,7 @@ import { postProject } from '@/lib/api'
 import { entityStore } from '@/core/entities/entity-store'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import type { Project } from '@/lib/types'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 /** Adds the project at `path` as one operation and resolves with it once the
  *  projects store holds it; rejects with the operation's reason. */
@@ -19,6 +20,6 @@ export async function createProject(name: string, path: string): Promise<Project
   const settled = await whenSettled(op.id)
   const id = settled.items.find((item) => item.ref.kind === 'project')?.ref.id
   const project = id ? entityStore.getState().byKind.project[id]?.data : undefined
-  if (!project) throw new Error(`${settled.label}: the project is not in the list`)
+  if (!project) throw new UserFacingError(`${settled.label}: the project is not in the list`)
   return project
 }

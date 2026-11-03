@@ -19,6 +19,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { holdsWorkspace } from '@/core/entities/repo-queries'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -123,7 +124,9 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
       const owningChatId =
         owningChatIdOfWorkspace(readSelect(selectRepos), entry.id) ?? getOwningChatId(entry.id)
       if (!owningChatId) {
-        return Promise.reject(new Error('its chat is still loading — try again in a moment'))
+        return Promise.reject(
+          new UserFacingError('its chat is still loading — try again in a moment'),
+        )
       }
       return deleteChat(entry.id, owningChatId, ...opts).then(announceTaken(entry))
     }

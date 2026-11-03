@@ -1,6 +1,7 @@
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { problemOf } from '@/lib/errors/problem'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { toastManager } from '@/lib/toast-manager'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
@@ -13,6 +14,9 @@ interface ReportContext {
 
 const UNEXPECTED = 'Something went wrong'
 
+/** What the user reads for a client bug, whose own text stays in the log. */
+const UNEXPLAINED = 'Something went wrong — details are in the log'
+
 /** The fallback for a call whose throw is not an Error: no daemon answered to word it. */
 export const UNREACHED = 'Crowbar could not reach the daemon — try again.'
 
@@ -22,14 +26,29 @@ function isCancellation(error: unknown): boolean {
   return error.name === 'AbortError' || error.name === 'Canceled'
 }
 
+function isWorded(error: unknown): error is Error {
+  return (
+    error instanceof ApiError ||
+    error instanceof OperationFailedError ||
+    error instanceof UserFacingError
+  )
+}
+
+/** Why `error` happened, in words for the user: the daemon's, or a sentence written for
+ *  them; a client bug says only that it is in the log. A non-Error carries `fallback`. */
+export function userWords(error: unknown, fallback?: string): string | undefined {
+  if (isWorded(error)) return problemOf(error).message
+  return error instanceof Error ? UNEXPLAINED : fallback
+}
+
 /** Tells the user an action failed and why, in the daemon's own words. */
 export function report(error: unknown, context: ReportContext): void {
   // A failed operation was already toasted by the operations watcher.
   if (isCancellation(error) || error instanceof OperationFailedError) return
-  const problem = problemOf(error)
   // A migrating or halted daemon has its own screen; a toast per refused call would bury it.
-  if (reportDaemonRefusal(problem)) return
-  const description = error instanceof Error ? problem.message : context.fallback
+  if (reportDaemonRefusal(problemOf(error))) return
+  if (error instanceof Error && !isWorded(error)) console.error(`${context.action}:`, error)
+  const description = userWords(error, context.fallback)
   toastManager.add({ id: context.action, type: 'error', title: context.action, description })
 }
 
@@ -37,17 +56,11 @@ export function report(error: unknown, context: ReportContext): void {
 export function installGlobalReporting(target: Window = window): () => void {
   const onRejection = (event: Event) => {
     const reason: unknown = (event as PromiseRejectionEvent).reason
-    if (
-      reason instanceof ApiError ||
-      reason instanceof OperationFailedError ||
-      isCancellation(reason)
-    ) {
-      report(reason, { action: UNEXPECTED })
-      return
+    // report() logs a client Error itself; a thrown non-Error is logged here.
+    if (!(reason instanceof Error) && !isCancellation(reason)) {
+      console.error('unhandled rejection:', reason)
     }
-    // A client bug's own text means nothing to the user; it stays in the console.
-    console.error('unhandled rejection:', reason)
-    report(new Error(UNEXPECTED), { action: UNEXPECTED })
+    report(reason, { action: UNEXPECTED, fallback: UNEXPLAINED })
   }
   target.addEventListener('unhandledrejection', onRejection)
   return () => target.removeEventListener('unhandledrejection', onRejection)

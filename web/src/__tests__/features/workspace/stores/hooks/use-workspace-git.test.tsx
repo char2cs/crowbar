@@ -8,6 +8,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { ApiError } from '@/lib/errors/api-error'
 
 const { fetchGitData } = vi.hoisted(() => ({ fetchGitData: vi.fn() }))
 
@@ -142,7 +143,7 @@ describe('useWorkspaceGit', () => {
       const { reloadStatusAndLog } = await ready()
       const toastAdd = vi.spyOn(toastManager, 'add')
       onTestFinished(() => toastAdd.mockRestore())
-      reloadStatusAndLog.mockRejectedValueOnce(new Error('git status failed'))
+      reloadStatusAndLog.mockRejectedValueOnce(new ApiError('git status failed', 500))
 
       onGitFrame()({ ...status, ahead: 1 })
       await vi.advanceTimersByTimeAsync(500)

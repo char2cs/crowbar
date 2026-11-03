@@ -45,6 +45,7 @@ import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
 import '@/features/agent/styles/activity.css'
 import { chatPromptToSend } from '@/features/agent/composer/plate/chat-prompt-send'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 /** One entry per progressive-blur layer in the dock's dissolve — see composer.css. */
 const DISSOLVE_LAYERS = [0, 1, 2, 3, 4, 5, 6]
@@ -243,7 +244,7 @@ export function AgentChatView({
       if (text === null) return
       if (shownChat.current === asked && composer.putBack(text)) return
       if (!stashPrompt(wsId, asked, text)) {
-        report(new Error('The saved prompts are full or unavailable.'), {
+        report(new UserFacingError('The saved prompts are full or unavailable.'), {
           action: 'Couldn’t keep the prompt you took back',
         })
       }

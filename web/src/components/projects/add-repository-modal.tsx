@@ -18,6 +18,7 @@ import { placeEntities } from '@/core/entities/entity-store'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { operationsState, type Operation } from '@/core/entities/operations'
 import { report } from '@/lib/errors/report'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 interface AddRepositoryModalProps {
   open: boolean
@@ -51,7 +52,7 @@ function addedRepoItem(op: Operation) {
 
 function addedRepoId(op: Operation): string {
   const item = addedRepoItem(op)
-  if (!item) throw new Error(`${op.label}: no repository was added`)
+  if (!item) throw new UserFacingError(`${op.label}: no repository was added`)
   return item.ref.id
 }
 
@@ -61,7 +62,7 @@ async function readRepoHome(projectId: string, repoId: string) {
     fetchWorkspaces(projectId, repoId),
   ])
   const repo = repos.find((r) => r.id === repoId)
-  if (!repo) throw new Error('The added repository is gone')
+  if (!repo) throw new UserFacingError('The added repository is gone')
   const live = workspaces.filter((w) => w.status !== 'deleted')
   return { repo, home: live.find((w) => w.isDefault) ?? live[0] }
 }

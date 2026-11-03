@@ -12,6 +12,10 @@ import {
   migratingRefusal,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+import { ApiError } from '@/lib/errors/api-error'
+
+/** What report() shows for a client bug. */
+const UNEXPLAINED = 'Something went wrong — details are in the log'
 
 const { copyFileNode, revealItemInFinder, resolveWorkspaceRootPath } = vi.hoisted(() => ({
   copyFileNode: vi.fn(),
@@ -52,13 +56,14 @@ describe('revealInFolder', () => {
   })
 
   it('surfaces a failure as an error toast', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     revealItemInFinder.mockRejectedValueOnce(new Error('finder exploded'))
     revealInFolder('/abs/file.ts')
     await vi.waitFor(() =>
       expect(toastAdd).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Reveal in Finder failed',
-          description: 'finder exploded',
+          description: UNEXPLAINED,
         }),
       ),
     )
@@ -81,7 +86,7 @@ describe('createFileTreeHandlers', () => {
   })
 
   it('surfaces a duplicate failure as an error toast', async () => {
-    copyFileNode.mockRejectedValueOnce(new Error('workspace locked'))
+    copyFileNode.mockRejectedValueOnce(new ApiError('workspace locked', 500))
     await createFileTreeHandlers('ws-test', createWorkspaceStore('ws-test')).handleDuplicatePath(
       'a.txt',
     )
@@ -115,7 +120,7 @@ describe('refreshDirectory', () => {
   it('a failed re-list reports why and keeps the tree', async () => {
     const list = vi
       .spyOn(fileTreeApi, 'fetchFileTree')
-      .mockRejectedValueOnce(new Error('daemon unreachable'))
+      .mockRejectedValueOnce(new ApiError('daemon unreachable', 500))
     onTestFinished(() => list.mockRestore())
     const store = createWorkspaceStore('ws-refresh')
     const files = [{ name: 'a.ts', path: 'a.ts', isDir: false }]

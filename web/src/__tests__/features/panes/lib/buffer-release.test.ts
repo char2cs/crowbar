@@ -21,6 +21,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { workspaceRef } from '@/lib/api/documents'
 import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 
 /** The PTYs the daemon was told to close, by tab session id. */
 function killed(): string[] {
@@ -78,7 +79,7 @@ describe('buffer ownership (invariant C2)', () => {
   it('a failed terminal stop reports why', async () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
     onTestFinished(() => toastAdd.mockRestore())
-    terminalKill.mockRejectedValueOnce(new Error('session gone'))
+    terminalKill.mockRejectedValueOnce(new ApiError('session gone', 500))
     const { paneActions } = store.getState()
     paneActions.openChat('chat-a')
     openTerminal(store, 'pty-2')
