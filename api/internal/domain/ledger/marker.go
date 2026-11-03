@@ -15,6 +15,12 @@ const (
 	MarkerUnreadable        = "legacy_unreadable" // Detail: in plain words, how many records the upgrade could not read
 )
 
+// markerKinds is every marker kind; a marker of any other kind is malformed.
+var markerKinds = []string{
+	MarkerSessionChanged, MarkerSessionConflict, MarkerDeadLetter, MarkerCompactionStarted, MarkerCompactionEnded,
+	MarkerStopped, MarkerProviderSwitched, MarkerModelChanged, MarkerEffortChanged, MarkerNotification, MarkerUnreadable,
+}
+
 // Marker is the body of a marker row: a fact the transcript shows between
 // turns, named by Kind, with Detail as its subject.
 type Marker struct {

@@ -1,6 +1,9 @@
 package ledger_test
 
 import (
+	"encoding/json"
+	"flag"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,14 +12,37 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-func TestCheck_AMarkerNeedsAKind(t *testing.T) {
+var updateKindsFixture = flag.Bool("update-kinds-fixture", false, "write the row and marker kinds the web tests check")
+
+// kindsFixture is what the web's ledger types are checked against: written
+// only from here, so it never drifts from what Check accepts.
+const kindsFixture = "../../../../web/src/__tests__/__fixtures__/ledger-kinds.json"
+
+func TestCheck_TheKindsTheWebChecksAreTheOnesItAccepts(t *testing.T) {
+	got, err := json.MarshalIndent(map[string]any{"rowKinds": ledger.RowKinds(), "markerKinds": ledger.MarkerKinds()}, "", "  ")
+	require.NoError(t, err)
+	got = append(got, '\n')
+
+	if *updateKindsFixture {
+		require.NoError(t, os.WriteFile(kindsFixture, got, 0o600))
+		return
+	}
+	want, err := os.ReadFile(kindsFixture)
+	require.NoError(t, err, "write it with -args -update-kinds-fixture")
+	assert.Equal(t, string(want), string(got), "the kinds drifted: rerun with -args -update-kinds-fixture")
+}
+
+func TestCheck_AMarkerNeedsAKnownKind(t *testing.T) {
 	changed, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerSessionChanged, Detail: "S2"})
 	require.NoError(t, err)
 	blank, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Detail: "S2"})
 	require.NoError(t, err)
+	unknown, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: "weather"})
+	require.NoError(t, err)
 
 	require.NoError(t, ledger.Check(ledger.State{}, changed))
 	require.ErrorIs(t, ledger.Check(ledger.State{}, blank), ledger.ErrMalformedRow)
+	require.ErrorIs(t, ledger.Check(ledger.State{}, unknown), ledger.ErrMalformedRow)
 
 	st := ledger.Fold("c1", sequenced(t, changed))
 	assert.Empty(t, st.Conversations(), "a marker is shown, not folded")

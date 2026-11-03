@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LedgerRow } from '@/features/agent/api/chat-rows'
+import type { LedgerRow, MarkerKind } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 import { ledger } from '@/__tests__/__fixtures__/ledger-rows'
@@ -148,14 +150,45 @@ describe('MarkerRow', () => {
     expect(screen.getByRole('button', { name: 'Open terminal' })).toBeInTheDocument()
   })
 
-  it('says, in the daemon’s words, how many legacy records an upgrade could not read', () => {
+  it('says, in the daemon’s words, how many legacy records an upgrade could not convert', () => {
     const l = ledger()
     const feed = seed([
-      l.row('marker', { kind: 'legacy_unreadable', detail: '3 legacy records could not be read' }),
+      l.row('marker', {
+        kind: 'legacy_unreadable',
+        detail: '3 legacy records could not be converted',
+      }),
     ])
     draw(markerOf(feed)!)
     expect(screen.getByTestId('agent-marker-divider')).toHaveTextContent(
-      '3 legacy records could not be read',
+      '3 legacy records could not be converted',
     )
+  })
+
+  // Every marker kind the daemon accepts (written by the api's ledger tests),
+  // and whether the transcript draws it; MarkerKind must name exactly these.
+  const drawn: Record<MarkerKind, true | string> = {
+    compaction_started: 'opens a compaction; its end draws the pill',
+    compaction_ended: true,
+    provider_switched: true,
+    model_changed: true,
+    effort_changed: true,
+    legacy_unreadable: true,
+    stopped: 'the turn it ends draws “you stopped this turn”',
+    session_changed: 'the CLI’s own bookkeeping; the transcript reads on',
+    session_conflict: 'which chat owns a session is the daemon’s to settle, not the reader’s',
+    dead_letter: 'counted in the daemon’s health, not drawn in a chat',
+    notification:
+      'what the CLI told its user repeats what the transcript shows; a legacy notice outside a turn stays in the ledger only',
+  }
+
+  it('draws exactly the marker kinds it decided to, of every kind the daemon writes', () => {
+    const fixture = resolve(import.meta.dirname, '../../../../__fixtures__/ledger-kinds.json')
+    const { markerKinds } = JSON.parse(readFileSync(fixture, 'utf-8')) as { markerKinds: string[] }
+    expect(Object.keys(drawn).sort()).toEqual(markerKinds)
+    for (const kind of markerKinds) {
+      chatStore.setState({ feeds: {}, outbox: {} })
+      const feed = seed([ledger().row('marker', { kind: kind as MarkerKind, detail: 'd' })])
+      expect(markerOf(feed) !== undefined, kind).toBe(drawn[kind as MarkerKind] === true)
+    }
   })
 })

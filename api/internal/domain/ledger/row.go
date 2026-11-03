@@ -78,7 +78,7 @@ var checks = map[Kind]func(Row) error{
 	KindSessionLost: func(r Row) error {
 		return checkNamed(r, func(b SessionLost) bool { return b.Provider != "" && b.SessionID != "" })
 	},
-	KindMarker: func(r Row) error { return checkNamed(r, func(b Marker) bool { return b.Kind != "" }) },
+	KindMarker: func(r Row) error { return checkNamed(r, func(b Marker) bool { return slices.Contains(markerKinds, b.Kind) }) },
 	KindRunnerStarted: func(r Row) error {
 		return checkNamed(r, func(b RunnerStarted) bool { return b.RunnerID != "" && b.Provider != "" })
 	},

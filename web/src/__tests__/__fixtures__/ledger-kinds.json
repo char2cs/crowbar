@@ -1,0 +1,34 @@
+{
+  "markerKinds": [
+    "compaction_ended",
+    "compaction_started",
+    "dead_letter",
+    "effort_changed",
+    "legacy_unreadable",
+    "model_changed",
+    "notification",
+    "provider_switched",
+    "session_changed",
+    "session_conflict",
+    "stopped"
+  ],
+  "rowKinds": [
+    "ask",
+    "ask_resolved",
+    "assistant_text",
+    "marker",
+    "plan",
+    "prompt_settled",
+    "reasoning",
+    "runner_exited",
+    "runner_started",
+    "session_bound",
+    "session_lost",
+    "subagent",
+    "tool_call",
+    "turn_ended",
+    "turn_failed",
+    "turn_started",
+    "user_message"
+  ]
+}
