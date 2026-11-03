@@ -25,8 +25,7 @@ type Result struct {
 // Owner answers which chat already holds a (provider, session) binding.
 type Owner func(provider, sessionID string) (chatID string, ok bool)
 
-// errUnreadable is a chat the reader could read nothing of, or not which
-// sessions it ran on.
+// errUnreadable is a chat the reader could read nothing of.
 var errUnreadable = errors.New("records that cannot be read")
 
 // ErrNotAtRest is a conversion that would leave the chat with work open.
@@ -51,7 +50,7 @@ const (
 // ConvertChat restates in's records as ledger rows. It is pure: the same
 // input and owner give the same rows, ids included.
 func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
-	if in.SessionsUnreadable || len(in.Unreadable) > 0 && nothingRead(in) {
+	if len(in.Unreadable) > 0 && nothingRead(in) {
 		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errUnreadable, clip(strings.Join(in.Unreadable, "; "), noteBytes))
 	}
 	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable), leftOut: len(in.Unreadable)}

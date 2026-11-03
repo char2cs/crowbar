@@ -138,9 +138,8 @@ type LegacyPrompt struct {
 }
 
 // LegacyChat is everything the old daemon recorded about one chat. Unreadable
-// names each record the reader could not decode, with why: the chat converts
-// without it. SessionsUnreadable is one of those a conversation, which keeps the
-// chat unconverted: which session it resumes is unknown.
+// names each record, or part of one, the reader could not decode, with why:
+// the chat converts without it.
 type LegacyChat struct {
 	ChatID        string
 	Conversations []LegacyConversation
@@ -152,6 +151,4 @@ type LegacyChat struct {
 	Prompts       []LegacyPrompt
 	Runners       []LegacyRunner
 	Unreadable    []string
-
-	SessionsUnreadable bool
 }

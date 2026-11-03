@@ -214,7 +214,6 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	assert.Contains(t, got[1].Unreadable[0], "agent_turns u-b1: started_at")
 	assert.Contains(t, got[1].Unreadable[0], "not-a-date")
 	assert.Contains(t, got[1].Unreadable[1], "agent_interruptions i-b1: seq")
-	assert.False(t, got[1].SessionsUnreadable)
 }
 
 // A conversation naming no provider or no session is a binding the chat
@@ -230,7 +229,6 @@ func TestReadLegacy_AConversationWithNoSessionLosesOnlyItsBinding(t *testing.T) 
 			got, err := ReadLegacy(context.Background(), h)
 
 			require.NoError(t, err)
-			assert.False(t, got[1].SessionsUnreadable)
 			res, err := ConvertChat(got[1], nobody)
 			require.NoError(t, err)
 			assert.Equal(t, 1, res.LeftOut)
@@ -249,9 +247,29 @@ func TestReadLegacy_AConversationWithNoSessionLosesOnlyItsBinding(t *testing.T) 
 	}
 }
 
+// A conversation whose times cannot be read still names its session: the
+// chat keeps that binding, bound when its first turn on it began, and the
+// unreadable cell is counted in the chat's marker.
+func TestReadLegacy_AConversationWithAnUnreadableTimeKeepsItsBinding(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	spoil(t, h, RunnerDB, "agent_chat_conversations", "first_seen_at", "chat-b", "garbled")
+
+	got, err := ReadLegacy(context.Background(), h)
+
+	require.NoError(t, err)
+	res, err := ConvertChat(got[1], nobody)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.LeftOut)
+	bound := rowsOf(res, ledger.KindSessionBound)
+	require.Len(t, bound, 1)
+	assert.Equal(t, "S-b", body[ledger.SessionBound](t, bound[0]).SessionID)
+	assert.Equal(t, len(convert(t, chatB(), nobody).Rows)+1, len(res.Rows), "the history and a marker")
+}
+
 // Any one cell of any legacy table, overwritten with any value a damaged disk
 // or an older build could leave, never panics the read or the conversion,
-// never changes another chat's rows, and skips its own only for its session.
+// never changes another chat's rows, and never skips its own.
 func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -284,8 +302,8 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 				require.NoError(t, err, damaged)
 				for _, chat := range chats {
 					res, err := convertNoPanic(t, chat, damaged)
-					if chat.ChatID == "chat-a" && !chat.SessionsUnreadable {
-						require.NoError(t, err, "%s: only an unreadable session skips the chat", damaged)
+					if chat.ChatID == "chat-a" {
+						require.NoError(t, err, "%s: no single cell skips the chat", damaged)
 						shown := slices.ContainsFunc(res.Rows, func(r ledger.Row) bool {
 							return r.Kind == ledger.KindMarker && body[ledger.Marker](t, r).Kind == ledger.MarkerUnreadable
 						})

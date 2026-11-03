@@ -105,11 +105,12 @@ func (r *reader) conversation(rows *sql.Rows) error {
 	}
 	v := LegacyConversation{ChatID: c.str(), ProviderID: c.str(), SessionID: c.str()}
 	v.FirstSeenAt, v.LastActiveAt = c.time("first_seen_at"), c.time("last_active_at")
-	r.add(v.ChatID, "agent_chat_conversations "+v.SessionID, c.err, func(chat *LegacyChat) {
-		chat.Conversations = append(chat.Conversations, v)
-	})
+	keep := func(chat *LegacyChat) { chat.Conversations = append(chat.Conversations, v) }
+	r.add(v.ChatID, "agent_chat_conversations "+v.SessionID, c.err, keep)
+	// Its times only place the binding, which its turns place as well: an
+	// unreadable one is named and counted, and the session kept.
 	if c.err != nil {
-		r.chat(v.ChatID).SessionsUnreadable = true
+		keep(r.chat(v.ChatID))
 	}
 	return nil
 }
