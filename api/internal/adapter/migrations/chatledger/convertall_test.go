@@ -139,9 +139,13 @@ func TestConvertAll_AChatWhoseImportFailsSkipsOnlyThatChat(t *testing.T) {
 			n, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
 
 			require.NoError(t, err)
-			assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
-			assert.Equal(t, []string{"chat-a"}, store.imported)
 			retry := name == "fails"
+			want := migrate.Counts{"skipped_chats": 1}
+			if retry {
+				want[retryingChats] = 1
+			}
+			assert.Equal(t, want, n)
+			assert.Equal(t, []string{"chat-a"}, store.imported)
 			assert.Equal(t, retry, cp.notes[skippedKey("chat-b")].Counts["converter"] == 0, "a failed import is retried, a panic is not")
 		})
 	}

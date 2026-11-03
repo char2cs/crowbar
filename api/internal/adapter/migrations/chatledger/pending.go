@@ -75,8 +75,8 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 		return migrate.Plan{}, err
 	}
 	note, ok := env.Notes[stampKey]
-	seen := ok && note.Detail == stamp
-	if seen && !retrying(env.Notes) {
+	seen := ok && note.Detail == stamp && note.Counts[retryingChats] == 0
+	if seen {
 		return migrate.Plan{}, nil
 	}
 	counts, err := census(ctx, env.Home)
@@ -112,16 +112,8 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 	return plan, nil
 }
 
-// retrying reports whether a chat whose import failed is owed another
-// attempt: its skip names no converter, so no build has given it up.
-func retrying(notes map[string]migrate.Note) bool {
-	for key, note := range notes {
-		if strings.HasPrefix(key, skippedKey("")) && note.Counts["converter"] == 0 {
-			return true
-		}
-	}
-	return false
-}
+// retryingChats counts the chats a run left owed a retry of their import.
+const retryingChats = "retrying_chats"
 
 // stampKey is the note under which a run keeps the legacyStamp it saw.
 const stampKey = "legacy-files"

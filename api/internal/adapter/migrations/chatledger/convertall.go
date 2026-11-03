@@ -65,9 +65,12 @@ func convertAll(
 		}
 		imported++
 	}
-	err := charge(ctx, log, cp, failed, imported)
+	waiting, err := charge(ctx, log, cp, failed, imported)
 	if err == nil && len(failed) > 0 {
 		unmarked.Add(migrate.Counts{"skipped_chats": int64(len(failed))})
+	}
+	if waiting > 0 {
+		unmarked.Add(migrate.Counts{retryingChats: waiting})
 	}
 	return nonZero(unmarked), err
 }
@@ -116,18 +119,23 @@ type failedImport struct {
 	err    error
 }
 
-// charge notes each failed import as one attempt of its chat. Two failing and
-// none landing is the ledger, not a chat: the step fails, charging none.
-func charge(ctx context.Context, log *slog.Logger, cp checkpoints, failed []failedImport, imported int) error {
+// charge notes each failed import as one attempt of its chat, and counts the
+// chats left owed a retry. Two failing and none landing is the ledger, not a
+// chat: the step fails, charging none.
+func charge(ctx context.Context, log *slog.Logger, cp checkpoints, failed []failedImport, imported int) (int64, error) {
 	if len(failed) > 1 && imported == 0 {
-		return failed[0].err
+		return 0, failed[0].err
 	}
+	var owed int64
 	for _, f := range failed {
 		if err := skip(ctx, log, cp, f.chatID, f.n, f.err); err != nil {
-			return err
+			return 0, err
+		}
+		if note, _ := cp.Noted(skippedKey(f.chatID)); note.Counts["converter"] == 0 {
+			owed++
 		}
 	}
-	return nil
+	return owed, nil
 }
 
 // The SQLite result codes of a fault in the store itself, not in one chat.

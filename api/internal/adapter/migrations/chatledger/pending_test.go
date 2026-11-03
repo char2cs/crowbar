@@ -263,9 +263,45 @@ func TestBoot_AChatWhoseImportFailedIsTriedAgainAtTheNextBoot(t *testing.T) {
 
 	assert.Equal(t, convert(t, chatA(), nobody).Rows, held(t, h, "chat-a"))
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
-	before := testutil.TreeSnapshot(t, h)
+	statsOnly(t, h)
+}
+
+// statsOnly boots h with its legacy databases unreadable: a boot that only
+// stats them, as one owing nothing does, neither warns nor fails.
+func statsOnly(t *testing.T, h home.Home) {
+	t.Helper()
+	testutil.RequirePermissionEnforcement(t)
+	for _, db := range []string{ActivityDB, RunnerDB} {
+		path := filepath.Join(h.Store(), db)
+		require.NoError(t, os.Chmod(path, 0))
+		t.Cleanup(func() { require.NoError(t, os.Chmod(path, 0o600)) })
+	}
+	log, warned := capture(testutil.AtLeast(slog.LevelWarn))
+	require.NoError(t, bootLogging(t, h, log))
+	assert.Empty(t, *warned, "the legacy records were read, not only statted")
+}
+
+// A chat whose import waits for a retry and then leaves the legacy files is
+// owed nothing: the boot after the one that saw it gone only stats them.
+func TestBoot_AChatWaitingForARetryThatLeavesTheLegacyFilesIsOwedNothing(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	refuse(t, h, "chat-b")
 	boot(t, h)
-	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "once converted, boots are back to stats alone")
+	for db, tables := range map[string][]string{
+		RunnerDB:   {"agent_chat_conversations"},
+		ActivityDB: {"agent_turns", "agent_interruptions"},
+	} {
+		conn := writable(t, filepath.Join(h.Store(), db))
+		for _, table := range tables {
+			_, err := conn.ExecContext(t.Context(), "DELETE FROM "+table+" WHERE chat_id = 'chat-b'")
+			require.NoError(t, err)
+		}
+		require.NoError(t, conn.Close())
+	}
+	boot(t, h)
+
+	statsOnly(t, h)
 }
 
 // A chat whose import fails at every boot costs one attempt per boot, and

@@ -88,8 +88,10 @@ func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migra
 	if err != nil {
 		return total, err
 	}
-	if note, ok := cp.Noted(stampKey); !ok || note.Detail != stamp {
-		err = cp.Note(stampKey, migrate.Note{Detail: stamp})
+	// The stamp's note owns whether a chat is owed a retry: Plan reads it alone.
+	owed := migrate.Counts{retryingChats: total[retryingChats]}
+	if note, ok := cp.Noted(stampKey); !ok || note.Detail != stamp || note.Counts[retryingChats] != owed[retryingChats] {
+		err = cp.Note(stampKey, migrate.Note{Detail: stamp, Counts: owed})
 	}
 	return total, err
 }
