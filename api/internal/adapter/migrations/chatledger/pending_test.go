@@ -117,3 +117,9 @@ func TestBoot_ASkippedChatIsRetriedOnceTheConverterChanges(t *testing.T) {
 	assert.Len(t, *warned, 1, "retried by the newer converter, then not again")
 	assert.Equal(t, int64(converterVersion), migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")].Counts["converter"])
 }
+
+// records is how many legacy records chat holds, as census counts them.
+func records(chat LegacyChat) int64 {
+	return int64(len(chat.Conversations) + len(chat.Turns) + len(chat.Tools) + len(chat.Subagents) +
+		len(chat.Interruptions) + len(chat.Choices) + len(chat.Prompts) + len(chat.Unreadable) + len(chat.Corrupt))
+}

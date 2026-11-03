@@ -178,9 +178,3 @@ func census(ctx context.Context, h home.Home) (map[string]int64, error) {
 	}
 	return out, nil
 }
-
-// records is how many legacy records chat holds, counted as census counts them.
-func records(chat LegacyChat) int64 {
-	return int64(len(chat.Conversations) + len(chat.Turns) + len(chat.Tools) + len(chat.Subagents) +
-		len(chat.Interruptions) + len(chat.Choices) + len(chat.Prompts) + len(chat.Unreadable) + len(chat.Corrupt))
-}
