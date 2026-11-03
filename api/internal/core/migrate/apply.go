@@ -171,7 +171,11 @@ func (s *Session) runStep(
 		return s.stepError(ctx, HaltStepFailed, step, err)
 	}
 	if impl.Verify != nil {
-		if err := impl.Verify(ctx, env); err != nil {
+		err := impl.Verify(ctx, env)
+		if err != nil && s.again[step.Number] && !interrupted(ctx, err) {
+			return s.skipAgain(ctx, step, cp, err)
+		}
+		if err != nil {
 			return s.stepError(ctx, HaltVerifyFailed, step, err)
 		}
 	}
@@ -233,8 +237,8 @@ func (s *Session) complete(
 // under its own key, for its next plan to read.
 const skippedNote = "skipped"
 
-// skipAgain ends a recurring step that failed on a home it was already applied
-// to: the boot runs on what it did, so the failure is a warning, recorded.
+// skipAgain ends a recurring step that failed, or failed its check, on a home
+// it was already applied to: the boot runs on what it did, so it is a warning.
 func (s *Session) skipAgain(
 	ctx context.Context,
 	step Step,

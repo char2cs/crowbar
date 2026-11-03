@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
@@ -169,4 +171,51 @@ func TestBoot_AHugeDamagedCellIsNamedShort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Less(t, info.Size(), int64(64<<10))
 	assert.Contains(t, migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")].Detail, "…(20971520 bytes)")
+}
+
+// killAfterStamp leaves the run ledger as a process killed between the last
+// run's legacy-files note and its step.done would have.
+func killAfterStamp(t *testing.T, h home.Home) {
+	t.Helper()
+	path := filepath.Join(h.MigrateDir(), "ledger.jsonl")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	lines := strings.SplitAfter(string(raw), "\n")
+	last := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], `"key":"`+stampKey+`"`) {
+			last = i
+			break
+		}
+	}
+	require.Positive(t, last)
+	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines[:last+1], "")), 0o600))
+}
+
+// A chat imported by a run killed before its step.done, then written to by
+// normal use, never halts a later run: what that run checks is what it wrote.
+func TestBoot_AChatWrittenToAfterAKilledRunNeverHaltsALaterOne(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA())
+	boot(t, h)
+	writeLegacy(t, h, chatB())
+	boot(t, h)
+	killAfterStamp(t, h)
+	boot(t, h)
+	r, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
+	require.NoError(t, err)
+	appendTo(t, h, "chat-b", r)
+	later := chatB()
+	later.ChatID = "chat-c"
+	later.Conversations = nil
+	for i := range later.Turns {
+		later.Turns[i].ChatID = "chat-c"
+	}
+	later.Interruptions = nil
+	writeLegacy(t, h, later)
+
+	require.NoError(t, bootLogging(t, h, slog.Default()))
+
+	assert.Len(t, held(t, h, "chat-b"), len(convert(t, chatB(), nobody).Rows)+1)
+	assert.NotEmpty(t, held(t, h, "chat-c"))
 }

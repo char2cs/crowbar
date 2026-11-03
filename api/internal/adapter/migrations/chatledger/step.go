@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,27 +21,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// Impl converts each legacy chat into the ledger once, checkpointed per chat,
-// and verifies every chat it converted is at rest.
+// Impl converts each legacy chat into the ledger once, checkpointed per chat.
+// Each import is checked as it lands, before its checkpoint, so a checkpoint
+// means checked: rows normal use adds later are never measured against it.
 func Impl() migrate.Impl {
-	// Verify checks what Apply converted: the engine runs Apply first on every
-	// attempt, and Apply also fills in the chats earlier attempts marked done.
-	converted := map[string]landed{}
-	return migrate.Impl{
-		Apply: func(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
-			return apply(ctx, env, cp, converted)
-		},
-		Verify: func(ctx context.Context, env migrate.Env) error {
-			return verify(ctx, env.Home, converted)
-		},
-	}
-}
-
-// landed is a chat this attempt, or an unverified earlier one, imported: the
-// runners it is left live on, and how many rows the import wrote.
-type landed struct {
-	adopted map[string]bool
-	rows    int64
+	return migrate.Impl{Apply: apply}
 }
 
 // noteBytes bounds what one chat's skip puts in the log and the run ledger.
@@ -50,6 +33,10 @@ const noteBytes = 2048
 
 // errNotAsConverted is a converted chat whose ledger is not the rows imported.
 var errNotAsConverted = errors.New("chatledger: the ledger is not what the conversion wrote")
+
+// errSessionIndex is a session index that cannot be read: read as "nobody owns
+// it", a chat could take a session another chat holds, so the step stops.
+var errSessionIndex = errors.New("chatledger: the session index cannot be read")
 
 // errUnconvertible is a chat whose legacy records do not restate as rows at
 // rest: it is skipped and named, its legacy files kept for a later build.
@@ -60,6 +47,7 @@ type ledgerStore interface {
 	SessionOwner(ctx context.Context, provider, sessionID string) (string, bool, error)
 	Import(ctx context.Context, chatID string, rows []ledger.Row) error
 	Read(ctx context.Context, chatID string, afterSeq int64, limit int) ([]ledger.Row, error)
+	State(ctx context.Context, chatID string) (ledger.State, error)
 }
 
 // checkpoints is the part of *migrate.Checkpoints the conversion uses.
@@ -71,7 +59,7 @@ type checkpoints interface {
 	Note(key string, n migrate.Note) error
 }
 
-func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints, converted map[string]landed) (migrate.Counts, error) {
+func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
 	stamp, err := legacyStamp(env.Home)
 	if err != nil || stamp == "" {
 		return nil, err
@@ -91,7 +79,7 @@ func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints, conver
 	if len(chats) > 0 {
 		err = withStore(ctx, env.Home, func(store *ledgerstore.Store) error {
 			var err error
-			total, err = convertAll(ctx, env.Log, store, cp, legacyHome{chats, counts}, converted)
+			total, err = convertAll(ctx, env.Log, store, cp, legacyHome{chats, counts})
 			return err
 		})
 	}
@@ -112,21 +100,20 @@ type legacyHome struct {
 
 // convertAll imports, in order, each chat the boot owes a conversion. A chat
 // whose ledger already has rows, or whose records cannot be converted, is
-// skipped and noted with why; a store failure stops the step.
+// skipped and noted with why; one whose import fails is skipped until the next
+// boot. Only an unreadable session index, or every import failing, stops it.
 func convertAll(
-	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints,
-	legacy legacyHome, converted map[string]landed,
+	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, legacy legacyHome,
 ) (migrate.Counts, error) {
 	unmarked := migrate.Counts{}
 	owed := recorded{marked: cp.Marked, noted: cp.Noted}
+	var failed error
+	imported := 0
 	for _, chat := range legacy.chats {
 		if err := ctx.Err(); err != nil {
 			return nonZero(unmarked), err
 		}
 		n := legacy.counts[chat.ChatID]
-		if marked, ok := cp.Marked(chat.ChatID); ok && !cp.Settled(chat.ChatID) {
-			converted[chat.ChatID] = landed{adoptedBy(chat), marked["rows"]}
-		}
 		switch owed.owed(chat.ChatID, n) {
 		case dutyNone:
 			continue
@@ -141,35 +128,51 @@ func convertAll(
 		if len(res.Skipped) > 0 {
 			log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", clip(strings.Join(res.Skipped, "; "), noteBytes))
 		}
-		if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) {
-			if err := skip(ctx, log, cp, chat.ChatID, n, err); err != nil {
+		if errors.Is(err, errSessionIndex) || interrupted(ctx, err) {
+			return nonZero(unmarked), err
+		}
+		if err != nil {
+			final := errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible)
+			if !final {
+				failed = cmp.Or(failed, err)
+			}
+			if err := skip(ctx, log, cp, chat.ChatID, n, err, final); err != nil {
 				return nonZero(unmarked), err
 			}
 			unmarked.Add(migrate.Counts{"skipped_chats": 1})
 			continue
 		}
-		if err != nil {
-			return nonZero(unmarked), err
-		}
 		counts := migrate.Counts{"rows": int64(len(res.Rows)), "skipped_rows": int64(len(res.Skipped)), legacyRecords: n}
 		if err := cp.Mark(chat.ChatID, counts); err != nil {
 			return nonZero(unmarked), fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
 		}
-		converted[chat.ChatID] = landed{adoptedBy(chat), counts["rows"]}
+		imported++
+	}
+	// Every import failing is the ledger, not a chat: the step fails on it.
+	if failed != nil && imported == 0 {
+		return nonZero(unmarked), failed
 	}
 	return nonZero(unmarked), nil
 }
 
+func interrupted(ctx context.Context, err error) bool {
+	return ctx.Err() != nil && errors.Is(err, ctx.Err())
+}
+
 // skip notes why chat was not converted and by which converter: no later boot
-// tries it again until a newer converter might convert it.
-func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
-	msg := "chatledger: skipped a chat that cannot be converted"
-	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
+// tries it again until a newer converter might convert it. A skip that is not
+// final, an import that failed, is noted by no converter: the next boot retries.
+func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error, final bool) error {
+	msg, by := "chatledger: skipped a chat that cannot be converted", int64(converterVersion)
+	switch {
+	case errors.Is(why, ledgerstore.ErrChatNotEmpty):
 		msg = "chatledger: skipped a chat whose ledger already holds rows"
+	case !final:
+		msg, by = "chatledger: skipped a chat whose import failed; the next boot tries it again", 0
 	}
 	detail := clip(why.Error(), noteBytes)
 	log.WarnContext(ctx, msg, "chat_id", chatID, "err", detail)
-	note := migrate.Note{Detail: detail, Counts: migrate.Counts{legacyRecords: n, "converter": converterVersion}}
+	note := migrate.Note{Detail: detail, Counts: migrate.Counts{legacyRecords: n, "converter": by}}
 	if err := cp.Note(skippedKey(chatID), note); err != nil {
 		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
 	}
@@ -199,8 +202,9 @@ func nonZero(c migrate.Counts) migrate.Counts {
 	return c
 }
 
-// importChat converts chat and imports it. A chat already holding exactly
-// those rows is an import an interrupted attempt committed and never marked.
+// importChat converts chat, imports it and checks the chat holds what it
+// wrote. A chat already holding exactly those rows is an import an
+// interrupted attempt committed and never marked.
 func importChat(ctx context.Context, log *slog.Logger, store ledgerStore, chat LegacyChat) (Result, error) {
 	var ownerErr error
 	res, err := convertSafely(ctx, log, chat, func(provider, sessionID string) (string, bool) {
@@ -209,23 +213,54 @@ func importChat(ctx context.Context, log *slog.Logger, store ledgerStore, chat L
 		return chatID, ok
 	})
 	if ownerErr != nil {
-		return Result{}, fmt.Errorf("chatledger: chat %s: session owner: %w", chat.ChatID, ownerErr)
+		return Result{}, fmt.Errorf("%w: chat %s: %w", errSessionIndex, chat.ChatID, ownerErr)
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %w", errUnconvertible, err)
 	}
-	err = store.Import(ctx, chat.ChatID, res.Rows)
-	if !errors.Is(err, ledgerstore.ErrChatNotEmpty) {
+	err = importSafely(ctx, log, store, chat.ChatID, res.Rows)
+	if errors.Is(err, ledgerstore.ErrChatNotEmpty) {
+		held, readErr := store.Read(ctx, chat.ChatID, 0, 0)
+		if readErr != nil {
+			return Result{}, fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, readErr)
+		}
+		if !reflect.DeepEqual(held, res.Rows) {
+			return res, err
+		}
+		err = nil
+	}
+	if err != nil {
 		return res, err
 	}
-	held, readErr := store.Read(ctx, chat.ChatID, 0, 0)
-	if readErr != nil {
-		return Result{}, fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, readErr)
+	return res, landedAsWritten(ctx, store, chat, int64(len(res.Rows)))
+}
+
+// landedAsWritten checks, right after the import, that the chat holds the rows
+// it wrote and is at rest but for the runners the boot reconcile ends.
+func landedAsWritten(ctx context.Context, store ledgerStore, chat LegacyChat, rows int64) error {
+	st, err := store.State(ctx, chat.ChatID)
+	if err != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
 	}
-	if !reflect.DeepEqual(held, res.Rows) {
-		return res, err
+	if st.Head() != rows {
+		return fmt.Errorf("%w: chat %s: it holds %d rows, the import wrote %d", errNotAsConverted, chat.ChatID, st.Head(), rows)
 	}
-	return res, nil
+	if err := AtRest(st, adoptedBy(chat)); err != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
+	}
+	return nil
+}
+
+// importSafely is the store's Import with a panic made the chat's error, as
+// convertSafely does for the conversion; the store's transaction rolls back.
+func importSafely(ctx context.Context, log *slog.Logger, store ledgerStore, chatID string, rows []ledger.Row) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			log.ErrorContext(ctx, "chatledger: the import of a chat panicked", "chat_id", chatID, "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("%w: import %s: panic: %v", errUnconvertible, chatID, p)
+		}
+	}()
+	return store.Import(ctx, chatID, rows)
 }
 
 // convertSafely is ConvertChat with a panic made the chat's error: one chat's
@@ -238,27 +273,6 @@ func convertSafely(ctx context.Context, log *slog.Logger, chat LegacyChat, owner
 		}
 	}()
 	return ConvertChat(chat, owner)
-}
-
-func verify(ctx context.Context, h home.Home, converted map[string]landed) error {
-	if len(converted) == 0 {
-		return nil
-	}
-	return withStore(ctx, h, func(store *ledgerstore.Store) error {
-		for _, chatID := range slices.Sorted(maps.Keys(converted)) {
-			st, err := store.State(ctx, chatID)
-			if err != nil {
-				return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
-			}
-			if want := converted[chatID].rows; st.Head() != want {
-				return fmt.Errorf("%w: chat %s: it holds %d rows, the import wrote %d", errNotAsConverted, chatID, st.Head(), want)
-			}
-			if err := AtRest(st, converted[chatID].adopted); err != nil {
-				return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
-			}
-		}
-		return nil
-	})
 }
 
 // withStore runs fn over the home's chat ledger, closed before it returns.

@@ -179,7 +179,18 @@ func TestApply_AHomeWithoutLegacyRecordsCreatesNoLedger(t *testing.T) {
 	assert.Equal(t, []migrate.Counts{nil}, migratetest.Applied(t, h)[stepNumber])
 }
 
-func TestVerify_FailsOnAChatLeftWithOpenWork(t *testing.T) {
+// landed checks chat-x as an import of rows would be checked.
+func landed(t *testing.T, h home.Home, chatID string, rows int64, adopted ...LegacyRunner) error {
+	t.Helper()
+	var err error
+	require.NoError(t, withStore(t.Context(), h, func(s *ledgerstore.Store) error {
+		err = landedAsWritten(t.Context(), s, LegacyChat{ChatID: chatID, Runners: adopted}, rows)
+		return nil
+	}))
+	return err
+}
+
+func TestLandedAsWritten_FailsOnAChatLeftWithOpenWork(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	open, err := ledger.NewRow(ledger.KindUserMessage, "T-1", "", ledger.UserMessage{RequestID: "r1", Origin: ledger.OriginCrowbar})
 	require.NoError(t, err)
@@ -188,23 +199,22 @@ func TestVerify_FailsOnAChatLeftWithOpenWork(t *testing.T) {
 	require.NoError(t, err)
 	appendTo(t, h, "chat-y", live)
 
-	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 1}}), ErrNotAtRest)
-	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-y": {rows: 1}}), ErrNotAtRest)
-	require.NoError(t, verify(context.Background(), h, map[string]landed{"chat-y": {adopted: map[string]bool{"run-1": true}, rows: 1}}),
-		"a runner the old daemon left is the boot reconcile's to end")
+	require.ErrorIs(t, landed(t, h, "chat-x", 1), ErrNotAtRest)
+	require.ErrorIs(t, landed(t, h, "chat-y", 1), ErrNotAtRest)
+	require.NoError(t, landed(t, h, "chat-y", 1, LegacyRunner{ID: "run-1"}), "a runner the old daemon left is the boot reconcile's to end")
 }
 
-// A chat whose ledger does not end at the rows its checkpoint says the
-// import wrote is not what the conversion made.
-func TestVerify_FailsOnAChatWhoseLedgerIsNotTheRowsItConverted(t *testing.T) {
+// A chat that does not end at the rows the import just wrote is not what the
+// conversion made.
+func TestLandedAsWritten_FailsOnAChatWhoseLedgerIsNotTheRowsItWrote(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	marker, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
 	require.NoError(t, err)
 	appendTo(t, h, "chat-x", marker, marker)
 
-	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 1}}), errNotAsConverted)
-	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 3}}), errNotAsConverted)
-	require.NoError(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 2}}))
+	require.ErrorIs(t, landed(t, h, "chat-x", 1), errNotAsConverted)
+	require.ErrorIs(t, landed(t, h, "chat-x", 3), errNotAsConverted)
+	require.NoError(t, landed(t, h, "chat-x", 2))
 }
 
 // Each chat skipped, and each record a converted chat left out, is logged
@@ -331,31 +341,13 @@ func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {
 	assert.Equal(t, "this is not a sqlite database, not even a little", string(raw))
 }
 
-// Verify runs as the step's own: a chat an earlier attempt marked done but
-// left with open work fails it.
-func TestImpl_VerifyFailsTheStepOnAChatLeftOpen(t *testing.T) {
-	h := testutil.FixtureHome(t)
-	writeLegacy(t, h, chatB())
-	open, err := ledger.NewRow(ledger.KindUserMessage, "T-1", "", ledger.UserMessage{RequestID: "r1", Origin: ledger.OriginCrowbar})
-	require.NoError(t, err)
-	appendTo(t, h, "chat-b", open)
-	testutil.WriteFile(t, h, "migrate/ledger.jsonl",
-		`{"v":1,"kind":"run.start","run":"r1","pending":[6]}`+"\n"+
-			`{"v":1,"kind":"checkpoint","run":"r1","step":6,"name":"chat-ledger","key":"chat-b","counts":{"rows":1}}`+"\n")
-
-	err = bootLogging(t, h, slog.Default())
-
-	var halt *migrate.Halt
-	require.ErrorAs(t, err, &halt)
-	assert.Equal(t, migrate.HaltVerifyFailed, halt.Reason)
-}
-
 // fakeLedger records the imports it is asked for; onImport runs inside each.
 type fakeLedger struct {
-	ownerErr error
-	onOwner  func()
-	onImport func()
-	imported []string
+	ownerErr  error
+	onOwner   func()
+	onImport  func(chatID string) error
+	imported  []string
+	importing map[string][]ledger.Row
 }
 
 func (f *fakeLedger) SessionOwner(context.Context, string, string) (string, bool, error) {
@@ -365,12 +357,22 @@ func (f *fakeLedger) SessionOwner(context.Context, string, string) (string, bool
 	return "", false, f.ownerErr
 }
 
-func (f *fakeLedger) Import(_ context.Context, chatID string, _ []ledger.Row) error {
-	f.imported = append(f.imported, chatID)
+func (f *fakeLedger) Import(_ context.Context, chatID string, rows []ledger.Row) error {
 	if f.onImport != nil {
-		f.onImport()
+		if err := f.onImport(chatID); err != nil {
+			return err
+		}
 	}
+	f.imported = append(f.imported, chatID)
+	if f.importing == nil {
+		f.importing = map[string][]ledger.Row{}
+	}
+	f.importing[chatID] = rows
 	return nil
+}
+
+func (f *fakeLedger) State(_ context.Context, chatID string) (ledger.State, error) {
+	return ledger.Fold(chatID, f.importing[chatID]), nil
 }
 
 func (f *fakeLedger) Read(context.Context, string, int64, int) ([]ledger.Row, error) { return nil, nil }
@@ -390,10 +392,10 @@ func (m marks) Note(string, migrate.Note) error { return nil }
 func TestConvertAll_StopsBeforeTheNextChatOnceCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	store := &fakeLedger{onImport: cancel}
+	store := &fakeLedger{onImport: func(string) error { cancel(); return nil }}
 	cp := marks{}
 
-	_, err := convertAll(ctx, slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}}, map[string]landed{})
+	_, err := convertAll(ctx, slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{"chat-b"}, store.imported, "no chat is imported after the cancel")
@@ -407,7 +409,7 @@ func TestConvertAll_ASessionOwnerFailureStopsTheStep(t *testing.T) {
 	store := &fakeLedger{ownerErr: broken}
 	cp := marks{}
 
-	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB()}}, map[string]landed{})
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB()}})
 
 	require.ErrorIs(t, err, broken)
 	require.NotErrorIs(t, err, errUnconvertible)
@@ -427,7 +429,7 @@ func TestConvertAll_AConversionThatPanicsSkipsOnlyItsChat(t *testing.T) {
 	cp := marks{}
 	log, got := capture(func(r slog.Record) bool { return r.Level == slog.LevelError })
 
-	n, err := convertAll(context.Background(), log, store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}}, map[string]landed{})
+	n, err := convertAll(context.Background(), log, store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
 
 	require.NoError(t, err)
 	assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
@@ -435,3 +437,52 @@ func TestConvertAll_AConversionThatPanicsSkipsOnlyItsChat(t *testing.T) {
 	require.Len(t, *got, 1)
 	assert.Contains(t, testutil.Attrs((*got)[0])["stack"].String(), "convertSafely")
 }
+
+// A chat whose import fails, or panics, is skipped; the chats after it still
+// convert, and a failed import is tried again by the next boot.
+func TestConvertAll_AChatWhoseImportFailsSkipsOnlyThatChat(t *testing.T) {
+	for name, fail := range map[string]func(){
+		"fails":  func() {},
+		"panics": func() { panic("gorm callback bug") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &fakeLedger{onImport: func(chatID string) error {
+				if chatID != "chat-b" {
+					return nil
+				}
+				fail()
+				return errors.New("constraint failed")
+			}}
+			cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
+
+			n, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+
+			require.NoError(t, err)
+			assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
+			assert.Equal(t, []string{"chat-a"}, store.imported)
+			retry := name == "fails"
+			assert.Equal(t, retry, cp.notes[skippedKey("chat-b")].Counts["converter"] == 0, "a failed import is retried, a panic is not")
+		})
+	}
+}
+
+// Every import failing is the ledger failing, not a chat: the step fails.
+func TestConvertAll_EveryImportFailingFailsTheStep(t *testing.T) {
+	full := errors.New("database or disk is full")
+	store := &fakeLedger{onImport: func(string) error { return full }}
+
+	_, err := convertAll(context.Background(), slog.Default(), store, notes{marks: marks{}, notes: map[string]migrate.Note{}},
+		legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+
+	require.ErrorIs(t, err, full)
+}
+
+// notes is marks that also keeps the notes written.
+type notes struct {
+	marks
+	notes map[string]migrate.Note
+}
+
+func (n notes) Noted(key string) (migrate.Note, bool) { v, ok := n.notes[key]; return v, ok }
+
+func (n notes) Note(key string, v migrate.Note) error { n.notes[key] = v; return nil }

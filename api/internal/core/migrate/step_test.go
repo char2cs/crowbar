@@ -133,6 +133,21 @@ func TestRun_ARecurringStepThatFailsAgainIsSkippedNotAHalt(t *testing.T) {
 	assert.Contains(t, logs.String(), "level=WARN")
 }
 
+// A recurring step whose own check fails once applied is skipped as a failed
+// attempt is: rows normal use added since must not halt a home that runs.
+func TestRun_ARecurringStepWhoseCheckFailsAgainIsSkippedNotAHalt(t *testing.T) {
+	b, logs, impls := recurringBench(t, func() error { return nil }, func() error { return nil })
+	impls[1] = Impl{Apply: impls[1].Apply, Verify: func(context.Context, Env) error { return errors.New("holds 402 rows") }}
+
+	require.NoError(t, b.begin().RunPreOpen(context.Background(), impls))
+
+	recs := b.records()
+	require.Len(t, ofKind(recs, kindStepFail), 1)
+	assert.Contains(t, ofKind(recs, kindNote)[0].Detail, "holds 402 rows")
+	assert.Equal(t, outcomeCompleted, ofKind(recs, kindRunEnd)[1].Outcome)
+	assert.Contains(t, logs.String(), "level=WARN")
+}
+
 func TestRun_ANonRecurringStepIgnoresItsPlanOnceApplied(t *testing.T) {
 	ctx := context.Background()
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
