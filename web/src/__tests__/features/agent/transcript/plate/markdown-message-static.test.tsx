@@ -217,6 +217,18 @@ describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
     )
   })
 
+  it('breaks a line where the reply did, as the interactive editor does', () => {
+    const text = 'one\ntwo\nthree'
+    const interactive = renderInteractive(text)
+    const staticRender = render(<MarkdownMessageStatic>{text}</MarkdownMessageStatic>)
+    const whiteSpace = (root: HTMLElement) =>
+      getComputedStyle(root.querySelector('.agent-prose')!).whiteSpace
+
+    expect(staticRender.container.textContent).toBe(interactive.container.textContent)
+    expect(whiteSpace(interactive.container)).toBe('pre-wrap')
+    expect(whiteSpace(staticRender.container)).toBe(whiteSpace(interactive.container))
+  })
+
   it('renders the callout and raw HTML block identically', () => {
     const interactive = renderInteractive(FULL_FIXTURE)
     const staticRender = render(<MarkdownMessageStatic>{FULL_FIXTURE}</MarkdownMessageStatic>)

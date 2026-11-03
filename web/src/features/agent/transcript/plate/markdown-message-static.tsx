@@ -37,6 +37,10 @@ function sharedStaticEditor() {
   return (staticEditor ??= createStaticEditor({ plugins: chatComposerPluginsStatic }))
 }
 
+/** Slate's editable keeps a soft line break as a break; so must the settled
+ *  copy, or a reply's lines join into one paragraph once it settles. */
+const EDITABLE_WHITESPACE = { whiteSpace: 'pre-wrap' } as const
+
 /** A settled message on the same static plugin set, without the interactive
  *  editor's machinery a message that no longer grows has no use for. */
 export function MarkdownMessageStatic({
@@ -57,6 +61,7 @@ export function MarkdownMessageStatic({
       <PlateStatic
         editor={sharedStaticEditor()}
         value={value}
+        style={EDITABLE_WHITESPACE}
         className={cn('agent-prose', className)}
       />
     </StreamingFenceContext.Provider>
