@@ -39,9 +39,7 @@ import * as createsApi from '@/features/agent/api/agent-chat-creates'
 vi.spyOn(createsApi, 'createChat').mockImplementation(createChat)
 // The untitled document itself (its Monaco model, its free name) is open-document's own test.
 import * as openDocumentApi from '@/features/editor/documents/open-document'
-const openUntitledDocument = vi
-  .spyOn(openDocumentApi, 'openUntitledDocument')
-  .mockResolvedValue('untitled-buf')
+const openUntitled = vi.spyOn(openDocumentApi, 'openUntitledDocument').mockResolvedValue('')
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 
@@ -374,7 +372,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true }))
 
     expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center', 'ws-1')
-    expect(openUntitledDocument).toHaveBeenCalledWith('ws-1', ROOT_PANE_ID)
+    expect(openUntitled).toHaveBeenCalledWith('ws-1', ROOT_PANE_ID)
     expect(createChat).not.toHaveBeenCalled()
   })
 
