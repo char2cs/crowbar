@@ -53,7 +53,9 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	if len(in.Unreadable) > 0 && nothingRead(in) {
 		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errUnreadable, clip(strings.Join(in.Unreadable, "; "), noteBytes))
 	}
-	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable), leftOut: len(in.Unreadable)}
+	c := &conversion{
+		chatID: in.ChatID, skipped: slices.Concat(in.Unreadable, in.Partial), leftOut: len(in.Unreadable), partial: len(in.Partial),
+	}
 	c.bindSessions(in, owner)
 	c.turns(in)
 	c.subagents(in.Subagents)
@@ -70,7 +72,7 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Rows: rows, Skipped: c.skipped, LeftOut: c.leftOut}, nil
+	return Result{Rows: rows, Skipped: c.skipped, LeftOut: c.leftOut + c.partial}, nil
 }
 
 func nothingRead(in LegacyChat) bool {
@@ -81,14 +83,27 @@ func nothingRead(in LegacyChat) bool {
 // markLeftOut shows, after the chat's history, how many of its legacy records
 // were left out: unreadable, or naming nothing the chat holds.
 func (c *conversion) markLeftOut() {
-	if c.leftOut == 0 {
+	if c.leftOut+c.partial == 0 {
 		return
 	}
-	what := fmt.Sprintf("%d legacy records could not be converted", c.leftOut)
-	if c.leftOut == 1 {
-		what = "1 legacy record could not be converted"
+	what := inWords(c.leftOut) + " could not be converted"
+	switch {
+	case c.leftOut == 0 && c.partial == 1:
+		what = "1 legacy record was converted only in part"
+	case c.leftOut == 0:
+		what = inWords(c.partial) + " were converted only in part"
+	case c.partial > 0:
+		what += fmt.Sprintf(", and %d more only in part", c.partial)
 	}
 	c.emit(ruleMarker, c.latest.Add(time.Microsecond), 0, ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: what})
+}
+
+// inWords is n legacy records, in words.
+func inWords(n int) string {
+	if n == 1 {
+		return "1 legacy record"
+	}
+	return fmt.Sprintf("%d legacy records", n)
 }
 
 // restatedf names a legacy record another row already restates: nothing of
@@ -110,6 +125,7 @@ type conversion struct {
 	out     []entry
 	skipped []string
 	leftOut int // records, or parts of one, left out
+	partial int // records the reader kept without a part
 	err     error
 
 	current map[string]string // provider → the session the chat is bound to on it

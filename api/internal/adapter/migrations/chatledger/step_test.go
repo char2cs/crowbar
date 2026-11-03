@@ -277,7 +277,7 @@ func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 		{ActivityDB, "agent_subagents", "ended_at", "2 legacy records could not be converted"},
 		{ActivityDB, "agent_interruptions", "display_order", "1 legacy record could not be converted"},
 		{ActivityDB, "agent_choices", "multi", "1 legacy record could not be converted"},
-		{RunnerDB, "agent_chat_conversations", "first_seen_at", "1 legacy record could not be converted"},
+		{RunnerDB, "agent_chat_conversations", "first_seen_at", "1 legacy record was converted only in part"},
 	} {
 		t.Run(tc.table, func(t *testing.T) {
 			h := testutil.FixtureHome(t)

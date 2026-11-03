@@ -151,4 +151,7 @@ type LegacyChat struct {
 	Prompts       []LegacyPrompt
 	Runners       []LegacyRunner
 	Unreadable    []string
+	// Partial names each record kept without a part the reader could not
+	// decode: a conversation whose times are unreadable keeps its session.
+	Partial []string
 }

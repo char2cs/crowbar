@@ -51,11 +51,39 @@ func ReadLegacy(ctx context.Context, h home.Home) ([]LegacyChat, error) {
 	if err := r.prompts(filepath.Join(h.Root(), "chats")); err != nil {
 		return nil, err
 	}
+	written, err := modTime(runnerDB)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]LegacyChat, 0, len(r.chats))
 	for _, id := range slices.Sorted(maps.Keys(r.chats)) {
-		out = append(out, *r.chats[id])
+		out = append(out, dated(*r.chats[id], written))
 	}
 	return out, nil
+}
+
+// dated gives each conversation with no time the chat's oldest record's, or
+// when the chat has none, when the legacy files were last written.
+func dated(chat LegacyChat, written time.Time) LegacyChat {
+	at := cmp.Or(oldest(chat), written)
+	for i, c := range chat.Conversations {
+		if c.FirstSeenAt.IsZero() && c.LastActiveAt.IsZero() {
+			chat.Conversations[i].FirstSeenAt = at
+		}
+	}
+	return chat
+}
+
+// modTime is when path was last written; zero when it does not exist.
+func modTime(path string) (time.Time, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("chatledger: read: %w", err)
+	}
+	return info.ModTime().UTC(), nil
 }
 
 const (
@@ -105,12 +133,12 @@ func (r *reader) conversation(rows *sql.Rows) error {
 	}
 	v := LegacyConversation{ChatID: c.str(), ProviderID: c.str(), SessionID: c.str()}
 	v.FirstSeenAt, v.LastActiveAt = c.time("first_seen_at"), c.time("last_active_at")
-	keep := func(chat *LegacyChat) { chat.Conversations = append(chat.Conversations, v) }
-	r.add(v.ChatID, "agent_chat_conversations "+v.SessionID, c.err, keep)
+	chat := r.chat(v.ChatID)
+	chat.Conversations = append(chat.Conversations, v)
 	// Its times only place the binding, which its turns place as well: an
-	// unreadable one is named and counted, and the session kept.
+	// unreadable one is named, and the session kept.
 	if c.err != nil {
-		keep(r.chat(v.ChatID))
+		chat.Partial = append(chat.Partial, clip(fmt.Sprintf("agent_chat_conversations %s: %v", v.SessionID, c.err), reasonBytes))
 	}
 	return nil
 }

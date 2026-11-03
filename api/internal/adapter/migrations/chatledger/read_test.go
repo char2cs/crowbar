@@ -261,10 +261,33 @@ func TestReadLegacy_AConversationWithAnUnreadableTimeKeepsItsBinding(t *testing.
 	res, err := ConvertChat(got[1], nobody)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.LeftOut)
+	marker := rowsOf(res, ledger.KindMarker)
+	assert.Equal(t, "1 legacy record was converted only in part", body[ledger.Marker](t, marker[len(marker)-1]).Detail)
 	bound := rowsOf(res, ledger.KindSessionBound)
 	require.Len(t, bound, 1)
 	assert.Equal(t, "S-b", body[ledger.SessionBound](t, bound[0]).SessionID)
 	assert.Len(t, res.Rows, len(convert(t, chatB(), nobody).Rows)+1, "the history and a marker")
+}
+
+// A conversation with no time, in a chat with no other record, is bound when
+// the legacy files were last written: never at the year 1.
+func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), LegacyChat{ChatID: "chat-c", Conversations: []LegacyConversation{{ChatID: "chat-c", ProviderID: "codex", SessionID: "S-c"}}})
+	for _, column := range []string{"first_seen_at", "last_active_at"} {
+		spoil(t, h, RunnerDB, "agent_chat_conversations", column, "chat-c", nil)
+	}
+	info, err := os.Stat(filepath.Join(h.Store(), RunnerDB))
+	require.NoError(t, err)
+
+	got, err := ReadLegacy(context.Background(), h)
+
+	require.NoError(t, err)
+	res := convert(t, got[1], nobody)
+	require.NotEmpty(t, res.Rows)
+	for _, r := range res.Rows {
+		assert.Equal(t, micros(info.ModTime()), r.At, "%s", r.Kind)
+	}
 }
 
 // Any one cell of any legacy table, overwritten with any value a damaged disk
