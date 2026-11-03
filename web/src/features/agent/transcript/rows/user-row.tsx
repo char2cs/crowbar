@@ -171,7 +171,7 @@ function UserRowBody({
     >
       {state ? (
         <div className={firstTurn ? 'frozen firstq' : cn('queued', multi && 'multi', bad && 'bad')}>
-          <MarkdownMessageStatic className={firstTurn ? undefined : 'txt'}>
+          <MarkdownMessageStatic variant="chat" className={firstTurn ? undefined : 'txt'}>
             {text}
           </MarkdownMessageStatic>
           {error && <span className="err">{error}</span>}
@@ -185,7 +185,7 @@ function UserRowBody({
         </div>
       ) : (
         <div className={cn(firstTurn ? 'frozen' : 'bubble', !firstTurn && multi && 'multi')}>
-          <MarkdownMessageStatic diagrams className="break-words">
+          <MarkdownMessageStatic diagrams variant="chat" className="break-words">
             {text}
           </MarkdownMessageStatic>
         </div>

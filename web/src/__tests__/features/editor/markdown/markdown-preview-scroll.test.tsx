@@ -231,3 +231,15 @@ describe('MarkdownPreview links', () => {
     )
   })
 })
+
+describe('MarkdownPreview text', () => {
+  // A file is a document: a hard-wrapped paragraph reads as one, per CommonMark.
+  it('joins a hard-wrapped paragraph instead of keeping its line breaks', () => {
+    const store = setupStore(['/repo/WRAPPED.md'])
+    replaceDocumentText(workspaceRef('w1', '/repo/WRAPPED.md'), 'one line\nwrapped here')
+    const view = renderPreview(store, 'preview-/repo/WRAPPED.md')
+    const prose = view.container.querySelector('.agent-prose') as HTMLElement
+    expect(prose.textContent).toContain('wrapped here')
+    expect(getComputedStyle(prose).whiteSpace).not.toBe('pre-wrap')
+  })
+})

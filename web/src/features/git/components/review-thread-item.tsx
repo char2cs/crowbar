@@ -161,7 +161,7 @@ function MessageRow({
             />
           </div>
         ) : (
-          <MarkdownMessageStatic className={MARKDOWN_PROSE_CLASS}>
+          <MarkdownMessageStatic variant="chat" className={MARKDOWN_PROSE_CLASS}>
             {message.body}
           </MarkdownMessageStatic>
         )}

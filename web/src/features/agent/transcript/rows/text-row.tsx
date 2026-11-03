@@ -68,7 +68,7 @@ function TextRowBody({
         {live ? (
           <LiveText chatId={chatId} item={item} />
         ) : (
-          <MarkdownMessageStatic diagrams className="break-words">
+          <MarkdownMessageStatic diagrams variant="chat" className="break-words">
             {item.text}
           </MarkdownMessageStatic>
         )}

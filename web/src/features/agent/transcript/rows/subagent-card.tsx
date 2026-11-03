@@ -123,7 +123,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
         {open && card.scope && <Work chatId={chatId} scope={card.scope} />}
         {open && card.result && (
           <div className="subagent-result" data-testid="agent-subagent-result">
-            <MarkdownMessageStatic>{card.result}</MarkdownMessageStatic>
+            <MarkdownMessageStatic variant="chat">{card.result}</MarkdownMessageStatic>
           </div>
         )}
       </div>

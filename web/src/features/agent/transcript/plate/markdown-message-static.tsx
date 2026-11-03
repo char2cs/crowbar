@@ -4,6 +4,7 @@ import { createStaticEditor, PlateStatic } from 'platejs/static'
 
 import { chatComposerPluginsStatic } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
+import { CHAT_PROSE_STYLE } from '@/features/agent/transcript/plate/chat-prose-style'
 import { StreamingFenceContext } from '@/features/agent/transcript/plate/streaming-fence'
 import { openDiagramFence } from '@/features/agent/transcript/plate/streaming-markdown-parse'
 import { cn } from '@/lib/utils'
@@ -13,6 +14,9 @@ interface MarkdownMessageStaticProps {
   children: string
   /** A transcript message: its diagram fences render as diagrams. */
   diagrams?: boolean
+  /** `chat`: a message, whose line breaks stand as the streaming renderer drew
+   *  them; a `document` (the default) reads as CommonMark. */
+  variant?: 'chat' | 'document'
   className?: string
 }
 
@@ -37,15 +41,12 @@ function sharedStaticEditor() {
   return (staticEditor ??= createStaticEditor({ plugins: chatComposerPluginsStatic }))
 }
 
-/** Slate's editable keeps a soft line break as a break; so must the settled
- *  copy, or a reply's lines join into one paragraph once it settles. */
-const EDITABLE_WHITESPACE = { whiteSpace: 'pre-wrap' } as const
-
 /** A settled message on the same static plugin set, without the interactive
  *  editor's machinery a message that no longer grows has no use for. */
 export function MarkdownMessageStatic({
   children,
   diagrams = false,
+  variant = 'document',
   className,
 }: MarkdownMessageStaticProps) {
   const value = useMemo(() => parsedValue(children), [children])
@@ -61,7 +62,7 @@ export function MarkdownMessageStatic({
       <PlateStatic
         editor={sharedStaticEditor()}
         value={value}
-        style={EDITABLE_WHITESPACE}
+        style={variant === 'chat' ? CHAT_PROSE_STYLE : undefined}
         className={cn('agent-prose', className)}
       />
     </StreamingFenceContext.Provider>

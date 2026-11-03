@@ -9,6 +9,7 @@ import {
   parseStreamingMarkdown,
   type StreamCursor,
 } from '@/features/agent/transcript/plate/streaming-markdown-parse'
+import { CHAT_PROSE_STYLE } from '@/features/agent/transcript/plate/chat-prose-style'
 import { StreamingFenceContext } from '@/features/agent/transcript/plate/streaming-fence'
 import { applyStreamedValue } from '@/features/agent/transcript/plate/streaming-value-patch'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
@@ -68,7 +69,12 @@ export function MarkdownMessage({ children, settled = false, className }: Markdo
   return (
     <StreamingFenceContext.Provider value={fence}>
       <Plate editor={editor} readOnly>
-        <PlateContent readOnly tabIndex={-1} className={cn('agent-prose', className)} />
+        <PlateContent
+          readOnly
+          tabIndex={-1}
+          style={CHAT_PROSE_STYLE}
+          className={cn('agent-prose', className)}
+        />
       </Plate>
     </StreamingFenceContext.Provider>
   )

@@ -217,10 +217,12 @@ describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
     )
   })
 
-  it('breaks a line where the reply did, as the interactive editor does', () => {
+  it('breaks a chat message’s line where the interactive editor does', () => {
     const text = 'one\ntwo\nthree'
     const interactive = renderInteractive(text)
-    const staticRender = render(<MarkdownMessageStatic>{text}</MarkdownMessageStatic>)
+    const staticRender = render(
+      <MarkdownMessageStatic variant="chat">{text}</MarkdownMessageStatic>,
+    )
     const whiteSpace = (root: HTMLElement) =>
       getComputedStyle(root.querySelector('.agent-prose')!).whiteSpace
 

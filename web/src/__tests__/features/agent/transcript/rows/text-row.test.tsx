@@ -66,6 +66,26 @@ describe('TextRow', () => {
     expect(screen.getByText('descriptor').closest('strong')).not.toBeNull()
   })
 
+  it('draws a reply’s line breaks the same streamed as replayed', async () => {
+    const l = ledger()
+    const head = [l.start('turn-1'), l.text('turn-1', 'm1', 0, 'one\n')]
+    const tail = [l.text('turn-1', 'm1', 1, 'two', true), l.end('turn-1')]
+    const whiteSpace = () => getComputedStyle(prose()!).whiteSpace
+    seed(head)
+    const live = render(
+      <TranscriptRow actions={actions} chatId="chat-1" id={ID} providers={providers} />,
+    )
+    for (const row of tail) push(row)
+    await waitFor(() => expect(prose()!.textContent).toBe('one\ntwo'))
+    const streamed = [prose()!.textContent, whiteSpace()]
+    live.unmount()
+    chatStore.setState({ feeds: {} })
+    seed([...head, ...tail])
+    render(<TranscriptRow actions={actions} chatId="chat-1" id={ID} providers={providers} />)
+    expect([prose()!.textContent, whiteSpace()]).toEqual(streamed)
+    expect(streamed[1]).toBe('pre-wrap')
+  })
+
   it('follows the live stream ahead of its rows while unsettled', async () => {
     const l = ledger()
     seed([l.start('turn-1'), l.text('turn-1', 'm1', 0, 'Hel')])

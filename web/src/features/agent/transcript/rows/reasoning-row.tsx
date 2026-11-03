@@ -21,7 +21,9 @@ function ReasoningRowBody({ item }: { item: ReasoningItem }) {
           <CaretRightIcon size={12} />
         </button>
         {open && (
-          <MarkdownMessageStatic className="reasoning-text">{item.text}</MarkdownMessageStatic>
+          <MarkdownMessageStatic variant="chat" className="reasoning-text">
+            {item.text}
+          </MarkdownMessageStatic>
         )}
       </div>
     </article>
