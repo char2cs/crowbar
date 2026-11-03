@@ -108,11 +108,6 @@ vi.mock('@tanstack/react-router', () => ({
   },
   Outlet: () => <div data-testid="outlet" />,
 }))
-vi.mock('@/components/ui/sidebar', () => ({
-  SidebarProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="sidebar-provider">{children}</div>
-  ),
-}))
 vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
