@@ -168,7 +168,8 @@ func TestNew_HaltsOnANewerLayout(t *testing.T) {
 	assert.Equal(t, "daemon_halted", projects.Code)
 	assert.Equal(t, halt.Message, projects.Error)
 	page := call(t, d.client, http.MethodGet, "/", http.Header{"Accept": {"text/html"}})
-	assert.Contains(t, page.raw, "reloads by itself once Crowbar is ready", "a browser is told it waits")
+	assert.Contains(t, page.raw, "Crowbar could not start.")
+	assert.Contains(t, page.raw, "Fix the cause above and restart Crowbar.", "a halt never ends by itself")
 	_, err = hookserver.Read(h.Root())
 	require.Error(t, err, "a halted daemon serves no hooks")
 	assert.NoDirExists(t, h.MigrateDir())
@@ -206,32 +207,41 @@ func TestNew_AMigratingDaemonShowsABrowserAPageThatReloads(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	sock := testutil.ShortSocket(t)
 	client := testutil.UnixClient(t, sock)
-	browser := http.Header{"Accept": {"text/html,application/xhtml+xml,*/*;q=0.8"}, "Sec-Fetch-Dest": {"document"}}
-	api := http.Header{"Accept": {"application/json"}}
-	var page, refused, fetched answer
-	asked := false
+	type ask struct{ method, path, accept string }
+	asks := map[string]ask{
+		"browser":        {http.MethodGet, "/", "text/html,application/xhtml+xml,*/*;q=0.8"},
+		"json":           {http.MethodGet, "/", "application/json"},
+		"json first":     {http.MethodGet, "/", "application/json, text/html;q=0.1"},
+		"anything":       {http.MethodGet, "/", "*/*"},
+		"no accept":      {http.MethodGet, "/", ""},
+		"head":           {http.MethodHead, "/", "text/html"},
+		"api path, html": {http.MethodGet, "/v0/projects", "text/html"},
+	}
+	got := map[string]answer{}
 	midway := slog.New(testutil.OnLog("migrate: step started", func(slog.Record) {
-		if asked {
+		if len(got) > 0 {
 			return
 		}
-		asked = true
-		page = call(t, client, http.MethodGet, "/", browser)
-		refused = call(t, client, http.MethodGet, "/", api)
-		fetched = call(t, client, http.MethodGet, "/v0/projects", http.Header{"Accept": {"text/html"}})
+		for name, a := range asks {
+			got[name] = call(t, client, a.method, a.path, http.Header{"Accept": {a.accept}})
+		}
 	}))
 
 	c, err := internal.New(t.Context(), "unix://"+sock, nil, internal.WithHomeDir(h.Root()), internal.WithMigrateLog(midway))
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
-	require.True(t, asked, "no step ran")
+	require.NotEmpty(t, got, "no step ran")
+	page := got["browser"]
 	assert.Equal(t, http.StatusServiceUnavailable, page.status)
 	assert.True(t, strings.HasPrefix(page.header.Get("Content-Type"), "text/html"), page.header)
 	assert.Contains(t, page.raw, "this page reloads by itself")
 	assert.Contains(t, page.raw, `fetch("/v0/health")`)
 	assert.Contains(t, page.raw, "location.reload()")
-	assert.Equal(t, "daemon_migrating", refused.Code, refused.raw)
-	assert.Equal(t, "daemon_migrating", fetched.Code, "an API path is never the page: %s", fetched.raw)
+	for _, name := range []string{"json", "json first", "anything", "no accept", "api path, html"} {
+		assert.Equal(t, "daemon_migrating", got[name].Code, "%s is never the page: %s", name, got[name].raw)
+	}
+	assert.Equal(t, "application/json", got["head"].header.Get("Content-Type"), "only a GET opens the page")
 }
 
 func TestNew_HaltsWhenAStepFails(t *testing.T) {

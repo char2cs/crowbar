@@ -151,8 +151,13 @@ type refusal struct {
 func navigation(
 	r *http.Request,
 ) bool {
-	return r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v0/") &&
-		strings.Contains(r.Header.Get("Accept"), "text/html")
+	if r.Method != http.MethodGet || strings.HasPrefix(r.URL.Path, "/v0/") {
+		return false
+	}
+	// Whichever of HTML and JSON is listed first wins; q-values are not weighed.
+	accept := r.Header.Get("Accept")
+	htmlAt, jsonAt := strings.Index(accept, "text/html"), strings.Index(accept, "application/json")
+	return htmlAt >= 0 && (jsonAt < 0 || htmlAt < jsonAt)
 }
 
 // page waits on the health route, the one route the gate answers, and reloads
@@ -161,15 +166,19 @@ const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Crowbar</title></head>
 <body style="font:16px system-ui,sans-serif;max-width:32rem;margin:20vh auto;padding:0 16px">
-<p>%s</p><p style="opacity:.6">%s</p>
+<p>%s</p><p style="opacity:.6">%s</p><p>%s</p>
 <script>setInterval(() => fetch("/v0/health").then((r) => r.json())
   .then((b) => { if (b.data && b.data.status === "ok") location.reload() }).catch(() => {}), 1000)</script>
 </body></html>`
 
-// headlines say what each state means to someone who opened the page.
-var headlines = map[State]string{
-	StateMigrating: "Crowbar is updating your data… this page reloads by itself.",
-	StateHalted:    "Crowbar stopped before opening your data. This page reloads by itself once Crowbar is ready.",
+// pageWords are what each state means to someone who opened the page, before
+// and after its message: a halt ends only when someone restarts Crowbar.
+var pageWords = map[State][2]string{
+	StateMigrating: {"Crowbar is updating your data… this page reloads by itself.", ""},
+	StateHalted: {
+		"Crowbar could not start.",
+		"Fix the cause above and restart Crowbar. This page will reload once it is running.",
+	},
 }
 
 // writePage answers a browser with the page for rep.
@@ -177,7 +186,8 @@ func writePage(
 	w http.ResponseWriter,
 	rep Report,
 ) {
-	body := fmt.Sprintf(page, html.EscapeString(headlines[rep.State]), html.EscapeString(rep.Message))
+	words := pageWords[rep.State]
+	body := fmt.Sprintf(page, html.EscapeString(words[0]), html.EscapeString(rep.Message), html.EscapeString(words[1]))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusServiceUnavailable)
