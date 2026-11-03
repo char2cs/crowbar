@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"net/http"
 	"path/filepath"
 	"testing"
 
@@ -99,4 +100,52 @@ func TestRegression_AnUndecodableChatRowLeavesOnlyThatChat(t *testing.T) {
 	assert.Empty(t, synced.Unread, "no repo or home is unread over one bad row")
 	assert.True(t, snapshot["chat/"+healthy], "the healthy chat is snapshotted")
 	assert.True(t, snapshot["chat/"+homeChat], "and so is the home's chat")
+}
+
+// A workspace whose read-model row will not decode is still read from its own
+// history: its chats stay listed under its repo, the projects scope carries it
+// with nothing unread, and a repo delete still removes its worktree.
+func TestRegression_AnUndecodableWorkspaceRowIsStillListedAndDeleted(t *testing.T) {
+	home := t.TempDir()
+	h1 := newHarnessAt(t, home)
+	writeProviderDescriptor(t, h1, "streamstub", streamStubProviderDescriptorYAML)
+	imported := importWritableWorkspace(t, h1)
+	chat, _ := createStubChat(t, h1, imported, "streamstub")
+	worktree := worktreePathOf(t, h1, imported)
+	h1.Quiesce()
+	h1.shutdown()
+
+	db := openSQLite(t, filepath.Join(homeAt(t, home).Store(), "workspace.db"))
+	corrupted := db.Exec(`UPDATE read_workspaces SET data = ? WHERE id = ?`, []byte("{not json"), imported.workspaceID)
+	require.NoError(t, corrupted.Error)
+	require.Equal(t, int64(1), corrupted.RowsAffected, "precondition: the workspace has a read row")
+	closeSQLite(t, db)
+
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	listed := map[string]bool{}
+	for _, row := range listChats(t, h2, imported.projectID, imported.repoID) {
+		listed[row.ID] = true
+	}
+	assert.True(t, listed[imported.chatID], "the worktree's own chat is listed under its repo")
+	assert.True(t, listed[chat], "and so is the other chat it runs")
+	c := dialStream(t, h2)
+	c.Sub(t, "projects", 0)
+	snapshot := map[string]bool{}
+	synced := c.Next(t, func(f stream.Frame) bool {
+		snapshot[f.Kind+"/"+f.ID] = f.T == stream.FrameEntity
+		return isSynced("projects")(f)
+	})
+	assert.Empty(t, synced.Unread, "the repo reads whole")
+	assert.True(t, snapshot["workspace/"+imported.workspaceID], "the workspace is snapshotted")
+	assert.True(t, snapshot["chat/"+chat], "and so are its chats")
+
+	reposWS := watchEntities(t, h2, stream.KindRepo)
+	require.NoError(t, h2.raw(http.MethodDelete, repoBase(imported), nil, http.StatusAccepted).Body.Close())
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
+	})
+	h2.QuiesceReactors()
+	assert.NoDirExists(t, worktree, "the repo delete removes the workspace it could not decode")
 }

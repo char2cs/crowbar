@@ -309,3 +309,58 @@ func appendTombstone(t *testing.T, es asynxModels.Store, id string) {
 	require.NoError(t, err)
 	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
 }
+
+// A row that will not decode is answered from the workspace's own history, so
+// no list loses it; the raw boot list still leaves it out.
+func TestListOrRebuild_AnswersARowThatWillNotDecodeFromItsHistory(t *testing.T) {
+	ctx, st, ax, _, db := newSharedLogService(t)
+	for _, id := range []string{"w1", "w2"} {
+		_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
+			ID: id, RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+			Provisioning: domain.WorkspacePlaceholder,
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.WithContext(ctx).Exec("UPDATE read_workspaces SET data = ? WHERE id = 'w1'", []byte("{not json")).Error)
+
+	rows, err := st.ListOrRebuild(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	byID := map[string]domain.Workspace{rows[0].ID: rows[0], rows[1].ID: rows[1]}
+	assert.Equal(t, "r1", byID["w1"].RepoID, "the undecodable row is read from its history")
+	raw, err := st.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, raw, 1)
+}
+
+func TestListOrRebuild_LeavesOutARowThatWillNotDecodeAndHasNoHistory(t *testing.T) {
+	ctx, st, ax, _, db := newSharedLogService(t)
+	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.WithContext(ctx).Exec("INSERT INTO read_workspaces (id, data) VALUES ('ghost', ?)", []byte("{not json")).Error)
+
+	rows, err := st.ListOrRebuild(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "w1", rows[0].ID)
+}
+
+// Nothing is known about a workspace whose row and history both fail to read,
+// so the list fails loudly rather than answer without it.
+func TestListOrRebuild_FailsWhenARowAndItsHistoryWillNotRead(t *testing.T) {
+	ctx, st, _, es, db := newSharedLogService(t)
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:poison", 1, []byte("{not valid json"))
+	}))
+	require.NoError(t, db.WithContext(ctx).Exec("INSERT INTO read_workspaces (id, data) VALUES ('poison', ?)", []byte("{not json")).Error)
+
+	_, err := st.ListOrRebuild(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "row poison will not decode")
+}

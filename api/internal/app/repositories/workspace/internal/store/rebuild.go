@@ -34,7 +34,7 @@ const eventKeyPrefix = "events:"
 func (s *service) ListOrRebuild(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	rows, err := s.store.List(ctx)
+	rows, err := s.store.ListFrom(ctx, s.fromLog)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,24 @@ func (s *service) ListOrRebuild(
 	if err := s.rebuild(ctx); err != nil {
 		return nil, err
 	}
-	return s.store.List(ctx)
+	return s.store.ListFrom(ctx, s.fromLog)
+}
+
+// fromLog answers a row that will not decode from the workspace's own history,
+// as every per-id read does, so no list or delete loses a workspace to one bad
+// row. A history that will not fold either fails the list: nothing is known.
+func (s *service) fromLog(
+	ctx context.Context,
+	id string,
+) (*domain.Workspace, error) {
+	ws, err := s.ax.Get(ctx, id)
+	if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrForgetInProgress) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("workspace store: row %s will not decode and its history will not fold: %w", id, err)
+	}
+	return &ws, nil
 }
 
 // rebuild enumerates every aggregate id in the event log and Replays each into the

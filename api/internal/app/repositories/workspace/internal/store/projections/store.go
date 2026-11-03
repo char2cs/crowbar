@@ -177,9 +177,19 @@ func (s *Store) wakeTombstoneWaiters(
 	}
 }
 
-// List returns every workspace currently in the read model.
+// List returns every workspace currently in the read model, leaving out a row
+// that will not decode.
 func (s *Store) List(
 	ctx context.Context,
+) ([]domain.Workspace, error) {
+	return s.ListFrom(ctx, func(context.Context, string) (*domain.Workspace, error) { return nil, nil })
+}
+
+// ListFrom is List with each row that will not decode answered by undecodable
+// instead: nil leaves the row out, an error fails the list.
+func (s *Store) ListFrom(
+	ctx context.Context,
+	undecodable func(ctx context.Context, id string) (*domain.Workspace, error),
 ) ([]domain.Workspace, error) {
 	rows, err := s.inner.FindAll(ctx)
 	if err != nil {
@@ -187,14 +197,28 @@ func (s *Store) List(
 	}
 	result := make([]domain.Workspace, 0, len(rows))
 	for _, row := range rows {
-		ws, err := unmarshalWorkspace(row.Data)
+		ws, err := s.decode(ctx, row, undecodable)
 		if err != nil {
-			s.unreadable.Skip(ctx, "workspace", row.ID, err)
-			continue
+			return nil, err
 		}
-		result = append(result, *ws)
+		if ws != nil {
+			result = append(result, *ws)
+		}
 	}
 	return result, nil
+}
+
+func (s *Store) decode(
+	ctx context.Context,
+	row workspaceRow,
+	undecodable func(ctx context.Context, id string) (*domain.Workspace, error),
+) (*domain.Workspace, error) {
+	ws, err := unmarshalWorkspace(row.Data)
+	if err == nil {
+		return ws, nil
+	}
+	s.unreadable.Skip(ctx, "workspace", row.ID, err)
+	return undecodable(ctx, row.ID)
 }
 
 // Get returns the workspace with the given id, or nil if the read model has no
