@@ -34,7 +34,7 @@ const eventKeyPrefix = "events:"
 func (s *service) ListOrRebuild(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	rows, err := s.store.ListFrom(ctx, s.fromLog)
+	rows, err := s.store.List(ctx, s.fromLog)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (s *service) ListOrRebuild(
 	if err := s.rebuild(ctx); err != nil {
 		return nil, err
 	}
-	return s.store.ListFrom(ctx, s.fromLog)
+	return s.store.List(ctx, s.fromLog)
 }
 
 // fromLog answers an undecodable row from its history, as per-id reads do, at

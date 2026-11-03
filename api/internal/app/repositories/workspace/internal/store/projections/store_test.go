@@ -57,7 +57,7 @@ func TestWorkspaceProjection_CreatePersistsRowInReadModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	all, err := st.List(ctx)
+	all, err := st.List(ctx, leaveOut)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Equal(t, "w1", all[0].ID)
@@ -96,7 +96,7 @@ func TestWorkspaceProjection_ForgetDeletesTheRow(t *testing.T) {
 	got, err = st.Get(ctx, "w1")
 	require.NoError(t, err)
 	assert.Nil(t, got)
-	all, err := st.List(ctx)
+	all, err := st.List(ctx, leaveOut)
 	require.NoError(t, err)
 	assert.Empty(t, all)
 }
@@ -207,7 +207,7 @@ func TestNewStore_ErrorOnBadDB(t *testing.T) {
 func TestStore_List_ErrorOnStorageFailure(t *testing.T) {
 	st := &Store{inner: &errInner{err: errors.New("db down")}}
 
-	_, err := st.List(context.Background())
+	_, err := st.List(context.Background(), leaveOut)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "find all")
@@ -239,7 +239,7 @@ func (corruptInner) FindAll(context.Context) ([]workspaceRow, error) {
 func TestStore_List_SkipsACorruptRow(t *testing.T) {
 	st := &Store{inner: corruptInner{}}
 
-	got, err := st.List(t.Context())
+	got, err := st.List(t.Context(), leaveOut)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -254,3 +254,5 @@ func TestStore_Get_ErrorOnCorruptRow(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unmarshal")
 }
+
+func leaveOut(context.Context, string) (*domain.Workspace, error) { return nil, nil }

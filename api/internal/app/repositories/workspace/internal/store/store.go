@@ -107,7 +107,7 @@ func RegisterHub[F any](
 func (s *service) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	return s.store.List(ctx)
+	return s.store.List(ctx, func(context.Context, string) (*domain.Workspace, error) { return nil, nil })
 }
 
 // Get returns the durable read-model row for id (nil when absent), delegating to

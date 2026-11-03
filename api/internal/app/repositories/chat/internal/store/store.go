@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
+	"sync/atomic"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -79,8 +79,7 @@ type service struct {
 	ax      asynx.Asynx[domain.Chat]
 	// rebuiltFor is the row set the last rebuild left with nothing to read. Rows
 	// alone key it: a new aggregate reaches the model by its live save, not a rebuild.
-	mu         sync.Mutex
-	rebuiltFor *string
+	rebuiltFor atomic.Pointer[string]
 }
 
 // Projection is the read model's write side. It is opened before the asynx
@@ -202,7 +201,6 @@ func (s *service) allHealed(
 	rows, err := readonce.Do(ctx, "agentchat:all", func() ([]domain.Chat, error) { return s.healedRows(ctx) })
 	return slices.Clone(rows), err
 }
-
 
 // Subscriber registers p as the instance's durable subscriber: a failed save is
 // retried by asynx, and parks the aggregate, instead of being logged and

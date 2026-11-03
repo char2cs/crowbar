@@ -148,13 +148,7 @@ var (
 // deadline-driven kill as an explicit timeout error instead of the opaque
 // exit -1 the subprocess exits with after CommandContext kills it. A parent
 // context that was itself cancelled keeps the ordinary classification path.
-func (e *engine) execNet(
-	ctx context.Context,
-	op string,
-	timeout time.Duration,
-	repoPath string,
-	args ...string,
-) error {
+func (e *engine) execNet(ctx context.Context, op string, timeout time.Duration, repoPath string, args ...string) error {
 	r, err := e.runNet(ctx, op, timeout, repoPath, args...)
 	if err != nil {
 		return err
@@ -271,112 +265,64 @@ func reclassifyError(err error) error {
 	return err
 }
 
-func (e *engine) Status(
-	ctx context.Context,
-	repoPath string,
-) (gitdomain.GitStatus, error) {
+func (e *engine) Status(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return status.Parse(ctx, repoPath)
 }
 
-func (e *engine) Diff(
-	ctx context.Context,
-	repoPath string,
-	staged bool,
-) ([]gitdomain.FileDiff, error) {
+func (e *engine) Diff(ctx context.Context, repoPath string, staged bool) ([]gitdomain.FileDiff, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return diff.WorkingTree(ctx, repoPath, staged)
 }
 
-func (e *engine) CommitDiff(
-	ctx context.Context,
-	repoPath string,
-	sha string,
-) (gitdomain.MultiFileDiff, error) {
+func (e *engine) CommitDiff(ctx context.Context, repoPath, sha string) (gitdomain.MultiFileDiff, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return diff.Commit(ctx, repoPath, sha)
 }
 
-func (e *engine) Log(
-	ctx context.Context,
-	repoPath string,
-	limit int,
-	skip int,
-) ([]gitdomain.Commit, error) {
+func (e *engine) Log(ctx context.Context, repoPath string, limit, skip int) ([]gitdomain.Commit, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return gitlog.List(ctx, repoPath, limit, skip)
 }
 
-func (e *engine) Blame(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) ([]gitdomain.BlameEntry, error) {
+func (e *engine) Blame(ctx context.Context, repoPath, filePath string) ([]gitdomain.BlameEntry, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return blame.File(ctx, repoPath, filePath)
 }
 
-func (e *engine) Branches(
-	ctx context.Context,
-	repoPath string,
-) ([]gitdomain.Branch, error) {
+func (e *engine) Branches(ctx context.Context, repoPath string) ([]gitdomain.Branch, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return branches.List(ctx, repoPath)
 }
 
-func (e *engine) Stashes(
-	ctx context.Context,
-	repoPath string,
-) ([]gitdomain.Stash, error) {
+func (e *engine) Stashes(ctx context.Context, repoPath string) ([]gitdomain.Stash, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return stash.List(ctx, repoPath)
 }
 
-func (e *engine) StageFile(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) error {
+func (e *engine) StageFile(ctx context.Context, repoPath, filePath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "add", filePath)
 	return gitexec.RequireSuccess("stage file", r)
 }
 
-func (e *engine) StageHunk(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-	hunkID string,
-) error {
+func (e *engine) StageHunk(ctx context.Context, repoPath, filePath, hunkID string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, false)
 }
 
-func (e *engine) UnstageFile(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) error {
+func (e *engine) UnstageFile(ctx context.Context, repoPath, filePath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "restore", "--staged", filePath)
 	return gitexec.RequireSuccess("unstage file", r)
 }
 
-func (e *engine) UnstageHunk(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-	hunkID string,
-) error {
+func (e *engine) UnstageHunk(ctx context.Context, repoPath, filePath, hunkID string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, true)
 }
 
-func (e *engine) Discard(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) error {
+func (e *engine) Discard(ctx context.Context, repoPath, filePath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	// Call status.Parse directly, NOT e.Status: e.Status now takes RLock, and
 	// this method already holds the exclusive Lock — Go's sync.RWMutex is not
@@ -397,30 +343,17 @@ func (e *engine) Discard(
 	return e.discardTracked(ctx, repoPath, filePath)
 }
 
-func (e *engine) discardTracked(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) error {
+func (e *engine) discardTracked(ctx context.Context, repoPath, filePath string) error {
 	r := e.exec(ctx, repoPath, "restore", filePath)
 	return gitexec.RequireSuccess("restore", r)
 }
 
-func (e *engine) discardUntracked(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) error {
+func (e *engine) discardUntracked(ctx context.Context, repoPath, filePath string) error {
 	r := e.exec(ctx, repoPath, "clean", "-f", filePath)
 	return gitexec.RequireSuccess("clean", r)
 }
 
-func (e *engine) Commit(
-	ctx context.Context,
-	repoPath string,
-	subject string,
-	body string,
-) error {
+func (e *engine) Commit(ctx context.Context, repoPath, subject, body string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	args := []string{"commit", "-m", subject}
 	if body != "" {
@@ -430,27 +363,17 @@ func (e *engine) Commit(
 	return classifyGitError("commit", r)
 }
 
-func (e *engine) Push(
-	ctx context.Context,
-	repoPath string,
-) error {
+func (e *engine) Push(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "push", netTransferTimeout, repoPath, "push")
 }
 
-func (e *engine) Fetch(
-	ctx context.Context,
-	repoPath string,
-) error {
+func (e *engine) Fetch(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fetch", netTransferTimeout, repoPath, "fetch")
 }
 
-func (e *engine) FetchRef(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) error {
+func (e *engine) FetchRef(ctx context.Context, repoPath, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fetch ref", netTransferTimeout, repoPath, "fetch", "origin", branch)
 }
@@ -465,10 +388,7 @@ func (e *engine) FetchRef(
 // clone time — missing every branch pushed since, and still offering branches
 // deleted since. It touches no local branch ref, so it is safe to run behind a
 // read endpoint.
-func (e *engine) FetchPrune(
-	ctx context.Context,
-	repoPath string,
-) error {
+func (e *engine) FetchPrune(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fetch prune", netListRefreshTimeout, repoPath, "fetch", "--prune", "origin")
 }
@@ -477,88 +397,44 @@ func (e *engine) FetchPrune(
 // ref to match it in one step (`git fetch origin <branch>:<branch>`). Unlike
 // FetchRef, which only updates the remote-tracking ref, this ensures the local
 // branch is up to date before checking it out into a worktree.
-func (e *engine) FastForwardBranch(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) error {
+func (e *engine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fast-forward branch", netTransferTimeout, repoPath, "fetch", "origin", branch+":"+branch)
 }
 
-
-func (e *engine) CreateBranch(
-	ctx context.Context,
-	repoPath string,
-	name string,
-	source string,
-	switchTo bool,
-) error {
+func (e *engine) CreateBranch(ctx context.Context, repoPath, name, source string, switchTo bool) error {
 	return reclassifyError(branches.Create(ctx, repoPath, name, source, switchTo))
 }
 
-func (e *engine) RenameBranch(
-	ctx context.Context,
-	repoPath string,
-	oldName string,
-	newName string,
-) error {
+func (e *engine) RenameBranch(ctx context.Context, repoPath, oldName, newName string) error {
 	return reclassifyError(branches.Rename(ctx, repoPath, oldName, newName))
 }
 
-func (e *engine) DeleteBranch(
-	ctx context.Context,
-	repoPath string,
-	name string,
-) error {
+func (e *engine) DeleteBranch(ctx context.Context, repoPath, name string) error {
 	return branches.Delete(ctx, repoPath, name)
 }
 
-func (e *engine) ForceDeleteBranch(
-	ctx context.Context,
-	repoPath string,
-	name string,
-) error {
+func (e *engine) ForceDeleteBranch(ctx context.Context, repoPath, name string) error {
 	return branches.ForceDelete(ctx, repoPath, name)
 }
 
-func (e *engine) SwitchBranch(
-	ctx context.Context,
-	repoPath string,
-	name string,
-) error {
+func (e *engine) SwitchBranch(ctx context.Context, repoPath, name string) error {
 	return reclassifyError(branches.Switch(ctx, repoPath, name))
 }
 
-func (e *engine) StashPush(
-	ctx context.Context,
-	repoPath string,
-	message string,
-) error {
+func (e *engine) StashPush(ctx context.Context, repoPath, message string) error {
 	return stash.Push(ctx, repoPath, message)
 }
 
-func (e *engine) StashApply(
-	ctx context.Context,
-	repoPath string,
-	id string,
-) error {
+func (e *engine) StashApply(ctx context.Context, repoPath, id string) error {
 	return stash.Apply(ctx, repoPath, id)
 }
 
-func (e *engine) StashPop(
-	ctx context.Context,
-	repoPath string,
-	id string,
-) error {
+func (e *engine) StashPop(ctx context.Context, repoPath, id string) error {
 	return stash.Pop(ctx, repoPath, id)
 }
 
-func (e *engine) StashDrop(
-	ctx context.Context,
-	repoPath string,
-	id string,
-) error {
+func (e *engine) StashDrop(ctx context.Context, repoPath, id string) error {
 	return stash.Drop(ctx, repoPath, id)
 }
 
@@ -567,12 +443,7 @@ func (e *engine) StashDrop(
 // the guard here: `git reset` does not accept a `--` end-of-options separator
 // before a commit (it would reinterpret the commit as a pathspec — "Cannot do
 // hard reset with paths"), so a separator is infeasible for this subcommand.
-func (e *engine) Reset(
-	ctx context.Context,
-	repoPath string,
-	mode string,
-	commit string,
-) error {
+func (e *engine) Reset(ctx context.Context, repoPath, mode, commit string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	flag := "--" + mode
 	args := []string{"reset", flag}
@@ -583,12 +454,7 @@ func (e *engine) Reset(
 	return classifyGitError("reset", r)
 }
 
-
-
-func (e *engine) ConflictedFiles(
-	ctx context.Context,
-	repoPath string,
-) ([]string, error) {
+func (e *engine) ConflictedFiles(ctx context.Context, repoPath string) ([]string, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return conflicts.ConflictedFiles(ctx, repoPath)
 }
@@ -613,18 +479,12 @@ func (e *engine) ResolveHunk(
 	return conflicts.ResolveHunk(ctx, repoPath, filePath, hunkID, resolution, resolvedContent)
 }
 
-func (e *engine) OperationContinue(
-	ctx context.Context,
-	repoPath string,
-) error {
+func (e *engine) OperationContinue(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.operationContinue(ctx, repoPath)
 }
 
-func (e *engine) OperationAbort(
-	ctx context.Context,
-	repoPath string,
-) error {
+func (e *engine) OperationAbort(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.operationAbort(ctx, repoPath)
 }
@@ -633,10 +493,7 @@ func (e *engine) OperationAbort(
 // only the .git marker files. It takes no repo lock: the marker check is a pure
 // read and the recovery sweep calls it on workspaces whose worktrees may be mid
 // operation, where blocking on a write lock would be wrong.
-func (e *engine) OperationInProgress(
-	ctx context.Context,
-	repoPath string,
-) (string, error) {
+func (e *engine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
 	return detectInProgressOp(ctx, repoPath), nil
 }
 
@@ -650,42 +507,25 @@ func (e *engine) WorkingTreeSummary(
 }
 
 // ComputeStatus implements watch.GitStatusProvider.
-func (e *engine) ComputeStatus(
-	ctx context.Context,
-	repoPath string,
-) (gitdomain.GitStatus, error) {
+func (e *engine) ComputeStatus(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return status.Parse(ctx, repoPath)
 }
 
 // ResolveDiffBase implements watch.GitStatusProvider.
-func (e *engine) ResolveDiffBase(
-	ctx context.Context,
-	repoPath string,
-	base string,
-) gitdomain.DiffBase {
+func (e *engine) ResolveDiffBase(ctx context.Context, repoPath, base string) gitdomain.DiffBase {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return e.diffBase(ctx, repoPath, base)
 }
 
 // DiffStat implements watch.GitStatusProvider: the +N/-N of the working tree
 // against an already-resolved commit.
-func (e *engine) DiffStat(
-	ctx context.Context,
-	repoPath string,
-	commit string,
-) (int, int, error) {
+func (e *engine) DiffStat(ctx context.Context, repoPath, commit string) (int, int, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return e.numstatFromBase(ctx, repoPath, commit)
 }
 
-func (e *engine) applyHunk(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-	hunkID string,
-	reverse bool,
-) error {
+func (e *engine) applyHunk(ctx context.Context, repoPath, filePath, hunkID string, reverse bool) error {
 	patch, err := diff.HunkPatch(ctx, repoPath, filePath, hunkID, reverse)
 	if err != nil {
 		return err

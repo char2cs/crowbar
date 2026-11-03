@@ -74,7 +74,7 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 		return ax.Forget(ctx, tomb.ID)
 	}
 
-	NewSweeper(st.List, purge).Sweep(ctx, noPurged)
+	NewSweeper(func(ctx context.Context) ([]domain.Workspace, error) { return st.List(ctx, leaveOut) }, purge).Sweep(ctx, noPurged)
 
 	assert.Equal(t, []string{"del"}, purged, "only the deleted row must be purged")
 
@@ -180,4 +180,5 @@ func TestSweep_PurgeError_ContinuesToNextDeleted(t *testing.T) {
 		"a failing purge is skipped, the clean row is never purged, and the next deleted row still is")
 }
 
-func noPurged(context.Context, string) {}
+func noPurged(context.Context, string)                            {}
+func leaveOut(context.Context, string) (*domain.Workspace, error) { return nil, nil }

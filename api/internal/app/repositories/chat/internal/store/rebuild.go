@@ -16,45 +16,23 @@ import (
 // healedRows rebuilds a model with nothing to read, which also rewrites rows
 // that will not decode; a rebuild that heals nothing is not repeated until the
 // row set changes, as each one replays the whole log.
-func (s *service) healedRows(
-	ctx context.Context,
-) ([]domain.Chat, error) {
+func (s *service) healedRows(ctx context.Context) ([]domain.Chat, error) {
 	rows, undecodable, err := s.storage.FindAll(ctx)
-	if err != nil {
-		return nil, err
+	if err != nil || len(rows) > 0 {
+		return rows, err
 	}
-	if len(rows) > 0 || s.rebuiltAlready(undecodable) {
+	set := strings.Join(slices.Sorted(slices.Values(undecodable)), "\x00")
+	if last := s.rebuiltFor.Load(); last != nil && *last == set {
 		return rows, nil
 	}
 	if err := s.rebuild(ctx); err != nil {
 		return nil, err
 	}
-	rows, undecodable, err = s.storage.FindAll(ctx)
-	if err != nil {
-		return nil, err
+	if rows, undecodable, err = s.storage.FindAll(ctx); err == nil && len(rows) == 0 {
+		set = strings.Join(slices.Sorted(slices.Values(undecodable)), "\x00")
+		s.rebuiltFor.Store(&set)
 	}
-	if len(rows) == 0 {
-		s.markRebuilt(undecodable)
-	}
-	return rows, nil
-}
-
-func (s *service) rebuiltAlready(undecodable []string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.rebuiltFor != nil && *s.rebuiltFor == rowSet(undecodable)
-}
-
-func (s *service) markRebuilt(undecodable []string) {
-	set := rowSet(undecodable)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.rebuiltFor = &set
-}
-
-func rowSet(ids []string) string {
-	sorted := slices.Sorted(slices.Values(ids))
-	return strings.Join(sorted, "\x00")
+	return rows, err
 }
 
 // rebuild enumerates every aggregate id in the event log and Replays each into
