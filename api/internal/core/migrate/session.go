@@ -189,7 +189,8 @@ func (e runEnd) record(
 
 // endOfDangling is how Begin ends a run a killed process left open: completed
 // when every step it set out to do is done, else interrupted. A step the catalog
-// dropped cannot be vouched for.
+// dropped cannot be vouched for; a recurring step ran again only if this run
+// says it finished, since an earlier run's done says nothing of this attempt.
 func (c *Catalog) endOfDangling(
 	layout int,
 	v ledgerView,
@@ -200,7 +201,8 @@ func (c *Catalog) endOfDangling(
 	}
 	left := stepNumbers(c.pending(layout, v, nil))
 	undone := slices.ContainsFunc(start.Pending, func(n int) bool {
-		return !c.has(n) || slices.Contains(left, n)
+		s, known := c.step(n)
+		return !known || slices.Contains(left, n) || s.Recurs && !v.doneIn(start.Run, n)
 	})
 	if undone {
 		return runEnd{start.Run, outcomeInterrupted, "the process stopped before the run ended"}, true

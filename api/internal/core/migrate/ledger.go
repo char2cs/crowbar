@@ -83,6 +83,16 @@ func (v ledgerView) applied(
 	})
 }
 
+// doneIn reports whether run recorded step n as applied.
+func (v ledgerView) doneIn(
+	run string,
+	n int,
+) bool {
+	return slices.ContainsFunc(v.records, func(r record) bool {
+		return r.Kind == kindStepDone && r.Outcome == outcomeApplied && r.Run == run && r.Step == n
+	})
+}
+
 // checkpoints sums every checkpoint record of the step with this number and
 // name, across runs, by key. Like completion, it never crosses a rename.
 func (v ledgerView) checkpoints(

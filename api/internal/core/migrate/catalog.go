@@ -50,9 +50,19 @@ func (c *Catalog) Known() int {
 func (c *Catalog) has(
 	number int,
 ) bool {
-	return slices.ContainsFunc(c.steps, func(s Step) bool {
-		return s.Number == number
-	})
+	_, ok := c.step(number)
+	return ok
+}
+
+// step is the catalog's step with this number.
+func (c *Catalog) step(
+	number int,
+) (Step, bool) {
+	i := slices.IndexFunc(c.steps, func(s Step) bool { return s.Number == number })
+	if i < 0 {
+		return Step{}, false
+	}
+	return c.steps[i], true
 }
 
 // order lists the steps still to run from a home at layout; applied reports

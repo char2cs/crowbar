@@ -6,10 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestPhase_String(t *testing.T) {
@@ -139,4 +144,42 @@ func TestRun_ANonRecurringStepIgnoresItsPlanOnceApplied(t *testing.T) {
 	}
 
 	assert.Equal(t, []int{1}, order, "stubPlan has work, and still the step ran once")
+}
+
+// A run killed while a recurring step ran again is closed as interrupted, not
+// completed, and the next boot redoes it from the backup that run took, or
+// takes the one it never got to.
+func TestBegin_ARunKilledWhileARecurringStepRanAgainIsInterrupted(t *testing.T) {
+	for _, kill := range []string{kindRunStart, kindBackup, kindCheckpoint} {
+		t.Run("after "+kill, func(t *testing.T) {
+			step := planned(newStep(1, "sweep", PreOpen, 0, 0), Plan{RewritesState: true, Actions: []Action{{Kind: Convert, Subject: "x", Count: 1}}})
+			step.Recurs = true
+			b := newBench(t, step)
+			testutil.WriteFile(t, b.home, "state/view.db", "rows")
+			mark := Impls{1: impl(func(cp *Checkpoints) (Counts, error) { return nil, cp.Mark("chat", Counts{"rows": 1}) })}
+			for range 2 {
+				s := b.begin()
+				require.NoError(t, s.RunPreOpen(context.Background(), mark))
+				require.NoError(t, s.Close())
+			}
+			recs := b.records()
+			second := ofKind(recs, kindRunStart)[1].Run
+			cut := slices.IndexFunc(recs, func(r record) bool { return r.Run == second && r.Kind == kill }) + 1
+			require.Positive(t, cut)
+			require.NoError(t, os.Remove(filepath.Join(b.home.MigrateDir(), ledgerName)))
+			b.seedLedger(recs[:cut]...)
+
+			var order []int
+			s := b.begin()
+			require.NoError(t, s.RunPreOpen(context.Background(), tracing(&order, 1)))
+
+			after := b.records()
+			ends := ofKind(after, kindRunEnd)
+			require.Len(t, ends, 3)
+			assert.Equal(t, second, ends[1].Run)
+			assert.Equal(t, outcomeInterrupted, ends[1].Outcome)
+			assert.Equal(t, []int{1}, order, "the next boot runs the step again")
+			assert.Len(t, ofKind(after, kindBackup), 2, "one backup for the first run, one for the attempt that was killed")
+		})
+	}
 }
