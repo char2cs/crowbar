@@ -98,7 +98,7 @@ func (s *Session) stop(
 	h := s.newHalt(reason, step, cause)
 	s.halted.Store(h)
 	// Info, as in refuse: the halt is reported once, by the session's owner.
-	s.opts.Log.Info("migrate: halted", "reason", string(reason), "message", h.Message)
+	s.opts.Log.Info("migrate: halted", "reason", string(reason), "message", h.Message, "err", cause)
 	if err := s.recordFailure(step, cause, h, stepRan); err != nil {
 		return errors.Join(h, err)
 	}
@@ -131,6 +131,9 @@ func (s *Session) newHalt(
 	step Step,
 	cause error,
 ) *Halt {
+	if words, ok := s.opts.Explain(cause); ok {
+		cause = errors.New(words)
+	}
 	return s.baseHalt(reason, haltMessage(reason, step, cause)).at(step)
 }
 

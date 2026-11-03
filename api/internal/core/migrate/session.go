@@ -26,6 +26,9 @@ type Options struct {
 	HaveGit func() bool
 	// Log receives the session's progress; default slog.Default().
 	Log *slog.Logger
+	// Explain names a step's failure in plain words for the halt, when it can;
+	// the technical text stays in the log and the ledger. Default: it never can.
+	Explain func(error) (string, bool)
 }
 
 func (o Options) withDefaults() Options {
@@ -40,6 +43,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.Log == nil {
 		o.Log = slog.Default()
+	}
+	if o.Explain == nil {
+		o.Explain = func(error) (string, bool) { return "", false }
 	}
 	return o
 }

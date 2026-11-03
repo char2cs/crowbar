@@ -36,6 +36,7 @@ type bench struct {
 	haveGit func() bool
 	// implemented is what a preview is told this build can run; every step by default.
 	implemented func(number int) bool
+	explain     func(error) (string, bool)
 }
 
 func newBench(
@@ -55,7 +56,7 @@ func newBench(
 func (b *bench) begin() *Session {
 	b.tb.Helper()
 	s, err := Begin(context.Background(), b.home, b.cat, Options{
-		Version: "v-test", Clock: b.clock, Log: b.log, FreeBytes: b.free, HaveGit: b.haveGit,
+		Version: "v-test", Clock: b.clock, Log: b.log, FreeBytes: b.free, HaveGit: b.haveGit, Explain: b.explain,
 	})
 	require.NoError(b.tb, err)
 	b.tb.Cleanup(func() {

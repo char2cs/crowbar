@@ -1,9 +1,12 @@
 package migrate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -57,6 +60,25 @@ func TestHalt_FailureHaltsWithTheStepAndKeepsLayout(t *testing.T) {
 	require.NoError(t, b.begin().RunPreOpen(ctx, tracing(&order, 1, 2)))
 	assert.Equal(t, []int{2}, order, "the next boot retries the failed step only")
 	assert.Equal(t, 1, b.layout())
+}
+
+// A cause the session can name in plain words is named so in the halt; its
+// technical text stays in the log and the ledger.
+func TestHalt_AnExplainedCauseIsPlainInTheMessageAndRawInTheLog(t *testing.T) {
+	full := errors.New("sqlite: write: database or disk is full (13)")
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+	b.explain = func(err error) (string, bool) { return "the disk is full", errors.Is(err, full) }
+	var logs bytes.Buffer
+	b.log = slog.New(slog.NewTextHandler(&logs, nil))
+	impls := Impls{1: impl(func(*Checkpoints) (Counts, error) { return nil, fmt.Errorf("step: %w", full) })}
+
+	h := halted(t, b.begin().RunPreOpen(context.Background(), impls))
+
+	assert.Contains(t, h.Message, `migration step 1 "a" failed: the disk is full`)
+	assert.NotContains(t, h.Message, "(13)")
+	assert.Contains(t, ofKind(b.records(), kindStepFail)[0].Error, "(13)")
+	assert.Contains(t, logs.String(), `msg="migrate: halted"`)
+	assert.Contains(t, logs.String(), `err="step: sqlite: write: database or disk is full (13)"`)
 }
 
 func TestHalt_VerifyFailureHalts(t *testing.T) {

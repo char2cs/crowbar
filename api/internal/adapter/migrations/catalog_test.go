@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/testutil"
@@ -136,6 +137,24 @@ func TestBegin_ARefusedHomeIsALiveHaltedSession(t *testing.T) {
 	var halt *migrate.Halt
 	require.ErrorAs(t, sess.RunPreOpen(context.Background(), PreOpenImpls()), &halt)
 	assert.NoDirExists(t, h.MigrateDir())
+}
+
+// A step that fails on a damaged, full or read-only store halts in words the
+// user can act on; the driver's own text stays in the log.
+func TestBegin_AStoreFaultHaltsInPlainWords(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "chats/c1/"+chatledger.PromptsDir+"/r1.json",
+		`{"requestId":"r1","text":"hi","state":"failed","createdAt":"2026-09-01T10:00:00Z"}`)
+	testutil.WriteFile(t, h, "state/store/"+ledgerstore.FileName, "this is not a sqlite database, not even a little")
+	sess, err := Begin(context.Background(), h, migrate.Options{Version: "v-test"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sess.Close()) })
+
+	var halt *migrate.Halt
+	require.ErrorAs(t, sess.RunPreOpen(context.Background(), PreOpenImpls()), &halt)
+
+	assert.Contains(t, halt.Message, `migration step 6 "chat-ledger" failed: a database file in Crowbar's data folder is damaged`)
+	assert.NotContains(t, halt.Message, "sqlite")
 }
 
 func planOf(

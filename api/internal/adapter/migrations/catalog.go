@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
@@ -44,7 +45,8 @@ func Catalog() (*migrate.Catalog, error) {
 }
 
 // Begin takes h for one boot against Catalog; see migrate.Begin. A home this
-// binary must not migrate comes back as a live session whose Halt says why.
+// binary must not migrate comes back as a live session whose Halt says why,
+// and a step failing on a store fault halts in the words storesqlite has for it.
 func Begin(
 	ctx context.Context,
 	h home.Home,
@@ -54,6 +56,7 @@ func Begin(
 	if err != nil {
 		return nil, err
 	}
+	opts.Explain = storesqlite.Explain
 	return migrate.Begin(ctx, h, cat, opts)
 }
 
