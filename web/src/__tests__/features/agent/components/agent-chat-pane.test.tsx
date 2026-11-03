@@ -875,7 +875,6 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByTestId('agent-session-note')).toHaveTextContent(/send a message/i)
-
       typeAndSend('wake up')
       await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
       expect(resumeChatFn).not.toHaveBeenCalled()
@@ -884,6 +883,7 @@ describe('AgentChatPane', () => {
     it.each([
       ['stopped', 'Stopped. Send a message to continue the conversation.'],
       ['retracted', 'You took the prompt back. Send a message to continue.'],
+      ['resume_failed', /could not reopen its session\. Start a new conversation to/],
     ])('shows the exit reason from the last runner_exited row (%s)', async (reason, note) => {
       const l = ledger('c1', 4)
       const exited = l.row('runner_exited', { runnerId: 'r1', reason, exitCode: 0 })
