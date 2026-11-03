@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -351,6 +352,7 @@ type fakeLedger struct {
 	onImport  func(chatID string) error
 	imported  []string
 	importing map[string][]ledger.Row
+	landed    map[string][]ledger.Row // rows State holds after those imported
 }
 
 func (f *fakeLedger) SessionOwner(context.Context, string, string) (string, bool, error) {
@@ -375,7 +377,7 @@ func (f *fakeLedger) Import(_ context.Context, chatID string, rows []ledger.Row)
 }
 
 func (f *fakeLedger) State(_ context.Context, chatID string) (ledger.State, error) {
-	return ledger.Fold(chatID, f.importing[chatID]), nil
+	return ledger.Fold(chatID, append(slices.Clone(f.importing[chatID]), f.landed[chatID]...)), nil
 }
 
 func (f *fakeLedger) Read(context.Context, string, int64, int) ([]ledger.Row, error) { return nil, nil }
@@ -489,3 +491,24 @@ type notes struct {
 func (n notes) Noted(key string) (migrate.Note, bool) { v, ok := n.notes[key]; return v, ok }
 
 func (n notes) Note(key string, v migrate.Note) error { n.notes[key] = v; return nil }
+
+// An import that commits and then does not hold what was converted is kept as
+// it landed and named; no later boot imports over it, and the others convert.
+func TestConvertAll_AnImportThatDidNotLandAsConvertedIsSkippedForGood(t *testing.T) {
+	stray, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
+	require.NoError(t, err)
+	stray.Seq = int64(len(convert(t, chatB(), nobody).Rows) + 1)
+	store := &fakeLedger{landed: map[string][]ledger.Row{"chat-b": {stray}}}
+	cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
+	log, warned := capture(func(r slog.Record) bool { return strings.HasPrefix(r.Message, "chatledger: skipped a chat") })
+
+	n, err := convertAll(context.Background(), log, store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+
+	require.NoError(t, err)
+	assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
+	assert.Contains(t, cp.marks, "chat-a")
+	assert.NotContains(t, cp.marks, "chat-b")
+	assert.Equal(t, int64(converterVersion), cp.notes[skippedKey("chat-b")].Counts["converter"], "not tried again")
+	require.Len(t, *warned, 1)
+	assert.Equal(t, "chatledger: skipped a chat whose import did not land as converted; its rows are kept, it is not tried again", (*warned)[0].Message)
+}

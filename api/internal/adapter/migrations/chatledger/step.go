@@ -31,7 +31,8 @@ func Impl() migrate.Impl {
 // noteBytes bounds what one chat's skip puts in the log and the run ledger.
 const noteBytes = 2048
 
-// errNotAsConverted is a converted chat whose ledger is not the rows imported.
+// errNotAsConverted is a committed import whose chat does not hold what was
+// converted: a retry cannot change rows already there, so it is given up.
 var errNotAsConverted = errors.New("chatledger: the ledger is not what the conversion wrote")
 
 // errSessionIndex is a session index that cannot be read: read as "nobody owns
@@ -150,9 +151,10 @@ func convertAll(
 }
 
 // retried is err when it is an import failure the next boot tries again: not
-// a chat whose ledger holds rows, nor one that cannot be converted.
+// a chat whose ledger holds rows, one that cannot be converted, nor one that
+// landed other than converted.
 func retried(err error) error {
-	if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) {
+	if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) || errors.Is(err, errNotAsConverted) {
 		return nil
 	}
 	return err
@@ -171,6 +173,8 @@ func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, 
 	switch {
 	case errors.Is(why, ledgerstore.ErrChatNotEmpty):
 		msg = "chatledger: skipped a chat whose ledger already holds rows"
+	case errors.Is(why, errNotAsConverted):
+		msg = "chatledger: skipped a chat whose import did not land as converted; its rows are kept, it is not tried again"
 	case retried(why) != nil:
 		counts["attempts"] = attempts(cp, chatID) + 1
 		msg = "chatledger: skipped a chat whose import failed; the next boot tries it again"
@@ -274,7 +278,7 @@ func landedAsWritten(ctx context.Context, store ledgerStore, chat LegacyChat, ro
 		return fmt.Errorf("%w: chat %s: it holds %d rows, the import wrote %d", errNotAsConverted, chat.ChatID, st.Head(), rows)
 	}
 	if err := AtRest(st, adoptedBy(chat)); err != nil {
-		return fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
+		return fmt.Errorf("%w: chat %s: %w", errNotAsConverted, chat.ChatID, err)
 	}
 	return nil
 }
