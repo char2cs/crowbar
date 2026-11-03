@@ -23,7 +23,7 @@
     "src/components/layout/workspace-branch-icon.tsx": ["exports"],
     "src/components/layout/workspace-switcher-model.ts": ["files"],
     "src/components/layout/workspace-switcher.tsx": ["files"],
-    "src/components/sidebar/hooks/use-sidebar-drag.ts": ["exports", "types"],
+    "src/components/sidebar/hooks/use-sidebar-drag.ts": ["exports"],
     "src/components/sidebar/lib/row-actions.ts": ["exports"],
     "src/components/sidebar/lib/row-order.ts": ["exports"],
     "src/components/sidebar/lib/sidebar-drop-policy.ts": ["exports"],

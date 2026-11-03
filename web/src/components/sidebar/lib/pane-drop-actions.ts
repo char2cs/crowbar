@@ -1,6 +1,6 @@
 import { toast } from '@/features/window/stores/toast-store'
 import { type DropMode } from '@/components/tree-dnd/drop-core'
-import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
+import type { SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'

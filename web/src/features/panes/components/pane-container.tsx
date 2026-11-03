@@ -14,7 +14,7 @@ import {
   useVisiblePaneCount,
 } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
+import { PANE_DROP_ATTR } from '@/components/sidebar/lib/sidebar-drag-hover'
 import { SplitDropOverlay } from './split-drop-overlay'
 import { PaneSash } from './pane-sash'
 import { PaneAccentRing } from './pane-accent-ring'

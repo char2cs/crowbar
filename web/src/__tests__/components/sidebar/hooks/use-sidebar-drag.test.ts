@@ -15,10 +15,8 @@ import { createRef } from 'react'
 import {
   useSidebarDrag,
   SIDEBAR_DRAG_THRESHOLD_PX,
-  PANE_DROP_ATTR,
-  PANE_HIT_ATTR,
-  type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
+import { PANE_DROP_ATTR, type SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import { useDragStore } from '@/features/panes/stores/drag-store'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
@@ -30,6 +28,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 const ROW_H = 36
+/** What a hovered pane's CSS ring reads. */
+const PANE_HIT_ATTR = 'data-pane-hit'
 
 function stubRect(el: Element, rect: Partial<DOMRect>) {
   const full = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, ...rect }
@@ -78,6 +78,11 @@ function makeRow(
   })
   document.body.appendChild(el)
   return el
+}
+
+/** A 200px-square pane at y 100..300, starting at `left`. */
+function paneBox(left: number): Partial<DOMRect> {
+  return { top: 100, bottom: 300, left, right: left + 200, width: 200, height: 200 }
 }
 
 function makePane(paneId: string, rect: Partial<DOMRect>) {
@@ -375,7 +380,7 @@ describe('useSidebarDrag', () => {
 
   it('dropping on the middle third of a pane calls onPaneDrop with zone center', () => {
     const rowA = makeRow(baseRow, 0)
-    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    makePane('pane-1', paneBox(300))
     const { result, onPaneDrop } = renderDrag()
 
     press(result, baseRow, rowA)
@@ -387,7 +392,7 @@ describe('useSidebarDrag', () => {
 
   it('dropping on the edge of a pane calls onPaneDrop with a side zone', () => {
     const rowA = makeRow(baseRow, 0)
-    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    makePane('pane-1', paneBox(300))
     const { result, onPaneDrop } = renderDrag()
 
     press(result, baseRow, rowA)
@@ -405,22 +410,8 @@ describe('useSidebarDrag', () => {
   describe('the pane-hit indicator (spec §8.2)', () => {
     it('marks the hovered pane with PANE_HIT_ATTR, and only that pane', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
-      const pane2 = makePane('pane-2', {
-        top: 100,
-        bottom: 300,
-        left: 600,
-        right: 800,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
+      const pane2 = makePane('pane-2', paneBox(600))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -432,22 +423,8 @@ describe('useSidebarDrag', () => {
 
     it('moves the mark when the drag crosses from one pane to another', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
-      const pane2 = makePane('pane-2', {
-        top: 100,
-        bottom: 300,
-        left: 600,
-        right: 800,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
+      const pane2 = makePane('pane-2', paneBox(600))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -461,14 +438,7 @@ describe('useSidebarDrag', () => {
 
     it('does not repaint on a zone change within the SAME pane (center → edge)', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -481,14 +451,7 @@ describe('useSidebarDrag', () => {
 
     it('clears the mark once the pointer leaves every pane', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -501,14 +464,7 @@ describe('useSidebarDrag', () => {
 
     it('clears the mark on release', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -520,14 +476,7 @@ describe('useSidebarDrag', () => {
 
     it('clears the mark on pointercancel', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -571,14 +520,7 @@ describe('useSidebarDrag', () => {
         height: 0,
       })
       // The VISIBLE, actually-hit pane — same paneId, mounted second.
-      const visiblePane = makePane('root-pane', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const visiblePane = makePane('root-pane', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -752,7 +694,7 @@ describe('useSidebarDrag', () => {
   it('a working chat dropped onto a pane still opens a split', () => {
     const workingRow: SidebarRow = { ...baseRow, working: true }
     const rowA = makeRow(workingRow, 0)
-    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    makePane('pane-1', paneBox(300))
     const { result, onPaneDrop } = renderDrag({ subjectsFor: () => [workingRow] })
 
     press(result, workingRow, rowA)
@@ -1014,5 +956,61 @@ describe('useSidebarDrag', () => {
 
     expect(onDrop).not.toHaveBeenCalled()
     expect(onPaneDrop).not.toHaveBeenCalled()
+  })
+
+  it('carries every row the selection names, and hands them all to onDrop', () => {
+    const rowA = makeRow(baseRow, 0)
+    makeRow({ ...baseRow, id: 'b', label: 'b' }, 1)
+    const second: SidebarRow = { ...baseRow, id: 'ab', label: 'ab', order: 2 }
+    makeRow(second, 2)
+    const { result, onDrop } = renderDrag({
+      subjectsFor: (id) => (id === 'a' ? [baseRow, second] : [rowRegistry.get(id)!]),
+    })
+
+    press(result, baseRow, rowA)
+    move(10, ROW_H + 2)
+    expect([...result.current.draggingIds]).toEqual(['a', 'ab'])
+    expect(result.current.ghostRows?.count).toBe(2)
+    release(10, ROW_H + 2)
+
+    expect(onDrop.mock.calls[0][0].map((r) => r.id)).toEqual(['a', 'ab'])
+  })
+
+  it('a pointer held at the list edge scrolls it and drops on the row that slid under it', () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    const scroller = document.createElement('div')
+    let scrollTop = 0
+    Object.defineProperty(scroller, 'scrollTop', {
+      get: () => scrollTop,
+      set: (v: number) => void (scrollTop = Math.max(0, Math.min(v, ROW_H))),
+    })
+    stubRect(scroller, { top: 0, bottom: 3 * ROW_H, height: 3 * ROW_H, right: 200, width: 200 })
+    document.body.appendChild(scroller)
+    const ids = ['a', 'b', 'ab', 'grandchild']
+    const els = ids.map((id, i) => makeRow({ ...baseRow, id, label: id, order: i }, i))
+    els.forEach((el, i) => {
+      el.getBoundingClientRect = () => {
+        const top = i * ROW_H - scrollTop
+        return {
+          top,
+          bottom: top + ROW_H,
+          left: 0,
+          right: 200,
+          width: 200,
+          height: ROW_H,
+        } as DOMRect
+      }
+    })
+    const { result, onDrop } = renderDrag({ scroller })
+
+    press(result, baseRow, els[0])
+    move(10, 3 * ROW_H - 8) // past the threshold: the drag begins
+    move(10, 3 * ROW_H - 8) // inside the bottom band: the list runs
+    for (let i = 0; i < 4; i++) act(() => frames.splice(0).forEach((cb) => cb(0)))
+    release(10, 3 * ROW_H - 8)
+
+    expect(scrollTop).toBe(ROW_H)
+    expect(onDrop.mock.calls[0][1].id).toBe('grandchild')
   })
 })

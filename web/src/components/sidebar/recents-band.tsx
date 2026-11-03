@@ -9,11 +9,8 @@ import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
 import { ROW_ACTIVE } from '@/components/layout/workspace-row-base'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
-import {
-  useSidebarDrag,
-  type SidebarDrag,
-  type SidebarPaneZone,
-} from '@/components/sidebar/hooks/use-sidebar-drag'
+import { useSidebarDrag, type SidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
+import type { SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import type { ChatIconFields } from '@/components/sidebar/lib/chat-icon-index'

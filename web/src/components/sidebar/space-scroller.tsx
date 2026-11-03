@@ -17,7 +17,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
-import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
+import type { SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import type { Project } from '@/lib/types'
 
 interface SpaceScrollerProps {
