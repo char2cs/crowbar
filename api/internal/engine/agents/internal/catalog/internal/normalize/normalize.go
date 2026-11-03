@@ -23,7 +23,7 @@ var (
 	windowsPathPattern = regexp.MustCompile(`(?i)(^|[\s(])([a-z]:\\(?:[^\\\s),;]+\\)+[^\s),;]+)`)
 	bearerPattern      = regexp.MustCompile(`(?i)\b(bearer\s+)[a-z0-9._~+/=-]{8,}`)
 	secretPattern      = regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+`)
-	openAIKeyPattern   = regexp.MustCompile(`\bsk-[a-zA-Z0-9_-]{8,}`)
+	apiKeyPattern      = regexp.MustCompile(`\bsk-[a-zA-Z0-9_-]{8,}`)
 )
 
 func Redact(value string) string {
@@ -32,7 +32,7 @@ func Redact(value string) string {
 	value = windowsPathPattern.ReplaceAllString(value, `${1}[path]`)
 	value = bearerPattern.ReplaceAllString(value, `${1}[redacted]`)
 	value = secretPattern.ReplaceAllString(value, `${1}=[redacted]`)
-	return openAIKeyPattern.ReplaceAllString(value, `[redacted]`)
+	return apiKeyPattern.ReplaceAllString(value, `[redacted]`)
 }
 
 func Source(value string) string {
