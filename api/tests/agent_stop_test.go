@@ -3,10 +3,16 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httptrace"
+	"sync"
 	"syscall"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,4 +111,67 @@ func TestRegression_AReplacementNeverLandsBesideTheCLIItReplaces(t *testing.T) {
 	require.NotEqual(t, l1.RunnerID, l2.RunnerID, "precondition: prompt two restarted the CLI")
 	assert.ErrorIs(t, syscall.Kill(l1.PID, 0), syscall.ESRCH,
 		"launch 2 exists, so launch 1's process must already be gone")
+}
+
+// A prompt sent while a stop is tearing the CLI down is the chat's next turn:
+// the stop ends the turn it was pressed on, never a request that came after it.
+func TestRegression_APromptSentDuringAStopRunsAsTheNextTurn(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.startTurn(t, c.launch, "A")
+	quitting, letGo := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(letGo) })
+	gate := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(quitting)
+		<-letGo
+	}))
+	defer gate.Close()
+	defer release()
+	// The CLI's way down waits on gate, so the stop stays under way until release.
+	c.launch.OnQuit(t, c.fake, gate.URL, "claude", "turn_stop", []byte(`{}`))
+	chat := c.h.url + repoBase(c.imported) + "/chats/" + c.chatID
+
+	stopped := postAsync(t, chat+"/stop", nil, nil)
+	<-quitting
+	sent := make(chan struct{})
+	prompted := postAsync(t, chat+"/prompts", map[string]string{"text": "next", "clientRequestId": uuid.NewString()}, sent)
+	<-sent
+	release()
+
+	assert.Equal(t, http.StatusNoContent, <-stopped)
+	require.Equal(t, http.StatusOK, <-prompted, "the prompt waits the stop out, then runs")
+	c.h.QuiesceReactors()
+	next := getAgentChat(t, c.h, repoBase(c.imported), c.chatID).LiveRunnerID
+	require.NotEqual(t, c.launch.RunnerID, next, "the prompt launched the chat's next CLI")
+	c.fake.AwaitLaunch(t, next)
+}
+
+// postAsync posts body to url and answers its status (0 when it failed);
+// wrote, when set, is closed once the request is on the wire.
+func postAsync(t *testing.T, url string, body any, wrote chan struct{}) <-chan int {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	ctx := t.Context()
+	if wrote != nil {
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			WroteRequest: func(httptrace.WroteRequestInfo) { close(wrote) },
+		})
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	status := make(chan int, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			status <- 0
+			return
+		}
+		if resp.Body.Close() != nil {
+			status <- 0
+			return
+		}
+		status <- resp.StatusCode
+	}()
+	return status
 }

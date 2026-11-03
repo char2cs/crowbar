@@ -30,8 +30,9 @@ type parks struct {
 
 type chatParks struct {
 	cancels map[*context.CancelCauseFunc]struct{}
-	// stopping counts stops under way: a park opened meanwhile starts cancelled.
+	// stopping counts stops under way; stopped closes when the last one ends.
 	stopping int
+	stopped  chan struct{}
 }
 
 func newParks() *parks { return &parks{byChat: map[string]*chatParks{}} }
@@ -52,15 +53,24 @@ func (p *parks) dropIfIdle(chatID string, e *chatParks) {
 }
 
 // open returns a context derived from ctx that a stop on chatID cancels, and
-// its close.
-func (p *parks) open(ctx context.Context, chatID string) (context.Context, func()) {
-	park, cancel := context.WithCancelCause(ctx)
+// its close. A request that comes while a stop is under way is after it, so
+// it waits that stop out rather than being turned away by it.
+func (p *parks) open(ctx context.Context, chatID string) (context.Context, func(), error) {
 	p.mu.Lock()
 	e := p.entry(chatID)
-	e.cancels[&cancel] = struct{}{}
-	if e.stopping > 0 {
-		cancel(errPreempted)
+	for e.stopping > 0 {
+		stopped := e.stopped
+		p.mu.Unlock()
+		select {
+		case <-stopped:
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("agent: wait for a stop: %w", ctx.Err())
+		}
+		p.mu.Lock()
+		e = p.entry(chatID)
 	}
+	park, cancel := context.WithCancelCause(ctx)
+	e.cancels[&cancel] = struct{}{}
 	p.mu.Unlock()
 	return park, func() {
 		cancel(nil)
@@ -68,15 +78,18 @@ func (p *parks) open(ctx context.Context, chatID string) (context.Context, func(
 		defer p.mu.Unlock()
 		delete(e.cancels, &cancel)
 		p.dropIfIdle(chatID, e)
-	}
+	}, nil
 }
 
-// preempt cancels every wait parked on chatID, and every one opened before
-// the returned release.
+// preempt cancels every wait parked on chatID; one opened before the returned
+// release waits for it.
 func (p *parks) preempt(chatID string) (release func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e := p.entry(chatID)
+	if e.stopping == 0 {
+		e.stopped = make(chan struct{})
+	}
 	e.stopping++
 	for cancel := range e.cancels {
 		(*cancel)(errPreempted)
@@ -84,7 +97,9 @@ func (p *parks) preempt(chatID string) (release func()) {
 	return sync.OnceFunc(func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		e.stopping--
+		if e.stopping--; e.stopping == 0 {
+			close(e.stopped)
+		}
 		p.dropIfIdle(chatID, e)
 	})
 }
@@ -108,10 +123,13 @@ type hold struct {
 	close  func()
 }
 
-// acquire opens a park on chatID and takes the chat's lock on it: a stop under
-// way, or one that begins while this path queues, turns it away (ErrStopped).
+// acquire opens a park on chatID and takes the chat's lock on it: a stop that
+// begins while this path queues turns it away (ErrStopped).
 func (rs *Runners) acquire(ctx context.Context, chatID string) (*hold, error) {
-	park, closePark := rs.parks.open(ctx, chatID)
+	park, closePark, err := rs.parks.open(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
 	unlock, err := rs.chatLock.Lock(park, chatID)
 	if err != nil {
 		closePark()

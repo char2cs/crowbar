@@ -128,20 +128,26 @@ func TestAcquire_APathQueuedWhenAStopBeginsIsStopped(t *testing.T) {
 	})
 }
 
-// A wait that begins while a stop is under way starts cancelled: the stop is
-// never queued behind it.
-func TestParks_AParkOpenedDuringAStopStartsCancelled(t *testing.T) {
-	p := newParks()
-	stopping := p.preempt("chat-1")
+// A path that begins while a stop is under way runs after it: the stop
+// abandons the waits parked before it, never a request that came later.
+func TestAcquire_APathThatBeginsDuringAStopRunsAfterIt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rs := newLockedRunners()
+		stopping := rs.parks.preempt("chat-1")
+		acquired := make(chan error, 1)
+		go func() {
+			h, err := rs.acquire(context.Background(), "chat-1")
+			if err == nil {
+				h.release()
+			}
+			acquired <- err
+		}()
+		synctest.Wait()
+		assert.Empty(t, acquired, "the path waits for the stop under way")
 
-	park, closePark := p.open(t.Context(), "chat-1")
-	defer closePark()
-
-	require.ErrorIs(t, parkErr(park, park.Err()), ErrStopped)
-	stopping()
-	other, closeOther := p.open(t.Context(), "chat-1")
-	defer closeOther()
-	assert.NoError(t, other.Err(), "a park opened after the stop is not cancelled")
+		stopping()
+		require.NoError(t, <-acquired)
+	})
 }
 
 // noticeTurns closes failed once it is asked to fail a turn on a notice.
