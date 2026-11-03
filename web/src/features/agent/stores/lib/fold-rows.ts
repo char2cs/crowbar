@@ -360,7 +360,11 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
   const folded = textOf(item)
   item.text = folded.text
   item.settled = item.settled || folded.settled
-  if (known && known.seq === 0) item.seq = row.seq
+  // A delta made the item before any row; its first row dates it, as a replay would.
+  if (known && known.seq === 0) {
+    item.seq = row.seq
+    item.at = row.at
+  }
   fold.put(item)
   markOutput(fold, row)
   const target = joinedReply(fold, row)

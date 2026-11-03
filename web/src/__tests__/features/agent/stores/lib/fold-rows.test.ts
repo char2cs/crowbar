@@ -95,6 +95,15 @@ describe('applyRow', () => {
     expect(feed.items[reply!]?.turnId).toBe(turn)
   })
 
+  it('folds a reply that streamed before its rows into the item a replay folds', () => {
+    const l = ledger()
+    const head = [l.prompt('r1', 'a'), l.start('turn-1', 'r1')]
+    const rows = [l.text('turn-1', 'm1', 0, 'one\ntwo', true), l.end('turn-1')]
+    const replayed = applyRows(emptyFeed(), [...head, ...rows])
+    const streamed = applyRows(applyLive(applyRows(emptyFeed(), head), delta('m1', 1, 'one')), rows)
+    expect(streamed.items['m:turn-1:m1']).toEqual(replayed.items['m:turn-1:m1'])
+  })
+
   it('streams a stopped turn above its marker at every moment (recorded codex Stop)', () => {
     const rows = recordedRows('feed-codex-pre-unix.txt', 52, 58)
     const prompt = rows[0] as LedgerRow<'user_message'>
