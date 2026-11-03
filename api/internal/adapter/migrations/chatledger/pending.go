@@ -85,9 +85,12 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 		owed[r.owed(chatID, n)]++
 	}
 	var plan migrate.Plan
+	ranBefore := len(env.Earlier)+len(env.Notes) > 0
 	if n := owed[dutyConvert]; n > 0 {
 		plan.Actions = append(plan.Actions, migrate.Action{Kind: migrate.Convert, Subject: "legacy chats → chat ledger", Count: n})
-		plan.RewritesState = true
+		// A later run only imports chats the ledger has no row of: nothing a
+		// backup would restore, so the upgrade's backup stays the only one.
+		plan.RewritesState = !ranBefore
 	}
 	if n := owed[dutyRecordChange]; n > 0 {
 		plan.Actions = append(plan.Actions, migrate.Action{
@@ -96,7 +99,7 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 	}
 	// Once a run has recorded anything, a stamp it did not see is recorded too,
 	// so the next boot is back to stats alone.
-	if plan.Empty() && len(env.Earlier)+len(env.Notes) > 0 {
+	if plan.Empty() && ranBefore {
 		plan.Actions = []migrate.Action{{Kind: migrate.Record, Subject: "legacy files changed since the last run", Count: 1}}
 	}
 	return plan, nil

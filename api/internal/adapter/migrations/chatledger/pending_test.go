@@ -17,8 +17,8 @@ import (
 )
 
 // An older build booted on an upgraded home keeps writing the legacy tables.
-// The next boot converts each chat the ledger lacks, and a boot that finds
-// nothing owed writes nothing at all.
+// The next boot converts each chat the ledger lacks, without another backup,
+// and a boot that finds nothing owed writes nothing at all.
 func TestBoot_AChatAnOlderBuildAddedAfterTheUpgradeIsConverted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -30,6 +30,9 @@ func TestBoot_AChatAnOlderBuildAddedAfterTheUpgradeIsConverted(t *testing.T) {
 	assert.Equal(t, convert(t, chatA(), nobody).Rows, held(t, h, "chat-a"))
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 	assert.Len(t, migratetest.Applied(t, h)[stepNumber], 2)
+	backups, err := os.ReadDir(filepath.Join(h.MigrateDir(), "backups"))
+	require.NoError(t, err)
+	assert.Len(t, backups, 1, "a later run only adds chats the ledger lacks: the upgrade's backup is the only one")
 	before := testutil.TreeSnapshot(t, h)
 	boot(t, h)
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
