@@ -176,6 +176,41 @@ func TestAcquire_APathThatBeginsDuringAStopRunsAfterIt(t *testing.T) {
 	})
 }
 
+// A path given up while it waits out a stop answers its own error at once and
+// leaves nothing behind.
+func TestAcquire_APathAbortedWhileWaitingOutAStopEnds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rs := newLockedRunners()
+		stopping := rs.parks.preempt("chat-1")
+		ctx, cancel := context.WithCancel(context.Background())
+		acquired := acquireAsync(ctx, rs)
+		synctest.Wait()
+
+		cancel()
+		err := answer(acquired)
+		stopping()
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Empty(t, rs.parks.byChat, "no park outlives the path")
+	})
+}
+
+// Overlapping stops: a path that came during both runs only once the last ends.
+func TestAcquire_APathWaitsForTheLastOfOverlappingStops(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rs := newLockedRunners()
+		first := rs.parks.preempt("chat-1")
+		second := rs.parks.preempt("chat-1")
+		acquired := acquireAsync(context.Background(), rs)
+		synctest.Wait()
+
+		first()
+		require.ErrorIs(t, answer(acquired), errStillWaiting, "one stop is still under way")
+		second()
+		require.NoError(t, answer(acquired))
+		assert.Empty(t, rs.parks.byChat)
+	})
+}
+
 // A stop begun after a path arrived abandons it however the two interleave:
 // while the path still waits out an earlier stop, or once it queues for the lock.
 func TestAcquire_AStopBegunAfterAPathArrivedAbandonsIt(t *testing.T) {
