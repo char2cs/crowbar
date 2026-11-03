@@ -41,9 +41,10 @@ type storage interface {
 		ctx context.Context,
 		id string,
 	) (*domain.Chat, error)
+	// FindAll answers every row that decodes, and the ids of those that do not.
 	FindAll(
 		ctx context.Context,
-	) ([]domain.Chat, error)
+	) ([]domain.Chat, []string, error)
 }
 
 type storageStore struct {
@@ -100,21 +101,23 @@ func (s *storageStore) FindByKey(
 
 func (s *storageStore) FindAll(
 	ctx context.Context,
-) ([]domain.Chat, error) {
+) ([]domain.Chat, []string, error) {
 	rows, err := s.inner.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("agentchat storage: find all: %w", err)
+		return nil, nil, fmt.Errorf("agentchat storage: find all: %w", err)
 	}
 	result := make([]domain.Chat, 0, len(rows))
+	var undecodable []string
 	for _, row := range rows {
 		chat, err := unmarshalAgentChat(row.Data)
 		if err != nil {
 			s.unreadable.Skip(ctx, "chat", row.ID, err)
+			undecodable = append(undecodable, row.ID)
 			continue
 		}
 		result = append(result, *chat)
 	}
-	return result, nil
+	return result, undecodable, nil
 }
 
 func unmarshalAgentChat(

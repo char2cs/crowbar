@@ -59,7 +59,7 @@ func TestStorage_SaveFindDelete(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "w1", got.WorkspaceID)
 
-	all, err := st.FindAll(ctx)
+	all, _, err := st.FindAll(ctx)
 	require.NoError(t, err)
 	assert.Len(t, all, 1)
 
@@ -95,7 +95,7 @@ func TestStorage_FindByKey_BadData(t *testing.T) {
 func TestStorage_FindAll_InnerError(t *testing.T) {
 	ctx := context.Background()
 	st := &storageStore{inner: &errInner{err: errors.New("db down")}}
-	_, err := st.FindAll(ctx)
+	_, _, err := st.FindAll(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat storage: find all")
 }
@@ -110,11 +110,12 @@ func TestStorage_FindAll_SkipsARowThatWillNotRead(t *testing.T) {
 	require.NoError(t, st.Save(ctx, domain.Chat{ID: "b", WorkspaceID: "w2"}))
 	require.NoError(t, db.Exec("UPDATE agent_chats_read SET data = ? WHERE id = ?", []byte("{not json"), "a").Error)
 
-	all, err := st.FindAll(ctx)
+	all, undecodable, err := st.FindAll(ctx)
 
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Equal(t, "b", all[0].ID)
+	assert.Equal(t, []string{"a"}, undecodable)
 }
 
 func TestStorage_Save_InnerError(t *testing.T) {
