@@ -66,14 +66,14 @@ func TestMigrateCmd_PlanOfAnUnopenedHomeCreatesNothing(t *testing.T) {
 func TestMigrateCmd_PlanNamesTheChatLedgerStep(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	t.Setenv(home.EnvVar, h.Root())
-	testutil.WriteFile(t, h, "state/store/agent_activity.db", "not a database: the plan must not open it")
+	testutil.WriteFile(t, h, "chats/c1/prompt-requests/r1.json", "{}")
 	before := testutil.TreeSnapshot(t, h)
 
 	out, err := runMigrate(t, "--plan")
 
 	require.NoError(t, err)
 	assert.Contains(t, out, "#6 chat-ledger   pre-open   layout 0")
-	assert.Contains(t, out, "legacy chat history → chat ledger")
+	assert.Contains(t, out, "legacy chats → chat ledger")
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "nothing written")
 	assert.NoDirExists(t, h.MigrateDir())
 }
