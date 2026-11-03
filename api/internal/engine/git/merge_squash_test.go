@@ -125,3 +125,20 @@ func TestMergeSquash_RefusesAParentWithStagedWork(t *testing.T) {
 		})
 	}
 }
+
+// A squash with no net change commits nothing and leaves no squash pending.
+func TestMergeSquash_NoNetChangeLeavesNothingInProgress(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "checkout", "-b", "c")
+	makeCommit(t, repo, "x.txt", "x\n", "x")
+	gitRun(t, repo, "revert", "--no-edit", "HEAD")
+	gitRun(t, repo, "checkout", "main")
+	e := git.New()
+
+	require.NoError(t, e.MergeSquash(context.Background(), repo, "c", "squash c"))
+
+	op, err := e.OperationInProgress(context.Background(), repo)
+	require.NoError(t, err)
+	assert.Empty(t, op)
+}

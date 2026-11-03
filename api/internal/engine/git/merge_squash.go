@@ -29,13 +29,17 @@ func (e *engine) MergeSquash(ctx context.Context, repoPath, branch, subject stri
 		return err
 	}
 	err := classifyGitError("merge squash commit", e.exec(ctx, repoPath, "commit", "-m", subject))
-	if err == nil || errors.Is(err, ErrNothingToCommit) {
+	if err == nil {
 		return nil
 	}
-	// The index matched HEAD before the squash, so this drops only what it staged.
+	// The index matched HEAD before the squash, so this drops only what it staged
+	// and the SQUASH_MSG a no-op squash would otherwise leave pending.
 	r := e.exec(context.WithoutCancel(ctx), repoPath, "reset", "--merge")
 	if resetErr := gitexec.RequireSuccess("reset --merge", r); resetErr != nil {
 		return fmt.Errorf("%w; restoring the worktree: %w", err, resetErr)
+	}
+	if errors.Is(err, ErrNothingToCommit) {
+		return nil
 	}
 	return err
 }
