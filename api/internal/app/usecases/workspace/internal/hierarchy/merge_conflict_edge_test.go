@@ -2,6 +2,9 @@ package hierarchy_test
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -83,4 +87,21 @@ func TestRegression_MergeStrategyMakesAMergeCommit(t *testing.T) {
 
 	parents := trimNewline(gitRun(t, h.repoPath, "log", "-1", "--format=%P"))
 	assert.Equal(t, parentTip+" "+childTip, parents, "the parent's new tip merges both lines")
+}
+
+// A squash refused over the parent's staged work reaches the caller as a 409
+// that tells the user what to do.
+func TestMergeIntoParent_SquashOverStagedParentWorkIsAPlainWorded409(t *testing.T) {
+	h := newRealUsecase(t)
+	child := h.createChild(t, "feature/x", h.parentID, h.baseBranch)
+	commitInWorktree(t, child.WorktreePath, "x.txt", "x\n", "child work")
+	require.NoError(t, os.WriteFile(filepath.Join(h.repoPath, "mine.txt"), []byte("mine\n"), 0o600))
+	gitRun(t, h.repoPath, "add", "mine.txt")
+
+	_, err := h.uc.MergeIntoParent(context.Background(), child.ID, gitdomain.MergeStrategySquash)
+
+	require.ErrorIs(t, err, enginegit.ErrDirtyTree)
+	got := problem.Of(err)
+	assert.Equal(t, http.StatusConflict, got.Code.Status())
+	assert.Equal(t, "the parent worktree has staged changes: commit or unstage them, then merge again", got.Message)
 }

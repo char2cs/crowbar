@@ -207,6 +207,7 @@ var userStates = map[string][][]string{
 	"staged":               {{"write", "mine.txt", "mine\n"}, {"add", "mine.txt"}},
 	"dirty":                {{"write", "base.txt", "dirty\n"}},
 	"untracked":            {{"write", "p1.txt", "mine\n"}},
+	"intent-to-add":        {{"write", "ita.txt", "mine\n"}, {"add", "-N", "ita.txt"}},
 	"staged+dirty":         {{"write", "main.txt", "s1\n"}, {"add", "."}, {"write", "main.txt", "s2\n"}},
 	"stash+resolved merge": {{"write", "base.txt", "stashed\n"}, {"stash", "push", "-q"}, {"merge", "--no-ff", "--no-commit", "p2"}},
 	"dirty submodule": {
@@ -236,7 +237,9 @@ var stoppableVerbs = map[string]func(e git.Engine, repo, parent string) error{
 	"merge":       func(e git.Engine, r, _ string) error { return e.Merge(context.Background(), r, "p1") },
 	"mergecommit": func(e git.Engine, r, _ string) error { return e.MergeCommit(context.Background(), r, "p1") },
 	"squash":      func(e git.Engine, r, _ string) error { return e.MergeSquash(context.Background(), r, "p1", "s") },
-	"rebase":      func(e git.Engine, r, _ string) error { return e.Rebase(context.Background(), r, "p1") },
+	// main fast-forwards to ahead, so git carries the user's staged work into it.
+	"squash ff": func(e git.Engine, r, _ string) error { return e.MergeSquash(context.Background(), r, "ahead", "s") },
+	"rebase":    func(e git.Engine, r, _ string) error { return e.Rebase(context.Background(), r, "p1") },
 	"rebaseonto": func(e git.Engine, r, _ string) error {
 		return e.RebaseOnto(context.Background(), r, "p1", "base", "main")
 	},
@@ -277,6 +280,9 @@ func TestStoppableVerbs_AFailureLeavesTheUsersStateAsFound(t *testing.T) {
 					makeCommit(t, repo, "p2.txt", "p2\n", "p2")
 					gitRun(t, repo, "checkout", "-q", "main")
 					makeCommit(t, repo, "main.txt", "main\n", "main")
+					gitRun(t, repo, "checkout", "-q", "-b", "ahead")
+					makeCommit(t, repo, "ahead.txt", "ahead\n", "ahead")
+					gitRun(t, repo, "checkout", "-q", "main")
 					gitRun(t, repo, "branch", "-q", "--set-upstream-to=p1")
 					parent := filepath.Join(t.TempDir(), "parent")
 					gitRun(t, repo, "worktree", "add", "-q", "--detach", parent, "p1")

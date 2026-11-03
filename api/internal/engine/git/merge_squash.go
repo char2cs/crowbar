@@ -18,12 +18,16 @@ func (e *engine) MergeSquash(ctx context.Context, repoPath, branch, subject stri
 	defer e.lockRepo(ctx, repoPath)()
 	// The user's staged work would be committed into the squash, or dropped by
 	// undoing a refused commit, so a parent holding any is refused up front.
-	staged := e.exec(ctx, repoPath, "diff", "--cached", "--quiet")
+	// diff-index, unlike `diff --cached`, sees intent-to-add entries.
+	staged := e.exec(ctx, repoPath, "diff-index", "--cached", "--quiet", "HEAD")
 	if staged.ExitCode > 1 {
-		return gitexec.RequireSuccess("diff --cached", staged)
+		return gitexec.RequireSuccess("diff-index --cached", staged)
 	}
-	if staged.ExitCode == 1 || fileExists(filepath.Join(resolveGitDir(ctx, repoPath), "SQUASH_MSG")) {
-		return fmt.Errorf("%w: merge --squash: the parent has staged changes or a squash pending", ErrDirtyTree)
+	if staged.ExitCode == 1 {
+		return parentRefusal("the parent worktree has staged changes: commit or unstage them, then merge again")
+	}
+	if fileExists(filepath.Join(resolveGitDir(ctx, repoPath), "SQUASH_MSG")) {
+		return parentRefusal("the parent worktree has a squash merge pending: commit or reset it, then merge again")
 	}
 	if err := e.stoppable(ctx, repoPath, "merge --squash", "merge", "--squash", "--", branch); err != nil {
 		return err
@@ -43,3 +47,10 @@ func (e *engine) MergeSquash(ctx context.Context, repoPath, branch, subject stri
 	}
 	return err
 }
+
+// parentRefusal is ErrDirtyTree told in plain words, for the user to act on.
+type parentRefusal string
+
+func (r parentRefusal) Error() string { return string(r) }
+
+func (parentRefusal) Unwrap() error { return ErrDirtyTree }

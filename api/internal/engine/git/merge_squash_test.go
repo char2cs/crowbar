@@ -142,3 +142,27 @@ func TestMergeSquash_NoNetChangeLeavesNothingInProgress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, op)
 }
+
+// An intent-to-add entry is staged work too: a squash committing over it, then
+// refused by a hook, could not be undone (`reset --merge` rejects ita entries).
+func TestMergeSquash_RefusesAParentWithAnIntentToAddEntry(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "checkout", "-b", "p1")
+	makeCommit(t, repo, "p1.txt", "p1\n", "p1")
+	gitRun(t, repo, "checkout", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "ita.txt"), []byte("mine\n"), 0o600))
+	gitRun(t, repo, "add", "-N", "ita.txt")
+	failingHook(t, repo, "pre-commit")
+	before := gitOutput(t, repo, "status", "--porcelain=v2")
+	e := git.New()
+
+	err := e.MergeSquash(context.Background(), repo, "p1", "squash p1")
+
+	require.ErrorIs(t, err, git.ErrDirtyTree)
+	assert.Equal(t, before, gitOutput(t, repo, "status", "--porcelain=v2"), "the user's ita entry is left as found")
+	assert.NoFileExists(t, filepath.Join(repo, ".git", "SQUASH_MSG"))
+	op, opErr := e.OperationInProgress(context.Background(), repo)
+	require.NoError(t, opErr)
+	assert.Empty(t, op)
+}
