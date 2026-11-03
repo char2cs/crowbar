@@ -1,6 +1,9 @@
 package chatledger
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -154,6 +157,35 @@ func TestConvertChat_IsDeterministic(t *testing.T) {
 	}
 	assert.Equal(t, turnID("chat-a", "req-1"), rowsOf(convert(t, chatA(), nobody), ledger.KindTurnStarted)[0].TurnID,
 		"a turn's id derives from its chat and legacy id alone")
+}
+
+// convertedByVersion pins what each converterVersion makes of the fixture
+// chats and of records it cannot read. When this test fails, the converter
+// changed: raise converterVersion and add its line here; never edit a line.
+// A raise retries the chats an older converter skipped; chats it converted,
+// in part or in full, are never converted again.
+var convertedByVersion = map[int]string{
+	2: "b0f1aac332a62331031fb2d760353eea45ed5714e5a88de5c5b85243727f0bb7",
+}
+
+func TestConvertChat_AChangedConversionRaisesTheConverterVersion(t *testing.T) {
+	damaged := chatA()
+	damaged.Unreadable = []string{"agent_turns u-9: seq \"x\": not an integer"}
+	damaged.Tools[0].Locations, damaged.Subagents[0].Messages, damaged.Turns[1].Plan = "{", "{", "{"
+	damaged.Choices[0].Options, damaged.Choices[0].AnsweredOptionIDs = "{", "{"
+	damaged.Turns = append(damaged.Turns, LegacyTurn{ID: "x-1", ChatID: "chat-a", Role: "robot", StartedAt: at(10, 50, 0)})
+	damaged.Interruptions = append(damaged.Interruptions, LegacyInterruption{ID: "i-9", ChatID: "chat-a", Kind: "weather"})
+	damaged.Prompts = append(damaged.Prompts, LegacyPrompt{RequestID: "req-q", State: "queued"}, LegacyPrompt{RequestID: "u-2", State: "accepted"})
+	sum := sha256.New()
+	for _, in := range []LegacyChat{chatA(), chatB(), damaged} {
+		raw, err := json.Marshal(convert(t, in, nobody))
+		require.NoError(t, err)
+		sum.Write(raw)
+	}
+	_, err := ConvertChat(LegacyChat{ChatID: "chat-z", Unreadable: []string{"prompt bad.json: unreadable"}}, nobody)
+	sum.Write([]byte(err.Error()))
+
+	assert.Equal(t, convertedByVersion[converterVersion], hex.EncodeToString(sum.Sum(nil)))
 }
 
 func TestConvertChat_FoldsToARestingChat(t *testing.T) {
