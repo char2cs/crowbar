@@ -131,10 +131,7 @@ func (s *Session) newHalt(
 	step Step,
 	cause error,
 ) *Halt {
-	if words, ok := s.opts.Explain(cause); ok {
-		cause = errors.New(words)
-	}
-	return s.baseHalt(reason, haltMessage(reason, step, cause)).at(step)
+	return s.baseHalt(reason, haltMessage(reason, step, s.opts.plain(cause))).at(step)
 }
 
 // baseHalt is a halt with everything the session itself knows. Backup is the

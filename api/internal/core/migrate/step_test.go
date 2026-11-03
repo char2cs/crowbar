@@ -1,9 +1,11 @@
 package migrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -68,31 +70,62 @@ func TestRun_ARecurringStepRunsAgainWhileItsPlanFindsWork(t *testing.T) {
 	assert.Equal(t, map[string]Note{"note": {Detail: "k2"}}, last.Notes, "the latest note under a key is the one read back")
 }
 
-func TestBegin_ARecurringStepWhosePlanFailsHaltsTheBoot(t *testing.T) {
-	ctx := context.Background()
-	fail := false
+// recurringBench is a home whose recurring step 1 was applied once; plan and
+// apply stand in for what that step does on every later boot.
+func recurringBench(t *testing.T, plan func() error, apply func() error) (*bench, *bytes.Buffer, Impls) {
+	t.Helper()
 	step := newStep(1, "sweep", PreOpen, 0, 0)
 	step.Recurs = true
+	first := true
 	step.Plan = func(context.Context, Env) (Plan, error) {
-		if fail {
-			return Plan{}, errors.New("cannot look")
+		if first {
+			return Plan{Actions: []Action{{Kind: Convert, Subject: "x", Count: 1}}}, nil
 		}
-		return Plan{}, nil
+		return Plan{Actions: []Action{{Kind: Convert, Subject: "x", Count: 1}}}, plan()
 	}
 	b := newBench(t, step)
-	first := b.begin()
-	require.NoError(t, first.RunPreOpen(ctx, healthy(1)))
-	require.NoError(t, first.Close())
-	fail = true
+	var logs bytes.Buffer
+	b.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	s := b.begin()
+	require.NoError(t, s.RunPreOpen(context.Background(), healthy(1)))
+	require.NoError(t, s.Close())
+	first = false
+	return b, &logs, Impls{1: impl(func(*Checkpoints) (Counts, error) { return nil, apply() })}
+}
+
+// A step that was applied and only runs again for what was added since must
+// not stop a boot that already runs on what it did: a plan it cannot make is
+// a warning, and the boot writes nothing.
+func TestBegin_ARecurringStepWhosePlanFailsIsSkippedWithAWarning(t *testing.T) {
+	b, logs, impls := recurringBench(t, func() error { return errors.New("cannot look") }, func() error { return nil })
 	before := b.records()
 
-	h := b.begin().Halt()
+	s := b.begin()
 
-	require.NotNil(t, h)
-	assert.Equal(t, HaltPlanFailed, h.Reason)
-	assert.Equal(t, &ID{Number: 1, Name: "sweep"}, h.Step)
-	assert.Contains(t, h.Message, "cannot look")
-	assert.Equal(t, before, b.records(), "the halt writes nothing")
+	assert.Nil(t, s.Halt())
+	require.NoError(t, s.RunPreOpen(context.Background(), impls))
+	assert.Equal(t, before, b.records(), "a skipped step starts no run")
+	assert.Contains(t, logs.String(), "level=WARN")
+	assert.Contains(t, logs.String(), "cannot look")
+}
+
+// A recurring step that fails once applied is skipped: the failure is in the
+// ledger as the step's and as a note it reads back, and the run completes.
+func TestRun_ARecurringStepThatFailsAgainIsSkippedNotAHalt(t *testing.T) {
+	b, logs, impls := recurringBench(t, func() error { return nil }, func() error { return errors.New("legacy file damaged") })
+
+	err := b.begin().RunPreOpen(context.Background(), impls)
+
+	require.NoError(t, err)
+	recs := b.records()
+	require.Len(t, ofKind(recs, kindStepFail), 1)
+	assert.Contains(t, ofKind(recs, kindStepFail)[0].Error, "legacy file damaged")
+	notes := ofKind(recs, kindNote)
+	require.Len(t, notes, 1)
+	assert.Equal(t, skippedNote, notes[0].Key)
+	assert.Contains(t, notes[0].Detail, "legacy file damaged")
+	assert.Equal(t, outcomeCompleted, ofKind(recs, kindRunEnd)[1].Outcome)
+	assert.Contains(t, logs.String(), "level=WARN")
 }
 
 func TestRun_ANonRecurringStepIgnoresItsPlanOnceApplied(t *testing.T) {

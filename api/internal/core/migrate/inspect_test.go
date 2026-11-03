@@ -38,7 +38,7 @@ func planStep(
 // inspect runs Inspect over the bench's home with its injected machine.
 func (b *bench) inspect() (Report, error) {
 	b.tb.Helper()
-	return Inspect(context.Background(), b.home, b.cat, b.implemented, Options{FreeBytes: b.free, HaveGit: b.haveGit})
+	return Inspect(context.Background(), b.home, b.cat, b.implemented, Options{FreeBytes: b.free, HaveGit: b.haveGit, Explain: b.explain})
 }
 
 func TestInspect_IsReadOnly(t *testing.T) {
@@ -228,6 +228,23 @@ func TestInspect_AStepThisBuildCannotRunIsTheHaltTheBootGives(t *testing.T) {
 			assert.Equal(t, sessionless(halted(t, boot)), sessionless(got), "the preview halts as the boot does")
 		})
 	}
+}
+
+// A plan that fails for a cause the session can name is named so in the
+// preview's halt, as in the boot's.
+func TestInspect_AnExplainedPlanFailureIsTheHaltTheBootGives(t *testing.T) {
+	damaged := errors.New("file is not a database (26)")
+	step := newStep(1, "a", PreOpen, 0, 0)
+	step.Plan = func(context.Context, Env) (Plan, error) { return Plan{}, damaged }
+	b := newBench(t, step)
+	b.explain = func(err error) (string, bool) { return "a database file is damaged", errors.Is(err, damaged) }
+
+	_, err := b.inspect()
+
+	got := halted(t, err)
+	assert.Equal(t, `migration step 1 "a" could not be planned: a database file is damaged`, got.Message)
+	boot := halted(t, b.begin().RunPreOpen(context.Background(), healthy(1)))
+	assert.Equal(t, got.Message, boot.Message)
 }
 
 func TestInspect_NewerLayoutReturnsHalt(t *testing.T) {

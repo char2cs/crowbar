@@ -50,6 +50,14 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
+// plain is err as Explain names it, or err itself when Explain cannot.
+func (o Options) plain(err error) error {
+	if words, ok := o.Explain(err); ok {
+		return errors.New(words)
+	}
+	return err
+}
+
 func gitOnPath() bool {
 	_, err := exec.LookPath(binpath.Resolve("git"))
 	return err == nil
@@ -109,7 +117,7 @@ func Begin(
 	case errors.Is(err, ErrHomeLocked):
 		return nil, err
 	case err != nil:
-		s.refuse(HaltIOFailed, err.Error())
+		s.refuse(HaltIOFailed, s.opts.plain(err).Error())
 	default:
 		s.lock = lock
 		s.load(ctx)
@@ -131,16 +139,10 @@ func (s *Session) load(
 	}
 	s.begun = read.view
 	if err := s.tidy(); err != nil {
-		s.refuse(HaltIOFailed, err.Error())
+		s.refuse(HaltIOFailed, s.opts.plain(err).Error())
 		return
 	}
-	again, err := s.cat.recurring(ctx, Env{Home: s.home, Log: s.opts.Log}, s.layout, s.begun)
-	var f *fault
-	if errors.As(err, &f) {
-		s.halt(s.baseHalt(f.reason, f.Error()).at(f.step))
-		return
-	}
-	s.again = again
+	s.again = s.cat.recurring(ctx, Env{Home: s.home, Log: s.opts.Log}, s.layout, s.begun)
 }
 
 // tidy undoes what a killed process left: half-written backups and a run with
@@ -289,13 +291,14 @@ func (c *Catalog) pending(
 }
 
 // recurring is the applied recurring steps a home at layout must run again:
-// those whose Plan, given what their earlier attempts recorded, finds work.
+// those whose Plan, given what their earlier attempts recorded, finds work. A
+// plan that fails skips its step with a warning: the home runs on what it did.
 func (c *Catalog) recurring(
 	ctx context.Context,
 	env Env,
 	layout int,
 	v ledgerView,
-) (map[int]bool, error) {
+) map[int]bool {
 	again := map[int]bool{}
 	for _, s := range c.steps {
 		if !s.Recurs || s.From < layout || !v.applied(s.Number, s.Name) {
@@ -304,11 +307,13 @@ func (c *Catalog) recurring(
 		env.Earlier, env.Notes = v.checkpoints(s.Number, s.Name), v.notes(s.Number, s.Name)
 		plan, err := s.Plan(ctx, env)
 		if err != nil {
-			return nil, &fault{HaltPlanFailed, s, err}
+			env.Log.WarnContext(ctx, "migrate: a step that runs again could not be planned; it is skipped this boot",
+				"step", s.Number, "name", s.Name, "err", err)
+			continue
 		}
 		if !plan.Empty() {
 			again[s.Number] = true
 		}
 	}
-	return again, nil
+	return again
 }

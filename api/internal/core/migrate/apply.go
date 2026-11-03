@@ -164,6 +164,9 @@ func (s *Session) runStep(
 	env := Env{Home: s.home, Log: s.opts.Log}
 	cp := newCheckpoints(s.led, run.id, step.ID(), s.now)
 	counts, err := impl.Apply(ctx, env, cp)
+	if err != nil && s.again[step.Number] && !interrupted(ctx, err) {
+		return s.skipAgain(ctx, step, cp, err)
+	}
 	if err != nil {
 		return s.stepError(ctx, HaltStepFailed, step, err)
 	}
@@ -223,6 +226,30 @@ func (s *Session) complete(
 	s.run.done++
 	s.run.counts.Add(total)
 	s.opts.Log.InfoContext(ctx, "migrate: step done", "step", step.Number, "name", step.Name, "counts", total)
+	return nil
+}
+
+// skippedNote is the note a recurring step that failed once applied leaves,
+// under its own key, for its next plan to read.
+const skippedNote = "skipped"
+
+// skipAgain ends a recurring step that failed on a home it was already applied
+// to: the boot runs on what it did, so the failure is a warning, recorded.
+func (s *Session) skipAgain(
+	ctx context.Context,
+	step Step,
+	cp *Checkpoints,
+	cause error,
+) error {
+	s.opts.Log.WarnContext(ctx, "migrate: a step that runs again failed; it is skipped this boot",
+		"step", step.Number, "name", step.Name, "err", cause)
+	failed := s.stepRecord(kindStepFail, step)
+	failed.Error = cause.Error()
+	if err := errors.Join(s.led.append(failed), cp.Note(skippedNote, Note{Detail: cause.Error()})); err != nil {
+		return s.fail(HaltStepFailed, step, fmt.Errorf("record the skip: %w", err))
+	}
+	delete(s.again, step.Number)
+	s.run.done++
 	return nil
 }
 

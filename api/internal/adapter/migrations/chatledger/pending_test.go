@@ -62,6 +62,25 @@ func TestBoot_AConvertedChatAnOlderBuildAddedToIsRecordedOnce(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
 
+// Legacy files damaged after the upgrade cannot stop a home that already runs
+// on the ledger: the boot warns, writes nothing, and the ledger is as it was.
+func TestBoot_ALegacyFileDamagedAfterTheUpgradeIsAWarningNotAHalt(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA())
+	boot(t, h)
+	rows := held(t, h, "chat-a")
+	testutil.WriteFile(t, h, "state/store/"+ActivityDB, "this is not a sqlite database, not even a little")
+	before := testutil.TreeSnapshot(t, h)
+	log, warned := capture(testutil.AtLeast(slog.LevelWarn))
+
+	require.NoError(t, bootLogging(t, h, log))
+
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
+	assert.Equal(t, rows, held(t, h, "chat-a"))
+	require.Len(t, *warned, 1)
+	assert.Contains(t, testutil.Attrs((*warned)[0])["err"].String(), "not a database")
+}
+
 // A chat skipped once is noted, so later boots neither retry it nor run the step.
 func TestBoot_ASkippedChatIsNotTriedAtEveryBoot(t *testing.T) {
 	h := testutil.FixtureHome(t)
