@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime/debug"
 	"slices"
 	"time"
 
@@ -132,7 +133,7 @@ func convertAll(
 			continue
 		case dutyConvert:
 		}
-		res, err := importChat(ctx, store, chat)
+		res, err := importChat(ctx, log, store, chat)
 		if len(res.Skipped) > 0 {
 			log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", res.Skipped)
 		}
@@ -195,9 +196,9 @@ func nonZero(c migrate.Counts) migrate.Counts {
 
 // importChat converts chat and imports it. A chat already holding exactly
 // those rows is an import an interrupted attempt committed and never marked.
-func importChat(ctx context.Context, store ledgerStore, chat LegacyChat) (Result, error) {
+func importChat(ctx context.Context, log *slog.Logger, store ledgerStore, chat LegacyChat) (Result, error) {
 	var ownerErr error
-	res, err := ConvertChat(chat, func(provider, sessionID string) (string, bool) {
+	res, err := convertSafely(ctx, log, chat, func(provider, sessionID string) (string, bool) {
 		chatID, ok, err := store.SessionOwner(ctx, provider, sessionID)
 		ownerErr = errors.Join(ownerErr, err)
 		return chatID, ok
@@ -220,6 +221,18 @@ func importChat(ctx context.Context, store ledgerStore, chat LegacyChat) (Result
 		return res, err
 	}
 	return res, nil
+}
+
+// convertSafely is ConvertChat with a panic made the chat's error: one chat's
+// damaged records must not stop every boot.
+func convertSafely(ctx context.Context, log *slog.Logger, chat LegacyChat, owner Owner) (res Result, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			log.ErrorContext(ctx, "chatledger: the conversion of a chat panicked", "chat_id", chat.ChatID, "panic", p, "stack", string(debug.Stack()))
+			res, err = Result{}, fmt.Errorf("chatledger: convert %s: panic: %v", chat.ChatID, p)
+		}
+	}()
+	return ConvertChat(chat, owner)
 }
 
 func verify(ctx context.Context, h home.Home, converted map[string]landed) error {

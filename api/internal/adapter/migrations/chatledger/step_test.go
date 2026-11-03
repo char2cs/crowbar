@@ -325,11 +325,15 @@ func TestImpl_VerifyFailsTheStepOnAChatLeftOpen(t *testing.T) {
 // fakeLedger records the imports it is asked for; onImport runs inside each.
 type fakeLedger struct {
 	ownerErr error
+	onOwner  func()
 	onImport func()
 	imported []string
 }
 
 func (f *fakeLedger) SessionOwner(context.Context, string, string) (string, bool, error) {
+	if f.onOwner != nil {
+		f.onOwner()
+	}
 	return "", false, f.ownerErr
 }
 
@@ -381,4 +385,25 @@ func TestConvertAll_ASessionOwnerFailureStopsTheStep(t *testing.T) {
 	require.NotErrorIs(t, err, errUnconvertible)
 	assert.Empty(t, store.imported)
 	assert.Empty(t, cp)
+}
+
+// A conversion that panics skips its chat, with the stack in the log, and the
+// boot goes on to the next chat.
+func TestConvertAll_AConversionThatPanicsSkipsOnlyItsChat(t *testing.T) {
+	calls := 0
+	store := &fakeLedger{onOwner: func() {
+		if calls++; calls == 1 {
+			panic("converter bug")
+		}
+	}}
+	cp := marks{}
+	log, got := capture(func(r slog.Record) bool { return r.Level == slog.LevelError })
+
+	n, err := convertAll(context.Background(), log, store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}}, map[string]landed{})
+
+	require.NoError(t, err)
+	assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
+	assert.Equal(t, []string{"chat-a"}, store.imported)
+	require.Len(t, *got, 1)
+	assert.Contains(t, testutil.Attrs((*got)[0])["stack"].String(), "convertSafely")
 }

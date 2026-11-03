@@ -61,7 +61,8 @@ func (c *conversion) turns(in LegacyChat) {
 			c.skipf("turn %s: unknown role %q", row.ID, row.Role)
 			continue
 		}
-		if row.ID != "" {
+		// A notice before any turn is in none: byID names only turns.
+		if row.ID != "" && g != nil {
 			c.byID[row.ID] = g
 		}
 	}

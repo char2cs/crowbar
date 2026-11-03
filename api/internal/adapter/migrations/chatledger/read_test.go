@@ -211,3 +211,93 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	assert.Contains(t, got[1].Corrupt[0], "not-a-date")
 	assert.Contains(t, got[1].Corrupt[1], "agent_interruptions i-b1: seq")
 }
+
+// Any one cell of any legacy table, overwritten with any value a damaged disk
+// or an older build could leave, never panics the read or the conversion and
+// never changes another chat's rows.
+func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	pristine := map[string][]byte{}
+	for _, db := range []string{ActivityDB, RunnerDB} {
+		raw, err := os.ReadFile(filepath.Join(h.Store(), db))
+		require.NoError(t, err)
+		pristine[db] = raw
+	}
+	cleanB := convert(t, chatB(), nobody).Rows
+	values := []string{
+		"NULL", "''", "'abc'", "9223372036854775807", "99999999999999999999", "-1", "1.5", "x'fffe41'",
+		"'a'||char(0)||'b'", `'{"a":1}garbage'`, "'0000-00-00 00:00:00'", "'2026/09/01 10:00'", "dup",
+	}
+	tables := map[string]string{
+		"agent_chat_conversations": RunnerDB, "agent_turns": ActivityDB, "agent_tool_calls": ActivityDB,
+		"agent_subagents": ActivityDB, "agent_interruptions": ActivityDB, "agent_choices": ActivityDB,
+	}
+	for table, db := range tables {
+		for _, column := range columnsOf(t, filepath.Join(h.Store(), db), table) {
+			for _, v := range values {
+				for name, raw := range pristine {
+					require.NoError(t, os.WriteFile(filepath.Join(h.Store(), name), raw, 0o600))
+				}
+				if !damage(t, filepath.Join(h.Store(), db), table, column, v) {
+					continue
+				}
+				damaged := table + "." + column + " = " + v
+				chats, err := ReadLegacy(t.Context(), h)
+				require.NoError(t, err, damaged)
+				for _, chat := range chats {
+					res, err := convertNoPanic(t, chat, damaged)
+					if chat.ChatID == "chat-b" {
+						require.NoError(t, err, damaged)
+						require.Equal(t, cleanB, res.Rows, damaged)
+					}
+				}
+			}
+		}
+	}
+}
+
+func columnsOf(t *testing.T, path, table string) []string {
+	t.Helper()
+	conn := writable(t, path)
+	defer func() { require.NoError(t, conn.Close()) }()
+	rows, err := conn.QueryContext(t.Context(), "SELECT name FROM pragma_table_info(?)", table)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+	var out []string
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		out = append(out, name)
+	}
+	require.NoError(t, rows.Err())
+	require.NotEmpty(t, out, table)
+	return out
+}
+
+// damage sets column of chat-a's first row in table to the SQL value v, or
+// for "dup" to chat-a's last row's; false when the schema refuses it.
+func damage(t *testing.T, path, table, column, v string) bool {
+	t.Helper()
+	if v == "dup" {
+		v = "(SELECT " + column + " FROM " + table + " WHERE chat_id = 'chat-a' ORDER BY rowid DESC LIMIT 1)"
+	}
+	conn := writable(t, path)
+	defer func() { require.NoError(t, conn.Close()) }()
+	// A thousand cases: an fsync each would take minutes.
+	_, err := conn.ExecContext(t.Context(), "PRAGMA synchronous=OFF")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), "UPDATE "+table+" SET "+column+" = "+v+
+		" WHERE rowid = (SELECT min(rowid) FROM "+table+" WHERE chat_id = 'chat-a')")
+	return err == nil
+}
+
+func convertNoPanic(t *testing.T, chat LegacyChat, damaged string) (Result, error) {
+	t.Helper()
+	defer func() {
+		if p := recover(); p != nil {
+			t.Fatalf("%s: chat %s: the conversion panicked: %v", damaged, chat.ChatID, p)
+		}
+	}()
+	return ConvertChat(chat, nobody)
+}

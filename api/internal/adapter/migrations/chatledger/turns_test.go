@@ -118,3 +118,16 @@ func TestConvertChat_AReplyWithNoIDIsNamedByItsSeq(t *testing.T) {
 
 	assert.Equal(t, "seq-2", bodies[ledger.AssistantText](t, res, ledger.KindAssistantText)[0].MessageID)
 }
+
+// A notice the old daemon kept before any turn, whose id a journalled prompt
+// names, is a marker; the prompt is still restated as one never delivered.
+func TestConvertChat_ANoticeBeforeAnyTurnNamedByAPromptIsAMarker(t *testing.T) {
+	in := chatB()
+	in.Turns[0].Role = roleNotice
+	in.Prompts = []LegacyPrompt{{RequestID: in.Turns[0].ID, Text: "hi", State: "uncertain", CreatedAt: at(9, 0, 50), UpdatedAt: at(9, 0, 55)}}
+
+	res := convert(t, in, nobody)
+
+	assert.Equal(t, []ledger.Marker{{Kind: ledger.MarkerNotification, Detail: "hi"}}, bodies[ledger.Marker](t, res, ledger.KindMarker))
+	assert.Len(t, rowsOf(res, ledger.KindPromptSettled), 1)
+}
