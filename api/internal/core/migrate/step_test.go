@@ -77,7 +77,7 @@ func TestRun_ARecurringStepRunsAgainWhileItsPlanFindsWork(t *testing.T) {
 
 // recurringBench is a home whose recurring step 1 was applied once; plan and
 // apply stand in for what that step does on every later boot.
-func recurringBench(t *testing.T, plan func() error, apply func() error) (*bench, *bytes.Buffer, Impls) {
+func recurringBench(t *testing.T, plan, apply func() error) (*bench, *bytes.Buffer, Impls) {
 	t.Helper()
 	step := newStep(1, "sweep", PreOpen, 0, 0)
 	step.Recurs = true
