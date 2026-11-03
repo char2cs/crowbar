@@ -1,5 +1,7 @@
 import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { ApiError } from '@/lib/errors/api-error'
+import { UNREACHED } from '@/lib/errors/report'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -71,7 +73,7 @@ export async function apiFetchRaw(
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
       // bounded backoff; surface the error once attempts are exhausted.
-      if (attempt >= maxAttempts) throw err
+      if (attempt >= maxAttempts) throw unreached(err)
       await sleep(Math.min(retry.maxDelayMs, retry.baseDelayMs * 2 ** (attempt - 1)))
       continue
     }
@@ -105,6 +107,11 @@ export async function apiFetchRaw(
     }
     return res
   }
+}
+
+// fetch rejects a request that reached no server with a TypeError, worded per engine.
+function unreached(err: unknown): unknown {
+  return err instanceof TypeError ? new UserFacingError(UNREACHED, { cause: err }) : err
 }
 
 interface EnvelopeBody {

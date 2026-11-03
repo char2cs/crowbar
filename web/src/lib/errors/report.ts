@@ -17,7 +17,7 @@ const UNEXPECTED = 'Something went wrong'
 /** What the user reads for a client bug, whose own text stays in the log. */
 const UNEXPLAINED = 'Something went wrong — details are in the log'
 
-/** The fallback for a call whose throw is not an Error: no daemon answered to word it. */
+/** No daemon answered to word the failure: a request that reached none, or a non-Error throw. */
 export const UNREACHED = 'Crowbar could not reach the daemon — try again.'
 
 // A cancelled request or Monaco provider call is a superseded one, not a failure.

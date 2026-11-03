@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiFetch } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
+import { UNREACHED, userWords } from '@/lib/errors/report'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
@@ -93,19 +94,29 @@ describe('apiFetch transient-transport retry', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(apiFetch('/v0/projects', { method: 'POST' }, fastRetry(8))).rejects.toThrow(
-      'Load failed',
+      UNREACHED,
     )
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  // Bounded: if the daemon never comes up, retries give up and surface the
-  // transport error rather than hanging forever.
-  it('gives up after the configured attempts and throws the transport error', async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Load failed'))
+  // Bounded: if the daemon never comes up, retries give up and say so rather
+  // than hanging forever.
+  it('gives up after the configured attempts and says the daemon was not reached', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(apiFetch('/v0/projects', undefined, fastRetry(3))).rejects.toThrow('Load failed')
+    const err: unknown = await apiFetch('/v0/projects', undefined, fastRetry(3)).catch((e) => e)
+
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(userWords(err)).toBe(UNREACHED)
+    expect((err as Error).cause).toBeInstanceOf(TypeError)
+  })
+
+  it('passes a cancelled request through as the abort it is', async () => {
+    const abort = new DOMException('The operation was aborted.', 'AbortError')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abort))
+
+    await expect(apiFetch('/v0/projects', { method: 'POST' }, fastRetry(1))).rejects.toBe(abort)
   })
 
   it('returns data on a first-try success without retrying', async () => {
