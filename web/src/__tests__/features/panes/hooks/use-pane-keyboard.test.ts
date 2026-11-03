@@ -37,6 +37,11 @@ const { createChat, toastSpawnFailure, presetChatLandingPresentation } = vi.hois
 // so only createChat is faked.
 import * as createsApi from '@/features/agent/api/agent-chat-creates'
 vi.spyOn(createsApi, 'createChat').mockImplementation(createChat)
+// The untitled document itself (its Monaco model, its free name) is open-document's own test.
+import * as openDocumentApi from '@/features/editor/documents/open-document'
+const openUntitledDocument = vi
+  .spyOn(openDocumentApi, 'openUntitledDocument')
+  .mockResolvedValue('untitled-buf')
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 
@@ -145,7 +150,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
-import { workspaceRef } from '@/lib/api/documents'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
@@ -370,10 +374,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true }))
 
     expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center', 'ws-1')
-    expect(openContent).toHaveBeenCalledWith(
-      expect.objectContaining({ doc: workspaceRef('ws-1', 'untitled:Untitled'), isVirtual: true }),
-      { paneId: ROOT_PANE_ID },
-    )
+    expect(openUntitledDocument).toHaveBeenCalledWith('ws-1', ROOT_PANE_ID)
     expect(createChat).not.toHaveBeenCalled()
   })
 
