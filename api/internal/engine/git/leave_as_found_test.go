@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -200,65 +201,100 @@ func TestRebaseOnto_NeverAbortsARebaseThatWasAlreadyInProgress(t *testing.T) {
 	assert.Equal(t, "rebase", op, "the user's own rebase is theirs to finish")
 }
 
-// diverged is a repo on main with p1 and main each one commit past base, and
-// a file the user staged plus one they left dirty.
-func diverged(t *testing.T) string {
-	t.Helper()
-	repo := initRepo(t)
-	makeCommit(t, repo, "base.txt", "base\n", "base")
-	gitRun(t, repo, "checkout", "-b", "p1")
-	makeCommit(t, repo, "p1.txt", "p1\n", "p1")
-	gitRun(t, repo, "checkout", "main")
-	makeCommit(t, repo, "main.txt", "main\n", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(repo, "mine.txt"), []byte("mine\n"), 0o600))
-	gitRun(t, repo, "add", "mine.txt")
-	require.NoError(t, os.WriteFile(filepath.Join(repo, "base.txt"), []byte("dirty\n"), 0o600))
-	return repo
+// The user's state each case starts from on main, which p1 diverged from: each
+// step writes a file ("write", name, content) or runs git.
+var userStates = map[string][][]string{
+	"staged":               {{"write", "mine.txt", "mine\n"}, {"add", "mine.txt"}},
+	"dirty":                {{"write", "base.txt", "dirty\n"}},
+	"untracked":            {{"write", "p1.txt", "mine\n"}},
+	"staged+dirty":         {{"write", "main.txt", "s1\n"}, {"add", "."}, {"write", "main.txt", "s2\n"}},
+	"stash+resolved merge": {{"write", "base.txt", "stashed\n"}, {"stash", "push", "-q"}, {"merge", "--no-ff", "--no-commit", "p2"}},
+	"dirty submodule": {
+		{"-c", "protocol.file.allow=always", "submodule", "add", "-q", "SUB", "sub"},
+		{"commit", "-qm", "sub"},
+		{"write", "sub/s.txt", "dirty\n"},
+	},
 }
 
-func requireUsersChangesKept(t *testing.T, repo string) {
+func setUpState(t *testing.T, repo string, steps [][]string) {
 	t.Helper()
-	assert.Equal(t, "mine.txt", gitOutput(t, repo, "diff", "--cached", "--name-only"), "the staged file stays staged")
-	assert.Equal(t, "base.txt", gitOutput(t, repo, "diff", "--name-only"), "the dirty file stays dirty")
-	assert.FileExists(t, filepath.Join(repo, "mine.txt"))
-	op, err := git.New().OperationInProgress(context.Background(), repo)
+	for _, step := range steps {
+		if step[0] == "write" {
+			require.NoError(t, os.WriteFile(filepath.Join(repo, step[1]), []byte(step[2]), 0o600))
+			continue
+		}
+		if slices.Contains(step, "SUB") {
+			sub := initRepo(t)
+			makeCommit(t, sub, "s.txt", "s\n", "s")
+			step = slices.Replace(slices.Clone(step), slices.Index(step, "SUB"), slices.Index(step, "SUB")+1, sub)
+		}
+		gitRun(t, repo, step...)
+	}
+}
+
+var stoppableVerbs = map[string]func(e git.Engine, repo, parent string) error{
+	"merge":       func(e git.Engine, r, _ string) error { return e.Merge(context.Background(), r, "p1") },
+	"mergecommit": func(e git.Engine, r, _ string) error { return e.MergeCommit(context.Background(), r, "p1") },
+	"squash":      func(e git.Engine, r, _ string) error { return e.MergeSquash(context.Background(), r, "p1", "s") },
+	"rebase":      func(e git.Engine, r, _ string) error { return e.Rebase(context.Background(), r, "p1") },
+	"rebaseonto": func(e git.Engine, r, _ string) error {
+		return e.RebaseOnto(context.Background(), r, "p1", "base", "main")
+	},
+	"rebase+ff": func(e git.Engine, r, p string) error {
+		return e.RebaseThenFFMerge(context.Background(), r, "p1", p, "main")
+	},
+	"pull":        func(e git.Engine, r, _ string) error { return e.Pull(context.Background(), r, "merge") },
+	"pull rebase": func(e git.Engine, r, _ string) error { return e.Pull(context.Background(), r, "rebase") },
+}
+
+// userView is everything of the user's a failed command must leave unchanged.
+func userView(t *testing.T, e git.Engine, repo string) string {
+	t.Helper()
+	view := ""
+	for _, args := range [][]string{{"status", "--porcelain=v2"}, {"stash", "list"}, {"diff", "--cached"}, {"diff"}, {"ls-files", "-o"}} {
+		view += gitOutput(t, repo, args...) + "\n--\n"
+	}
+	op, err := e.OperationInProgress(context.Background(), repo)
 	require.NoError(t, err)
-	assert.Empty(t, op, "a refused command leaves nothing for an abort to undo")
+	return view + "op=" + op
 }
 
-func TestMergeVerbs_RefusedOverTheUsersChangesKeepThem(t *testing.T) {
-	verbs := map[string]func(git.Engine, string) error{
-		"merge":  func(e git.Engine, repo string) error { return e.Merge(context.Background(), repo, "p1") },
-		"commit": func(e git.Engine, repo string) error { return e.MergeCommit(context.Background(), repo, "p1") },
-		"squash": func(e git.Engine, repo string) error { return e.MergeSquash(context.Background(), repo, "p1", "s") },
-	}
-	for name, run := range verbs {
-		t.Run(name, func(t *testing.T) {
-			repo := diverged(t)
+// Every stoppable verb, refused by git or by a hook over each kind of the
+// user's own state, leaves that state exactly as it found it.
+func TestStoppableVerbs_AFailureLeavesTheUsersStateAsFound(t *testing.T) {
+	for verb, run := range stoppableVerbs {
+		for state, steps := range userStates {
+			for _, hook := range []string{"", "pre-commit", "pre-merge-commit"} {
+				t.Run(verb+"/"+state+"/"+hook, func(t *testing.T) {
+					t.Parallel()
+					repo := initRepo(t)
+					makeCommit(t, repo, "base.txt", "base\n", "base")
+					gitRun(t, repo, "tag", "base")
+					gitRun(t, repo, "branch", "p2")
+					gitRun(t, repo, "checkout", "-q", "-b", "p1")
+					makeCommit(t, repo, "p1.txt", "p1\n", "p1")
+					gitRun(t, repo, "checkout", "-q", "p2")
+					makeCommit(t, repo, "p2.txt", "p2\n", "p2")
+					gitRun(t, repo, "checkout", "-q", "main")
+					makeCommit(t, repo, "main.txt", "main\n", "main")
+					gitRun(t, repo, "branch", "-q", "--set-upstream-to=p1")
+					parent := filepath.Join(t.TempDir(), "parent")
+					gitRun(t, repo, "worktree", "add", "-q", "--detach", parent, "p1")
+					setUpState(t, repo, steps)
+					if hook != "" {
+						failingHook(t, repo, hook)
+					}
+					e := git.New()
+					before := userView(t, e, repo)
 
-			require.Error(t, run(git.New(), repo))
+					if run(e, repo, parent) == nil {
+						t.Skip("the verb succeeded over this state")
+					}
 
-			requireUsersChangesKept(t, repo)
-		})
-	}
-}
-
-func TestPull_RefusedOverTheUsersChangesKeepsThem(t *testing.T) {
-	for _, mode := range []string{"merge", "rebase"} {
-		t.Run(mode, func(t *testing.T) {
-			repo := diverged(t)
-			clone := filepath.Join(t.TempDir(), "clone")
-			gitRun(t, repo, "branch", "up", "p1")
-			gitRun(t, repo, "worktree", "add", "-q", clone, "-b", "work", "main")
-			gitRun(t, clone, "branch", "--set-upstream-to=up")
-			require.NoError(t, os.WriteFile(filepath.Join(clone, "mine.txt"), []byte("mine\n"), 0o600))
-			gitRun(t, clone, "add", "mine.txt")
-			require.NoError(t, os.WriteFile(filepath.Join(clone, "base.txt"), []byte("dirty\n"), 0o600))
-
-			require.Error(t, git.New().Pull(context.Background(), clone, mode))
-
-			requireUsersChangesKept(t, clone)
-		})
+					assert.Equal(t, before, userView(t, e, repo))
+				})
+			}
+		}
 	}
 }
 
