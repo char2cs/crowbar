@@ -164,22 +164,31 @@ func (s *Session) runStep(
 	env := Env{Home: s.home, Log: s.opts.Log}
 	cp := newCheckpoints(s.led, run.id, step.ID(), s.now)
 	counts, err := impl.Apply(ctx, env, cp)
-	if err != nil && s.again[step.Number] && !interrupted(ctx, err) {
-		return s.skipAgain(ctx, step, cp, err)
-	}
 	if err != nil {
-		return s.stepError(ctx, HaltStepFailed, step, err)
+		return s.attemptFailed(ctx, HaltStepFailed, step, cp, err)
 	}
-	if impl.Verify != nil {
-		err := impl.Verify(ctx, env)
-		if err != nil && s.again[step.Number] && !interrupted(ctx, err) {
-			return s.skipAgain(ctx, step, cp, err)
-		}
-		if err != nil {
-			return s.stepError(ctx, HaltVerifyFailed, step, err)
-		}
+	if impl.Verify == nil {
+		return s.complete(ctx, step, cp, counts)
+	}
+	if err := impl.Verify(ctx, env); err != nil {
+		return s.attemptFailed(ctx, HaltVerifyFailed, step, cp, err)
 	}
 	return s.complete(ctx, step, cp, counts)
+}
+
+// attemptFailed skips a recurring step that failed on a home it was already
+// applied to, and otherwise halts on the failure or ends an interrupted run.
+func (s *Session) attemptFailed(
+	ctx context.Context,
+	reason HaltReason,
+	step Step,
+	cp *Checkpoints,
+	err error,
+) error {
+	if s.again[step.Number] && !interrupted(ctx, err) {
+		return s.skipAgain(ctx, step, cp, err)
+	}
+	return s.stepError(ctx, reason, step, err)
 }
 
 // stepError ends the run as interrupted when err is the step stopping for a

@@ -125,18 +125,12 @@ func convertAll(
 		case dutyConvert:
 		}
 		res, err := importChat(ctx, log, store, chat)
-		if len(res.Skipped) > 0 {
-			log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", clip(strings.Join(res.Skipped, "; "), noteBytes))
-		}
 		if errors.Is(err, errSessionIndex) || interrupted(ctx, err) {
 			return nonZero(unmarked), err
 		}
 		if err != nil {
-			final := errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible)
-			if !final {
-				failed = cmp.Or(failed, err)
-			}
-			if err := skip(ctx, log, cp, chat.ChatID, n, err, final); err != nil {
+			failed = cmp.Or(failed, retried(err))
+			if err := skip(ctx, log, cp, chat.ChatID, n, err); err != nil {
 				return nonZero(unmarked), err
 			}
 			unmarked.Add(migrate.Counts{"skipped_chats": 1})
@@ -155,6 +149,15 @@ func convertAll(
 	return nonZero(unmarked), nil
 }
 
+// retried is err when it is an import failure the next boot tries again: not
+// a chat whose ledger holds rows, nor one that cannot be converted.
+func retried(err error) error {
+	if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) {
+		return nil
+	}
+	return err
+}
+
 func interrupted(ctx context.Context, err error) bool {
 	return ctx.Err() != nil && errors.Is(err, ctx.Err())
 }
@@ -162,12 +165,12 @@ func interrupted(ctx context.Context, err error) bool {
 // skip notes why chat was not converted and by which converter: no later boot
 // tries it again until a newer converter might convert it. A skip that is not
 // final, an import that failed, is noted by no converter: the next boot retries.
-func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error, final bool) error {
+func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
 	msg, by := "chatledger: skipped a chat that cannot be converted", int64(converterVersion)
 	switch {
 	case errors.Is(why, ledgerstore.ErrChatNotEmpty):
 		msg = "chatledger: skipped a chat whose ledger already holds rows"
-	case !final:
+	case retried(why) != nil:
 		msg, by = "chatledger: skipped a chat whose import failed; the next boot tries it again", 0
 	}
 	detail := clip(why.Error(), noteBytes)
@@ -218,21 +221,30 @@ func importChat(ctx context.Context, log *slog.Logger, store ledgerStore, chat L
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %w", errUnconvertible, err)
 	}
-	err = importSafely(ctx, log, store, chat.ChatID, res.Rows)
-	if errors.Is(err, ledgerstore.ErrChatNotEmpty) {
-		held, readErr := store.Read(ctx, chat.ChatID, 0, 0)
-		if readErr != nil {
-			return Result{}, fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, readErr)
-		}
-		if !reflect.DeepEqual(held, res.Rows) {
-			return res, err
-		}
-		err = nil
+	if len(res.Skipped) > 0 {
+		log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", clip(strings.Join(res.Skipped, "; "), noteBytes))
 	}
-	if err != nil {
+	if err := unlessCommittedBefore(ctx, store, chat.ChatID, res.Rows, importSafely(ctx, log, store, chat.ChatID, res.Rows)); err != nil {
 		return res, err
 	}
 	return res, landedAsWritten(ctx, store, chat, int64(len(res.Rows)))
+}
+
+// unlessCommittedBefore is the import's err, but nil when it was refused for
+// rows already there that are exactly the rows it would write: an interrupted
+// attempt's import, never marked.
+func unlessCommittedBefore(ctx context.Context, store ledgerStore, chatID string, rows []ledger.Row, err error) error {
+	if !errors.Is(err, ledgerstore.ErrChatNotEmpty) {
+		return err
+	}
+	held, readErr := store.Read(ctx, chatID, 0, 0)
+	if readErr != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chatID, readErr)
+	}
+	if reflect.DeepEqual(held, rows) {
+		return nil
+	}
+	return err
 }
 
 // landedAsWritten checks, right after the import, that the chat holds the rows

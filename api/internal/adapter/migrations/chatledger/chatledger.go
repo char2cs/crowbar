@@ -107,11 +107,11 @@ type entry struct {
 }
 
 type conversion struct {
-	chatID     string
-	out        []entry
-	skipped    []string
-	leftOut    int // records, or parts of one, left out
-	err        error
+	chatID  string
+	out     []entry
+	skipped []string
+	leftOut int // records, or parts of one, left out
+	err     error
 
 	current map[string]string // provider → the session the chat is bound to on it
 	bound   map[string]bool   // provider+"\x00"+session bound to this chat
