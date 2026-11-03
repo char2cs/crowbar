@@ -8,6 +8,8 @@ const (
 	Convert ActionKind = "convert"
 	// Delete removes the subject.
 	Delete ActionKind = "delete"
+	// Record notes the subject in the run ledger and changes no state.
+	Record ActionKind = "record"
 )
 
 // Unknown is a count the offline plan cannot know.

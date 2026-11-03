@@ -55,17 +55,22 @@ func Inspect(
 		return Report{}, haltAt(h, cat, read.layout, read.view, read.refusal.reason, read.refusal.message)
 	}
 	view := cat.settled(read.layout, read.view)
-	pending := cat.pending(read.layout, view)
 	halt := func(f *fault) *Halt {
 		return haltAt(h, cat, read.layout, view, f.reason, f.Error()).at(f.step)
 	}
+	env := Env{Home: h, Log: opts.Log}
+	again, err := cat.recurring(ctx, env, read.layout, view)
+	var f *fault
+	if errors.As(err, &f) {
+		return Report{}, halt(f)
+	}
+	pending := cat.pending(read.layout, view, again)
 	// In the boot's order: RunPreOpen admits its steps before the preflight, and
 	// RunPostOpen admits the rest after it.
 	if step, ok := unimplemented(leading(pending, PreOpen), implemented); ok {
 		return Report{}, halt(&fault{HaltNoImpl, step, errNoImpl})
 	}
-	res, err := checkPending(ctx, Env{Home: h, Log: opts.Log}, pending, view, opts)
-	var f *fault
+	res, err := checkPending(ctx, env, pending, view, opts)
 	if errors.As(err, &f) {
 		return Report{}, halt(f)
 	}

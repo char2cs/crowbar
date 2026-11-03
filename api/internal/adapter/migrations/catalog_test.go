@@ -99,24 +99,26 @@ func TestPlan_AHomeWithoutLegacyRecordsHasNothingToDo(t *testing.T) {
 
 	assert.True(t, planOf(t, h, StepChatLedger).Empty())
 	assert.Equal(t, migrate.PreOpen, stepOf(t, StepChatLedger).Phase, "it runs before any store opens")
+	assert.True(t, stepOf(t, StepChatLedger).Recurs, "a chat an older build adds later is still converted")
 }
 
-func TestPlan_LegacyRecordsAreOneConversionOfUnknownSize(t *testing.T) {
-	want := migrate.Plan{
-		Actions:       []migrate.Action{{Kind: migrate.Convert, Subject: "legacy chat history → chat ledger", Count: migrate.Unknown}},
-		RewritesState: true,
-	}
-	for _, legacy := range []string{
-		"state/store/" + chatledger.ActivityDB, "state/store/" + chatledger.RunnerDB,
-		"chats/c1/" + chatledger.PromptsDir + "/r1.json",
-	} {
-		h := testutil.FixtureHome(t)
-		testutil.WriteFile(t, h, legacy, "")
-		before := testutil.TreeSnapshot(t, h)
+// The plan counts the legacy chats; legacy databases with no chat in them
+// leave nothing to convert.
+func TestPlan_LegacyRecordsAreOneConversionPerChat(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/store/"+chatledger.ActivityDB, "")
+	testutil.WriteFile(t, h, "state/store/"+chatledger.RunnerDB, "")
+	assert.True(t, planOf(t, h, StepChatLedger).Empty())
 
-		assert.Equal(t, want, planOf(t, h, StepChatLedger), legacy)
-		assert.Equal(t, before, testutil.TreeSnapshot(t, h), "a plan writes nothing")
-	}
+	testutil.WriteFile(t, h, "chats/c1/"+chatledger.PromptsDir+"/r1.json", "")
+	testutil.WriteFile(t, h, "chats/c2/"+chatledger.PromptsDir+"/r1.json", "")
+	before := testutil.TreeSnapshot(t, h)
+
+	assert.Equal(t, migrate.Plan{
+		Actions:       []migrate.Action{{Kind: migrate.Convert, Subject: "legacy chats → chat ledger", Count: 2}},
+		RewritesState: true,
+	}, planOf(t, h, StepChatLedger))
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "a plan writes nothing")
 }
 
 // A home this binary must not migrate is not an error: the session is live,

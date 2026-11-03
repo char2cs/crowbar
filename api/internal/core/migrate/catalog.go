@@ -127,6 +127,8 @@ func stepFault(
 		return fmt.Sprintf("invalid layout range %d->%d", s.From, s.To)
 	case s.Phase == PostOpen && s.bumps():
 		return "only pre-open steps may bump the layout"
+	case s.Recurs && s.bumps():
+		return "a layout bump cannot recur"
 	case s.Plan == nil:
 		return "missing plan"
 	default:

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -20,36 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
-
-// Plan has one conversion of unknown size wherever the old daemon left a
-// legacy database or prompt journal; it only stats files.
-func Plan(_ context.Context, env migrate.Env) (migrate.Plan, error) {
-	found, err := hasLegacy(env.Home)
-	if err != nil || !found {
-		return migrate.Plan{}, err
-	}
-	return migrate.Plan{
-		Actions:       []migrate.Action{{Kind: migrate.Convert, Subject: "legacy chat history → chat ledger", Count: migrate.Unknown}},
-		RewritesState: true,
-	}, nil
-}
-
-func hasLegacy(h home.Home) (bool, error) {
-	for _, db := range []string{ActivityDB, RunnerDB} {
-		_, err := os.Stat(filepath.Join(h.Store(), db))
-		if err == nil {
-			return true, nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return false, fmt.Errorf("chatledger: plan: %w", err)
-		}
-	}
-	journals, err := filepath.Glob(filepath.Join(h.Root(), "chats", "*", PromptsDir))
-	if err != nil {
-		return false, fmt.Errorf("chatledger: plan: %w", err)
-	}
-	return len(journals) > 0, nil
-}
 
 // Impl converts each legacy chat into the ledger once, checkpointed per chat,
 // and verifies every chat it converted is at rest.
@@ -81,65 +50,136 @@ type ledgerStore interface {
 // checkpoints is the part of *migrate.Checkpoints the conversion uses.
 type checkpoints interface {
 	Done(key string) bool
+	Settled(key string) bool
+	Marked(key string) (migrate.Counts, bool)
 	Mark(key string, n migrate.Counts) error
+	Noted(key string) (migrate.Note, bool)
+	Note(key string, n migrate.Note) error
 }
 
 func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints, converted map[string]map[string]bool) (migrate.Counts, error) {
+	stamp, err := legacyStamp(env.Home)
+	if err != nil || stamp == "" {
+		return nil, err
+	}
 	chats, err := ReadLegacy(ctx, env.Home)
-	if err != nil || len(chats) == 0 {
+	if err != nil {
+		return nil, err
+	}
+	counts, err := census(ctx, env.Home)
+	if err != nil {
 		return nil, err
 	}
 	slices.SortStableFunc(chats, func(a, b LegacyChat) int {
 		return cmp.Or(oldest(a).Compare(oldest(b)), cmp.Compare(a.ChatID, b.ChatID))
 	})
-	var counts migrate.Counts
-	err = withStore(ctx, env.Home, func(store *ledgerstore.Store) error {
-		var err error
-		counts, err = convertAll(ctx, env.Log, store, cp, chats, converted)
-		return err
-	})
-	return counts, err
+	var total migrate.Counts
+	if len(chats) > 0 {
+		err = withStore(ctx, env.Home, func(store *ledgerstore.Store) error {
+			var err error
+			total, err = convertAll(ctx, env.Log, store, cp, legacyHome{chats, counts}, converted)
+			return err
+		})
+	}
+	if err != nil {
+		return total, err
+	}
+	if note, ok := cp.Noted(stampKey); !ok || note.Detail != stamp {
+		err = cp.Note(stampKey, migrate.Note{Detail: stamp})
+	}
+	return total, err
 }
 
-// convertAll imports each chat not yet marked, in order. A chat whose ledger
-// already has rows, or whose records cannot be converted, is skipped and
-// logged with why; a store failure stops the step.
+// legacyHome is every legacy chat with its census count.
+type legacyHome struct {
+	chats  []LegacyChat
+	counts map[string]int64
+}
+
+// convertAll imports, in order, each chat the boot owes a conversion. A chat
+// whose ledger already has rows, or whose records cannot be converted, is
+// skipped and noted with why; a store failure stops the step.
 func convertAll(
 	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints,
-	chats []LegacyChat, converted map[string]map[string]bool,
+	legacy legacyHome, converted map[string]map[string]bool,
 ) (migrate.Counts, error) {
 	unmarked := migrate.Counts{}
-	for _, chat := range chats {
+	owed := recorded{marked: cp.Marked, noted: cp.Noted}
+	for _, chat := range legacy.chats {
 		if err := ctx.Err(); err != nil {
 			return nonZero(unmarked), err
 		}
-		if cp.Done(chat.ChatID) {
+		n := legacy.counts[chat.ChatID]
+		if cp.Done(chat.ChatID) && !cp.Settled(chat.ChatID) {
 			converted[chat.ChatID] = adoptedBy(chat)
+		}
+		switch owed.owed(chat.ChatID, n) {
+		case dutyNone:
 			continue
+		case dutyRecordChange:
+			if err := recordChange(ctx, log, cp, chat.ChatID, n); err != nil {
+				return nonZero(unmarked), err
+			}
+			continue
+		case dutyConvert:
 		}
 		res, err := importChat(ctx, store, chat)
 		if len(res.Skipped) > 0 {
 			log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", res.Skipped)
 		}
-		switch {
-		case errors.Is(err, ledgerstore.ErrChatNotEmpty):
-			log.WarnContext(ctx, "chatledger: skipped a chat whose ledger already holds rows", "chat_id", chat.ChatID)
-			unmarked.Add(migrate.Counts{"skipped_chats": 1})
+		if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) {
+			if err := skip(ctx, log, cp, chat.ChatID, n, err); err != nil {
+				return nonZero(unmarked), err
+			}
+			unmarked.Add(skippedCounts(err))
 			continue
-		case errors.Is(err, errUnconvertible):
-			log.WarnContext(ctx, "chatledger: skipped a chat that cannot be converted", "chat_id", chat.ChatID, "err", err)
-			unmarked.Add(migrate.Counts{"skipped_rows": 1})
-			continue
-		case err != nil:
+		}
+		if err != nil {
 			return nonZero(unmarked), err
 		}
-		counts := migrate.Counts{"rows": int64(len(res.Rows)), "skipped_rows": int64(len(res.Skipped))}
+		counts := migrate.Counts{"rows": int64(len(res.Rows)), "skipped_rows": int64(len(res.Skipped)), legacyRecords: n}
 		if err := cp.Mark(chat.ChatID, counts); err != nil {
 			return nonZero(unmarked), fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
 		}
 		converted[chat.ChatID] = adoptedBy(chat)
 	}
 	return nonZero(unmarked), nil
+}
+
+func skippedCounts(why error) migrate.Counts {
+	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
+		return migrate.Counts{"skipped_chats": 1}
+	}
+	return migrate.Counts{"skipped_rows": 1}
+}
+
+// skip notes why chat was not converted, so a later boot does not try it again.
+func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
+	msg := "chatledger: skipped a chat that cannot be converted"
+	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
+		msg = "chatledger: skipped a chat whose ledger already holds rows"
+	}
+	log.WarnContext(ctx, msg, "chat_id", chatID, "err", why)
+	if err := cp.Note(skippedKey(chatID), migrate.Note{Detail: why.Error(), Counts: migrate.Counts{legacyRecords: n}}); err != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
+	}
+	return nil
+}
+
+// recordChange notes a converted chat an older build has since added to. The
+// ledger moved on from the conversion, so the additions are named, not merged.
+func recordChange(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64) error {
+	counts, _ := cp.Marked(chatID)
+	log.WarnContext(ctx, "chatledger: an older build added to a converted chat; the additions are not in the ledger",
+		"chat_id", chatID, "legacy_records", n, "converted_records", counts[legacyRecords])
+	note := migrate.Note{
+		Detail: "legacy records added after the conversion are not in the ledger",
+		Counts: migrate.Counts{legacyRecords: n, "converted_records": counts[legacyRecords]},
+	}
+	if err := cp.Note(changedKey(chatID), note); err != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
+	}
+	return nil
 }
 
 func nonZero(c migrate.Counts) migrate.Counts {

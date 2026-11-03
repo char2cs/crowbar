@@ -78,3 +78,42 @@ func TestCheckpoints_FailedMarkLeavesTheKeyUndone(t *testing.T) {
 	assert.False(t, cp.Done("k"), "a checkpoint that never reached disk must not read as done")
 	assert.Empty(t, cp.total())
 }
+
+// A key marked before the step last completed is settled: that completion
+// verified it. One marked since is not, until the step completes again.
+func TestCheckpoints_KeysMarkedBeforeTheStepLastCompletedAreSettled(t *testing.T) {
+	l, err := openLedger(ledgerPathIn(t))
+	require.NoError(t, err)
+	step := ID{Number: 2, Name: "b"}
+	require.NoError(t, newCheckpoints(l, "r1", step, fixedClock).Mark("old", nil))
+	require.NoError(t, l.append(record{Kind: kindStepDone, Run: "r1", Step: 2, Name: "b", Outcome: outcomeApplied}))
+	require.NoError(t, newCheckpoints(l, "r2", step, fixedClock).Mark("new", nil))
+
+	cp := newCheckpoints(l, "r3", step, fixedClock)
+
+	assert.True(t, cp.Settled("old"))
+	assert.False(t, cp.Settled("new"))
+	assert.False(t, cp.Settled("never"))
+	require.NoError(t, l.Close())
+}
+
+func TestCheckpoints_ANoteIsReadBackWithoutMarkingItsKey(t *testing.T) {
+	path := ledgerPathIn(t)
+	l, err := openLedger(path)
+	require.NoError(t, err)
+	cp := newCheckpoints(l, "r1", ID{Number: 2, Name: "b"}, fixedClock)
+
+	require.NoError(t, cp.Note("k", Note{Detail: "first", Counts: Counts{"n": 1}}))
+	require.NoError(t, cp.Note("k", Note{Detail: "second", Counts: Counts{"n": 2}}))
+	require.NoError(t, l.Close())
+
+	reopened, err := openLedger(path)
+	require.NoError(t, err)
+	next := newCheckpoints(reopened, "r2", ID{Number: 2, Name: "b"}, fixedClock)
+	got, ok := next.Noted("k")
+	assert.True(t, ok)
+	assert.Equal(t, Note{Detail: "second", Counts: Counts{"n": 2}}, got)
+	assert.False(t, next.Done("k"), "a note is not a checkpoint")
+	assert.Empty(t, next.total(), "nor does it count toward the step")
+	require.NoError(t, reopened.Close())
+}

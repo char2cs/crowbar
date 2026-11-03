@@ -32,7 +32,7 @@ func boot(t *testing.T, h home.Home) {
 // pre-open half ended.
 func bootLogging(t *testing.T, h home.Home, log *slog.Logger) error {
 	t.Helper()
-	cat, err := migrate.NewCatalog(migrate.Step{Number: stepNumber, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: Plan})
+	cat, err := migrate.NewCatalog(migrate.Step{Number: stepNumber, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: Plan, Recurs: true})
 	require.NoError(t, err)
 	sess, err := migrate.Begin(context.Background(), h, cat, migrate.Options{Version: "v-test", Log: log})
 	require.NoError(t, err)
@@ -99,7 +99,9 @@ func TestApply_ConvertsEachChatOnceAndResumesFromItsCheckpoints(t *testing.T) {
 	assert.Empty(t, held(t, h, "chat-b"), "a chat an earlier attempt marked done is not converted again")
 	applied := migratetest.Applied(t, h)[stepNumber]
 	require.Len(t, applied, 1)
-	assert.Equal(t, migrate.Counts{"rows": int64(len(want.Rows)) + 3, "skipped_rows": int64(len(want.Skipped))}, applied[0])
+	assert.Equal(t, migrate.Counts{
+		"rows": int64(len(want.Rows)) + 3, "skipped_rows": int64(len(want.Skipped)), "legacy_records": records(chatA()),
+	}, applied[0])
 
 	before := testutil.TreeSnapshot(t, h)
 	boot(t, h)
@@ -119,7 +121,9 @@ func TestApply_AnImportAStoppedAttemptCommittedIsConverted(t *testing.T) {
 	boot(t, h)
 
 	assert.Equal(t, want.Rows, held(t, h, "chat-a"))
-	assert.Equal(t, []migrate.Counts{{"rows": int64(len(want.Rows)), "skipped_rows": int64(len(want.Skipped))}},
+	assert.Equal(t, []migrate.Counts{{
+		"rows": int64(len(want.Rows)), "skipped_rows": int64(len(want.Skipped)), "legacy_records": records(chatA()),
+	}},
 		migratetest.Applied(t, h)[stepNumber])
 }
 
@@ -262,8 +266,8 @@ func TestApply_ARowItCannotReadSkipsOnlyItsChat(t *testing.T) {
 	}
 }
 
-// A legacy database that cannot be read is no chat to skip: the boot halts,
-// naming the step, and the file is left as it was.
+// A legacy database that cannot be read is no chat to skip: the boot halts
+// while planning, naming the step, and the file is left as it was.
 func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/store/"+ActivityDB, "this is not a sqlite database, not even a little")
@@ -272,7 +276,7 @@ func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {
 
 	var halt *migrate.Halt
 	require.ErrorAs(t, err, &halt)
-	assert.Equal(t, migrate.HaltStepFailed, halt.Reason)
+	assert.Equal(t, migrate.HaltPlanFailed, halt.Reason)
 	raw, readErr := os.ReadFile(filepath.Join(h.Store(), ActivityDB))
 	require.NoError(t, readErr)
 	assert.Equal(t, "this is not a sqlite database, not even a little", string(raw))
@@ -322,7 +326,15 @@ type marks map[string]migrate.Counts
 
 func (m marks) Done(key string) bool { _, ok := m[key]; return ok }
 
+func (m marks) Settled(string) bool { return false }
+
+func (m marks) Marked(key string) (migrate.Counts, bool) { n, ok := m[key]; return n, ok }
+
 func (m marks) Mark(key string, n migrate.Counts) error { m[key] = n; return nil }
+
+func (m marks) Noted(string) (migrate.Note, bool) { return migrate.Note{}, false }
+
+func (m marks) Note(string, migrate.Note) error { return nil }
 
 func TestConvertAll_StopsBeforeTheNextChatOnceCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -330,7 +342,7 @@ func TestConvertAll_StopsBeforeTheNextChatOnceCancelled(t *testing.T) {
 	store := &fakeLedger{onImport: cancel}
 	cp := marks{}
 
-	_, err := convertAll(ctx, slog.Default(), store, cp, []LegacyChat{chatB(), chatA()}, map[string]map[string]bool{})
+	_, err := convertAll(ctx, slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}}, map[string]map[string]bool{})
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{"chat-b"}, store.imported, "no chat is imported after the cancel")
@@ -344,7 +356,7 @@ func TestConvertAll_ASessionOwnerFailureStopsTheStep(t *testing.T) {
 	store := &fakeLedger{ownerErr: broken}
 	cp := marks{}
 
-	_, err := convertAll(context.Background(), slog.Default(), store, cp, []LegacyChat{chatB()}, map[string]map[string]bool{})
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB()}}, map[string]map[string]bool{})
 
 	require.ErrorIs(t, err, broken)
 	require.NotErrorIs(t, err, errUnconvertible)

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	glebarez "github.com/glebarez/sqlite"
@@ -11,7 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// writable opens path the way the old daemon did: read-write, in WAL mode.
+// writable opens path the way the old daemon did: read-write, in WAL mode,
+// creating each table of ddl it does not hold yet.
 func writable(t *testing.T, path string, ddl ...string) *sql.DB {
 	t.Helper()
 	db, err := sql.Open(glebarez.DriverName, path)
@@ -20,7 +22,7 @@ func writable(t *testing.T, path string, ddl ...string) *sql.DB {
 	_, err = db.ExecContext(t.Context(), "PRAGMA journal_mode=WAL")
 	require.NoError(t, err)
 	for _, stmt := range ddl {
-		_, err = db.ExecContext(t.Context(), stmt)
+		_, err = db.ExecContext(t.Context(), strings.Replace(stmt, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
 		require.NoError(t, err)
 	}
 	return db

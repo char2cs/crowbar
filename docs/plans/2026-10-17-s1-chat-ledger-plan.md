@@ -91,13 +91,14 @@ Each follows the spec's own recommendation where it gives one. The pre-flight ru
 | R15 | Codex child frames before their subagent is bound | A bounded per-chat buffer (256 frames), drained on bind; at the parent turn's close, the rest are dead-lettered (`unclaimed_scope`). |
 | R16 | Thread read scope | Out of S1. |
 | R17 | The 500-line cap | Replaced by the amended 500-line rule (pre-flight R8) in Global Constraints. |
+| R18 | An older build booted on an upgraded home keeps writing the legacy tables | Step 6 recurs: each boot converts the legacy chats the ledger lacks and has not skipped. A converted chat the older build added to is never merged over what its ledger holds since; it is noted in the run ledger (`changed/<chat>`, with counts) and warned of once. |
 
 ## Migration engine as built (what S1 tasks use)
 
 - `migrate.Step{Number, Name, Phase (migrate.PreOpen|PostOpen), From, To, Plan func(ctx, migrate.Env) (migrate.Plan, error)}`.
-- `migrate.Env{Home home.Home; Log *slog.Logger; Earlier Marks}`.
+- `migrate.Env{Home home.Home; Log *slog.Logger; Earlier Marks; Notes map[string]Note}`. `Step.Recurs` keeps an applied in-layout step pending while its Plan has actions.
 - `migrate.Impl{Apply func(ctx, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error); Verify func(ctx, migrate.Env) error}`; `migrate.Impls map[int]Impl`.
-- `(*Checkpoints).Done(key) bool`, `Mark(key, migrate.Counts) error`; `migrate.Counts map[string]int64`. The legacy steps count skipped rows as `skipped_rows`.
+- `(*Checkpoints).Done(key) bool`, `Marked(key)`, `Settled(key)`, `Mark(key, migrate.Counts) error`, `Note(key, migrate.Note)`, `Noted(key)`; `migrate.Counts map[string]int64`. The legacy steps count skipped rows as `skipped_rows`.
 - `migrate.Plan{Actions []Action; RewritesState, NeedsGit bool}`, `Action{Kind (migrate.Convert|Delete), Subject, Count}`, `migrate.Unknown = -1`. A Plan opens no store and writes nothing.
 - `api/internal/adapter/migrations`:
   - `Catalog()`, `Begin(ctx, h, opts)`, `PreOpenImpls()` (in `workspace_paths.go`), `Adopting(number, impl)`.

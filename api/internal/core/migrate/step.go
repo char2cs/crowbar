@@ -44,9 +44,17 @@ type ID struct {
 type Env struct {
 	Home home.Home
 	Log  *slog.Logger
-	// Earlier is set for a Plan alone, which has no Checkpoints: how far an
-	// attempt that was stopped got.
+	// Earlier and Notes are set for a Plan alone, which has no Checkpoints:
+	// what the step's earlier attempts marked, and the latest note under each key.
 	Earlier Marks
+	Notes   map[string]Note
+}
+
+// Note is what a step recorded about a key besides finishing it; the latest
+// note under a key replaces the ones before it.
+type Note struct {
+	Detail string
+	Counts Counts
 }
 
 // Marks are the keys a step checkpointed, with the counts marked under each.
@@ -83,6 +91,10 @@ type Step struct {
 	To     int
 	// Plan runs without opening any store and must not write.
 	Plan func(ctx context.Context, env Env) (Plan, error)
+	// Recurs keeps an applied in-layout step pending at each boot whose Plan
+	// has actions, so its Plan runs at every boot: it must be cheap, and empty
+	// once nothing is left to do.
+	Recurs bool
 }
 
 // ID returns the step's number and name.

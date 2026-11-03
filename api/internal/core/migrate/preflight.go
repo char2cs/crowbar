@@ -99,7 +99,7 @@ func planSteps(
 ) ([]Plan, error) {
 	plans := make([]Plan, 0, len(pending))
 	for _, step := range pending {
-		env.Earlier = view.checkpoints(step.Number, step.Name)
+		env.Earlier, env.Notes = view.checkpoints(step.Number, step.Name), view.notes(step.Number, step.Name)
 		plan, err := step.Plan(ctx, env)
 		if interrupted(ctx, err) {
 			return nil, err

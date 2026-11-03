@@ -66,7 +66,7 @@ func legacySteps() []migrate.Step {
 		legacyStep(StepChatTypes, migrate.PostOpen, rewrites("chats minted before chat types existed")),
 		legacyStep(StepChatProviders, migrate.PostOpen, rewrites("chat providers their runner history disagrees with")),
 		legacyStep(StepHookDeliveries, migrate.PostOpen, deletes(".hook-deliveries directories")),
-		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: chatledger.Plan},
+		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: chatledger.Plan, Recurs: true},
 		{Number: StepPlacementTree, Name: "placement-tree", Phase: migrate.PostOpen, Plan: planPlacementTree},
 	}
 }

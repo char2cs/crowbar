@@ -219,6 +219,7 @@ func (s *Session) complete(
 	if err := s.led.append(done); err != nil {
 		return s.fail(HaltStepFailed, step, fmt.Errorf("record step.done: %w", err))
 	}
+	delete(s.again, step.Number)
 	s.run.done++
 	s.run.counts.Add(total)
 	s.opts.Log.InfoContext(ctx, "migrate: step done", "step", step.Number, "name", step.Name, "counts", total)

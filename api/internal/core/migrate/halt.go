@@ -56,10 +56,16 @@ func (s *Session) refuse(
 	reason HaltReason,
 	message string,
 ) {
-	h := s.baseHalt(reason, message)
+	s.halt(s.baseHalt(reason, message))
+}
+
+// halt stops the session on h before any run is open, so nothing is written.
+func (s *Session) halt(
+	h *Halt,
+) {
 	s.halted.Store(h)
 	// Info: the session's owner reports the halt as the error it is, once.
-	s.opts.Log.Info("migrate: halted", "reason", string(reason), "message", message)
+	s.opts.Log.Info("migrate: halted", "reason", string(h.Reason), "message", h.Message)
 }
 
 // fail halts the session on a step that was running, or about to. The halt is

@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"context"
+	"maps"
 	"time"
 )
 
@@ -14,6 +15,9 @@ type Checkpoints struct {
 	step   ID
 	now    func() time.Time
 	done   Marks
+	notes  map[string]Note
+	// settled are the keys marked before the step last completed.
+	settled map[string]bool
 }
 
 func newCheckpoints(
@@ -23,12 +27,61 @@ func newCheckpoints(
 	now func() time.Time,
 ) *Checkpoints {
 	return &Checkpoints{
-		ledger: l,
-		run:    run,
-		step:   step,
-		now:    now,
-		done:   l.view.checkpoints(step.Number, step.Name),
+		ledger:  l,
+		run:     run,
+		step:    step,
+		now:     now,
+		done:    l.view.checkpoints(step.Number, step.Name),
+		notes:   l.view.notes(step.Number, step.Name),
+		settled: l.view.settled(step.Number, step.Name),
 	}
+}
+
+// Marked is the counts marked under key, when it is done.
+func (c *Checkpoints) Marked(
+	key string,
+) (Counts, bool) {
+	n, ok := c.done[key]
+	return maps.Clone(n), ok
+}
+
+// Settled reports whether key was marked before the step last completed, so
+// that completion's Verify already checked it.
+func (c *Checkpoints) Settled(
+	key string,
+) bool {
+	return c.settled[key]
+}
+
+// Note durably records n under key without marking key done; Noted reads
+// back the latest, in this attempt or an earlier one.
+func (c *Checkpoints) Note(
+	key string,
+	n Note,
+) error {
+	err := c.ledger.append(record{
+		Kind:   kindNote,
+		At:     c.now(),
+		Run:    c.run,
+		Step:   c.step.Number,
+		Name:   c.step.Name,
+		Key:    key,
+		Counts: n.Counts,
+		Detail: n.Detail,
+	})
+	if err != nil {
+		return err
+	}
+	c.notes[key] = Note{Detail: n.Detail, Counts: maps.Clone(n.Counts)}
+	return nil
+}
+
+// Noted is the latest note under key.
+func (c *Checkpoints) Noted(
+	key string,
+) (Note, bool) {
+	n, ok := c.notes[key]
+	return n, ok
 }
 
 // Done reports whether key was marked by this attempt or an earlier one.

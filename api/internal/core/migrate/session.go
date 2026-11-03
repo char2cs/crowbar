@@ -76,9 +76,11 @@ type Session struct {
 	layout int
 	// begun is the ledger as Begin read it. The file is opened, and led set, by
 	// the first record a run writes, so a boot with nothing to do creates nothing.
-	begun    ledgerView
-	led      *ledger
-	run      *runState
+	begun ledgerView
+	led   *ledger
+	run   *runState
+	// again is the applied recurring steps this boot runs once more.
+	again    map[int]bool
 	halted   atomic.Pointer[Halt]
 	progress atomic.Pointer[Progress]
 }
@@ -87,7 +89,7 @@ type Session struct {
 // a crash left open. A session comes back unless the home cannot be created or
 // is held (ErrHomeLocked); any other refusal is its Halt, with no lock if that failed.
 func Begin(
-	_ context.Context,
+	ctx context.Context,
 	h home.Home,
 	cat *Catalog,
 	opts Options,
@@ -104,7 +106,7 @@ func Begin(
 		s.refuse(HaltIOFailed, err.Error())
 	default:
 		s.lock = lock
-		s.load()
+		s.load(ctx)
 	}
 	return s, nil
 }
@@ -112,7 +114,9 @@ func Begin(
 // load reads the home without changing it, until it knows the home may be
 // migrated: a refused home must stay byte-identical, since an older binary
 // must not write into a newer home.
-func (s *Session) load() {
+func (s *Session) load(
+	ctx context.Context,
+) {
 	read := readHome(s.home, s.cat)
 	s.layout = read.layout
 	if read.refusal != nil {
@@ -122,7 +126,15 @@ func (s *Session) load() {
 	s.begun = read.view
 	if err := s.tidy(); err != nil {
 		s.refuse(HaltIOFailed, err.Error())
+		return
 	}
+	again, err := s.cat.recurring(ctx, Env{Home: s.home, Log: s.opts.Log}, s.layout, s.begun)
+	var f *fault
+	if errors.As(err, &f) {
+		s.halt(s.baseHalt(f.reason, f.Error()).at(f.step))
+		return
+	}
+	s.again = again
 }
 
 // tidy undoes what a killed process left: half-written backups and a run with
@@ -178,7 +190,7 @@ func (c *Catalog) endOfDangling(
 	if !ok {
 		return runEnd{}, false
 	}
-	left := stepNumbers(c.pending(layout, v))
+	left := stepNumbers(c.pending(layout, v, nil))
 	undone := slices.ContainsFunc(start.Pending, func(n int) bool {
 		return !c.has(n) || slices.Contains(left, n)
 	})
@@ -254,17 +266,43 @@ func (s *Session) now() time.Time {
 }
 
 func (s *Session) pending() []Step {
-	return s.cat.pending(s.layout, s.view())
+	return s.cat.pending(s.layout, s.view(), s.again)
 }
 
 // pending lists the steps a home at layout still has to run, in order. A bump
 // step is pending exactly while LAYOUT sits at its From; every other step is
-// pending until the ledger says it was applied.
+// pending until the ledger says it was applied, or while it is in again.
 func (c *Catalog) pending(
 	layout int,
 	v ledgerView,
+	again map[int]bool,
 ) []Step {
 	return c.order(layout, func(s Step) bool {
-		return !s.bumps() && v.applied(s.Number, s.Name)
+		return !s.bumps() && v.applied(s.Number, s.Name) && !again[s.Number]
 	})
+}
+
+// recurring is the applied recurring steps a home at layout must run again:
+// those whose Plan, given what their earlier attempts recorded, finds work.
+func (c *Catalog) recurring(
+	ctx context.Context,
+	env Env,
+	layout int,
+	v ledgerView,
+) (map[int]bool, error) {
+	again := map[int]bool{}
+	for _, s := range c.steps {
+		if !s.Recurs || s.From < layout || !v.applied(s.Number, s.Name) {
+			continue
+		}
+		env.Earlier, env.Notes = v.checkpoints(s.Number, s.Name), v.notes(s.Number, s.Name)
+		plan, err := s.Plan(ctx, env)
+		if err != nil {
+			return nil, &fault{HaltPlanFailed, s, err}
+		}
+		if !plan.Empty() {
+			again[s.Number] = true
+		}
+	}
+	return again, nil
 }

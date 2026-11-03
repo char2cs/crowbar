@@ -123,6 +123,11 @@ func TestNewCatalog_Rejects(t *testing.T) {
 			fragment: "invalid layout range",
 		},
 		{
+			name:     "a recurring bump",
+			steps:    []Step{{Number: 1, Name: "a", Phase: PreOpen, From: 0, To: 1, Recurs: true, Plan: stubPlan}},
+			fragment: "a layout bump cannot recur",
+		},
+		{
 			name:     "to is below from",
 			steps:    []Step{newStep(1, "a", PreOpen, 2, 1)},
 			fragment: "invalid layout range",

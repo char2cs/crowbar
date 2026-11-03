@@ -25,6 +25,7 @@ const (
 	kindBackup     = "backup"
 	kindStepStart  = "step.start"
 	kindCheckpoint = "checkpoint"
+	kindNote       = "note"
 	kindStepDone   = "step.done"
 	kindStepFail   = "step.fail"
 	kindRunEnd     = "run.end"
@@ -38,7 +39,7 @@ const (
 // record is one ledger line. The JSON field names are the on-disk format.
 type record struct {
 	V       int       `json:"v"`
-	Kind    string    `json:"kind"` // run.start|backup|step.start|checkpoint|step.done|step.fail|run.end
+	Kind    string    `json:"kind"` // run.start|backup|step.start|checkpoint|note|step.done|step.fail|run.end
 	At      time.Time `json:"at"`
 	Run     string    `json:"run"`
 	Version string    `json:"version,omitempty"`     // run.start: binary version
@@ -48,7 +49,8 @@ type record struct {
 	Step    int       `json:"step,omitempty"`
 	Name    string    `json:"name,omitempty"`
 	Phase   string    `json:"phase,omitempty"`
-	Key     string    `json:"key,omitempty"` // checkpoint
+	Key     string    `json:"key,omitempty"`    // checkpoint, note
+	Detail  string    `json:"detail,omitempty"` // note
 	Counts  Counts    `json:"counts,omitempty"`
 	Outcome string    `json:"outcome,omitempty"` // step.done: applied; run.end: completed|failed|interrupted
 	Error   string    `json:"error,omitempty"`
@@ -96,6 +98,40 @@ func (v ledgerView) checkpoints(
 			out[r.Key] = Counts{}
 		}
 		out[r.Key].Add(r.Counts)
+	}
+	return out
+}
+
+// notes is the latest note record of the step under each key.
+func (v ledgerView) notes(
+	n int,
+	name string,
+) map[string]Note {
+	out := map[string]Note{}
+	for _, r := range v.records {
+		if r.Kind == kindNote && r.Step == n && r.Name == name {
+			out[r.Key] = Note{Detail: r.Detail, Counts: maps.Clone(r.Counts)}
+		}
+	}
+	return out
+}
+
+// settled is the keys the step checkpointed before its last step.done.
+func (v ledgerView) settled(
+	n int,
+	name string,
+) map[string]bool {
+	out, since := map[string]bool{}, map[string]bool{}
+	for _, r := range v.records {
+		if r.Step != n || r.Name != name {
+			continue
+		}
+		switch {
+		case r.Kind == kindCheckpoint:
+			since[r.Key] = true
+		case r.Kind == kindStepDone && r.Outcome == outcomeApplied:
+			maps.Copy(out, since)
+		}
 	}
 	return out
 }
