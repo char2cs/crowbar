@@ -11,6 +11,7 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -97,4 +98,30 @@ func TestAskResolver_ResolvesAfterTheHookHoldingTheChat(t *testing.T) {
 			assert.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAssistantText, ledger.KindAskResolved}, kinds)
 		})
 	}
+}
+
+// A held ask nobody answers within its budget is released with nothing to print,
+// and its CLI asks the question itself: the ask closes as proceeded.
+func TestAwaitAnswer_ABudgetThatRunsOutClosesTheAskAsProceeded(t *testing.T) {
+	l := openAsk(t)
+	budget := make(chan time.Time)
+	u := New(Deps{Ledger: l, AnswerClock: func(time.Duration) <-chan time.Time { return budget }})
+	u.answers.Hold(answerdesk.Prompt{ChoiceID: "ask-1", ChatID: "chat-1", RunnerID: "run-1"})
+
+	done := make(chan HookAnswer, 1)
+	go func() {
+		answer, err := u.AwaitAnswer(t.Context(), "ask-1")
+		assert.NoError(t, err)
+		done <- answer
+	}()
+	budget <- time.Now()
+
+	assert.Empty(t, (<-done).Stdout, "an expired hold answers with nothing to print")
+	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, ledger.KindAskResolved, rows[1].Kind)
+	resolved, err := ledger.DecodeBody[ledger.AskResolved](rows[1])
+	require.NoError(t, err)
+	assert.Equal(t, ledger.ResolutionProceeded, resolved.Resolution, "its CLI went on without Crowbar's answer")
 }

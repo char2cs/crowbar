@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -92,6 +93,8 @@ type Deps struct {
 	// AgentWorking is told when a chat's busy answer flips, for its
 	// workspace's working overlay.
 	AgentWorking func(ctx context.Context, wsID, chatID string, working bool)
+	// AnswerClock is the clock a held ask's answer budget runs out on.
+	AnswerClock func(time.Duration) <-chan time.Time
 	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage,
 	// ToolAccess and Resolver are filled in by New: they are this usecase's own
 	// methods, and it does not exist when the caller builds the Deps.
@@ -143,7 +146,7 @@ func New(d Deps) *Usecase {
 		writes:    ingress.NewWriter(d.Ledger, locks),
 	}
 	u.asks = askResolver{writes: sh.writes}
-	sh.answers = answerdesk.New(answerdesk.DefaultRetention, u.asks)
+	sh.answers = answerdesk.New(answerdesk.DefaultRetention, u.asks, answerdesk.WithBudgetClock(d.AnswerClock))
 	u.answers = sh.answers
 	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.

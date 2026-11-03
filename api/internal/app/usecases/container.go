@@ -389,6 +389,7 @@ func newAgentWiring(
 		Nodes:        repos.Placement,
 		RepoRoots:    workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 		AgentWorking: repos.SetAgentWorking,
+		AnswerClock:  time.After,
 	})
 	// The chat→worktree resolver, built here because it reads the chat forest
 	// off the usecase above and because the tree below needs its inverse; the

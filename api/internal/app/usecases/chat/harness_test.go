@@ -1068,7 +1068,8 @@ func newFixtureUsing(
 				Idempotency:     agenttools.NewIdempotency(),
 				ThreadBroadcast: noopThreadBroadcast,
 			},
-			Snapshots: snaps,
+			Snapshots:   snaps,
+			AnswerClock: time.After,
 		})
 	}
 	u := boot(snaps)
