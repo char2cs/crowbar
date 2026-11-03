@@ -35,7 +35,7 @@ const repo: RepoDTO = {
 }
 
 /** A fresh projects snapshot: the project and its repo, and what it could not read. */
-function snapshot(unread?: string[]) {
+function snapshot(unread?: string[], repos: RepoDTO[] = [repo]) {
   act(() => {
     socket.deliver({
       t: 'entity',
@@ -45,7 +45,9 @@ function snapshot(unread?: string[]) {
       v: 1,
       data: projectDTO({ id: 'p1' }),
     })
-    socket.deliver({ t: 'entity', scope: 'projects', kind: 'repo', id: 'r1', v: 1, data: repo })
+    for (const r of repos) {
+      socket.deliver({ t: 'entity', scope: 'projects', kind: 'repo', id: r.id, v: 1, data: r })
+    }
     socket.deliver({ t: 'synced', scope: 'projects', ...(unread ? { unread } : {}) })
   })
 }
@@ -82,6 +84,29 @@ describe('the unread notice', () => {
     ])
     snapshot()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('holds Retry until the snapshot it asked for lands', () => {
+    render(<UnreadNotice projectId="p1" />)
+    snapshot(['r1'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(socket.sent).toHaveLength(2)
+
+    snapshot(['r1'])
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled()
+  })
+
+  it('lists two unread repos of the same name, each once', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const twin: RepoDTO = { ...repo, id: 'r2', path: '/elsewhere/alpha', order: 1 }
+    render(<UnreadNotice projectId="p1" />)
+    snapshot(['r1', 'r2'], [repo, twin])
+
+    expect(screen.getAllByText("Couldn't load chats in alpha")).toHaveLength(2)
+    expect(errors).not.toHaveBeenCalled()
   })
 
   it("says nothing of another project's repo", () => {
