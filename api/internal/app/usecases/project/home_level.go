@@ -9,26 +9,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// homeRow is one member of a project's home level as the repo placement pass
-// sees it. fresh marks a home chat that has no Node row yet (created at the
-// root before Node rows existed): it holds its frozen Chat.Order, and the
-// first write that moves it mints its Node instead of ordering one.
+// homeRow is one member of a project's home level. fresh marks a home chat predating Node rows: it holds
+// its frozen Chat.Order, and the first write that moves it mints its Node.
 type homeRow struct {
 	tree.Node
 	fresh     bool
 	createdAt time.Time
 }
 
-// homeLevel answers ONE project's rows in the container folderID of its home
-// level: the project's own repos, its home workspace's chats (Node-backed or
-// not, never the hidden home owner) and its own home folders. Never a
-// workspace anchor — a locked branch's Node shares the "" root but is drawn
-// inside its repo — and never another project's rows. This is the member set
-// the sidebar renders at the project top level, so an index computed against
-// it lands where the drop line was drawn.
-//
-// With no home workspace resolved (or none wired) chats degrade to "every chat sharing the container", the posture
-// every earlier version of this pass took.
+// homeLevel answers one project's rows in container folderID of its home level — its repos, home chats
+// (never the hidden owner) and home folders, never workspace anchors or other projects' rows — so an
+// index lands where the sidebar drew the drop line. Without a home workspace, chats are every chat there.
 func (u *projectUsecase) homeLevel(
 	ctx context.Context,
 	projectID string,
@@ -80,17 +71,9 @@ func (u *projectUsecase) homeLevel(
 	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), nil
 }
 
-// withNodelessRows appends the root rows that predate Node rows — a repo,
-// or a home chat created before the root minted one — at the root the
-// sidebar draws them at; their first move mints the row.
-//
-// Absent from ListByParent("") is NOT "has no Node row": a repo filed into a
-// home folder has one, parented there. Both kinds therefore confirm the miss
-// with GetNode before claiming the row is fresh — a repo that answers is
-// filed elsewhere and is no member of this container at all. Skipping that
-// check for repos refused every later root-level repo drag with "reorder
-// repos: mint <id>: node: create: create node: exists" the moment one repo
-// of the project lived in a folder.
+// withNodelessRows appends root rows predating Node rows (repos, old home chats); their first move mints
+// the row. Absence from ListByParent("") is not "no Node" — a repo filed in a folder has one — so each
+// miss is confirmed with GetNode before being claimed fresh.
 func (u *projectUsecase) withNodelessRows(
 	ctx context.Context,
 	rows []homeRow,

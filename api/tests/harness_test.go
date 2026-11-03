@@ -420,24 +420,6 @@ func readUntil(
 // delivered on that connection.
 const sentinelFile = "crowbar-sentinel.txt"
 
-// readTextFrame blocks until the next TEXT frame and returns its raw bytes,
-// skipping control frames. Like readUntil it carries no deadline: the frame's
-// arrival is the signal. Use it (rather than readUntil) when the test must
-// COUNT or inspect every frame, including the ones it does not match on.
-func readTextFrame(
-	t *testing.T,
-	conn *websocket.Conn,
-) []byte {
-	t.Helper()
-	for {
-		mt, raw, err := conn.ReadMessage()
-		require.NoError(t, err, "ws closed before the awaited frame arrived")
-		if mt == websocket.TextMessage {
-			return raw
-		}
-	}
-}
-
 // statusHasFile reports whether a decoded GitStatus frame lists name among its
 // dirty files. The Git broadcaster filters on wsId but serialises a BARE
 // GitStatus (no wsId on the wire), so a frame's dirty-file set is the only

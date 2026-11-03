@@ -16,17 +16,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// searchReadBufferBytes sizes the buffer the scanner pulls git's stdout
-// through. It is a throughput knob, not a limit: a line longer than the buffer
-// is reassembled across reads rather than failing, which is why this path does
-// not use a bufio.Scanner — Scanner caps a token at 64 KB by default and real
-// repositories carry minified bundles with lines several hundred KB long.
+// searchReadBufferBytes is a throughput knob, not a limit: long lines are reassembled across reads,
+// which is why this avoids bufio.Scanner's 64 KB token cap (minified bundles exceed it).
 const searchReadBufferBytes = 64 << 10
 
-// searchPreviewBytes caps one hit's preview. The perf fixture's minified bundle
-// is a single 657,780-character line; without a cap, one hit in it would put
-// two thirds of a megabyte into the response, and a query matching it in every
-// file would put the whole diff there — exactly what streaming avoided.
+// searchPreviewBytes caps one hit's preview: a hit in a single-line minified bundle would otherwise
+// put most of a megabyte into the response.
 const searchPreviewBytes = 200
 
 const searchDevNull = "/dev/null"
@@ -38,24 +33,9 @@ var (
 	searchNewHeader  = []byte("+++ ")
 )
 
-// SearchDiff scans the working-tree diff against ref — the same blend of
-// committed and uncommitted changes AgainstRef returns — for query, and reports
-// the file and line number of every match, plus whether the Limit cut the
-// results short.
-//
-// The diff is streamed and matched a line at a time, so a search over a 46 MB
-// patch costs the memory of one line plus the hits kept, never the patch. When
-// Limit fills, the reader is closed and git is killed where it stands, so a
-// query that matches early does not pay for the rest of the diff.
-//
-// Only hunk CONTENT is searched. A query matching a `diff --git` line, a `@@`
-// header (including the function name git appends to it) or a `---`/`+++` file
-// header is not a hit — those describe the patch rather than the code, and
-// sending a reader to them is worse than finding nothing.
-//
-// An empty query matches nothing rather than everything, so a find box that
-// searches on every keystroke does not run a whole-diff scan the moment it
-// opens.
+// SearchDiff streams the working-tree diff against ref and reports every hunk-CONTENT match (headers
+// describe the patch, not the code), closing git once Limit fills so memory and time stay bounded.
+// An empty query matches nothing, so a find box does not scan the whole diff on open.
 func SearchDiff(
 	ctx context.Context,
 	repoPath string,
@@ -82,13 +62,8 @@ func SearchDiff(
 	return s.hits, s.truncated, searchExitError(s.truncated, wait)
 }
 
-// searchArgs pins the two things path extraction depends on. --no-prefix drops
-// the a/ and b/ decorations, so the `---`/`+++` lines carry the path and
-// nothing else — no guessing whether a leading "b/" belongs to the patch or to
-// a directory actually named b, and no exposure to diff.noprefix or
-// diff.mnemonicPrefix rewriting the decoration out from under the parser.
-// core.quotePath=false stops git C-quoting non-ASCII paths, which would
-// otherwise reach the client as "src/w\303\244rme.txt" — not a path it can open.
+// searchArgs pins path extraction: --no-prefix leaves only the path on ---/+++ lines regardless of
+// diff.noprefix/mnemonicPrefix, and core.quotePath=false keeps non-ASCII paths openable.
 func searchArgs(
 	ref string,
 ) []string {
@@ -111,10 +86,8 @@ func searchExitError(
 	return wait()
 }
 
-// searchMatcher compiles the query once, outside the scan. A literal search is
-// a byte comparison; every other mode goes through RE2, including the
-// case-insensitive literal — quoting the query and letting the engine fold case
-// avoids lowercasing a million lines to search them.
+// searchMatcher compiles the query once. Literal search is a byte compare; everything else, even a
+// case-insensitive literal, goes through RE2 rather than lowercasing every line.
 func searchMatcher(
 	query string,
 	opts gitdomain.SearchOpts,
@@ -185,10 +158,8 @@ func (s *diffSearch) finish(
 	return err
 }
 
-// consume routes one line. The prefix tests run before any content test and are
-// safe in that order: every line of a hunk body carries a one-character prefix,
-// so a line beginning "diff --git " or "@@ " at column zero can only be the
-// patch's own machinery, never a line of the file.
+// consume routes one line. Prefix tests come first safely: hunk-body lines always carry a one-char
+// prefix, so "diff --git " or "@@ " at column zero is patch machinery.
 func (s *diffSearch) consume(
 	line []byte,
 ) {
@@ -214,10 +185,8 @@ func (s *diffSearch) startFile() {
 	s.oldPath = ""
 }
 
-// header reads the two file-name lines. A deletion's new side is /dev/null, so
-// the path falls back to the old one — otherwise every hit in a deleted file
-// would be unattributable. Every other header line (index, mode, similarity,
-// "Binary files … differ") is inert.
+// header reads the file-name lines; a deletion's /dev/null new side falls back to the old path so its
+// hits stay attributable. Other header lines are inert.
 func (s *diffSearch) header(
 	line []byte,
 ) {
@@ -291,10 +260,8 @@ func (s *diffSearch) record(
 	s.truncated = s.limit > 0 && len(s.hits) >= s.limit
 }
 
-// searchReadLine returns the next line, newline included, reusing scratch for
-// the rare line too long for the reader's buffer. ReadSlice hands back a view
-// into that buffer and costs no allocation, which matters at a million lines;
-// the copy into scratch only happens for a line that spans several reads.
+// searchReadLine returns the next line via allocation-free ReadSlice, copying into scratch only for a
+// line spanning several reads.
 func searchReadLine(
 	r *bufio.Reader,
 	scratch []byte,
@@ -347,13 +314,9 @@ func searchRangeStart(
 	return n, true
 }
 
-// searchHeaderPath extracts the path from what follows "--- " or "+++ ". Two
-// spellings reach it. A name carrying a space is followed by a TAB, the field
-// separator the unified-diff format inherits from POSIX diff's optional
-// timestamp column — leave it on and every such path is one the client cannot
-// open. A name carrying a quote, a backslash or a control byte is C-quoted as a
-// whole, which core.quotePath=false does not turn off: that setting governs
-// non-ASCII bytes only.
+// searchHeaderPath extracts the path after "--- "/"+++ ": a name with a space is followed by a TAB
+// (the old timestamp column) that must be cut, and a name with quotes/backslashes/controls is
+// C-quoted whole even with core.quotePath=false.
 func searchHeaderPath(
 	field []byte,
 ) string {
@@ -368,10 +331,8 @@ func searchHeaderPath(
 	return name
 }
 
-// searchUnquotePath decodes git's C-quoting, which Go's own string-literal
-// syntax covers: the same \" \\ \t escapes and the same three-digit octal form
-// git uses for a raw byte. A field that will not decode is passed through
-// rather than dropped — a mangled path still says which file to look in.
+// searchUnquotePath decodes git's C-quoting with Go's literal syntax (same escapes and octal); an
+// undecodable field passes through, since a mangled path still names the file.
 func searchUnquotePath(
 	quoted string,
 ) string {
@@ -382,10 +343,8 @@ func searchUnquotePath(
 	return unquoted
 }
 
-// searchPreview cuts the content to the cap on a rune boundary. Cutting mid
-// rune would put invalid UTF-8 into a JSON response, where it serialises as a
-// replacement character and reads as corruption in the file rather than in the
-// preview.
+// searchPreview cuts on a rune boundary: invalid UTF-8 would serialise as replacement characters and
+// read as file corruption.
 func searchPreview(
 	content []byte,
 ) string {

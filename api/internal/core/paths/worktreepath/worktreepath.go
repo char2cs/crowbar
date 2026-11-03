@@ -1,13 +1,6 @@
-// Package worktreepath derives deterministic filesystem paths for git
-// worktrees and per-entity directories, all rooted under ~/.crowbar.
-//
-// It exposes two path families. The per-entity helpers (StorageDir,
-// ThreadsStorageDir, RepoDir, ...) key metadata directories by opaque UUIDs
-// (projectID/repoID/workspaceID). The human-readable family (Derive,
-// RemoteSlug) keys the git worktree by its natural identity —
-// <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ — so navigable
-// paths carry no UUIDs (spec §3.9). DetectClash rejects case-only collisions on
-// case-insensitive filesystems.
+// Package worktreepath derives deterministic paths under ~/.crowbar: per-entity metadata dirs keyed by
+// UUIDs, and human-readable worktree dirs keyed by remote identity so navigable paths carry no UUIDs.
+// DetectClash rejects case-only collisions on case-insensitive filesystems.
 package worktreepath
 
 import (
@@ -24,18 +17,9 @@ import (
 // unrepresentable on a case-insensitive filesystem (macOS APFS, Windows).
 var ErrPathClash = errors.New("worktreepath: case-insensitive path clash")
 
-// Derive returns the human-readable git worktree directory for a workspace.
-//
-// Path: <home>/projects/<project>/<slug>/<branch>/worktree, where slug is the
-// repo's full remote identity host/owner/repo (or a single leaf name for a
-// repo with no remote). Slug and branch separators map to nested directories;
-// branch names are not sanitized because git check-ref-format already forbids
-// unsafe components (spec §3.9). The trailing "worktree" leaf makes the
-// <slug>/<branch> directory a WORKSPACE ROOT: it holds the git worktree and
-// the sibling "chats" tree (see WorkspaceRoot/ChatsDir) side by side, so
-// agentic chat state never lands inside the git worktree (never shows up in
-// git status) and the whole workspace's on-disk footprint is removed by a
-// single rm -rf of the root.
+// Derive returns <home>/projects/<project>/<slug>/<branch>/worktree for a workspace. The "worktree"
+// leaf makes <slug>/<branch> a workspace root holding the worktree beside its "chats" tree, so agent
+// state never shows in git status and one rm -rf of the root removes the whole footprint.
 func Derive(
 	home string,
 	project string,
@@ -47,17 +31,9 @@ func Derive(
 			"worktreepath: derive requires non-empty home, project, slug, and branch",
 		)
 	}
-	// filepath.Join CLEANS what it joins, so a traversal component anywhere in
-	// project, slug or branch resolves the result OUT of the layout: a repo with
-	// no parseable remote falls back to its user-supplied NAME for the slug, and
-	// a name of "../../../../tmp/pwned" derives /tmp/pwned/<branch>/worktree.
-	// A workspace out there is unreclaimable — every removal guard refuses to
-	// touch anything that is not strictly under crowbar home — so it is refused
-	// here, at the one place the path is built, rather than trusted to callers.
-	//
-	// The floor is <home>/projects, not home: a component that climbs only as far
-	// as home itself still lands the workspace outside the project layout, where
-	// nothing that walks it can find the tree again.
+	// filepath.Join cleans traversal components (a remote-less repo's name slug can be "../../tmp"),
+	// and a workspace outside <home>/projects is unreclaimable by every removal guard, so refuse it
+	// here where the path is built rather than trusting callers.
 	root := filepath.Join(home, "projects")
 	path := filepath.Join(root, project, slug, branch, "worktree")
 	if !UnderHome(path, root) {
@@ -72,13 +48,9 @@ func Derive(
 // the chats tree as siblings, given the worktree path.
 func WorkspaceRoot(worktreePath string) string { return filepath.Dir(worktreePath) }
 
-// ChatsDir returns the per-workspace agentic chats directory for a MANAGED
-// worktree: the sibling of the worktree, NOT inside it (so agent state never
-// appears in git status). It is valid ONLY when the worktree is itself under
-// crowbar home; an adopted checkout (repo-home/project-home) whose worktree is
-// the user's real dir OUTSIDE home must NOT use this (its chats would land on the
-// user's filesystem) — it reroots under home via HomeDefaultChatsDir instead. The
-// kind-aware choice between the two lives in the agent WorkspaceReader seam.
+// ChatsDir returns a managed worktree's chats directory, beside the worktree so agent state never
+// appears in git status. Only valid for worktrees under crowbar home: an adopted checkout must use
+// HomeDefaultChatsDir so its chats never land on the user's filesystem.
 func ChatsDir(worktreePath string) string {
 	return filepath.Join(WorkspaceRoot(worktreePath), "chats")
 }
@@ -86,12 +58,9 @@ func ChatsDir(worktreePath string) string {
 // worktreeLeaf is the last component of every managed worktree path (Derive).
 const worktreeLeaf = "worktree"
 
-// OwnRoot returns the root a managed worktree path names — the directory that
-// holds its "worktree" leaf beside its chats, storages and threads, and nothing
-// of any other workspace — and false for every other shape. A pre-leaf
-// <slug>/<branch> row, written before the leaf existed, is refused: its parent
-// is the slug directory all its siblings share. So is an unclean path, and one
-// whose root is not strictly inside <home>/projects/<project>.
+// OwnRoot returns the root holding a managed worktree path's "worktree" leaf, and false otherwise.
+// Pre-leaf <slug>/<branch> rows are refused (their parent is shared by siblings), as are unclean
+// paths and roots not strictly inside <home>/projects/<project>.
 func OwnRoot(
 	worktreePath string,
 	home string,
@@ -108,12 +77,9 @@ func OwnRoot(
 	return root, true
 }
 
-// ManagedChatsDir resolves the chats directory of a worktree under the home.
-// A leaf-shaped path keeps it beside the worktree (ChatsDir). A pre-leaf row
-// keeps the <slug>/chats tree it has always used, so its attachments stay
-// readable — unless that directory is a checkout (a sibling branch named
-// "chats") or not inside the project, in which case it gets its own directory
-// keyed by workspace id rather than writing into someone else's tree.
+// ManagedChatsDir resolves a home worktree's chats dir: beside a leaf-shaped worktree, or the legacy
+// <slug>/chats of a pre-leaf row so its attachments stay readable — unless that dir is a checkout or
+// outside the project, when it gets its own dir keyed by workspace id.
 func ManagedChatsDir(
 	home string,
 	projectID string,
@@ -153,15 +119,9 @@ func HoldsAnother(
 	return false
 }
 
-// HomeDefaultChatsDir returns the agentic chats directory for an adopted checkout
-// (repo-home/project-home), rooted strictly under crowbar home so no plaintext
-// conversation ledger is ever written beside the user's real repository (Task 7).
-//
-// Path: <home>/projects/<project>/<slug>/default/chats, where slug is the repo's
-// on-disk identity (worktreepath.RemoteSlug). A blank slug (the project-level home
-// has no repo) collapses to <home>/projects/<project>/default/chats — still under
-// home, never the user's real dir. The worktree/Cwd is unaffected: only the chats
-// tree moves, the adopted worktree stays exactly where the user imported it.
+// HomeDefaultChatsDir returns <home>/projects/<project>/<slug>/default/chats (blank slug collapses
+// the <slug> level) for an adopted checkout, so no conversation ledger is ever written beside the
+// user's real repository; the adopted worktree itself stays where it was imported.
 func HomeDefaultChatsDir(
 	home string,
 	project string,
@@ -170,62 +130,23 @@ func HomeDefaultChatsDir(
 	return filepath.Join(home, "projects", project, slug, "default", "chats")
 }
 
-// RunnerDir returns a runner's per-spawn config directory ({tmp}) — the rendered
-// hook config the vendor CLI is pointed at — under an already resolved chats
-// directory.
-//
-// Path: <chatsDir>/runners/<runnerID>-<provider>. It is keyed by the RUNNER, and
-// deliberately NOT by the chat, even though a per-spawn dir intuitively belongs
-// under the chat that spawned it (its predecessor, SegmentDir, was
-// <chatsDir>/<chatID>/<segID>-<provider>).
-//
-// The reason is that a runner's chat pointer is ERASABLE. Displace clears
-// CurrentChatID while the process is still alive — it is issued by every path that
-// pushes a CLI off a chat (an eviction, a provider switch, a chat delete) — so a
-// runner that was displaced, outlived a failed kill, and then died with the daemon
-// has NO chat id left anywhere in its row. Its tmp dir could not be located at all,
-// and those are exactly the runners boot reconciliation exists to reap. A directory
-// findable only through a pointer the system is free to erase is a directory that
-// cannot be cleaned up.
-//
-// Runner ids and providers are never erased, so this path is derivable from a bare
-// runner row for the whole life of the process — by the onExit callback that removes
-// it on a clean exit, and by boot reconciliation when the daemon died before that
-// callback could run. It also fixes, rather than inherits, SegmentDir's admitted
-// corner: a runner that MOVED to another chat left its tmp dir under the old chat's
-// id, where nothing derived from its current row would ever find it.
-//
-// It stays under the chats dir (never inside the git worktree, always strictly under
-// crowbar home), so a workspace-root rm still takes it with everything else.
+// RunnerDir returns a runner's per-spawn config dir, <chatsDir>/runners/<runnerID>-<provider>. It is
+// keyed by the runner, not the chat, because a runner's chat pointer is erasable (Displace) while
+// runner id and provider are not, so boot reconciliation can always find and reap it.
 func RunnerDir(chatsDir, runnerID, provider string) string {
 	return filepath.Join(chatsDir, "runners", runnerID+"-"+provider)
 }
 
-// LedgerChatsDir returns <crowbar home>/chats, the root a chat's own directory
-// is joined with its id under. It is not the chat ledger, which is
-// chat_ledger.db under the store directory.
-//
-// It is deliberately never AgentChatsDir/ChatsDir, i.e. never a function of
-// WorkspaceID: that field is optional and mutable (a bubble chat has none
-// until promoted), and even a SET workspace's own directory can move under it
-// later (WorktreePath transitions blocked -> provisioned, or the workspace is
-// relocated) with WorkspaceID never changing at all. A derivation built from
-// either would move a ledger out from under a chat that is already writing to
-// it, or fail outright while WorkspaceID is empty (spec §1.5). Anchoring on
-// crowbar home instead is the one thing neither can perturb.
+// LedgerChatsDir returns <crowbar home>/chats, under which each chat's directory is joined by id. It
+// is never derived from WorkspaceID, which is optional and whose directory can move, so a ledger
+// never moves out from under a chat that is writing to it.
 func LedgerChatsDir(crowbarHome string) string {
 	return filepath.Join(crowbarHome, "chats")
 }
 
-// UnderHome reports whether path is strictly nested under crowbarHome — i.e. home
-// is a proper directory-boundary prefix of path. A blank path or home, home
-// itself, or a mere string-prefix sibling (…/.crowbar-other) is never under home.
-//
-// It is the shared predicate the agent chats-dir seam uses to distinguish a
-// Crowbar-managed worktree (chats stay beside it, ChatsDir) from an adopted
-// checkout at the user's real dir (chats reroot under home, HomeDefaultChatsDir),
-// mirroring the repository-layer managedWorktreePath rm guard so both converge on
-// exactly one notion of "under home".
+// UnderHome reports whether path is strictly nested under crowbarHome at a directory boundary; blank
+// inputs, home itself and string-prefix siblings are not. It is the one notion of "under home" the
+// chats-dir seam and the repository rm guard share.
 func UnderHome(
 	path string,
 	home string,
@@ -245,10 +166,8 @@ func ResolvePath(p string) string {
 	return filepath.Clean(p)
 }
 
-// SamePath reports whether two paths refer to the same location, resolving
-// symlinks first: git worktree list emits fully-resolved paths (macOS /var ->
-// /private/var, a symlinked home or network mount), while a repo's Path is the
-// path as imported, so a plain string compare never matches them.
+// SamePath reports whether two paths name the same location after resolving symlinks, since git
+// worktree list emits resolved paths while a repo's Path is as imported.
 func SamePath(a, b string) bool {
 	return ResolvePath(a) == ResolvePath(b)
 }
@@ -261,10 +180,8 @@ func IsLiveCheckout(dir string) bool {
 	return err == nil
 }
 
-// SiblingRoots lists the existing workspace roots under a repo's slug directory
-// (<home>/projects/<projectID>/<slug>/*), so a create can reject a
-// case-insensitive path clash. A slug directory that does not exist yet has
-// none.
+// SiblingRoots lists the existing workspace roots under a repo's slug directory so a create can
+// reject a case-insensitive clash; a missing slug directory has none.
 func SiblingRoots(
 	crowbarHome string,
 	projectID string,
@@ -285,12 +202,8 @@ func SiblingRoots(
 	return paths, nil
 }
 
-// DetectClash returns ErrPathClash when candidate is case-insensitively equal
-// to any path in existingPaths.
-//
-// On a case-insensitive filesystem two git-distinct case-only identities would
-// resolve to the same directory, so creation is rejected rather than
-// disambiguated (spec §3.9, decision 13).
+// DetectClash returns ErrPathClash when candidate is case-insensitively equal to any existing path:
+// on a case-insensitive filesystem the two would share a directory, so creation is refused.
 func DetectClash(
 	existingPaths []string,
 	candidate string,
@@ -410,22 +323,9 @@ func workspaceDir(
 // one name, which is a home in trouble for other reasons.
 const maxPathBranchAttempts = 100
 
-// FreePathBranch returns the directory name a new workspace on branch should
-// occupy under the slug: branch itself, or branch-2, branch-3, … when the name
-// is already taken.
-//
-// It exists because a workspace's directory is FIXED AT CREATION and never
-// follows a later branch rename. A name is therefore frozen by whoever was
-// created under it, and stays frozen after that workspace has moved on to a
-// different branch — so "create a branch called foo" can meet a foo/ directory
-// belonging to a workspace whose branch is now bar. Refusing there would let a
-// name the user has abandoned block them forever.
-//
-// Two things are checked, because neither covers the other: the sibling scan is
-// case-insensitive (so testing and Testing cannot both exist on a
-// case-insensitive filesystem) but only sees TOP-LEVEL entries, which a nested
-// branch like feature/x is not; the directory test sees any depth but compares
-// exactly as the filesystem does.
+// FreePathBranch returns branch, or branch-2, branch-3, … when taken: a workspace's directory is fixed
+// at creation and never follows a rename, so an abandoned name must not block a new branch. The
+// sibling scan catches case-only clashes; the directory test catches nested branches.
 func FreePathBranch(
 	home string,
 	project string,
@@ -456,12 +356,8 @@ func FreePathBranch(
 		ErrPathClash, branch, maxPathBranchAttempts)
 }
 
-// RemoveUnderHome deletes target only when it is strictly under crowbar home,
-// and says why when target stays: refused, or the removal failed.
-//
-// Every agent path the chat usecase reaps is derived from a workspace lookup, so
-// this guard is what stops a poisoned or misconfigured chats dir reaching the
-// user's real repository.
+// RemoveUnderHome deletes target only when strictly under crowbar home, and says why when it stays.
+// It stops a poisoned or misconfigured chats dir from reaching the user's real repository.
 func RemoveUnderHome(
 	home string,
 	target string,
@@ -475,31 +371,15 @@ func RemoveUnderHome(
 	return nil
 }
 
-// AttachmentsDir returns a chat's durable attachment store: the directory the
-// upload endpoint writes into and the asset-serving GET endpoint reads from.
-//
-// Path: <chatsDir>/<chatID>/attachments. It nests under the same chats/
-// sibling directory ChatsDir already roots the ledger and RunnerDir under
-// (never inside the git worktree, so an upload never appears in git status),
-// keyed by the chat's own id — unlike RunnerDir, an attachment's chat pointer
-// is never erased, and deleting the chat already removes chats/<chatID>
-// wholesale, so there is no separate cleanup path to get right here.
+// AttachmentsDir returns <chatsDir>/<chatID>/attachments, a chat's durable attachment store. Keyed by
+// chat id (never erased), so deleting the chat's directory already removes it.
 func AttachmentsDir(chatsDir, chatID string) string {
 	return filepath.Join(chatsDir, chatID, "attachments")
 }
 
-// RestoreDurableAttachmentRefs reverses materializeAttachmentsForDispatch's
-// one rewrite (dispatch_attachments.go, runner package): a user_prompt hook's
-// own self-reported message IS the text the CLI actually received, which —
-// whenever that dispatch referenced an attachment — is the file's real
-// absolute path in the durable store, not the logical
-// chats/<chatID>/attachments/<file> reference the rest of Crowbar (the
-// asset-serving endpoint, every other stored turn) expects. The ingestion
-// path has no other copy of the original text to fall back on for a prompt
-// typed straight into the CLI's own terminal, so it must un-rewrite this one
-// in place rather than special-case its source. Every other occurrence in
-// text is left untouched, and text with no such reference at all comes back
-// unchanged.
+// RestoreDurableAttachmentRefs rewrites durable-store absolute attachment paths in a hook's prompt
+// back to logical chats/<chatID>/attachments/<file> refs, since a prompt typed into the CLI has no
+// other copy of the original text. Text without such paths comes back unchanged.
 func RestoreDurableAttachmentRefs(text, chatsDir, chatID string) string {
 	absolutePrefix := filepath.ToSlash(AttachmentsDir(chatsDir, chatID))
 	pattern := regexp.MustCompile(regexp.QuoteMeta(absolutePrefix) + `/([^/)\s]+)`)

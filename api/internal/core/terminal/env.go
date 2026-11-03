@@ -8,10 +8,8 @@ import (
 	"strings"
 )
 
-// ptyEnv returns the process environment augmented with the terminal capability
-// vars that a GUI-launched daemon won't inherit from any shell session. Without
-// TERM, readline-based programs (bash, zsh, a full-screen CLI, etc.) fall back to
-// dumb-terminal mode and disable history navigation and line editing.
+// ptyEnv returns the environment plus the terminal vars a GUI-launched daemon does not inherit; without
+// TERM, readline programs drop to dumb mode with no history or line editing.
 func ptyEnv() []string {
 	base := os.Environ()
 	overrides := map[string]string{
@@ -19,12 +17,8 @@ func ptyEnv() []string {
 		"COLORTERM": "truecolor",
 	}
 
-	// A GUI/launchd-launched daemon inherits launchd's minimal environment, which
-	// carries NO locale — so the PTY shell falls back to the POSIX "C" locale and
-	// mangles every non-ASCII byte (a typed argument or program output alike) into
-	// U+FFFD. Default a UTF-8 locale when the inherited environment specifies none,
-	// so "works in a real terminal, broken in the packaged app" glyph corruption
-	// cannot happen. Never overrides a user's own explicit locale.
+	// A launchd-launched daemon carries no locale, so the shell falls back to "C" and mangles non-ASCII into
+	// U+FFFD. Default a UTF-8 locale, never overriding the user's.
 	if lang := defaultLocale(base, runtime.GOOS); lang != "" {
 		overrides["LANG"] = lang
 	}
@@ -49,12 +43,8 @@ func ptyEnv() []string {
 	return result
 }
 
-// defaultLocale returns the UTF-8 LANG value ptyEnv should inject when the
-// inherited environment carries NO locale at all, or "" when a locale is already
-// present. It defaults ONLY when all three of LANG, LC_ALL and LC_CTYPE are
-// unset, so a user's explicit locale is never overridden. macOS ships no
-// C.UTF-8 locale, so darwin falls back to en_US.UTF-8; Linux (and CI) use the
-// locale-independent C.UTF-8 — keyed off goos so the choice is portable.
+// defaultLocale returns the UTF-8 LANG to inject only when LANG, LC_ALL and LC_CTYPE are all unset, else
+// "". darwin ships no C.UTF-8, so it gets en_US.UTF-8.
 func defaultLocale(
 	base []string,
 	goos string,
@@ -72,14 +62,9 @@ func defaultLocale(
 	return "C.UTF-8"
 }
 
-// ParseHexColor converts the frontend's resolved CSS colour ("#rgb", "#rrggbb", or
-// "#rrggbbaa" — the form resolve-css-color.ts emits) into a color.Color, or nil when the
-// string is empty/unparseable. Alpha is dropped: the value feeds an OSC 11/10 default-colour
-// report, which is RGB-only. A nil result is a safe no-op downstream — Session.SetTheme and
-// SetHostTheme both leave a nil channel unchanged rather than resetting it.
-//
-// Exported because the hex string is the wire form on BOTH theme channels: the per-session
-// WS frame handled below, and the host-theme REST push the API layer serves.
+// ParseHexColor converts the frontend's "#rgb"/"#rrggbb"/"#rrggbbaa" into a color.Color, or nil (a safe
+// no-op downstream). Alpha is dropped: OSC 11/10 reports are RGB-only. Exported because hex is the wire
+// form on both the session WS frame and the host-theme REST push.
 func ParseHexColor(s string) color.Color {
 	if len(s) == 0 || s[0] != '#' {
 		return nil
@@ -117,22 +102,9 @@ func withTerminalDefaults(env []string) []string {
 	if !has("COLORTERM") {
 		env = append(env, "COLORTERM=truecolor")
 	}
-	// The locale half of the same launchd-minimal-environment hazard ptyEnv() guards.
-	// CreateCommand callers pass os.Environ() straight through (see the agent usecase),
-	// so a GUI-launched daemon hands the vendor CLI an environment with NO locale at
-	// all — and this backfill used to stop at TERM, which is why the interactive
-	// terminal was fixed and agent chats were not.
-	//
-	// With no locale, CoreFoundation falls back to __CF_USER_TEXT_ENCODING, whose
-	// script code is 0 (Mac OS Roman) on a default macOS account. A CLI that copies
-	// via BOTH OSC 52 and a spawned pbcopy; we drop OSC 52 (finishOSC routes only
-	// codes 0/1/2, and the frontend parses only OSC 7), so pbcopy's value is what
-	// lands — and it reads the CLI's UTF-8 bytes as Mac Roman. "—" reaches the
-	// pasteboard as "‚Äî" while the SCREEN stays correct, because the render path
-	// never touches pbcopy. Every copy applies exactly one more round of it.
-	//
-	// defaultLocale returns "" the moment the caller set any of LANG/LC_ALL/LC_CTYPE,
-	// so an explicit locale is never overridden.
+	// Same missing-locale hazard as ptyEnv, for commands: os.Environ() from a GUI daemon has no locale, and
+	// macOS then falls back to Mac Roman, so a CLI's pbcopy mangles UTF-8 on the pasteboard. An explicit
+	// locale is never overridden.
 	if lang := defaultLocale(env, runtime.GOOS); lang != "" {
 		env = append(env, "LANG="+lang)
 	}

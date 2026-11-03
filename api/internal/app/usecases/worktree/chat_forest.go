@@ -8,22 +8,9 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Folders/Nodes are the narrow Folder+Node read ports newChatForest needs to
-// see PAST a folder ancestor — 2026-09-08 sidebar-placement-unification
-// Task 8's own review fix round. A folder is a dtree.Folder+dtree.Node
-// pair now (never a Chat row, home-scoped since Task 5, repo-scoped too
-// since Task 8), so the raw ChatLister read this package's own ancestry/
-// workspace-fan-out walks were built over no longer carries it at all — a
-// chat filed under a folder nested somewhere in a branch's own subtree
-// (the ordinary, expected sidebar organization pattern) had its ancestry
-// walk stop dead the moment it reached that folder, even when a real
-// worktree-owning ancestor sits one hop further up.
-//
-// Declared here rather than imported from usecases/chat/internal/tree (law
-// 3, law 4 — this package's own existing convention, see ChatLister's doc):
-// this package cannot import usecases/chat's internals, so it declares its
-// own narrow shape and lets the container-layer adapters (repos.Folder,
-// repos.Node) satisfy it structurally.
+// Folders/Nodes are the narrow Folder+Node read ports newChatForest needs to walk past a folder
+// ancestor, which is no Chat row, to the worktree-owning ancestor above it. Declared locally because
+// this package cannot import usecases/chat's internals; container adapters satisfy them structurally.
 type Folders interface {
 	FindByKey(ctx context.Context, id string) (*dtree.Folder, error)
 }
@@ -32,23 +19,15 @@ type Nodes interface {
 	ListAll(ctx context.Context) ([]dtree.Node, error)
 }
 
-// chatForest is one read of the whole chat/folder placement tree, indexed for
-// upward walks. Every resolver entry point builds it ONCE per call: an ancestry
-// walk cannot know which rows sit above chatID without the rest of the forest,
-// and the batch answers would otherwise re-read it per chat.
+// chatForest is one read of the whole chat/folder placement tree, indexed for upward walks; each
+// resolver entry point builds it once rather than re-reading per chat.
 type chatForest struct {
 	byID map[string]domain.Chat
 	tree tree.Tree
 }
 
-// newChatForest folds every Folder+Node row reachable from rows' own ids
-// into rows FIRST (foldersReachableFromRoots — mirrors usecases/chat's own
-// identically-shaped fix, home_read.go/walk.go, duplicated rather than
-// imported for the same law-3/law-4 reason Folders/Nodes above are declared
-// locally), so the walk below can step straight through a folder ancestor
-// the same way it already does for an ordinary chat-typed container. folders
-// or nodes may be nil (a caller with neither wired) — the walk then degrades
-// to its pre-Task-8, Chat-only behaviour rather than failing.
+// newChatForest folds every Folder+Node row reachable from rows' ids into rows first, so the walk steps
+// through folder ancestors like chat containers. Nil folders or nodes degrade it to a Chat-only walk.
 func newChatForest(
 	ctx context.Context,
 	folders Folders,
@@ -67,13 +46,8 @@ func newChatForest(
 	return chatForest{byID: byID, tree: tree.New(treeNodes)}
 }
 
-// foldersReachableFromRoots discovers every Folder+Node row filed somewhere
-// between baseRows' own ids and the panel root, rendered as the same
-// Chat-shaped view PlaceChat itself uses. Mirrors usecases/chat's own
-// foldersReachableFrom (home_read.go)/foldersReachableFromRoots (walk.go)
-// exactly — same BFS shape: seed the queue with "" plus every id baseRows
-// already names, so a folder nested under an ordinary chat or a locked
-// branch's own un-Noded owning row is still discovered.
+// foldersReachableFromRoots BFS-discovers every Folder+Node row between baseRows' ids and the panel root,
+// as Chat-shaped views, seeding "" plus every baseRows id so folders under chats are found too.
 func foldersReachableFromRoots(
 	ctx context.Context,
 	folders Folders,

@@ -9,23 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// hierarchyOwningChats adapts the Chats-panel tree usecase into the worktree
-// hierarchy's OwningChats seam (usecases/workspace.OwningChats) — the mirror of
-// worktreeChildCreator above, pointing the other way: that one lets a chat ask
-// for a worktree, this one makes every worktree the import path creates be born
-// under a chat.
-//
-// Three of the four verbs are the tree's own, unchanged. Only the import
-// differs, and only in shape: the hierarchy describes a branch in its OWN
-// vocabulary (workspace.ImportedBranch, which it declares because it is the
-// consumer) and the tree speaks its own ImportSpec. This
-// is exactly the translation the container exists to do, and it is why neither
-// usecase has to import the other.
-//
-// The delegation is written out rather than embedded on purpose: an embedded
-// TreeUsecase would silently expose a SECOND ImportBranchAsChat with a
-// different signature, and which one a caller reached would depend on where it
-// was standing.
+// hierarchyOwningChats adapts the chat tree usecase to the hierarchy's OwningChats seam so every
+// imported worktree is born under a chat, translating ImportedBranch to ImportSpec so neither imports
+// the other. Written out, not embedded: embedding would expose a second ImportBranchAsChat.
 type hierarchyOwningChats struct {
 	tree  agentusecase.TreeUsecase
 	chats chatsByWorkspace

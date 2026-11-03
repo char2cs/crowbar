@@ -8,20 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// worktreeChildCreator adapts the worktree hierarchy usecase into the agent
-// usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
-// Promote names only the fork parent it forks from, and this fills in the rest
-// of workspace.CreateChildInput the way every other spontaneous create does —
-// leaving RepoID/RepoPath/RemoteURL/ParentBranch blank so CreateChild's own
-// parent-inherited defaulting resolves them, and Branch blank so it generates
-// and collision-checks a provisional name (model spec §4.1).
-//
-// OwnWorktree is the one field NOT left to that defaulting: resolveInherited's
-// default is "inherit whether the PARENT owns a worktree" (model spec §4.1's
-// taxonomy rule for an ordinary create), but promotion's entire point is
-// giving the chat a worktree of its own — a fork parent that is itself a
-// workspace-less bubble must not silently promote this chat into another
-// bubble. So it is forced true here, always.
+// worktreeChildCreator adapts the hierarchy usecase to chat.WorktreeCreator: promotion names only
+// the fork parent and leaves the rest to CreateChild's inherited defaults. OwnWorktree is forced
+// true, since promotion exists to give the chat its own worktree even under a workspace-less parent.
 type worktreeChildCreator struct {
 	worktree worktreeCascade
 }
@@ -49,17 +38,9 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 	})
 }
 
-// CreateImportedWorkspace implements agentusecase.WorktreeCreator. Unlike
-// CreateChildWorkspace above it fills in NOTHING: an import already knows its
-// repo, its branch and its git-lineage parent, because the caller discovered
-// the branch in that repository and resolved its PR base before asking. Leaving
-// any of it to CreateChild's parent-inherited defaulting would resolve it from
-// a parent workspace an import rooted at the repo does not have.
-//
-// OwnWorktree is forced true for the same reason it is forced above: the
-// taxonomy default is "inherit whether the parent owns a worktree", and an
-// import whose lineage parent happens to be a bubble must still get a real
-// worktree of its own — that is the entire request.
+// CreateImportedWorkspace implements agentusecase.WorktreeCreator and fills in nothing: an import
+// already knows repo, branch and lineage parent, which inherited defaults would get wrong.
+// OwnWorktree is forced true for the same reason as above.
 func (w worktreeChildCreator) CreateImportedWorkspace(
 	ctx context.Context,
 	spec agentusecase.ImportSpec,
@@ -78,12 +59,8 @@ func (w worktreeChildCreator) CreateImportedWorkspace(
 	})
 }
 
-// DiscardChildWorkspace implements agentusecase.WorktreeCreator: it removes a
-// workspace a promotion minted and then could not finish, through the SAME
-// cascade a user-initiated workspace removal takes, so the worktree and the
-// branch go together and nothing is left half-reaped. The cascade's own guards
-// still apply — by the time this runs the chat has stopped pointing at the
-// workspace, so its working-chat guard sees an empty workspace and passes.
+// DiscardChildWorkspace implements agentusecase.WorktreeCreator, removing a workspace a promotion
+// could not finish through the same cascade a user removal takes, so worktree and branch go together.
 func (w worktreeChildCreator) DiscardChildWorkspace(
 	ctx context.Context,
 	workspaceID string,

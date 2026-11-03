@@ -20,19 +20,6 @@ func drainFrames(ch <-chan OutputFrame) {
 	}
 }
 
-// waitSnapshotFrame blocks until a Snapshot frame arrives on ch, skipping any incremental
-// diff frames on the way. A closed channel (the session died) is the only way it reports
-// false — there is no timeout: a snapshot that never arrives is a hang, and `go test -timeout`
-// reports it with the blocked stack rather than a bespoke "not within 3s" message.
-func waitSnapshotFrame(ch <-chan OutputFrame) bool {
-	for f := range ch {
-		if f.Snapshot {
-			return true
-		}
-	}
-	return false
-}
-
 // TestAttach_FirstFrameIsSnapshot pins the attach redraw's Snapshot marking:
 // the client applies it onto a reset buffer, so it must be distinguishable
 // from incremental output.

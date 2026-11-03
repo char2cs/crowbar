@@ -19,24 +19,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// sessionState is where a session is in its life. Every session has exactly one, held in
-// its sessionEntry, and every change of it goes through a transition method below while
-// the entry's lock is held.
-//
-//	         create                 suspend
-//	(birth) ───────▶ Live ◀──────────────────▶ Suspended
-//	                  │         restore           │
-//	      exit / kill │                           │ kill / evict / unrestorable
-//	                  ▼                           ▼
-//	               Exited                      Removed
-//
-// Only Suspended is restorable: an Attach that lands between a process death and its reap
-// finds a dead Live process and reports the exit, never spawning a stranger under the id.
-//
-// Exited and Removed are terminal: the entry has left the registry, its .buf and meta row
-// are deleted, and its ended event (plus a command session's onExit) has been handed out
-// exactly once — by whichever transition got there, since the state check under the lock
-// admits only one.
+// sessionState changes only via transition methods under the entry lock: create→Live,
+// Live⇄Suspended, Live→Exited, Suspended→Removed. Only Suspended is restorable; the terminal
+// states hand out the ended event exactly once, since the locked state check admits one.
 type sessionState uint8
 
 const (
@@ -46,11 +31,8 @@ const (
 	stateRemoved
 )
 
-// sessionEntry is the single owner of one session's lifecycle. It is never recycled: an
-// operation that looked it up keeps the SAME mutex after the entry leaves the registry, so
-// a waiter never holds a different lock than the operation it was racing.
-//
-// Lock order: entry.mu → session locks → engine.regMu.
+// sessionEntry owns one session's lifecycle and is never recycled, so a waiter keeps the same
+// mutex as the operation it raced. Lock order: entry.mu → session locks → engine.regMu.
 type sessionEntry struct {
 	id      string
 	chatID  string
@@ -58,11 +40,8 @@ type sessionEntry struct {
 
 	mu    sync.Mutex
 	state sessionState
-	// sess is the running process; non-nil exactly while Live. It is written only under
-	// mu (by a transition) but may be READ without it: the per-keystroke paths (Write,
-	// Resize, Screen) must never queue behind a lifecycle operation doing disk I/O. A
-	// reader may see a session that has just died — its calls then fail, which is the
-	// same answer they would get a moment later.
+	// sess is non-nil exactly while Live; written only under mu but read without it, so keystroke
+	// paths never queue behind lifecycle disk I/O. A just-died session's calls simply fail.
 	sess atomic.Pointer[session.Session]
 	// shell/cwd/profileID are what a restore re-spawns. cwd is refreshed from the live
 	// session's OSC 7 reports whenever it is suspended.
@@ -254,10 +233,8 @@ func (e *terminalEngine) Resize(_ context.Context, sessionID string, cols, rows 
 
 // ── birth ────────────────────────────────────────────────────────────────────
 
-// engineBirth carries one of the two shell birth modes: create (Blob == nil, size and
-// scrollback from Cols/Rows/ScrollbackLines, zero meaning the defaults) or restore (Blob is
-// the persisted screen, including its CRWB1 header, plus an optional daemon-authored
-// Notice injected into the model before any client can attach).
+// engineBirth is either create (Blob == nil; zero sizes mean defaults) or restore (Blob is the
+// persisted CRWB1 screen, plus an optional Notice injected before any client attaches).
 type engineBirth struct {
 	Cols            int
 	Rows            int
@@ -300,11 +277,8 @@ func (e *terminalEngine) admit() error {
 	return ErrShuttingDown
 }
 
-// startReaper watches s for its own death. The reaper runs under context.WithoutCancel of
-// the birth context: a PTY is reaped when its process exits, long after the request that
-// created it returned, so the request's cancellation must not reach it — but its values
-// (trace/log scope) still describe the session's origin. It is joined by e.reaps, which
-// Shutdown drains, not by the caller's ctx.
+// startReaper runs under WithoutCancel of the birth context: the process outlives the request,
+// but keeps its trace/log values. It is joined by e.reaps, which Shutdown drains.
 func (e *terminalEngine) startReaper(ctx context.Context, ent *sessionEntry, s *session.Session) {
 	go e.reap(context.WithoutCancel(ctx), ent, s)
 }
@@ -442,10 +416,8 @@ func (e *terminalEngine) LoadPlaceholder(_ context.Context, m SessionMeta, scrol
 
 // ── transitions ──────────────────────────────────────────────────────────────
 
-// endLocked moves ent to a terminal state (Exited after a process death, Removed for a
-// suspended session dropped without one) and returns the callbacks that end owes. It is
-// reached at most once per entry: every caller checks the current state under ent.mu, and
-// this leaves the entry in a state none of them accepts. Caller holds ent.mu.
+// endLocked moves ent to Exited or Removed and returns the callbacks owed; it runs at most once
+// since every caller checks the state under ent.mu. Caller holds ent.mu.
 func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to sessionState, exitCode int) effects {
 	e.unregister(ent)
 	e.discardPersisted(ctx, ent)
@@ -464,11 +436,8 @@ func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to se
 	return fx
 }
 
-// restoreLocked moves a Suspended entry to Live by spawning a fresh shell from its saved
-// screen. A saved cwd that no longer exists falls back to the home directory with an
-// on-screen notice. A session that cannot be re-spawned even then is Removed
-// rather than left to fail every future Attach; one refused because the engine is
-// shutting down stays Suspended, so the next daemon start restores it. Caller holds ent.mu.
+// restoreLocked respawns a Suspended entry from its screen (home dir if the cwd is gone). An
+// unrespawnable one is Removed; one refused for shutdown stays Suspended. Caller holds ent.mu.
 func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (effects, error) {
 	if err := e.admit(); err != nil {
 		return nil, fmt.Errorf("terminal: restore: %w", err)
@@ -489,10 +458,8 @@ func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (
 	return nil, nil
 }
 
-// suspendLocked moves a Live, eligible entry to Suspended: it serializes the screen,
-// persists it (.buf, then a "suspended" meta row), and only then kills the process. If the
-// screen cannot be persisted the session stays Live — a suspended session with no .buf
-// would restore blank. Caller holds ent.mu.
+// suspendLocked persists the screen (.buf, then meta row) before killing the process; if that
+// fails the session stays Live, since a suspended session with no .buf would restore blank.
 func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, force bool) {
 	if ent.state != stateLive || ent.command {
 		return
@@ -564,11 +531,8 @@ func (e *terminalEngine) Kill(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// TerminateGraceful sends the live process group a clean-exit SIGTERM (a PID-level action,
-// never a PTY write) and waits up to the grace window for it to exit on its own before
-// falling back to a hard kill. The wait happens OUTSIDE the lifecycle lock; whatever the
-// session has become by the end of it (the reaper may already have recorded the exit) is
-// then ended exactly like Kill.
+// TerminateGraceful SIGTERMs the process group, waits up to grace OUTSIDE the lifecycle lock,
+// then hard-kills, and ends whatever the session became exactly like Kill.
 func (e *terminalEngine) TerminateGraceful(ctx context.Context, sessionID string) error {
 	ent, ok := e.lookup(sessionID)
 	if !ok {
@@ -600,14 +564,9 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) {
 	ent.mu.Unlock()
 }
 
-// Shutdown ends every session and deregisters it, then BLOCKS until every reaper has
-// returned — i.e. until every onExit callback registered via CreateCommand has RUN.
-//
-// A live shell is persisted first (screen .buf + a "suspended" meta row) and left in the
-// Suspended state, so the next daemon start restores it; its clients are NOT sent an exit
-// frame, because it did not exit. A command session (an agentic vendor CLI) is not
-// restorable: it is killed and Exited, so its onExit runs before Shutdown returns. Once
-// Shutdown begins, the engine births no more sessions. Idempotent.
+// Shutdown persists live shells as Suspended (no exit frame: they did not exit), kills command
+// sessions so their onExit runs, stops further births, and blocks until every reaper returned.
+// Idempotent.
 func (e *terminalEngine) Shutdown() {
 	e.stopOnce.Do(func() { close(e.stop) })
 	// JOIN the maintenance goroutine before tearing down sessions, so no in-flight sweep
@@ -677,18 +636,9 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// reapTracker counts the live reap goroutines and lets Shutdown wait them out. A reap is
-// a WRITER — its onExit is how a dying vendor CLI's death is recorded — to databases the
-// shutdown sequence is about to close, so the reap must be a step OF the shutdown.
-//
-// It is a counter + a mutex rather than a sync.WaitGroup because a WaitGroup PANICS on Add
-// concurrent with Wait, and a session can be born while Shutdown waits. Making "admit a new
-// reap" and "start draining" one critical section removes the race: once draining, admit()
-// refuses, so the outstanding set only shrinks and the drain converges.
-//
-// births is held (read side) from admit to settle, i.e. across spawn and registration, so
-// drain cannot close the door while a child is started but not yet visible to Shutdown's
-// registry walk.
+// reapTracker makes reaps (which write to databases shutdown will close) a step of shutdown. Not a
+// WaitGroup, which panics on Add concurrent with Wait; once draining, admit refuses. births is held
+// from admit to settle so drain cannot close while a child is spawned but not yet registered.
 type reapTracker struct {
 	births   sync.RWMutex
 	mu       sync.Mutex

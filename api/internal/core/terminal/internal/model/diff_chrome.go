@@ -9,14 +9,9 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
-// chromeBase is the subset of shadow state whose CHANGES must stream to live
-// clients between keyframes. Grid content is covered by the screen diff; this
-// covers everything else a client-side terminal tracks statefully: DEC
-// private modes, the window title, cursor visibility/style and the app-set
-// default colours. Scroll region and origin mode (DECOM, mode 6) are tracked
-// here too: a change to either forces a keyframe in Emit, because the diff's
-// absolute CUPs assume them fixed; a chain flowing past the region's bottom
-// margin reads them to lift the region and restore it (regionEndsInside).
+// chromeBase is the shadow state whose CHANGES stream between keyframes (modes, title, cursor, default
+// colours); the screen diff covers the grid. Scroll region and DECOM are kept too: changing either forces
+// a keyframe, since the diff's absolute CUPs assume them fixed.
 type chromeBase struct {
 	modes           map[int]bool
 	title           string
@@ -42,12 +37,8 @@ func captureChrome(sh *shadowState) chromeBase {
 	return captureChromeModes(sh, copyModes(sh.modes))
 }
 
-// captureChromeModes builds the chrome snapshot using the caller-supplied modes
-// map (assumed already owned by the emitter). Splitting the map out lets Emit
-// REUSE the previous base's map when the mode set did not change (the common
-// echo case) instead of allocating and copying a fresh one every frame — the
-// emitter never mutates e.chrome.modes in place, so sharing the unchanged
-// reference is safe until the next genuine change re-copies it.
+// captureChromeModes builds the chrome snapshot over a caller-owned modes map, so Emit can reuse the
+// previous map when modes are unchanged; the emitter never mutates it in place, so sharing is safe.
 func captureChromeModes(sh *shadowState, modes map[int]bool) chromeBase {
 	return chromeBase{
 		modes:           modes,
@@ -79,10 +70,8 @@ func copyModes(src map[int]bool) map[int]bool {
 	return m
 }
 
-// recaptureChrome snapshots chrome for the NEXT Emit, reusing the current base's
-// mode map when the shadow's modes are unchanged (skipping the per-frame map
-// copy on the hot echo path). Callers that have no prior base (Prime) use
-// captureChrome instead.
+// recaptureChrome snapshots chrome for the NEXT Emit, reusing the mode map when unchanged; Prime, with no
+// prior base, uses captureChrome.
 func (e *DiffEmitter) recaptureChrome(sh *shadowState) chromeBase {
 	modes := e.chrome.modes
 	if !modesEqual(sh.modes, modes) {
@@ -103,33 +92,20 @@ func colorsEqual(a, b color.Color) bool {
 	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
-// writeChromeDelta emits mode flips, title/icon-name changes, and cursor-chrome
-// changes (visibility, style, default colours) since the diff base. Mode order
-// follows serializedModeOrder for determinism; modes outside that list still
-// stream (sorted numerically) so nothing an app set is silently dropped.
-// Mode 6 (DECOM) is excluded: a change to it forces a keyframe in Emit before
-// writeChromeDelta ever runs, so forwarding it here too would double-handle
-// it once Prime re-captures.
+// writeChromeDelta emits mode, title/icon and cursor-chrome changes since the base, modes in
+// serializedModeOrder then numerically so none is dropped. DECOM is excluded: its change already forced a
+// keyframe.
 func (e *DiffEmitter) writeChromeDelta(
 	b *bytes.Buffer,
 	sh *shadowState,
 ) {
 	e.writeModeDelta(b, sh)
-	// Title-only: OSC 2, never OSC 0. OSC 0 sets BOTH the title and the icon
-	// name, so emitting it here for a title-only change would silently
-	// overwrite the client's icon with the (unchanged) title text — and since
-	// shadow.iconName itself didn't change, the icon-name branch below would
-	// never fire to correct it, leaving the client's icon wrong until the next
-	// keyframe. Uses the serializer's exact OSC 2 ST form (oscTitleSeq) so the
-	// keyframe and diff paths emit byte-identical title sequences.
+	// Title-only: OSC 2, never OSC 0, which would also overwrite the client's icon name with no icon delta to
+	// correct it. oscTitleSeq keeps diff and keyframe bytes identical.
 	if sh.title != e.chrome.title {
 		b.WriteString(oscTitleSeq(2, sanitizeOSCText(sh.title)))
 	}
-	// Icon name streams independently of the title: an app can set it alone via
-	// OSC 1 (OSC 0 sets both, OSC 2 the title only). Uses the serializer's exact
-	// OSC 1 ST form (oscTitleSeq); this is now the sole carrier for an icon
-	// change regardless of whether the title also changed, since the title
-	// delta above never touches the icon.
+	// The icon name streams on its own (OSC 1 can set it alone); this is its sole carrier.
 	if sh.iconName != e.chrome.iconName {
 		b.WriteString(oscTitleSeq(1, sanitizeOSCText(sh.iconName)))
 	}
@@ -185,18 +161,9 @@ func (e *DiffEmitter) writeModeDelta(
 	}
 }
 
-// writeCursorChromeDelta diffs cursor visibility, cursor style/blink and the
-// app-set default fg/bg/cursor colours, mirroring the emission forms
-// writeCursor/writeChrome use in the serializer's full redraw.
-//
-// Unlike the serializer — whose keyframe is always preceded by DECSTR, so it
-// only ever needs to assert the current ON state — this diff path has no
-// implicit reset between emits: every (set bool, value) pair must be handled
-// SYMMETRICALLY, emitting the corresponding reset sequence on a set→unset
-// transition (e.g. OSC 110/111/112 for the default colours, DECSCUSR 0 for
-// cursor shape) just as it emits the set form on a value change. Dropping the
-// unset direction would leave a live client stuck on a stale colour/shape
-// until an unrelated keyframe happens to resync it.
+// writeCursorChromeDelta diffs cursor visibility/style and default colours. Unlike a keyframe (preceded
+// by DECSTR) there is no implicit reset between diffs, so each set->unset transition must emit its reset
+// (OSC 110/111/112, DECSCUSR 0) or the client stays stale.
 //
 //nolint:gocyclo // Four independent, symmetric set/unset emission blocks (visibility, shape, fg/bg/cursor colour); the count is width, not depth, and splitting the mirrored pairs apart would hide the symmetry the doc comment relies on.
 func (e *DiffEmitter) writeCursorChromeDelta(
@@ -238,11 +205,8 @@ func (e *DiffEmitter) writeCursorChromeDelta(
 	}
 }
 
-// modesEqual reports whether two mode maps hold identical entries, letting
-// writeModeDelta skip the ordered-list allocation on the common no-change
-// Emit. A length mismatch short-circuits; otherwise every key in a must be
-// present in b with the same value (equal length rules out b having extra
-// keys a lacks).
+// modesEqual reports whether two mode maps hold identical entries, so writeModeDelta skips allocating
+// on the common no-change Emit.
 func modesEqual(a, b map[int]bool) bool {
 	if len(a) != len(b) {
 		return false

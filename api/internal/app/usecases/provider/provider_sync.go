@@ -123,19 +123,13 @@ func (u *providerSyncUsecase) SyncFromState(
 		return fmt.Errorf("provider sync: sync from state: %w", err)
 	}
 
-	// A protected (locked) branch is a branch-tree root and is never reparented,
-	// no matter what a PR says — the same invariant the user-facing reparent path
-	// enforces (locked rows are undraggable; guardReparent rejects a locked
-	// parent). It is guarded independently so it holds even if the parent-state
-	// precondition below is later relaxed (e.g. to follow a retargeted PR).
+	// A locked branch is a tree root and never reparented whatever a PR says, guarded on its own
+	// so it survives any relaxing of the parent-state precondition below.
 	if current.Status == domain.WorkspaceStatusLocked {
 		return nil
 	}
-	// Auto-reparent wires the workspace under the sibling its PR targets, but only
-	// for an OPEN PR (a closed/merged PR is stale history and must not reshape the
-	// tree) that targets a branch, and only while the workspace has no parent yet.
-	// Without the open-PR guard a long-closed master→develop PR would nest the
-	// branch under develop on the first poll after import.
+	// Auto-reparent only for an OPEN PR targeting a branch while the workspace has no parent: a
+	// long-closed PR must not reshape the tree on the first poll after import.
 	if state.PR != nil &&
 		state.PR.Status == "open" &&
 		state.PR.TargetBranch != "" &&
@@ -145,21 +139,9 @@ func (u *providerSyncUsecase) SyncFromState(
 	return nil
 }
 
-// maybeReparentFromPR looks up the workspace in the same repo whose branch
-// matches targetBranch and parents ws under it.
-//
-// Two corruptions must never happen, even though SyncFromState already guards
-// ParentID=="" upstream:
-//   - Self-parent: a PR that targets its own branch makes candidate==ws. Pointing
-//     a node at itself detaches it from the tree and makes it unreparentable (the
-//     same self-loop the user-facing SetParent guard rejects). Skip it.
-//   - Cycle: if ws is already an ancestor of the candidate (the candidate's
-//     ParentID chain reaches ws), parenting ws under the candidate closes a loop,
-//     and any later tree walk (ancestor resolution, merge-base, prune) spins
-//     forever. Walk the candidate's chain with a visited set and skip if ws appears.
-//
-// The reparent error is logged rather than discarded so a failed write is visible
-// in production instead of silently leaving the tree unparented.
+// maybeReparentFromPR parents ws under the same-repo workspace on targetBranch, skipping a
+// self-parent and any candidate whose ancestor chain reaches ws (a cycle spins every tree walk).
+// A failed reparent is logged so it is visible rather than silently leaving the tree unparented.
 func (u *providerSyncUsecase) maybeReparentFromPR(
 	ctx context.Context,
 	ws domain.Workspace,

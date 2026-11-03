@@ -8,10 +8,8 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
-// created branch, starting at startPoint (07 §1). It resolves startPoint to a
-// SHA before taking the repo lock, since lockRepo uses a non-reentrant
-// sync.Mutex. Returns the start SHA so callers can record it as forkPointSha.
+// WorktreeAddBranch adds a worktree on a new branch at startPoint, resolving it to a SHA before
+// the non-reentrant repo lock; returns that SHA for forkPointSha.
 func (e *engine) WorktreeAddBranch(
 	ctx context.Context,
 	repoPath string,
@@ -48,22 +46,9 @@ func (e *engine) revParse(
 	return strings.TrimSpace(r.Stdout), nil
 }
 
-// WorktreeAddAtRef checks branch out into a fresh worktree at worktreePath with
-// the branch ref RESET to startRef (`git worktree add -B`), and returns the
-// resolved start SHA.
-//
-// `-B` (not `-b`) is what makes an import authoritative about the remote: the
-// local branch is created when absent and repointed at startRef when it already
-// exists. Plain `git worktree add <path> <branch>` checks out whatever the local
-// ref happens to be, which is how a diverged local copy of a branch — a leftover
-// from before the repo folder was adopted, or the aftermath of a force-push —
-// got imported INSTEAD of origin's commits, under a row claiming to be origin's
-// branch and a fork point the checked-out history did not contain.
-//
-// The reset is a ref move, not a history rewrite: commits only reachable from
-// the old local tip stay in the reflog, and the caller logs that tip. A branch
-// checked out in another worktree still makes git refuse, which is the outcome
-// the holder/placeholder path already handles.
+// WorktreeAddAtRef checks branch out with its ref RESET to startRef (`-B`): plain add would check out
+// a diverged local copy instead of origin's commits. It is a ref move (old tip stays in the reflog);
+// a branch checked out elsewhere still makes git refuse, which the holder path handles.
 func (e *engine) WorktreeAddAtRef(
 	ctx context.Context,
 	repoPath string,

@@ -1,7 +1,5 @@
-// Package provision checks an EXISTING branch — a protected branch at import,
-// or a placeholder's branch on Retry/Detach — out into a fresh Crowbar-managed
-// worktree. It is the one copy of that rule; the project import and the
-// worktree hierarchy both call it (spec §7-D: the two copies had drifted).
+// Package provision checks an existing branch (protected at import, or a placeholder's on Retry/Detach)
+// out into a fresh managed worktree: the one copy of that rule, shared by import and hierarchy.
 package provision
 
 import (
@@ -24,21 +22,9 @@ type Git interface {
 	MergeBase(ctx context.Context, repoPath, a, b string) (string, error)
 }
 
-// ExistingBranch checks branch out into a new worktree at path and returns the
-// commit it landed on (the workspace's fork point).
-//
-// A branch origin has is checked out AT origin's ref (`git worktree add -B`),
-// so the worktree holds the REMOTE branch even when the local ref has diverged
-// (a leftover from before the folder was adopted, or a force-push): checking
-// out the local ref imported the user's stale commits under a row claiming to
-// be origin's branch. The local remote-tracking ref is read FIRST, so a repo
-// with no remote never pays a network fetch under the per-clone lock; the fetch
-// itself is best-effort (offline still checks out the local origin/<b>). The
-// upstream is set explicitly — a -B checkout from a SHA sets none, and `git
-// pull` in the worktree then has nothing to merge with.
-//
-// A branch origin does not have checks out from the local ref, the only
-// content there is.
+// ExistingBranch checks branch out at path and returns its commit (the fork point). A branch origin has
+// is checked out at origin's ref with -B, so a diverged local ref is not imported as origin's, with the
+// upstream set explicitly; the fetch is best-effort. A branch origin lacks checks out from the local ref.
 func ExistingBranch(
 	ctx context.Context,
 	git Git,
@@ -111,11 +97,8 @@ func LocalTip(
 	return tip, nil
 }
 
-// WarnOnDiscardedLocalTip logs the local branch tip a -B reset just moved off,
-// when that tip was NOT already contained in origin's. The reset moves a ref,
-// it does not rewrite history — the commits stay reachable through the reflog —
-// but a user with unpushed work on a same-named local branch deserves the SHA
-// to recover it from. Purely diagnostic: every failure is ignored.
+// WarnOnDiscardedLocalTip logs the local tip a -B reset moved off when origin did not contain it, so a
+// user with unpushed work has the SHA to recover from the reflog. Diagnostic only; failures are ignored.
 func WarnOnDiscardedLocalTip(
 	ctx context.Context,
 	git Git,

@@ -1,7 +1,5 @@
-// Package purge holds the hardened on-disk half of a workspace purge: the one
-// function allowed to delete a workspace's root under the crowbar home. The
-// delete reactor and the boot sweep both reach it through reactors.Purger, so
-// the guards below hold on every path.
+// Package purge holds the one function allowed to delete a workspace root under the crowbar home; the
+// delete reactor and the boot sweep both reach it through reactors.Purger, so its guards hold everywhere.
 package purge
 
 import (
@@ -16,16 +14,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// WorktreeRemover builds the one bounded fs delete a workspace purge uses to
-// remove a deleted workspace's on-disk footprint — for the delete reactor and the
-// boot sweep alike, through the same reactors.Purger (spec §3 P0-2).
-//
-// It removes a directory only when it can prove that directory is ONE
-// workspace's own root (ownRoot). Every other shape — a pre-leaf
-// <slug>/<branch> checkout whose parent every sibling shares, a path outside the
-// home, a root another row still claims — loses nothing here: its checkout is
-// git's to remove (the delete usecase's teardown), and whatever is left beside
-// it is shared or foreign. rows lists every workspace row, tombstones included.
+// WorktreeRemover builds the bounded delete a workspace purge uses. It removes a directory only when it
+// proves it is ONE workspace's own root (ownRoot); anything shared, foreign or outside the home is left,
+// its checkout being git's to remove. rows lists every workspace row, tombstones included.
 func WorktreeRemover(
 	crowbarHome string,
 	rows func(ctx context.Context) ([]domain.Workspace, error),
@@ -43,11 +34,8 @@ func WorktreeRemover(
 	}
 }
 
-// ownRoot answers the directory that belongs to tomb alone, or false. The
-// proof has four parts: the path has the managed leaf shape
-// (worktreepath.OwnRoot); the root on disk is that very directory, not a symlink
-// into somewhere else; it is not itself a checkout; and no other row's claim
-// (claimsOf) overlaps it. A root that is already gone is false: nothing to do.
+// ownRoot returns the directory that belongs to tomb alone: managed leaf shape, not a symlink, not itself
+// a checkout, and claimed by no other row. A root already gone is false.
 func ownRoot(
 	ctx context.Context,
 	crowbarHome string,
@@ -130,27 +118,13 @@ func resolvesInPlace(
 	return err == nil && resolved == filepath.Join(resolvedHome, rel)
 }
 
-// workspaceRootOwned are the entries a workspace root may lose. The first four
-// are the directories Crowbar itself creates; .DS_Store is macOS metadata that
-// appears the moment the user opens the root in Finder, and keeping the root
-// alive for it would turn every browsed workspace into permanent litter.
+// workspaceRootOwned are the entries a workspace root may lose: Crowbar's own directories, plus
+// .DS_Store, which Finder drops the moment the root is browsed.
 var workspaceRootOwned = []string{"worktree", "chats", "storages", "threads", ".DS_Store"}
 
-// removeWorkspaceRoot deletes the workspace's own directories, then the root —
-// which succeeds only once nothing else is left in it.
-//
-// It replaces an rm -rf of the entire root. That was written to the rule "the
-// root IS the workspace's whole on-disk footprint", and on a real machine it is
-// not: a <slug>/<branch> root was found holding five hand-made git worktrees
-// beside the managed one, so deleting that workspace would have taken 4.5GB of
-// checkouts Crowbar never created. A foreign entry now keeps the root alive and
-// is reported instead of destroyed.
-//
-// The worktree leaf is the one owned entry it may still refuse: while it holds a
-// `.git` link it is a checkout git still has registered — one `git worktree
-// remove` declined, typically a protected worktree holding uncommitted work
-// (spec §3 P0-1). Git owns removing a registered worktree; an rm -rf would
-// both destroy that work and leave a dangling registration in the user's repo.
+// removeWorkspaceRoot deletes the workspace's own entries, then the root, which succeeds only once empty:
+// a foreign entry (a hand-made checkout beside it) keeps the root and is reported. A worktree leaf still
+// holding a `.git` link is registered with git, which alone may remove it without losing work.
 func removeWorkspaceRoot(
 	root string,
 ) error {
@@ -181,15 +155,8 @@ func removeWorkspaceRoot(
 	return nil
 }
 
-// pruneEmptiedWorkspaceParents removes the directories a workspace-root removal
-// emptied, walking up from the root's parent.
-//
-// It cannot delete anything it did not empty and it cannot climb out of the
-// project. os.Remove only ever succeeds on an EMPTY directory, so a slug still
-// holding a sibling workspace stops the walk on its own; and the floor is
-// <home>/projects/<projectID>, which is never a candidate — that level holds the
-// project's icon, its `workspaces` state and its repo directories beside the
-// slug trees, so climbing into it would delete live state rather than litter.
+// pruneEmptiedWorkspaceParents removes the directories a root removal emptied, walking up; os.Remove only
+// deletes empty ones, and <home>/projects/<projectID> (live project state) is the floor.
 func pruneEmptiedWorkspaceParents(
 	root string,
 	crowbarHome string,

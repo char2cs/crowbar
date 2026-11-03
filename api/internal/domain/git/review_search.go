@@ -1,20 +1,8 @@
 package git
 
-// SearchHit is one match of a query against the CONTENT of a branch diff — an
-// added, removed or context line inside a hunk. The patch's own scaffolding
-// (`diff --git`, `index`, `---`/`+++`, `@@` headers, "Binary files … differ")
-// is never a hit: those lines are how the diff is spelled, not what it says.
-//
-// LineNumber is a line number in the file, not an offset into the patch, and
-// Side says which side of the diff it counts on. A removed line is numbered on
-// the "old" side; an added line on the "new" side; a context line exists on
-// both and is reported on the "new" side, since that is the file the reader
-// navigates to.
-//
-// Preview is the line's content with its diff prefix stripped, capped at a
-// length that keeps a response bounded even when the match lands in a minified
-// bundle whose single line runs to hundreds of kilobytes. A capped preview may
-// therefore stop before the match itself.
+// SearchHit is one match against a diff's CONTENT lines (never its headers). LineNumber counts in
+// the file on Side (context lines on "new", where the reader navigates); Preview is capped so a
+// minified line keeps the response bounded, and may stop before the match.
 type SearchHit struct {
 	Path       string `json:"path"`
 	Side       string `json:"side"`
@@ -28,17 +16,9 @@ const (
 	SearchSideNew = "new"
 )
 
-// SearchOpts tunes a diff search.
-//
-// Regex reads the query as an RE2 pattern instead of literal text; an invalid
-// pattern is an error, never a panic, because a find-as-you-type box submits
-// every half-finished pattern the user passes through. CaseSensitive defaults
-// to false, so the zero value is the forgiving search a find box wants.
-//
-// Limit caps how many hits are collected; the search stops reading the diff the
-// moment it fills, which is what keeps a query like "e" over a million-line
-// diff from being an out-of-memory. Limit <= 0 means unlimited, and is only
-// safe for a caller that knows the query is narrow.
+// SearchOpts tunes a diff search. An invalid Regex (RE2) is an error, never a panic: find-as-you-type
+// submits half-typed patterns. Limit stops reading once filled, keeping broad queries bounded;
+// Limit <= 0 is unlimited and only safe for narrow queries.
 type SearchOpts struct {
 	Regex         bool
 	CaseSensitive bool

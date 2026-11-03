@@ -64,27 +64,9 @@ func (u *projectImport) repoHasBranch(ctx context.Context, repoPath, branch stri
 	return remote, nil
 }
 
-// provisionProtectedBranchWorktree materialises one protected branch. It first
-// resolves who holds the branch (pruning dead registrations): ANY live holder
-// yields a PLACEHOLDER row (locked, empty WorktreePath, HeldByPath = holder),
-// and only a free branch gets its own managed worktree. This is the SINGLE owner
-// of placeholder creation (spec §3.2/§3.5).
-//
-// A holder under the crowbar home (holder.HeldByManaged) used to be skipped as
-// "already represented by a managed workspace — never double-provision". That
-// judgement was made from the FILESYSTEM, not from this repo's rows, and it can
-// never be about THIS repo: importOneRepo returns early for an already-imported
-// folder, so the repo aggregate reaching here is always brand new and owns no
-// workspace yet. The holder is somebody else's — in practice a managed worktree
-// that outlived the repo it was created for, since removing a repository deletes
-// its row but leaves its LOCKED worktrees on disk — and a branch git will not let
-// this repo check out is held, not represented. Skipping it dropped the branch
-// with no row AND no warning (the skip was the one silent path in provisioning),
-// so re-adding such a folder produced a repo with no locked workspace and nothing
-// to explain why.
-//
-// The other way here — two projects importing one folder — is now refused
-// outright by CheckRepoImportable, so it can no longer reach this code.
+// provisionProtectedBranchWorktree materialises one protected branch, the single owner of placeholder
+// creation: any live holder (after pruning dead registrations), managed or not, yields a locked
+// placeholder with HeldByPath, since a new repo owns no workspace yet; only a free branch gets a worktree.
 func (u *projectImport) provisionProtectedBranchWorktree(
 	ctx context.Context,
 	repo domain.Repository,
@@ -144,10 +126,8 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	return nil
 }
 
-// createPlaceholderWorkspace persists a locked, worktree-less row recording the
-// live holder of a protected branch, so the branch is never silently dropped and
-// the user gets a visible, retryable surface (spec §3.3); the client builds the
-// reason from HeldByPath (spec §4/B7).
+// createPlaceholderWorkspace persists a locked, worktree-less row naming a protected branch's live
+// holder, so the branch is never silently dropped and the user can retry; the UI explains via HeldByPath.
 func (u *projectImport) createPlaceholderWorkspace(
 	ctx context.Context,
 	repo domain.Repository,

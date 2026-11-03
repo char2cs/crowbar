@@ -44,31 +44,9 @@ func (e *engine) diffBase(
 	return gitdomain.DiffBase{Commit: commit, HasCommits: ahead > 0}
 }
 
-// resolveDiffBase returns the commit a working-tree summary should diff against,
-// given a base ref that is EITHER a branch name (e.g. "develop") or a fork-point
-// SHA. It returns the merge-base of the base branch's freshest tip and HEAD, so
-// the summary counts only the branch's OWN changes and never the base branch's
-// advancement — self-correcting as the branch is rebased onto newer base commits,
-// unlike a frozen fork-point SHA diffed against directly (which counts every
-// commit the base branch gained since the branch was created).
-//
-// A branch name is resolved against BOTH origin/<branch> and the local <branch>,
-// and the merge-base CLOSEST to HEAD (fewest commits between it and HEAD) wins.
-// That is correct whichever ref the branch was actually built on: when the local
-// base lags origin (child rebased onto origin's tip) the origin merge-base is the
-// closer one; when the local base is AHEAD of origin (child rebased onto the local
-// tip) the local merge-base is the closer one. Blindly preferring origin would
-// re-inflate the diff by the local base branch's un-pushed commits. A SHA base
-// skips the origin/<sha> probe and yields merge-base(<sha>, HEAD) == <sha> for an
-// ancestor SHA, identical to the prior `git diff <forkPointSha>` behaviour.
-//
-// It returns "" when no candidate ref resolves (an unresolvable/renamed base
-// branch, or an empty base): callers treat that as "no committed diff", and the
-// app layer never passes an unverified branch name — it falls back to the
-// recorded fork point first (see workspace.summaryBase / resources.watcherDiffBase).
-//
-// The second result is how many commits HEAD has beyond that base, so callers
-// need no extra rev-list to learn whether the branch has commits.
+// resolveDiffBase returns merge-base(base, HEAD) so the summary counts only the branch's own changes;
+// a branch name tries origin/<b> and <b> and the merge-base closest to HEAD wins (local may be ahead).
+// "" means no candidate resolves (no committed diff); the second result is HEAD's commits beyond it.
 func (e *engine) resolveDiffBase(
 	ctx context.Context,
 	repoPath string,
@@ -100,10 +78,8 @@ func (e *engine) resolveDiffBase(
 	return "", 0
 }
 
-// baseRefCandidates lists the refs resolveDiffBase probes for a base: a branch
-// name is checked against both its remote-tracking and local ref (origin-sync
-// keeps the former fresh), while a full 40-hex commit SHA is used verbatim — its
-// origin/<sha> form would never resolve, so probing it only wastes a subprocess.
+// baseRefCandidates: a branch name is probed as its remote-tracking and local ref; a full
+// SHA is used verbatim, since origin/<sha> never resolves.
 func baseRefCandidates(
 	base string,
 ) []string {
@@ -131,10 +107,8 @@ func looksLikeCommitSHA(
 	return true
 }
 
-// commitsAheadOf counts the commits HEAD has that ref lacks (`git rev-list
-// --count ref..HEAD`). That equals the distance from merge-base(ref, HEAD) to
-// HEAD, so it ranks candidates by closeness without a merge-base spawn each, and
-// doubles as the "branch has commits" answer. ok is false when ref does not resolve.
+// commitsAheadOf counts `rev-list ref..HEAD`: the distance from the merge-base to HEAD,
+// ranking candidates without a merge-base spawn each. ok is false when ref does not resolve.
 func (e *engine) commitsAheadOf(
 	ctx context.Context,
 	repoPath string,

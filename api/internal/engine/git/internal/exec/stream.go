@@ -14,35 +14,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
-// stderrCaptureLimit bounds what a streamed invocation retains of stderr. git
-// on a corrupt repo emits it by the megabyte, and a stream whose failure path
-// is proportional to the output size gives back exactly what streaming bought.
-// The cap is far above any real git diagnostic, so a truncated capture only
-// ever happens where the message was already unreadable.
+// stderrCaptureLimit bounds retained stderr: git on a corrupt repo emits megabytes, and a failure
+// path proportional to output undoes what streaming bought. Far above any real diagnostic.
 const stderrCaptureLimit = 64 << 10
 
-// GitStream runs a git command in dir and hands its stdout back as the
-// subprocess produces it, where Git buffers the whole of it into a string
-// first. A branch-wide `diff`/`log -p` runs to tens of megabytes, so the
-// buffering path costs that much resident memory for the duration of every
-// concurrent call — output its consumers walk a line at a time and discard.
-//
-// The caller must Close the reader. Closing before EOF ends the subprocess, so
-// a consumer that has seen enough — a paginated patch, a search that found its
-// match — stops paying for the rest; the returned wait then describes that signal
-// rather than the command's own verdict.
-//
-// wait blocks until the subprocess exits and reports a non-zero exit as a
-// *GitError, the shape RequireSuccess produces. It may be called any number of
-// times and reports the same result each time. Close reaps the subprocess too,
-// so a caller that abandons a stream without calling wait leaves nothing behind.
-//
-// Streams deliberately do not go through runWithLockRetry. That helper re-runs
-// a whole invocation after a contended index.lock, which cannot work once the
-// first attempt's bytes have been handed to a consumer — the retry would
-// duplicate the prefix the consumer already read. It costs nothing here: the
-// commands worth streaming are read-only inspections (diff, log, show, grep)
-// that never take the index lock, and GIT_OPTIONAL_LOCKS=0 keeps it that way.
+// GitStream runs git in dir and streams stdout instead of buffering tens of megabytes. Close (required)
+// ends the subprocess early and reaps it; wait reports a non-zero exit as *GitError, idempotently.
+// No lock retry: a re-run would duplicate bytes already consumed, and streamed commands are read-only.
 func GitStream(
 	ctx context.Context,
 	dir string,
@@ -58,17 +36,8 @@ func GitStream(
 	return s, s.wait, nil
 }
 
-// startStream is retried as a whole when the resolver recovers a vanished
-// binary. Nothing survives a failed attempt to retry around: the subprocess did
-// not start, so no stdout byte can have reached a consumer, and the abandoned
-// context is cancelled here rather than by the caller.
-//
-// Its error is a sound never-started signal in a way the buffered path's is not,
-// and needs no equivalent of that path's cmd.Process check. Only two things can
-// fail here, StdoutPipe and Start, and both are strictly pre-exec: os/exec's
-// Start returns nil the moment StartProcess succeeds, and every step it takes
-// afterwards is infallible. A non-nil error therefore means no process exists,
-// so the retry cannot re-run a command that already did its work.
+// startStream is safe to retry whole when the resolver recovers a vanished binary: only StdoutPipe
+// and Start can fail and both are pre-exec, so an error means no process ran and nothing was read.
 func startStream(
 	ctx context.Context,
 	bin string,
@@ -119,13 +88,8 @@ func (s *gitStream) Read(
 	return n, err
 }
 
-// Close ends the subprocess unless the reader already reached EOF, closes the
-// read end of the pipe, and reaps. Closing the read end is what keeps an
-// early-closing consumer from wedging git on a full pipe buffer: a write with
-// no reader fails rather than blocking forever. The EOF check matters because
-// cancelling a context whose command already succeeded makes os/exec report the
-// cancellation in place of the exit status, which would turn every
-// fully-consumed stream into a spurious error.
+// Close kills the subprocess unless EOF was reached, closes the read end so git cannot wedge on a
+// full pipe, and reaps. The EOF check stops a fully-read stream reporting the cancellation as an error.
 func (s *gitStream) Close() error {
 	if !s.drained.Load() {
 		s.cancel()
@@ -143,11 +107,8 @@ func (s *gitStream) wait() error {
 	return s.exitError()
 }
 
-// finish reaps exactly once and records the sample the perf ring expects for
-// every git subprocess. Recording here rather than at GitStream's return is
-// what makes the sample cover the whole streamed duration — the interesting
-// part of a stream is how long the consumer spent reading it, not how long the
-// fork took.
+// finish reaps once and records the perf sample here, so it covers the whole time the consumer
+// spent reading, not just the fork.
 func (s *gitStream) finish() {
 	s.once.Do(func() {
 		s.waitErr = s.cmd.Wait()

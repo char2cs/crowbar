@@ -36,12 +36,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Env is the full integration test environment: the real adapter+app+api stack
-// served over a Unix domain socket (faithful to the production daemon transport,
-// spec §5), backed by real SQLite stores under a WithHomeDir-isolated home, plus
-// the app and engine containers for direct usecase calls.
-//
-// All WS helpers use deadline-based reads (no fixed-delay waits).
+// Env is the full integration environment: the real adapter+app+api stack over a Unix socket
+// (the production transport) on real SQLite under an isolated home, plus the app and engine
+// containers. All WS helpers use deadline-based reads.
 type Env struct {
 	// URL is the fixed pseudo base URL of the test server ("http://crowbar"). The
 	// host is a placeholder: every request is routed to the Unix socket by the
@@ -55,11 +52,8 @@ type Env struct {
 	adapters *adapter.Container
 	session  *migrate.Session
 
-	// server + listener serve the real router over socketPath; client + dialer
-	// reach it (host-agnostic, unix-socket dial). closeOnce guards the three
-	// teardown variants (Close / CloseCrashing / CloseWithoutKilling) so exactly
-	// one teardown body ever runs, whichever variant (or the BuildEnvAt cleanup)
-	// fires first.
+	// server + listener serve the router over socketPath; client + dialer reach it. closeOnce
+	// makes exactly one teardown body run, whichever Close variant or cleanup fires first.
 	server     *http.Server
 	listener   net.Listener
 	socketPath string
@@ -89,15 +83,9 @@ func TempHomeForTest(t *testing.T) string {
 	return tempHome(t)
 }
 
-// tempHome creates an isolated home directory for an Env with a TOLERANT
-// teardown. It deliberately does NOT use t.TempDir(): a detached good-path-async
-// goroutine (an operation's work runs on context.WithoutCancel and the adapter registry
-// lazily re-opens a per-entity DB on access) can write a per-workspace storages
-// file a hair after the adapter is closed — racing t.TempDir's RemoveAll and
-// flaking the run with "directory not empty" even though every assertion passed.
-// This is a benign teardown race (the leaked dir is under the OS temp root and
-// is reaped by the OS); we remove it best-effort with a bounded, cooperative
-// retry and never fail the test on a cleanup error.
+// tempHome makes an isolated home with a TOLERANT teardown, not t.TempDir(): detached async work
+// can write a storages file just after the adapter closes, racing RemoveAll. That race is benign,
+// so removal is best-effort and a cleanup error never fails the test.
 func tempHome(
 	t *testing.T,
 ) string {
@@ -119,13 +107,8 @@ func tempHome(
 	return dir
 }
 
-// BuildEnvAt spins up the full server stack (engine → adapter → app → api)
-// using a caller-supplied homeDir instead of a fresh temp directory. This
-// allows two successive calls to share the same SQLite database, which is
-// required for crash-recovery tests where a second "server" must read rows
-// written by the first. It registers a graceful-Close cleanup; the teardown is
-// idempotent, so calling a Close variant explicitly and letting cleanup run
-// again is safe.
+// BuildEnvAt spins up the full stack on a caller-supplied homeDir, so a second call can read
+// the first's SQLite rows (crash-recovery tests). Its graceful-Close cleanup is idempotent.
 func BuildEnvAt(
 	t *testing.T,
 	homeDir string,
@@ -133,10 +116,8 @@ func BuildEnvAt(
 	t.Helper()
 	env, err := NewEnvWithHome(homeDir)
 	require.NoError(t, err, "kit: build env")
-	// A single graceful teardown, registered so it runs BEFORE tempHome's
-	// RemoveAll (cleanups are LIFO; tempHome registered its RemoveAll earlier and
-	// therefore runs after). Guarded by closeOnce, so an explicit Close variant
-	// wins and this cleanup is a no-op.
+	// Registered after tempHome's RemoveAll so it runs BEFORE it (LIFO); closeOnce makes it a
+	// no-op after an explicit Close variant.
 	t.Cleanup(func() { env.Close(t) })
 	return env
 }
@@ -146,10 +127,8 @@ func BuildEnvAt(
 // contending on the first env's path.
 var sockCounter atomic.Uint64
 
-// kitSocketPath returns a short, unique Unix socket path in the OS temp dir.
-// macOS caps sun_path at 104 bytes, so it MUST NOT live under the (long) temp
-// home; a pid+counter name in $TMPDIR stays well under the limit and is unique
-// across restarts and parallel test binaries.
+// kitSocketPath returns a short unique socket path in the OS temp dir: macOS caps sun_path
+// at 104 bytes, so it must not live under the long temp home.
 func kitSocketPath() string {
 	return filepath.Join(
 		os.TempDir(),
@@ -157,12 +136,8 @@ func kitSocketPath() string {
 	)
 }
 
-// NewEnvWithHome is the restart primitive: it wires and serves the real
-// adapter+app+api stack over a fresh Unix socket, rooting all on-disk state at
-// homeDir (WithHomeDir isolation), and returns the Env. It takes no *testing.T
-// and registers no cleanup — the caller owns teardown via a Close variant. A
-// second call with the same homeDir is a "restart": it reopens the same durable
-// SQLite read models the first env left behind.
+// NewEnvWithHome is the restart primitive: it serves the real stack rooted at homeDir and
+// registers no cleanup (the caller closes). A second call on the same homeDir is a restart.
 func NewEnvWithHome(
 	homeDir string,
 ) (*Env, error) {
@@ -231,14 +206,9 @@ func NewEnvWithHome(
 	}, nil
 }
 
-// Close performs a GRACEFUL shutdown, faithful to the production daemon's
-// ordered drain (spec §3.8): stop accepting + drain in-flight HTTP, drain every
-// post-commit reactor and each asynx singleton (app.Shutdown), release realtime
-// resources (file watchers / LSP hosts) and engine OS children, then
-// WAL-checkpoint + close the SQLite DBs and remove the socket. Releasing the DB
-// handles is what lets a second Env reopen the same home (restart tests). The
-// teardown body runs at most once (closeOnce), so an explicit Close plus the
-// BuildEnvAt cleanup is safe.
+// Close shuts down GRACEFULLY in the daemon's drain order: HTTP, reactors and asynx singletons,
+// realtime and engine children, then checkpoint and close the DBs so a second Env can reopen
+// the home. Runs at most once (closeOnce).
 func (e *Env) Close(
 	t *testing.T,
 ) {
@@ -259,11 +229,8 @@ func (e *Env) Close(
 	})
 }
 
-// CloseCrashing simulates a CRASH (SIGKILL): it releases resources WITHOUT the
-// graceful drain — no server.Shutdown, no app.Shutdown — so post-commit reactors
-// and in-flight asynx work are abandoned mid-flight (e.g. a delete cascade killed
-// before it purges, a half-provisioned worktree). It still closes the SQLite DBs
-// and OS handles so a second Env can reopen the same home and drive recovery.
+// CloseCrashing simulates SIGKILL: no server or app Shutdown, so reactors and asynx work are
+// abandoned mid-flight, but the DBs and OS handles close so a second Env can drive recovery.
 // Shares closeOnce with the other variants (call exactly one).
 func (e *Env) CloseCrashing(
 	t *testing.T,
@@ -278,12 +245,8 @@ func (e *Env) CloseCrashing(
 	})
 }
 
-// CloseWithoutKilling tears the env down gracefully (drain + close server, app,
-// and DBs) but LEAVES the engine's OS child processes running — the PTY shells
-// and LSP servers are not killed (no engine.Close). Use it for tests that assert
-// on processes surviving a daemon teardown. Shares closeOnce with the other
-// variants (call exactly one). The OS reaps the leaked children when the test
-// binary exits.
+// CloseWithoutKilling tears down gracefully but LEAVES the engine's PTY shells and LSP servers
+// running, for tests on processes surviving a daemon teardown. Shares closeOnce (call one).
 func (e *Env) CloseWithoutKilling(
 	t *testing.T,
 ) {
@@ -310,28 +273,17 @@ func (e *Env) SocketPath() string { return e.socketPath }
 // HomeDir returns the home directory path used by this Env.
 func (e *Env) HomeDir() string { return e.homeDir }
 
-// ShutdownTerminal calls Shutdown on the terminal engine, flushing all live
-// sessions to disk and persisting their metadata with state="suspended". Call
-// this before Close when simulating a daemon restart in tests: Shutdown ensures
-// scrollback is durable so the next BuildEnvAt can restore sessions via
-// RestorePersistedSessions.
+// ShutdownTerminal persists every live session as "suspended"; call it before Close when
+// simulating a restart so the next BuildEnvAt can restore them.
 func (e *Env) ShutdownTerminal() {
 	if e.engine != nil && e.engine.Terminal != nil {
 		e.engine.Terminal.Shutdown()
 	}
 }
 
-// WorktreePath returns the on-disk git worktree directory for a workspace by
-// reading the server's own persisted path from the durable read model
-// (domain.Workspace.WorktreePath). Task 3b retired the UUID worktree layout in
-// favour of the human-readable <home>/projects/<project>/<slug>/<branch> (spec
-// §3.9); rather than re-derive the slug — which the kit cannot reach, since
-// worktreepath is doubly-internal — it returns the ground-truth path the
-// provisioner used for `git worktree add`, so a managed child, an adopted main
-// (repo.Path), or a .home leaf all resolve correctly. worktreePath is
-// server-side only and never surfaced in the WorkspaceDTO (spec §8/§5). The
-// projectID/repoID params are retained for call-site stability; the path is
-// keyed solely by wsID.
+// WorktreePath returns the server's own persisted worktree path from the read model rather than
+// re-deriving the slug (worktreepath is unreachable from the kit). projectID/repoID are unused;
+// the path is keyed by wsID.
 func (e *Env) WorktreePath(
 	_ string,
 	_ string,
@@ -344,10 +296,8 @@ func (e *Env) WorktreePath(
 	return ws.WorktreePath
 }
 
-// ProviderState is a scripted provider poll result for the mock-provider seam
-// (PushProviderState). It mirrors the fields the workspace aggregate consumes to
-// drive PR-status and protected-branch transitions, avoiding a direct dependency
-// on the workspace repository's ProviderInput in test callers.
+// ProviderState is a scripted provider poll result for PushProviderState, mirroring the
+// aggregate's inputs without depending on the repository's ProviderInput.
 type ProviderState struct {
 	Protected      bool
 	HasPR          bool
@@ -357,10 +307,8 @@ type ProviderState struct {
 	PRTargetBranch string
 }
 
-// DialTerminalPTY opens a WS watcher on the raw PTY stream co-located at
-// /v0/chats/:chatId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
-// topic (it's a direct engine pipe), so there is no WaitNRegistered gate; the
-// PTY emits its first frame promptly on connect.
+// DialTerminalPTY watches the raw PTY stream, a direct engine pipe rather than a broadcaster
+// topic, so there is no WaitNRegistered gate.
 func (e *Env) DialTerminalPTY(
 	t *testing.T,
 	chatID string,
@@ -379,22 +327,9 @@ func (e *Env) chatScope(
 	return "/v0/chats/" + chatID
 }
 
-// OwningChatID returns the id of the chat row that OWNS the given workspace —
-// the chat every chat-scoped route addresses that workspace's worktree through.
-//
-// No reconcile runs first any more (2026-09-08 sidebar-placement-unification
-// Task 9 deleted the boot backfill and its live-path narrowing,
-// EnsureOwningChat): a workspace's owning chat is minted chat-first, before
-// the workspace itself exists (MintOwningChat/AttachOwningWorkspace,
-// owning_chat.go), so by the time a caller holds wsID the row this resolves
-// is already there.
-//
-// The read-back is in-process, not over HTTP: a workspace is not addressable
-// any more (spec §8 step 6 deleted GET .../workspaces/:wsId), so there is no
-// route to ask. It takes the SAME two calls the wire DTO's own resolver takes
-// (repositories.Container.owningChatIDFor) — ListChatsByWorkspace then
-// domain.ResolveOwningChat — so the answer is still the production resolver's,
-// never a second one derived here.
+// OwningChatID returns the chat that OWNS the workspace (minted chat-first, so it already exists).
+// It reads in-process because workspaces are no longer addressable over HTTP, using the same
+// ListChatsByWorkspace + domain.ResolveOwningChat calls as the wire resolver.
 func (e *Env) OwningChatID(
 	t *testing.T,
 	wsID string,
@@ -417,10 +352,8 @@ func (e *Env) OwningChatID(
 	return owner.ID
 }
 
-// WorktreeFrame projects one REST chat row down to the flat workspace map its
-// `worktree` object carries, restoring the identity fields the row, not the
-// object, holds: `id` (the row's workspaceId), `chatId` and `repoId`. A row
-// with no worktree is returned unchanged.
+// WorktreeFrame flattens a REST chat row's `worktree` object, restoring `id`, `chatId` and
+// `repoId` from the row; a row with no worktree is returned unchanged.
 func WorktreeFrame(
 	m map[string]any,
 ) map[string]any {
@@ -630,26 +563,6 @@ func (e *Env) DELETEJ(
 	return resp
 }
 
-// MutationID decodes a mutation envelope ({"success":true,"data":{"id":"..."}})
-// and returns the id. It closes the response body. Use after RequireStatus.
-func MutationID(
-	t testing.TB,
-	resp *http.Response,
-) string {
-	t.Helper()
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	var env struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &env), "MutationID body: %s", string(raw))
-	require.NotEmpty(t, env.Data.ID, "MutationID: data.id must not be empty; body: %s", string(raw))
-	return env.Data.ID
-}
-
 // DecodeEnvData decodes the data field of a query envelope
 // ({"success":true,"data":{...}}) into dest. It closes the response body.
 func DecodeEnvData(
@@ -668,10 +581,8 @@ func DecodeEnvData(
 	require.NoError(t, json.Unmarshal(env.Data, dest), "DecodeEnvData.data body: %s", string(raw))
 }
 
-// RegisterProject creates a project via POST /v0/projects and returns the
-// server-assigned project id, learned from its entity on the projects scope;
-// the 202 carries the create's operation. The scope is held BEFORE the POST so
-// the created row is never missed.
+// RegisterProject creates a project via POST /v0/projects and returns its id from the projects
+// scope, held BEFORE the POST so the created row is never missed.
 func (e *Env) RegisterProject(
 	t *testing.T,
 	name string,
@@ -694,11 +605,8 @@ func (e *Env) RegisterProject(
 	return id
 }
 
-// RegisterRepo creates a repo via POST /v0/projects/:projectId/repos and returns
-// the server-assigned repo id, learned from its entity on the projects scope;
-// the 202 carries the create's operation. The scope is held BEFORE the POST so
-// the created row is never missed. path may be
-// empty for repos that don't need git operations.
+// RegisterRepo creates a repo and returns its id from the projects scope, held BEFORE the POST
+// so the row is never missed. path may be empty for repos that need no git operations.
 func (e *Env) RegisterRepo(
 	t *testing.T,
 	projectID string,
@@ -721,25 +629,9 @@ func (e *Env) RegisterRepo(
 	return id
 }
 
-// CreateWorkspace creates a worktree on a caller-named branch and returns the
-// server-assigned workspace UUID.
-//
-// It goes through the USECASE, not HTTP, because there is no longer an HTTP way
-// to ask: spec §8 step 6 deleted the whole `workspaces` endpoint group, and the
-// chat-scoped surface that replaced it only forks with an auto-derived branch
-// name or imports a branch that already exists. Naming the branch is a FIXTURE
-// need, not a product one — a test that asserts on "feature-x" has to be able
-// to say "feature-x" — so it is met at the layer that still offers it rather
-// than by adding a product capability nothing ships.
-//
-// Usecases.Workspace.CreateChild is the same call the live import path makes
-// (usecases.worktreeChildCreator.CreateImportedWorkspace), with the same
-// arguments, so a fixture worktree is born exactly as a real one is — except
-// for the chat: the PRODUCT path that reaches CreateChild (chat.go's
-// createOwnWorktreeChat -> agent.SpawnChatWithOwnWorktree) always has an
-// already-minted chat calling into it, and this fixture calls CreateChild
-// directly to name its own branch, so it has to mint and attach that chat
-// itself — see createWorkspace's own doc.
+// CreateWorkspace creates a worktree on a caller-named branch through the USECASE: naming the
+// branch is a fixture need no HTTP route offers. It makes the live import path's CreateChild
+// call, minting and attaching the owning chat itself (see createWorkspace).
 func (e *Env) CreateWorkspace(
 	t *testing.T,
 	projectID string,
@@ -765,11 +657,8 @@ func (e *Env) CreateChildWorkspace(
 	return wsID
 }
 
-// createWorkspace mints and attaches the owning chat itself, through the SAME
-// three-verb primitive hierarchy/project's own import paths use
-// (MintOwningChat/AttachOwningWorkspace/DiscardOwningChat, owning_chat.go):
-// there is no boot backfill any more (2026-09-08 sidebar-placement-unification
-// Task 9) to give an orphaned CreateChild call one after the fact.
+// createWorkspace mints and attaches the owning chat via the import paths' three-verb
+// primitive: nothing would give an orphaned CreateChild call one afterwards.
 func (e *Env) createWorkspace(
 	t *testing.T,
 	projectID string,
@@ -802,11 +691,8 @@ func (e *Env) createWorkspaceWrites(
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
 	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
 	require.NotNil(t, repo, "createWorkspace: repo %s must exist", repoID)
-	// ParentBranch is the START POINT the new worktree is cut from, and it must
-	// be supplied here rather than left to resolveInherited: that defaulting only
-	// runs for a caller that names NEITHER RepoID nor RepoPath, and this one
-	// names both (as the live import path does). Left blank, `git worktree add`
-	// rev-parses "" and dies.
+	// ParentBranch must be supplied: resolveInherited only defaults it when neither RepoID nor
+	// RepoPath is named, and a blank one makes `git worktree add` die.
 	parentBranch := repo.DefaultBranch
 	if parentID != "" {
 		parent, perr := e.app.Repositories.Workspace.Get(ctx, parentID)
@@ -857,17 +743,8 @@ func (e *Env) CreateWorkspaceWithChat(
 	return e.createWorkspace(t, projectID, repoID, branch, parentID)
 }
 
-// ImportedRepo bundles the ids a full project+repo import yields: the project,
-// its discovered repository, and the workspace adopted from the repo's default
-// (main) worktree. It is the integration-suite analogue of the package-tests
-// importedRepo fixture.
-//
-// ChatID is the chat that OWNS WorkspaceID — the id every chat-scoped route
-// addresses that worktree through. It is bundled here rather than looked up per
-// call site because the import mints it: a repo import creates each adopted
-// worktree under a chat (usecases.hierarchyOwningChats), so the id is already
-// on the chat list this fixture reads and asking for it again would be a second
-// resolution of a fact the fixture already holds.
+// ImportedRepo bundles a full project+repo import's ids: project, repo, the adopted main
+// workspace, and ChatID, its owning chat, which the import already minted.
 type ImportedRepo struct {
 	ProjectID   string
 	RepoID      string
@@ -876,48 +753,29 @@ type ImportedRepo struct {
 	RepoPath    string
 }
 
-// Quiesce blocks until every per-type asynx projection has drained (dispatch
-// queue idle + all projection handlers run) — the deterministic read-your-writes
-// barrier. The create/mutation helpers observe completion on the hub broadcast
-// (WS), but the store/list read model is an INDEPENDENT async projection that can
-// trail the WS frame; call Quiesce after a mutation so a subsequent read of the
-// list/store is guaranteed consistent, with no polling and no timeouts.
-//
-// asynx's barrier refuses every command dispatched while it waits, so Quiesce
-// holds quiesceMu exclusively: kit writes in flight on other goroutines finish
-// first, and new ones wait for the barrier instead of failing.
+// Quiesce blocks until every asynx projection drained: the read-your-writes barrier, since the
+// store read model can trail the WS frame. It holds quiesceMu exclusively because the barrier
+// refuses commands dispatched while it waits; concurrent kit writes finish first or wait.
 func (e *Env) Quiesce() {
 	e.quiesceMu.Lock()
 	defer e.quiesceMu.Unlock()
 	e.app.Repositories.WaitQuiescent()
 }
 
-// QuiesceReactors is Quiesce PLUS the join of every post-commit REACTOR the
-// mutation set in motion. It is the barrier for the async cascades whose whole
-// effect lands outside the aggregate — above all DELETE, which converges only
-// when the read-model row is gone AND the worktree is physically gone from disk.
-// A reactor detaches into its own goroutine, so Quiesce alone sees its handler
-// "complete" the moment that goroutine is spawned; see
-// repositories.Container.QuiesceReactors for the round-by-round barrier, and
-// for why a reactor is never let past the drain gate WHILE a drain waits.
+// QuiesceReactors is Quiesce plus the join of every post-commit reactor, which detaches into its
+// own goroutine (so Quiesce sees it done at spawn); it is the barrier for cascades like DELETE.
 func (e *Env) QuiesceReactors() {
 	e.app.Repositories.QuiesceReactors(context.Background())
 }
 
-// HoldReactors parks every post-commit reactor admitted from now on at the drain
-// gate's door, so a test can crash the daemon with a purge DETERMINISTICALLY
-// still pending — the state the boot sweep exists for — instead of racing the
-// reactor to it. Nothing releases the hold; it is for a test that crashes next.
+// HoldReactors parks every reactor admitted from now on at the drain gate, so a test can crash
+// with a purge deterministically pending. Nothing releases it; crash next.
 func (e *Env) HoldReactors() {
 	e.app.Repositories.Drain().Gate.Hold()
 }
 
-// ImportRepo creates a real git repo at the supplied path (or inits a fresh one
-// when path is empty), imports it as a project, and runs the full per-repo
-// import (RegisterRepo) which adopts the default-branch worktree as a workspace.
-// It returns the project/repo/adopted-workspace ids plus the repo path. The
-// adopted workspace id is learned from the WorkspaceDTO broadcast on the
-// repo-scoped Workspaces WS stream (dial-before-import), never from a sync body.
+// ImportRepo creates (or inits) a git repo, imports it as a project and runs the full repo import,
+// returning the ids and path; the adopted workspace comes from the WS broadcast, dialled first.
 func (e *Env) ImportRepo(
 	t *testing.T,
 	name string,
@@ -931,10 +789,8 @@ func (e *Env) ImportRepo(
 	// be removed while the daemon still works in it.
 	t.Cleanup(func() { e.Close(t) })
 	projectID := e.RegisterProject(t, name, path)
-	// The repo import (POST .../repos) runs the full importer, which derives the
-	// repo NAME from the on-disk directory — not from the request body — so the
-	// RepoDTO is matched by projectId, not name. Hold projects BEFORE the POST so
-	// the imported row is never missed.
+	// The importer names the repo from its directory, so match the RepoDTO by projectId; hold
+	// projects BEFORE the POST so the row is never missed.
 	reposWS := e.WatchProjects(t)
 	resp := e.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
 		"name": name,
@@ -982,10 +838,8 @@ func (e *Env) ImportRepo(
 	}
 }
 
-// ListChats reads a repo's chat rows over the real REST surface
-// (GET .../repos/:repoId/chats) — the ONE read that answers everything the
-// deleted workspace list used to, since each worktree-owning row carries its
-// git state inline (spec §5).
+// ListChats reads a repo's chat rows over REST: each worktree-owning row carries its git
+// state inline.
 func (e *Env) ListChats(
 	t *testing.T,
 	projectID string,
@@ -999,15 +853,8 @@ func (e *Env) ListChats(
 	return chats
 }
 
-// DeleteWorkspaceCascade tombstones a workspace and sets its purge cascade in
-// motion — the exact call the deleted DELETE .../workspaces/:wsId route made.
-//
-// It is a FIXTURE primitive, for a test that needs a tombstoned workspace as a
-// PRECONDITION rather than as its subject. The only HTTP way to reach a delete
-// now is DELETE .../chats/:chatId, which additionally hard-purges the owning
-// chat in the same request; a test about what happens to the WORKSPACE after a
-// crash would then be entangled with that second teardown. This is the narrow
-// call, so the precondition is the one the test actually means.
+// DeleteWorkspaceCascade tombstones a workspace and starts its purge cascade, for a test that
+// needs a tombstone as a PRECONDITION: DELETE .../chats/:id also purges the owning chat.
 func (e *Env) DeleteWorkspaceCascade(
 	t *testing.T,
 	wsID string,
@@ -1021,20 +868,9 @@ func (e *Env) DeleteWorkspaceCascade(
 	)
 }
 
-// WorkspaceRow returns a workspace's status in the DURABLE read model, and
-// whether it still has a row there at all.
-//
-// It reads in-process, and that is not a shortcut — it is the only surface left.
-// A workspace is addressed through the chat that owns it now, so once that chat
-// is purged (which DELETE .../chats/:id does, in the same request that
-// tombstones the workspace) no wire read can reach the row: the chat list would
-// answer "absent" for a workspace whose row is very much still there. Asserting
-// the DELETE invariant over the wire would therefore be vacuously true.
-//
-// It reads exactly what the BOOT ORPHAN-SWEEP lists from — the central durable
-// read model, state/store/workspace.db, via ListInRepo — so a test asserting
-// "the sweep reaped the residual row" is asking the same store the sweep asked,
-// not a second view that could disagree.
+// WorkspaceRow returns a workspace's status in the DURABLE read model and whether its row exists.
+// In-process because no wire read reaches a row whose owning chat was purged; it reads the same
+// store the boot orphan-sweep lists from.
 func (e *Env) WorkspaceRow(
 	t *testing.T,
 	projectID string,
@@ -1105,13 +941,9 @@ func (e *Env) WorktreeChats(
 	return out
 }
 
-// PushProviderState injects a scripted provider poll result for wsID directly
-// into the workspace aggregate, bypassing the real GitHub/GitLab provider
-// engine. The resulting status transition (pr-open → pr-merged, protected →
-// locked, etc.) is persisted projection-synchronously (Asynx SendWait) and
-// broadcast as a WorkspaceDTO on the Workspaces WS stream. This is the
-// mock-provider seam (spec §11) — analogous to PushGit/PushLSP — that lets a
-// test drive PR-status transitions deterministically without a real provider.
+// PushProviderState injects a scripted provider poll result into the workspace aggregate,
+// bypassing the provider engine; the transition is persisted (SendWait) and broadcast, so tests
+// drive PR-status deterministically.
 func (e *Env) PushProviderState(
 	t *testing.T,
 	wsID string,
@@ -1163,11 +995,6 @@ func wsURL(
 // Now returns a stable deterministic time for test commands.
 func Now() time.Time {
 	return time.Unix(1_700_000_000, 0).UTC()
-}
-
-// Ctx returns a background context.
-func Ctx() context.Context {
-	return context.Background()
 }
 
 // MustJSON marshals v to JSON or panics if marshalling fails.

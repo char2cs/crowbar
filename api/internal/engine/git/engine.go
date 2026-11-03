@@ -35,11 +35,8 @@ type engine struct {
 	tips      tipMemory
 }
 
-// repoMutex returns (or creates) the per-repo mutex for repoPath. The mutex is
-// keyed by the git common directory, so every worktree of a single clone shares
-// one lock and their git operations serialize (07 §3.1). Resolution runs once
-// per input path before the lock is taken (no reentrancy), and falls back to the
-// raw path when repoPath is not inside a git repo.
+// repoMutex returns (or creates) the per-repo mutex for repoPath, keyed by the git common dir so every
+// worktree of a clone serializes on one lock. It falls back to the raw path outside a git repo.
 func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.RWMutex {
 	key := e.resolveCommonDir(ctx, repoPath)
 	actual, _ := e.mu.LoadOrStore(key, &sync.RWMutex{})
@@ -93,11 +90,8 @@ func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	}
 }
 
-// lockRepoRead takes the shared read lock for repoPath's clone, for any
-// read-only inspection (status/diff/log/…). Concurrent reads never block each
-// other; a read blocks only while a write (including a background origin-sync
-// fetch) holds the exclusive lock, and is guaranteed to observe either the
-// fully-pre- or fully-post-mutation state, never a torn one.
+// lockRepoRead takes the clone's shared read lock for read-only inspection. Reads never block each
+// other, only writes (including origin-sync fetches), and never observe a torn mutation.
 func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
 	if !perf.Enabled() {
@@ -124,30 +118,17 @@ func New() Engine {
 
 var _ Engine = (*engine)(nil)
 
-// netTransferTimeout bounds git subprocesses that move data to or from a
-// remote (fetch/pull/push); netQueryTimeout bounds pure remote queries
-// (ls-remote). Without a bound, a remote whose TCP connection has gone dead
-// stalls the subprocess for the OS retransmission timeout (~15 min observed
-// in production) while the per-repo mutex is held, wedging every git
-// operation on that clone until the kernel gives up.
-//
-// netListRefreshTimeout bounds the whole-remote refresh that a branch LISTING
-// runs before answering. It is far tighter than netTransferTimeout because a
-// user is sitting in front of a modal waiting for it, and because its failure
-// is cheap: the listing degrades to the clone's cached remote-tracking refs,
-// and the import that follows re-fetches the one branch it needs under the full
-// transfer budget anyway. A slow remote should make the list slightly stale, not
-// make the dialog look hung for three minutes.
+// netTransferTimeout and netQueryTimeout bound remote git calls so a dead TCP connection cannot hold the
+// per-repo mutex for the OS retransmission timeout. netListRefreshTimeout is far tighter: a user waits on
+// it, and failure only leaves the listing on cached remote-tracking refs.
 var (
 	netTransferTimeout    = 3 * time.Minute
 	netQueryTimeout       = 30 * time.Second
 	netListRefreshTimeout = 45 * time.Second
 )
 
-// execNet runs a network git command under timeout and reports a
-// deadline-driven kill as an explicit timeout error instead of the opaque
-// exit -1 the subprocess exits with after CommandContext kills it. A parent
-// context that was itself cancelled keeps the ordinary classification path.
+// execNet runs a network git command under timeout, reporting a deadline kill as an explicit timeout
+// error instead of exit -1; a cancelled parent context keeps ordinary classification.
 func (e *engine) execNet(ctx context.Context, op string, timeout time.Duration, repoPath string, args ...string) error {
 	r, err := e.runNet(ctx, op, timeout, repoPath, args...)
 	if err != nil {
@@ -378,25 +359,15 @@ func (e *engine) FetchRef(ctx context.Context, repoPath, branch string) error {
 	return e.execNet(ctx, "fetch ref", netTransferTimeout, repoPath, "fetch", "origin", branch)
 }
 
-// FetchPrune refreshes ALL of refs/remotes/origin/* and drops the tracking refs
-// whose remote branch is gone (`git fetch --prune origin`).
-//
-// This is what makes a remote-branch LISTING truthful. Nothing else in the
-// daemon does a full fetch on its own: OriginSyncManager refreshes only the one
-// subscribed protected branch, and Fetch is the user's Git-panel button. Without
-// it, a branch list read from `git branch -r` reports the remote as it stood at
-// clone time — missing every branch pushed since, and still offering branches
-// deleted since. It touches no local branch ref, so it is safe to run behind a
-// read endpoint.
+// FetchPrune runs `git fetch --prune origin` so a remote-branch listing reflects the remote now rather
+// than at clone time; nothing else fetches all refs. It touches no local branch, so reads may run it.
 func (e *engine) FetchPrune(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fetch prune", netListRefreshTimeout, repoPath, "fetch", "--prune", "origin")
 }
 
-// FastForwardBranch fetches origin/<branch> and fast-forwards the local branch
-// ref to match it in one step (`git fetch origin <branch>:<branch>`). Unlike
-// FetchRef, which only updates the remote-tracking ref, this ensures the local
-// branch is up to date before checking it out into a worktree.
+// FastForwardBranch runs `git fetch origin <branch>:<branch>`, updating the local branch (not just the
+// tracking ref) before it is checked out into a worktree.
 func (e *engine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fast-forward branch", netTransferTimeout, repoPath, "fetch", "origin", branch+":"+branch)
@@ -438,11 +409,8 @@ func (e *engine) StashDrop(ctx context.Context, repoPath, id string) error {
 	return stash.Drop(ctx, repoPath, id)
 }
 
-// Reset runs `git reset --<mode> [<commit>]`. mode is allowlisted and commit is
-// validated for a leading dash at the usecase boundary (git_write.go), which is
-// the guard here: `git reset` does not accept a `--` end-of-options separator
-// before a commit (it would reinterpret the commit as a pathspec — "Cannot do
-// hard reset with paths"), so a separator is infeasible for this subcommand.
+// Reset runs `git reset --<mode> [<commit>]`. git reset rejects a `--` before a commit, so the guard is
+// the usecase boundary's mode allowlist and leading-dash check on commit.
 func (e *engine) Reset(ctx context.Context, repoPath, mode, commit string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	flag := "--" + mode
@@ -489,10 +457,8 @@ func (e *engine) OperationAbort(ctx context.Context, repoPath string) error {
 	return e.operationAbort(ctx, repoPath)
 }
 
-// OperationInProgress reports the in-progress git operation at repoPath, reading
-// only the .git marker files. It takes no repo lock: the marker check is a pure
-// read and the recovery sweep calls it on workspaces whose worktrees may be mid
-// operation, where blocking on a write lock would be wrong.
+// OperationInProgress reports the in-progress git operation from .git marker files only, taking no repo
+// lock: recovery calls it on worktrees that may be mid-operation.
 func (e *engine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
 	return detectInProgressOp(ctx, repoPath), nil
 }

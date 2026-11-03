@@ -82,24 +82,17 @@ type ProjectActivityRollup interface {
 	)
 }
 
-// Usecase is the workspace feature's one public face: the lifecycle/read
-// surface over the workspace aggregate PLUS the worktree hierarchy (07) —
-// worktree-backed create, local child→parent merge, re-parenting, and cascade
-// delete. The hierarchy methods (CreateChild through SetChatObserver) are a
-// thin delegation onto internal/hierarchy, which holds their implementation;
-// this interface only names the one surface a caller sees.
-// SyncWorkingTreeState is the shared wrapper the watcher, file, and git usecases
-// call to recompute and persist the working-tree summary (00 §5.3).
+// Usecase is the workspace feature's one public face: lifecycle/read over the workspace aggregate plus
+// the worktree hierarchy (CreateChild through SetChatObserver, delegated to internal/hierarchy).
+// SyncWorkingTreeState is the shared wrapper that recomputes and persists the working-tree summary.
 type Usecase interface {
 	// List returns every workspace row from the read model.
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
 
-	// ListInRepo returns every workspace row scoped to one project+repo, reading
-	// from the same per-entity stores as List (see workspace.Workspace.ListInRepo)
-	// — cheaper because it skips entities outside the requested repo, not because
-	// it uses a different data source.
+	// ListInRepo returns every workspace row of one project+repo from the same stores as List, cheaper
+	// only because it skips other repos' entities.
 	ListInRepo(
 		ctx context.Context,
 		projectID string,
@@ -119,15 +112,9 @@ type Usecase interface {
 		strategy gitdomain.MergeStrategy,
 	) (domain.Workspace, error)
 
-	// SetLock records the user's own lock decision for a workspace, which
-	// outranks the provider's protected flag from here on. `locked` nil hands the
-	// question back to the provider.
-	//
-	// Automatic locking is untouched by this: a protected branch is still created
-	// locked and still re-locked by every provider poll. What the override adds is
-	// the ability to disagree — to unlock main, or to lock a fork child the
-	// provider has no opinion about — and to have that disagreement survive the
-	// next poll.
+	// SetLock records the user's own lock decision, which outranks the provider's protected flag; nil
+	// hands it back to the provider. Automatic locking still applies; the override lets the user
+	// disagree and survive the next poll.
 	SetLock(
 		ctx context.Context,
 		id string,
@@ -151,10 +138,8 @@ type Usecase interface {
 		now time.Time,
 	) (domain.Workspace, error)
 
-	// MergeEligibilitiesFor resolves whether each workspace in wss can be merged
-	// into its local parent, in order, reading the parent's status from the
-	// caller-held sibling set. The git dry-runs are batched: one git read per
-	// parent checkout. ctx scopes them.
+	// MergeEligibilitiesFor resolves whether each workspace can merge into its local parent, reading
+	// parent status from the caller-held siblings; git dry-runs are batched per parent checkout.
 	MergeEligibilitiesFor(
 		ctx context.Context,
 		wss []domain.Workspace,
@@ -225,11 +210,9 @@ type Usecase interface {
 		ctx context.Context,
 		rootIDs []string,
 	) ([]domain.WorkAtRisk, error)
-	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo
-	// (path + default branch) from the caller rather than resolving it from the
-	// (possibly already-deleted) repo row. It never deletes a branch Crowbar did
-	// not create, never --forces a locked worktree, never removes a checkout
-	// Crowbar did not create, and without consent refuses over work at risk.
+	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo from the caller since its
+	// row may already be gone. It never deletes branches or checkouts Crowbar did not create, never
+	// --forces a locked worktree, and without consent refuses over work at risk.
 	DeleteRepoWorkspaces(
 		ctx context.Context,
 		repo domain.Repository,
@@ -240,10 +223,8 @@ type Usecase interface {
 		ctx context.Context,
 		repo domain.Repository,
 	) ([]domain.WorkAtRisk, error)
-	// SetChatObserver wires the chat-usecase surface guardReparent's
-	// working-chat check needs (invariant 5). It is a post-construction setter
-	// because the chat usecase itself depends on this one (Promote forks a
-	// workspace through it) — see hierarchy.Usecase.SetChatObserver.
+	// SetChatObserver wires the chat surface guardReparent's working-chat check needs; a setter because
+	// the chat usecase itself depends on this one (Promote forks through it).
 	SetChatObserver(observer ChatWorkObserver)
 	// SetOwningChats wires the chat-side surface every workspace this usecase
 	// creates is minted under — see hierarchy.Usecase.SetOwningChats.
@@ -257,20 +238,9 @@ type workspaceUsecase struct {
 	hierarchy.Usecase
 }
 
-// New builds a Usecase from the workspace repo, the git engine, and the
-// project roll-up usecase — the lifecycle methods' own three dependencies,
-// unchanged from before this package absorbed the worktree hierarchy — plus
-// everything the hierarchy needs beyond those. hierarchyWorkspaces and
-// hierarchyGit are the SAME repository and git engine as repo/git above,
-// widened to the fuller interfaces the hierarchy's own create/merge/reparent
-// logic uses (repo/git only need the narrow slice the lifecycle methods call);
-// they are separate parameters, not one, so a caller exercising only the
-// lifecycle half (see workspace_test.go) can keep supplying its existing
-// narrow fakes without also having to satisfy the wider ones. provider,
-// repos, now and crowbarHome are the hierarchy's remaining dependencies
-// verbatim (repos resolves a workspace's repository main path so worktree
-// removal and branch deletion run against the repo, never a child's own
-// worktree); opts configures it further (e.g. WithTerminalReaper).
+// New builds a Usecase. hierarchyWorkspaces and hierarchyGit are the same repo and git engine as
+// repo/git, widened for the hierarchy, kept separate so lifecycle-only callers keep narrow fakes;
+// repos resolves a repository's main path so removals never run against a child's own worktree.
 func New(
 	repo WorkspaceLifecycleRepo,
 	git WorkingTreeGitEngine,
@@ -302,10 +272,8 @@ func (u *workspaceUsecase) List(
 	return list, nil
 }
 
-// ListInRepo returns every workspace row scoped to one project+repo, reading
-// from the same per-entity stores as List (see workspace.Workspace.ListInRepo)
-// — cheaper because it skips entities outside the requested repo, not because
-// it uses a different data source.
+// ListInRepo returns every workspace row of one project+repo from the same stores as List, cheaper
+// only because it skips other repos' entities.
 func (u *workspaceUsecase) ListInRepo(
 	ctx context.Context,
 	projectID string,
@@ -343,12 +311,9 @@ func (u *workspaceUsecase) SetMergeStrategy(
 	return ws, nil
 }
 
-// SetLock records the user's own lock decision for a workspace.
-//
-// The provider's current protected answer is read off the stored row rather than
-// polled: it is only needed to resolve the status when the override is being
-// CLEARED, and a workspace whose status is locked while it carries no override
-// is locked precisely because the provider said so.
+// SetLock records the user's own lock decision for a workspace. The provider's protected answer is
+// read off the stored row: it only matters when clearing, and a locked row without override is
+// locked because the provider said so.
 func (u *workspaceUsecase) SetLock(
 	ctx context.Context,
 	id string,
@@ -389,10 +354,8 @@ func (u *workspaceUsecase) SyncWorkingTreeState(
 	return synced, nil
 }
 
-// ResolveConflicts clears the workspace's pr-conflicts status after the operation
-// in its own worktree has been resolved (the git usecase calls this on a
-// successful operation continue). pr-conflicts is sticky otherwise, so this is
-// the path that lets a resolved kept-rebase drop its conflict warning.
+// ResolveConflicts clears the sticky pr-conflicts status after the operation in the workspace's own
+// worktree resolves (called on a successful continue).
 func (u *workspaceUsecase) ResolveConflicts(
 	ctx context.Context,
 	id string,
@@ -420,15 +383,8 @@ func (u *workspaceUsecase) summarize(
 	ctx context.Context,
 	ws domain.Workspace,
 ) (wsrepo.SyncInput, error) {
-	// The project-level home workspace is rooted at the PROJECT directory — the
-	// folder that contains repos, which is deliberately not a git repository (its
-	// route group mounts no git surface at all). Shelling out to git there exits
-	// 129 "Not a git repository", and because the summary is the first step of the
-	// post-mutation resync, that failure propagated all the way out as a 500 on
-	// every home file write: the bytes landed on disk but the editor reported
-	// "Failed to save file" and kept the buffer dirty. A home workspace has no
-	// branch to diff and no index to conflict, so its summary is zero by
-	// definition — return it without touching git.
+	// A project-level home workspace is rooted at the project directory, which is not a git repo; git
+	// would fail every post-write resync. It has no branch or index, so its summary is zero by definition.
 	if ws.Kind == domain.WorkspaceKindHome {
 		return wsrepo.SyncInput{ID: ws.ID}, nil
 	}
@@ -449,19 +405,9 @@ func (u *workspaceUsecase) summarize(
 	}, nil
 }
 
-// summaryBase returns the ref the working-tree summary diffs against: the base
-// BRANCH NAME — the parent's branch for a child, or the workspace's own branch
-// for a protected root — so the engine measures against the merge-base of that
-// branch's current tip and HEAD and the sidebar diff self-corrects as the base
-// branch advances (the frozen ForkPointSha inflates both children AND roots once
-// their recorded fork point falls behind, e.g. a develop root left at an old tip).
-//
-// It falls back to the recorded ForkPointSha whenever the base branch is unusable:
-// no branch name (a detached home), an unresolvable parent row, or a branch that
-// no longer resolves in the worktree (renamed/deleted out of band). Verifying
-// resolvability here — rather than letting the engine diff against a name that
-// yields no merge-base and silently reports +0/-0 — keeps the summary consistent
-// with the branch-review pane, which has the same fork-point fallback.
+// summaryBase returns the base branch name (parent's for a child, own for a protected root) so the
+// summary tracks the base's current tip instead of a stale fork point. It falls back to ForkPointSha
+// when the branch is unusable, matching the branch-review pane's fallback.
 func (u *workspaceUsecase) summaryBase(
 	ctx context.Context,
 	ws domain.Workspace,

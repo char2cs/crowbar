@@ -5,16 +5,8 @@ import (
 	"context"
 	"time"
 
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
-
-// ExportedParsePorcelain wraps parsePorcelain for use in external test packages.
-func ExportedParsePorcelain(
-	output string,
-) ([]gitdomain.BlameEntry, error) {
-	return parsePorcelain(output)
-}
 
 // ExportedParseUnixTime wraps parseUnixTime for use in external test packages.
 func ExportedParseUnixTime(

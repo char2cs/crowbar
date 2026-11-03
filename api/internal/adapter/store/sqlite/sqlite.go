@@ -33,18 +33,9 @@ func New[T any, K comparable](
 	return NewFromDB[T, K](db)
 }
 
-// DSN is the driver connection string for the database at path, carrying the
-// per-connection pragmas every Crowbar database runs with. They go in the DSN
-// rather than a one-off PRAGMA statement because the driver runs DSN pragmas on
-// EVERY connection it opens, and synchronous is per-connection state: an Exec
-// would reach only whichever pooled connection happened to serve it.
-//
-// synchronous=NORMAL: in WAL mode (which every database here uses) a commit no
-// longer fsyncs; the WAL is synced at checkpoint instead. A committed
-// transaction still survives an application crash — only a power loss or OS
-// crash can roll back the most recent commits, and never corrupts the file.
-// FULL paid an fsync on every append (~1.1 ms vs ~0.15 ms, measured), and each
-// mutation writes an event, a snapshot and a read-model row.
+// DSN carries per-connection pragmas, since the driver applies DSN pragmas on every pooled connection.
+// synchronous=NORMAL under WAL survives app crashes (only power loss can drop the last commits) and
+// avoids FULL's fsync per append, paid several times per mutation.
 func DSN(path string) string {
 	sep := "?"
 	if strings.Contains(path, "?") {
@@ -53,29 +44,20 @@ func DSN(path string) string {
 	return path + sep + "_pragma=synchronous(NORMAL)"
 }
 
-// readPoolConns is the max open-connection count for read-model/view DBs. A
-// multi-connection pool lets concurrent reads proceed under WAL so a single
-// long-running read cannot head-of-line-block the others (the original wedge);
-// event logs keep the single-writer OpenDB instead.
+// readPoolConns sizes read-model/view pools so one long read cannot head-of-line-block the others
+// under WAL; event logs stay single-writer.
 const readPoolConns = 4
 
-// OpenDB opens (or creates) a single-connection SQLite database at path.
-// WAL journal mode and a 5-second busy timeout are enabled so that a second
-// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL. Used
-// for the per-entity workspace databases, which are effectively single-tenant
-// (one workspace, one or two open tabs at most).
+// OpenDB opens a single-connection SQLite DB with WAL and a 5s busy timeout so a second opener gets no
+// SQLITE_BUSY on DDL. Used for per-entity workspace DBs, effectively single-tenant.
 func OpenDB(
 	path string,
 ) (*gorm.DB, error) {
 	return openWithMaxConns(path, 1)
 }
 
-// OpenReadPoolDB opens (or creates) a SQLite database at path as a multi-conn
-// read pool for read-model / view DBs, so a single connection can't
-// head-of-line-block reads (decision 12). WAL is persisted in the DB header and
-// the driver applies busy_timeout on every pooled connection, so all pool
-// connections inherit the durability settings. Event logs stay single-writer
-// via OpenDB.
+// OpenReadPoolDB opens a multi-connection read pool for read-model/view DBs. WAL lives in the header
+// and busy_timeout is applied per connection, so every pooled connection inherits them.
 func OpenReadPoolDB(
 	path string,
 ) (*gorm.DB, error) {
@@ -106,10 +88,8 @@ func openWithMaxConns(
 	return db, nil
 }
 
-// NewFromDB builds a ScopedStore[T, K] over an already-open DB, auto-migrating
-// T. The return type is the wider ScopedStore rather than Store so callers that
-// need a narrowed list (FindWhere) get one without a type assertion; it
-// satisfies Store everywhere the narrow surface is all that is wanted.
+// NewFromDB builds a ScopedStore over an open DB, auto-migrating T; returning the wider type gives
+// FindWhere callers no type assertion.
 func NewFromDB[T any, K comparable](
 	db *gorm.DB,
 ) (store.ScopedStore[T, K], error) {
@@ -181,10 +161,8 @@ func (s *gormStore[T, K]) FindAll(
 	return items, nil
 }
 
-// FindWhere implements store.ScopedStore: it pushes the equality predicate down
-// to SQL as a GORM struct condition, so only the matching rows are read. Zero
-// fields in match are ignored (GORM's struct-condition semantics) — see the
-// interface doc for what that does and does not let a caller express.
+// FindWhere implements store.ScopedStore, pushing the equality match down as a GORM struct condition;
+// zero fields are ignored (see the interface doc).
 func (s *gormStore[T, K]) FindWhere(
 	ctx context.Context,
 	match T,

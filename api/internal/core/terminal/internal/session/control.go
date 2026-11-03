@@ -16,10 +16,8 @@ import (
 
 const clientSendBuf = 256
 
-// Attach registers a new client and returns its channel, pre-filled with ONE clean
-// ground-state redraw serialized from the current model (§8.3/Appendix A). No raw replay,
-// no DEC-mode preamble: the serialized state is self-contained, query-free, and fully
-// terminated.
+// Attach registers a client and returns its channel pre-filled with ONE ground-state
+// redraw of the current model: self-contained, query-free, no raw replay.
 func (s *Session) Attach() (<-chan OutputFrame, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -37,13 +35,8 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 		// re-attach inside the pumpStep debounce window of a SIGKILLed app never bakes its
 		// stale alt/mouse modes into the new client.
 		s.checkForegroundResetLocked()
-		// Attach re-bases the emitter to the CURRENT model state, which would silently
-		// drop any delta accumulated since the last emit for EXISTING clients (the attach
-		// snapshot is not fanned out to them). Flush that pending delta to them first —
-		// which also disarms a trailing frame-clock timer that would otherwise fire a
-		// stale diff off the wrong base into this client — then serialize the snapshot
-		// for the new client and re-prime. The serializer's output is self-contained,
-		// query-free and fully terminated, so the snapshot ends exactly there.
+		// Re-basing the emitter would drop the delta pending for EXISTING clients, so flush it to them
+		// first (which also disarms a trailing timer that would diff off the wrong base), then snapshot.
 		s.flushPendingEmitLocked()
 		if redraw := s.serializeLocked(); len(redraw) > 0 {
 			cl.send <- OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true}
@@ -94,26 +87,9 @@ func (s *Session) Write(
 	return nil
 }
 
-// SetTheme propagates the host terminal's light/dark theme to the session (spec: theme
-// propagation). It does two decoupled things, both required to make a foreground app's
-// automatic theme follow a Crowbar theme switch:
-//
-//  1. Sets the model's OSC 10/11 QUERY-answer colours (bg/fg) so an app that detects its
-//     theme by querying the background colour reads the truth — this alone fixes a freshly
-//     started app and any later query. It never re-emits colour to the transparent client
-//     xterm (see model.SetDefaultColors), so the glass background is untouched.
-//
-//  2. If the foreground app subscribed to theme-change notifications (DEC private mode 2031),
-//     injects a CSI ?997;n report into the PTY so an ALREADY-running app re-queries and
-//     switches live. The report is gated on the 2031 subscription (a shell that never opted
-//     in must not receive it) and deduped by polarity so only the first push and each
-//     light<->dark flip notify.
-//
-// The model mutation runs under s.mu (via the §8.5 recover backstop, like every model
-// access); the PTY write is issued OFF the lock through s.Write, so it can never run the
-// blocking ptmx.Write while the session lock is held (the C1 invariant, spec §3.8).
-//
-// It returns the error of that PTY write, if the report was due and could not be delivered.
+// SetTheme sets the model's OSC 10/11 query-answer colours (never re-emitted to the client), and
+// if the app subscribed to mode 2031 sends a polarity-deduped CSI ?997;n so a running app switches.
+// The PTY write runs off s.mu so ptmx.Write never blocks under the lock; its error is returned.
 func (s *Session) SetTheme(
 	bg color.Color,
 	fg color.Color,
@@ -130,10 +106,8 @@ func (s *Session) SetTheme(
 		ta.SetDefaultColors(bg, fg)
 		notifyEnabled = ta.ThemeNotifyEnabled()
 	})
-	// Emit on the first subscribed push and on every polarity flip; skip a redundant
-	// same-polarity push. themeEmitted/themeEmittedDark only advance when we actually emit,
-	// so a push while unsubscribed (notifyEnabled==false) still emits the first time the app
-	// later subscribes and pushes.
+	// Emit on the first subscribed push and each polarity flip; the emitted state only advances
+	// on an actual emit, so a push while unsubscribed still emits once the app subscribes.
 	emit := notifyEnabled && (!s.themeEmitted || s.themeEmittedDark != dark)
 	if emit {
 		s.themeEmitted = true
@@ -156,10 +130,8 @@ func themeNotifySeq(dark bool) []byte {
 	return []byte("\x1b[?997;2n")
 }
 
-// Resize updates the PTY window size and reshapes the model in lockstep under one s.mu
-// hold, with the syscall before the model reshape and no intervening model.Write, so the
-// model and PTY never disagree on the active width (§4.2/§8.3). The model reshape is
-// panic-isolated (§8.5). Returns an error if the PTY is not live.
+// Resize reshapes the PTY then the model under one s.mu hold with no write between, so they
+// never disagree on width; the reshape is panic-isolated. Errors if the PTY is not live.
 func (s *Session) Resize(
 	cols uint16,
 	rows uint16,
@@ -189,11 +161,8 @@ func (s *Session) Resize(
 	return nil
 }
 
-// Kill terminates the PTY process group. When the process already exited (ptmx == nil) it
-// only calls shutdown(). Otherwise it closes the PTY, SIGKILLs the child's process group
-// (so the children it spawned die with it, exactly as Terminate signals the group), nils
-// ptmx, then calls shutdown() WITHOUT holding s.mu (shutdown re-acquires it inside once.Do).
-// It returns only once the process has been reaped: Done is closed and ExitCode is final.
+// Kill closes the PTY and SIGKILLs the child's process group so its children die too, then
+// runs shutdown() without s.mu (it re-acquires it). It returns once the process is reaped.
 func (s *Session) Kill() {
 	s.mu.Lock()
 	if s.ptmx == nil {
@@ -227,19 +196,9 @@ func closePTY(ptmx *os.File) {
 	}
 }
 
-// Terminate gracefully quits the session's child process (spec §8): it sends
-// a clean-exit SIGTERM via the terminateSignal seam — a PID-level action,
-// never a PTY write, so the C-invariant (no keystrokes are ever synthesized
-// to an app) holds — then waits up to grace for the process to exit on its
-// own. A well-behaved CLI gets the chance to flush state
-// on a clean exit that an unconditional SIGKILL denies it. If the process is
-// still alive once grace elapses (or there was no live process/signal to
-// send), Terminate falls back to Kill's unconditional hard kill, so a caller
-// never blocks longer than grace waiting for a wedged or signal-ignoring
-// child.
-//
-// When the process already exited (ptmx == nil) there is nothing to signal,
-// so shutdown() runs directly, exactly like Kill.
+// Terminate SIGTERMs the child (a PID-level action, never a synthesized keystroke) so it can
+// flush state, waits up to grace, then falls back to Kill; a caller never blocks past grace.
+// With no live process it runs shutdown() directly, like Kill.
 func (s *Session) Terminate(grace time.Duration) {
 	s.mu.Lock()
 	if s.ptmx == nil {
@@ -289,21 +248,13 @@ func (s *Session) shutdown() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		// Stop the frame-clock timer (Task 7) under the same lock hold that
-		// closes s.done, so a still-armed trailing emit can never fire after
-		// teardown: its own s.done check would already guard against that,
-		// but stopping it here also releases the timer goroutine promptly
-		// instead of leaving it to wake up once more just to no-op.
+		// Stop the frame-clock timer under the lock that closes s.done, so a trailing emit never
+		// fires after teardown and the timer goroutine is released promptly.
 		s.stopEmitTimerLocked()
 
 		s.exitCode = code
-		// The shell exiting on its own reaches teardown HERE, not through Kill: pump
-		// reads EOF from the master and its deferred shutdown runs. Closing is this
-		// path's job too — dropping the *os.File merely hands the descriptor to the
-		// finalizer, and an idle daemon (allocating nothing, so never collecting) holds
-		// it indefinitely; a later Kill cannot help, it takes the ptmx == nil branch.
-		// A Kill racing a natural exit closed and nil'd ptmx under this same lock, so
-		// the nil check is what keeps this from being a double close.
+		// A natural shell exit reaches teardown here, so this path must close the master: the finalizer
+		// may never run on an idle daemon. A racing Kill nils ptmx under this lock, preventing a double close.
 		if s.ptmx != nil {
 			closePTY(s.ptmx)
 		}
@@ -320,12 +271,9 @@ func (s *Session) shutdown() {
 	})
 }
 
-// SuspendEligible reports whether the engine may tear this session's PTY down to a
-// suspended placeholder: never for a command session (a live agentic vendor CLI — restore
-// could only exec the joined argv string as a bogus binary), never while a client is
-// attached, and — unless force — only at an idle shell prompt. The engine calls it under
-// its per-session lifecycle lock, which is also where Attach registers clients, so the
-// answer cannot go stale before the suspend acts on it.
+// SuspendEligible: never for a command session (restore cannot re-exec it) or with a client
+// attached, and unless force only at an idle prompt. Called under the engine's lifecycle lock,
+// where Attach also registers, so the answer cannot go stale.
 func (s *Session) SuspendEligible(force bool) bool {
 	if s.command {
 		return false

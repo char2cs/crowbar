@@ -22,18 +22,9 @@ func (s *Session) Snapshot() (blob []byte, changed bool) {
 	return blob, true
 }
 
-// ScreenText renders the session's VISIBLE screen as plain text, and reports whether
-// it has moved since generation `since`.
-//
-// The (value, changed) shape mirrors Snapshot's, and for the same reason: the caller
-// polls, most polls find nothing new, and the cheap answer must not cost a render.
-// An unchanged screen returns no text at all — the caller already has it — so a chat
-// parked on a modal costs one integer compare per poll no matter how long it sits
-// there.
-//
-// A placeholder (suspended, model == nil) has no screen: it reports gen 0, unchanged.
-// So does a model whose backend does not implement ScreenReader, which is the same
-// guarded-optional-interface treatment ThemeAware and ModelHealth get.
+// ScreenText renders the VISIBLE screen as text if it moved since generation since; unchanged
+// returns no text, so polling costs one compare. A placeholder or a backend without
+// ScreenReader reports gen 0, unchanged.
 func (s *Session) ScreenText(since uint64) (text string, gen uint64, changed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,10 +53,8 @@ func (s *Session) header() string {
 	return fmt.Sprintf("CRWB1 %d %d %d %d\n", cols, rows, altBit, sb)
 }
 
-// InjectLocal feeds a clean-ANSI chunk into THIS session's model only — never the live wire
-// and never the persisted .buf. It is the sole sanctioned way for the engine to push a
-// synthetic, daemon-authored on-screen notice (restore/suspend) so it surfaces on the next
-// Serialize (§12).
+// InjectLocal feeds clean ANSI into this session's model only (never the wire or the .buf):
+// the sanctioned way to show a daemon-authored notice on the next Serialize.
 func (s *Session) InjectLocal(
 	b []byte,
 ) {
@@ -74,11 +63,8 @@ func (s *Session) InjectLocal(
 	s.injectLocalLocked(b)
 }
 
-// injectLocalLocked is the lock-free core of InjectLocal. Caller holds s.mu. It feeds bytes
-// through writeModelLocked (the §8.5 recover) so a parse panic on a daemon notice cannot
-// escape, and defensively drives the model to the primary buffer first so a notice can never
-// land in a transient alt buffer (§12). It marks the session dirty and drops the cache; it
-// never fans out.
+// injectLocalLocked feeds bytes through writeModelLocked's recover, on the primary buffer so a
+// notice never lands in an alt screen; it marks dirty and never fans out. Caller holds s.mu.
 func (s *Session) injectLocalLocked(
 	b []byte,
 ) {
@@ -93,12 +79,8 @@ func (s *Session) injectLocalLocked(
 	s.lastBlob = nil
 }
 
-// ForceSuspendSnapshot performs the §11.2 teardown and the suspending serialize as ONE
-// uninterrupted s.mu critical section, so no live pumpStep chunk can interleave between the
-// teardown and the serialize and repaint alt content onto the model just forced to primary.
-// It drives the model to the primary buffer (OnForegroundReset), injects the notice into
-// that primary screen, serializes a clean primary blob, caches it, and returns it for the
-// engine to persist verbatim WITHOUT re-Snapshotting. Caller must NOT already hold s.mu.
+// ForceSuspendSnapshot forces primary, injects the notice, serializes and caches in ONE s.mu
+// section, so no pump chunk can repaint alt content before the serialize. Caller must NOT hold s.mu.
 func (s *Session) ForceSuspendSnapshot(
 	notice []byte,
 ) []byte {
@@ -112,15 +94,8 @@ func (s *Session) ForceSuspendSnapshot(
 	return blob
 }
 
-// Health reports the session's parse-health for the engine's Stats observability surface
-// (§9.4): whether the model is in the sticky degraded state, and the total recovered parse
-// panics. The count combines the model's own ModelHealth.ParsePanics() (panics x/vt's Write
-// recovered internally, self-healing without forcing the raw fallback) with the session-
-// level s.modelPanics backstop counter (panics that escaped a model method —
-// Resize/Serialize/Emit/Prime/teardown — into the §8.5 recover and DID flip the session to
-// raw), so neither is write-only and a blanked-and-reparsed session is observable. A
-// placeholder (model ==
-// nil) or a backend that does not implement ModelHealth contributes only s.modelPanics.
+// Health reports degraded state and recovered parse panics: the model's own ModelHealth count
+// plus s.modelPanics (panics that escaped into the session recover and flipped it to raw).
 func (s *Session) Health() (degraded bool, parsePanics int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -142,10 +117,8 @@ func (s *Session) ModelBytes() int64 {
 	defer s.mu.Unlock()
 	total := s.model.ModelBytes() + int64(len(s.lastBlob))
 	if s.emitter != nil {
-		// Stable-from-spawn estimate derived from the model's dims (see
-		// model.EmitterGridBytes): counting the grid only after the first
-		// Prime would make the session's reported size jump ~3× at its
-		// first output, destabilizing the maintenance ceiling arithmetic.
+		// Estimated from the model's dims (model.EmitterGridBytes) so the reported size is stable
+		// from spawn for the maintenance ceiling.
 		cols, rows, _, _ := s.model.HeaderState()
 		total += model.EmitterGridBytes(cols, rows)
 	}

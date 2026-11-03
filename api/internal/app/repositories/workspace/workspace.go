@@ -21,11 +21,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// workspace is the singleton-backed workspace aggregate repository. One
-// axWorkspace routes every workspace id to a shard by hash; there is no per-entity
-// Registry, no writeMu (asynx serializes each aggregate's commands), and no
-// location index (the store read model carries
-// project_id/repo_id and doubles as the location index — §3.7).
+// workspace is the singleton-backed aggregate repository: one axWorkspace shards ids by hash
+// (asynx serializes each aggregate's commands), and the store read model is the location index.
 type workspace struct {
 	ax         asynx.Asynx[domain.Workspace]
 	readModel  store.Store
@@ -150,10 +147,8 @@ func (w *workspace) Get(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
 	}
-	// A per-id open triggers a lazy, deduplicated, background reconcile off this
-	// read path (spec §3.8): Get returns immediately from the folded aggregate
-	// while the reconcile task re-derives git+provider reality and SendWaits a
-	// pure sync command. List never triggers this.
+	// A per-id open triggers a lazy, deduplicated background reconcile; Get returns from the
+	// folded aggregate immediately. List never triggers this.
 	if w.reconciler != nil {
 		w.reconciler.OnOpen(ctx, id)
 	}
@@ -175,16 +170,8 @@ func (w *workspace) SyncProviderState(
 		PRTargetBranch: in.PRTargetBranch,
 		Now:            now,
 	}
-	// A poll that changes nothing must not write. The sweep visits every workspace
-	// every 5 minutes, and each visit appended an event AND a snapshot whether or
-	// not the provider had moved: in a real home, 43,970 of 44,068 provider_synced
-	// events carried an empty patch set, and every one of them bumped the
-	// aggregate version.
-	//
-	// EmitEvent is pure, so applying it here answers exactly the question the write
-	// would have asked. Read through ax directly, NOT w.Get: Get triggers the lazy
-	// reconcile (OnOpen), whose own job is to re-derive provider reality and sync —
-	// so reading that way would have this call schedule the work that calls it.
+	// A poll that changes nothing must not write an event and snapshot. EmitEvent is pure, so applying
+	// it answers what the write would; read through ax, not w.Get, whose lazy reconcile would schedule this.
 	if cur, getErr := w.ax.Get(ctx, in.ID); getErr == nil && cmd.EmitEvent(&cur) == cur {
 		return cur, nil
 	}
@@ -333,18 +320,9 @@ func (w *workspace) SetParentFromPR(
 	return evt.Aggregate, nil
 }
 
-// Delete tombstones the workspace via the pure Delete command: it
-// folds Status=deleted and does NO io. The store projection persists the deleted
-// row (so the boot orphan-sweep still finds it) and the async delete reactor
-// (topic "workspace.deleted.*", Task 8) performs the physical teardown off the
-// write path — closing the old synchronous forget→rm crash gap (spec §3.6/§3.8).
-//
-// It returns only once every projection has handled the tombstone — SendWait,
-// not Send. The tombstone's frame is addressed through the workspace's owning
-// chat, and a caller routinely purges that chat next (a chat delete, the delete
-// reactor); a purge that beat the hub projection dropped the frame and left the
-// client a ghost row. Committing faster (synchronous=NORMAL) made that race win
-// often enough to see.
+// Delete folds the tombstone with no io; the store projection keeps the row for the orphan sweep
+// and the delete reactor tears down off the write path. SendWait, not Send: a caller often purges the
+// owning chat next, and a purge that beats the hub projection drops the frame, leaving a ghost row.
 func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
@@ -356,13 +334,8 @@ func (w *workspace) Delete(
 	return nil
 }
 
-// List returns every workspace row from the durable read model
-// (state/store/workspace.db), which doubles as the location index (§3.7). It reads
-// the projection directly and MUST NOT trigger any per-workspace reconcile
-// (git/provider re-derivation, §3.8) — but it DOES heal a lost read model via
-// whole-model lazy Replay when the model is empty while the event log is non-empty
-// (§3.7, decision 7), hence ListOrRebuild rather than the raw List (which is
-// reserved for the boot orphan-sweep, so startup pays no replay).
+// List reads the durable read model and MUST NOT trigger per-workspace reconcile; ListOrRebuild
+// heals an empty model from a non-empty log, while raw List is kept for the boot sweep.
 func (w *workspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
@@ -373,12 +346,8 @@ func (w *workspace) List(
 	return rows, nil
 }
 
-// ListInRepo returns every workspace row scoped to projectID+repoID. It reads
-// the durable central read model via List (state/store/workspace.db) and filters
-// in memory — a single central-store read, not a per-install scan — mirroring
-// GetHomeForProject. Each read-model row carries project_id/repo_id off the
-// folded aggregate (spec §3.7), so the central store natively serves the
-// repo-scoped query with no separate location/directory table.
+// ListInRepo filters List's central read model in memory: each row carries project_id/repo_id,
+// so no separate location table is needed.
 func (w *workspace) ListInRepo(
 	ctx context.Context,
 	projectID string,
@@ -397,11 +366,8 @@ func (w *workspace) ListInRepo(
 	return rows, nil
 }
 
-// inRepo reports whether ws is one of repoID's rows. A repo belongs to exactly
-// one project, and the REPO row is the one owner of that assignment: a repo's
-// rows are its rows whatever their own (denormalised) ProjectID says, so a repo
-// move that relocated only some of them before failing never hides the rest
-// (spec §3 P0-3). A repo-less row (a project home) is scoped by its project.
+// inRepo: the REPO row owns the project assignment, so a partially failed repo move never hides
+// rows whose denormalised ProjectID lags. A repo-less row (a project home) is scoped by project.
 func inRepo(
 	ws domain.Workspace,
 	projectID string,
@@ -436,12 +402,8 @@ func (w *workspace) BackfillProvisioning(
 	}
 }
 
-// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
-// §3.8): it reads state/store/workspace.db DIRECTLY — never the Replay-wrapped
-// per-request List — so boot pays no replay and an empty model reaps nothing,
-// and re-drives the one Purger for every residual "deleted" row, from that
-// tombstone's own WorktreePath. Best-effort per row: recovery work never fails
-// boot. It refuses to run before RegisterDeleteReactor has built the Purger.
+// Sweep re-drives the Purger for every residual "deleted" row of the RAW read model (no replay at
+// boot, so an empty model reaps nothing). Best-effort: recovery never fails boot. Needs the Purger.
 func (w *workspace) Sweep(
 	ctx context.Context,
 	onPurged func(ctx context.Context, wsID string),
@@ -453,10 +415,8 @@ func (w *workspace) Sweep(
 	return nil
 }
 
-// RegisterDeleteReactor builds the one physical Purger from the injected
-// cross-aggregate forget cascade and hardened worktree remover, keeps it for the
-// boot Sweep, and subscribes the async delete reactor to run it over the
-// persisted tombstone (spec §3.6/§3.8, §7-D).
+// RegisterDeleteReactor builds the one Purger, keeps it for the boot Sweep, and subscribes the
+// async delete reactor to run it over each persisted tombstone.
 func (w *workspace) RegisterDeleteReactor(
 	root context.Context,
 	forgetDependents func(ctx context.Context, wsID string) error,

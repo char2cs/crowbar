@@ -16,38 +16,23 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// Server→client wire format.
-//
-// PTY output travels as BINARY WebSocket messages: one tag byte, then the bytes the
-// client's terminal parses — no JSON string encoding, no escaping, no UTF-8 sanitizing,
-// and no need to hold back a rune split across reads (the client's terminal decodes
-// UTF-8 as a stream). The tag says how to apply the payload:
-//
-//	FrameOutput   incremental output — append it.
-//	FrameSnapshot a self-contained ground-state redraw (attach, post-resize keyframe) —
-//	              apply it onto a RESET buffer.
-//
-// Control messages travel as TEXT (JSON). The only one is exitMsg.
+// Server→client wire format: PTY output is a BINARY message of one tag byte plus raw terminal
+// bytes (the client decodes UTF-8 as a stream). FrameOutput appends; FrameSnapshot is a ground-state
+// redraw applied onto a reset buffer. Control messages are TEXT JSON; the only one is exitMsg.
 const (
 	FrameOutput   byte = 0
 	FrameSnapshot byte = 1
 )
 
-// exitMsg is the server→client frame that says the session's process EXITED — sent once,
-// right before the engine closes the conn. It is what lets the client tell "the shell
-// ended" (close the tab) from "the transport dropped" (reconnect): a conn that closes
-// without it is a transport drop.
+// exitMsg tells the client the process EXITED, sent once before the conn closes, so it can tell
+// "shell ended" (close the tab) from a transport drop (reconnect).
 type exitMsg struct {
 	Type string `json:"type"` // always "exit"
 	Code int    `json:"code"`
 }
 
-// inputMsg is the client→server wire frame for PTY input.
-//
-// The "theme" type carries the host terminal's light/dark theme so a foreground app's
-// automatic theme can follow a Crowbar theme switch: Bg/Fg are the resolved default
-// background/foreground colours (as "#rrggbb", the values an OSC 11/10 query answers with)
-// and Dark is the authoritative light/dark polarity for the CSI ?997;n theme-change report.
+// inputMsg is the client→server frame for PTY input. A "theme" message carries the host's resolved
+// Bg/Fg ("#rrggbb", the OSC 11/10 answers) and Dark, the polarity for the CSI ?997;n report.
 type inputMsg struct {
 	Type string `json:"type"`
 	Data string `json:"data"`
@@ -151,23 +136,13 @@ func warnUnlessClosed(msg string, err error) {
 	}
 }
 
-// maxCoalesceBytes caps how much queued PTY output writePump merges into a
-// single WebSocket message. Large enough to collapse bursts (build logs, cat,
-// full-screen TUI redraws) into a handful of messages, small enough to bound
-// per-message memory and keep the renderer's per-frame work reasonable.
+// maxCoalesceBytes caps the queued output writePump merges into one message: big enough to collapse
+// bursts, small enough to bound per-message memory and renderer work.
 const maxCoalesceBytes = 256 * 1024
 
-// writePump forwards output frames from ch to the WebSocket, then — once ch closes
-// because the process exited — sends the exit frame, and closes the conn so readPump
-// unblocks. Every write carries a deadline, so a client that stops reading costs at most
-// writeWait before the conn is torn down (invariant B6).
-//
-// Each iteration opportunistically drains frames ALREADY queued on ch — without blocking —
-// and concatenates them into one message, so bursts coalesce while keystroke echo latency
-// is unchanged. A snapshot is a coalescing barrier: it is always its own message, never
-// merged with the output around it. One buffer is reused for every message (the conn
-// copies it into the socket before WriteMessage returns), so steady-state output costs no
-// allocation here.
+// writePump forwards frames, then sends the exit frame and closes the conn; every write has a deadline
+// (B6). Already-queued frames coalesce into one message without adding echo latency; a snapshot is
+// always its own message. One reused buffer keeps steady-state output allocation-free.
 func (e *terminalEngine) writePump(
 	conn WSConn,
 	ch <-chan session.OutputFrame,
@@ -267,10 +242,8 @@ func (e *terminalEngine) readPump(
 				slog.Warn("terminal: input: resize dropped", "session", s.ID(), "err", err)
 			}
 		case "theme":
-			// Host light/dark theme changed: update the model's OSC 10/11 query answers
-			// and, if the foreground app subscribed to DEC 2031, push a live CSI ?997;n
-			// report. Every session in a Crowbar window renders under ONE theme, so a
-			// push at any of them is a statement about the host: record it for births too.
+			// Host theme changed: update the OSC 10/11 answers and push CSI ?997;n if DEC 2031 is on. A Crowbar
+			// window has one theme, so record it for future births too.
 			bg, fg := ParseHexColor(msg.Bg), ParseHexColor(msg.Fg)
 			e.SetHostTheme(bg, fg)
 			if err := s.SetTheme(bg, fg, msg.Dark); err != nil {

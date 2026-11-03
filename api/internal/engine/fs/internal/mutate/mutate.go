@@ -48,12 +48,8 @@ func CreateDir(
 	return nil
 }
 
-// Copy duplicates the file or directory at sourcePath to destPath, both
-// relative to repoPath. File bytes are copied verbatim (io.Copy — no text
-// decoding, so binary files stay byte-identical), directories copy
-// recursively, and symlinks are recreated as links rather than followed.
-// destPath must not already exist (fs.ErrExist) and must not be located
-// inside sourcePath — copying a directory into itself would recurse forever.
+// Copy duplicates sourcePath to destPath (repo-relative) verbatim, recursively, recreating symlinks
+// as links. destPath must not exist (fs.ErrExist) nor sit inside sourcePath (infinite recursion).
 func Copy(
 	repoPath string,
 	sourcePath string,
@@ -84,13 +80,8 @@ func Copy(
 		return fmt.Errorf("mutate: copy mkdirall %s: %w", destPath, err)
 	}
 	if err := copyNode(srcFull, destFull, info); err != nil {
-		// A recursive copy that fails partway (e.g. an unreadable leaf) leaves a
-		// half-populated destination. Remove it so a failed Copy is atomic from
-		// the caller's view: the source is never mutated by copyNode, so nothing
-		// is lost, but leaving the partial tree behind would both mislead the
-		// file view and make an identical retry fail on destination-exists (409).
-		// destFull was confirmed absent above, so RemoveAll only discards what
-		// this copy created.
+		// Remove a half-populated destination so a failed Copy is atomic: a partial tree would mislead the
+		// file view and make a retry fail with 409. destFull was absent, so this only removes our work.
 		return errors.Join(
 			fmt.Errorf("mutate: copy %s to %s: %w", sourcePath, destPath, err),
 			os.RemoveAll(destFull),
@@ -201,16 +192,9 @@ func Rename(
 	return nil
 }
 
-// ensureRenameDestFree refuses a rename that would clobber an existing, DIFFERENT
-// path at the destination. os.Rename silently replaces an occupied destination
-// file (and an empty destination directory), so a rename or a drag-drop move onto
-// an existing name destroyed the occupant with no error and no undo. Copy already
-// refuses an existing destination with fs.ErrExist (mapped to 409); Rename now
-// matches, closing the last file-mutation verb that still lost data on collision.
-//
-// A destination that resolves to the SAME file as the source is allowed: a
-// case-only rename on a case-insensitive filesystem (Foo → foo) resolves both
-// operands to one inode, which is a legitimate rename rather than a clobber.
+// ensureRenameDestFree refuses a rename onto an existing DIFFERENT path, which os.Rename would
+// silently clobber; matches Copy's fs.ErrExist. The same inode (a case-only rename on a
+// case-insensitive filesystem) is allowed.
 func ensureRenameDestFree(
 	oldFull string,
 	newFull string,

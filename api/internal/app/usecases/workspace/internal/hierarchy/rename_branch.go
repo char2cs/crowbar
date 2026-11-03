@@ -10,26 +10,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// RenameBranch renames a managed workspace's branch. The workspace does not
-// move.
-//
-// Its directory is fixed at creation and never tracked the branch afterwards,
-// so a rename is a git ref rename and one record write — nothing on disk is
-// touched. That is the whole operation now. It used to relocate the workspace
-// root as well, because the root was named after the branch, and everything
-// that followed from that is gone with it: no os.Rename of a live worktree, no
-// `git worktree repair`, no id→path re-point, no detached completion window,
-// and no compensating unwind for a record that refused after the disk moved.
-//
-// It also removes a rename this could never express: a branch renamed INTO its
-// own namespace (testing → testing/x) made the destination a child of the
-// source, and the kernel refuses that with EINVAL. With nothing to move, the
-// case is unremarkable.
-//
-// The cost is that the directory keeps its original name, so a browsed tree can
-// show a folder whose branch has since been renamed. Nothing resolves a
-// workspace by that name — the record carries the path — and the create path
-// disambiguates a name a previous workspace has frozen.
+// RenameBranch renames a managed workspace's branch: a git ref rename and one record write. The directory
+// is fixed at creation, so nothing on disk moves (and testing -> testing/x is unremarkable); a browsed
+// folder may keep the old name, but the record carries the path.
 func (u *hierarchyUsecase) RenameBranch(
 	ctx context.Context,
 	wsID string,
@@ -57,10 +40,8 @@ func (u *hierarchyUsecase) RenameBranch(
 	if err := u.git.RenameBranch(ctx, repoPath, ws.Branch, newBranch); err != nil {
 		return domain.Workspace{}, fmt.Errorf("rename branch: git: %w", err)
 	}
-	// Only the record is left, and it cannot leave the two halves disagreeing in
-	// a way anything has to repair: a refusal here leaves git on the new branch
-	// and the record on the old one, which the next reconcile resolves from git —
-	// the branch is a name, not a location, and nothing resolves a tree from it.
+	// A refusal here leaves git on the new branch and the record on the old; the next reconcile resolves it
+	// from git, and nothing locates a tree by branch name.
 	renamed, err := u.workspaces.RenameBranch(ctx, ws.ID, newBranch)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("rename branch: record: %w", err)
@@ -98,10 +79,7 @@ func (u *hierarchyUsecase) guardRenameBranch(
 		return fmt.Errorf("rename branch: crowbar home: %w", err)
 	}
 	if !worktreepath.UnderHome(ws.WorktreePath, home) {
-		// An adopted checkout: the user's own repository, which Crowbar did not
-		// create. The rename no longer MOVES anything, so the old reason for
-		// refusing is gone — but it would still rewrite a branch ref inside a
-		// directory the user owns, and that is theirs to do.
+		// An adopted checkout is the user's own repository: rewriting a branch ref there is theirs to do.
 		return fmt.Errorf(
 			"%w (workspace %s at %q)", ErrRenameUnmanagedWorkspace, ws.ID, ws.WorktreePath)
 	}

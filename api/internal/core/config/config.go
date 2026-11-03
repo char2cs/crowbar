@@ -18,51 +18,27 @@ var (
 	once              sync.Once
 )
 
-// Prompts holds Crowbar's agent-facing prompt templates. Placeholders
-// ({conversation}, {chat_id}, {gap_turns}, {lineage}) are expanded by Crowbar
-// at injection time.
-//
-// Every prompt here is CONTEXT, never a capability: a prompt can only ask a model
-// to do something, and a model that ignores it leaves no trace. Anything Crowbar
-// needs an agent to be able to DO is a tool on the MCP surface instead — which is
-// why the shell titling instruction that used to live here is gone.
+// Prompts holds Crowbar's agent-facing prompt templates; placeholders are expanded at injection time.
+// Every prompt is context, never a capability: a model can ignore a prompt without trace, so anything
+// an agent must be able to do is an MCP tool instead.
 type Prompts struct {
-	// CapabilitiesInstruction tells a model that Crowbar's tools exist and, more
-	// importantly, WHEN to prefer them. Tool descriptions alone do not override a
-	// model's prior — asked to "review this branch" it reaches for gh or writes
-	// prose — so this is a directive, not a capability list.
-	//
-	// It must never name a capability that is not registered. A directive pointing at
-	// an absent tool family, while forbidding the fallback the model would otherwise
-	// reach for, is worse than no directive at all — so the review-tools directive
-	// was held back until the review tools it names actually existed (Task 13).
+	// CapabilitiesInstruction tells a model when to prefer Crowbar's tools, since tool descriptions alone
+	// do not override its prior. It must never name an unregistered capability: a directive pointing at an
+	// absent tool while forbidding the fallback is worse than none.
 	CapabilitiesInstruction string `yaml:"capabilities_instruction"`
-	// ThreadLineage is the standing directive a THREAD is spawned with: which
-	// chats sit above it in the Chats panel ({lineage}, nearest parent first) and
-	// the instruction to go and read them rather than wait to be handed them.
-	//
-	// It carries IDS, never turns, and that is the whole difference between a
-	// thread and a fork. Pasting the ancestors' conversation here would freeze
-	// them at the instant this chat spawned; pointing at them leaves the thread
-	// reading its parent as it stands whenever it asks, which is what the parent
-	// edge means. A chat with no chat ancestors — the panel root, or one merely
-	// filed in a folder — is injected nothing at all, and must not pay a token
-	// for a relationship it does not have.
+	// ThreadLineage is the directive a thread spawns with: its ancestor chat ids ({lineage}, nearest first)
+	// and an instruction to read them. It carries ids, never turns, so the thread reads its parent as it
+	// stands; a chat with no chat ancestors is injected nothing.
 	ThreadLineage string `yaml:"thread_lineage"`
 	// HandoffWrapper wraps the conversation for a provider joining the chat fresh
 	// (it has no session of its own to resume, so it has no history) — capped to
 	// the most recent turns, not the whole ledger; see RecentHandoffWindow.
 	HandoffWrapper string `yaml:"handoff_wrapper"`
-	// HandoffResumeWrapper wraps only the GAP for a provider resumed into its own
-	// native session — it already holds everything up to the moment it was
-	// switched out, so it is handed just what happened while it was away, itself
-	// capped to the most recent turns of that gap; see RecentHandoffWindow.
+	// HandoffResumeWrapper wraps only the gap for a provider resumed into its own native session, which
+	// already holds everything before it was switched out; the gap is capped by RecentHandoffWindow.
 	HandoffResumeWrapper string `yaml:"handoff_resume_wrapper"`
-	// HandoffPointer is the SHORT message handed to a provider that can only be
-	// reached through a USER MESSAGE (one that ignores every config channel on resume).
-	// It points the provider at its OWN get_chat_log MCP tool ({chat_id}, {gap_turns})
-	// rather than carrying the transcript itself, which would dump the whole
-	// handed-off exchange into the chat.
+	// HandoffPointer is the short message for a provider reachable only through a user message: it points
+	// at its own get_chat_log tool ({chat_id}, {gap_turns}) instead of dumping the transcript into the chat.
 	HandoffPointer string `yaml:"handoff_pointer"`
 }
 

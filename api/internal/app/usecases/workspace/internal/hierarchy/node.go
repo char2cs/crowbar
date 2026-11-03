@@ -8,10 +8,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// NodeCreator is the narrow write-only Node surface this usecase needs to mint
-// a workspace's OWN position row the instant CreateChild/CreateFromImport
-// create one (2026-09-08 sidebar-placement-unification Task 7) — the
-// hierarchy-package mirror of project.NodePlacements' own Create.
+// NodeCreator is the write-only Node surface that mints a workspace's own position row when
+// CreateChild/CreateFromImport create it.
 type NodeCreator interface {
 	Create(
 		ctx context.Context,
@@ -22,17 +20,8 @@ type NodeCreator interface {
 	) (tree.Node, error)
 }
 
-// noOpNodeCreator is the default every hierarchyUsecase is built with: it
-// succeeds trivially and mints nothing durable, so the ~180 existing test
-// call sites that construct a usecase with no WithNodes option at all keep
-// passing unchanged. u.nodes is therefore NEVER nil — see New — which is what
-// lets mintWorkspaceNode treat every error Create returns as real rather than
-// having to special-case "unwired".
-//
-// PRODUCTION always overrides this with a real Node repo (workspace.WithNodes
-// in usecases/container.go), so this default is reached only by a test that
-// genuinely does not care about Node minting; one that does wires its own
-// NodeCreator via WithNodes instead, real or failing.
+// noOpNodeCreator is the default, minting nothing, for tests that do not care about Nodes; it keeps
+// u.nodes never nil so every Create error is real. Production always wires a real repo via WithNodes.
 type noOpNodeCreator struct{}
 
 func (noOpNodeCreator) Create(
@@ -45,33 +34,15 @@ func (noOpNodeCreator) Create(
 	return tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}, nil
 }
 
-// WithNodes wires the Node surface every workspace this usecase creates mints
-// its own position row through, overriding the noOpNodeCreator default (see
-// its own doc). The composition root always passes a real Node repo here for
-// the running daemon.
+// WithNodes wires the Node surface every created workspace mints its position row through,
+// overriding noOpNodeCreator; the composition root always passes the real repo.
 func WithNodes(nodes NodeCreator) Option {
 	return func(u *hierarchyUsecase) { u.nodes = nodes }
 }
 
-// mintWorkspaceNode mints wsID's own position row and returns any failure to
-// the caller, which rolls the WHOLE create back on it (2026-09-08
-// sidebar-placement-unification Task 7 review fix).
-//
-// This used to be best-effort — log a warning, let the create stand — on the
-// theory that nothing reads a workspace's own Node row yet, so a gap was
-// invisible. That reasoning missed that u.nodes.Create can fail in a
-// perfectly healthy, fully-wired running daemon, independent of any
-// misconfiguration: it runs AFTER a potentially-slow git worktree operation,
-// so a client disconnect/request-timeout cancelling ctx in that window fails
-// it as a direct consequence, and a transient store-write error at exactly
-// the moment after workspaces.Create already committed produces the same
-// silent outcome. Unlike the old EnsureOwningChat's own "never fail the
-// write" contract, there is no boot-time backfill catching stragglers here —
-// building one would be a Node-side backfill, which is not this repo's
-// convention (pre-production: graceful fallback for PRE-EXISTING data, never
-// a migration/backfill for state created going forward). So every caller
-// below now rolls back instead: a Workspace row must never survive with no
-// Node row of its own.
+// mintWorkspaceNode mints wsID's own position row; callers roll the whole create back on failure.
+// Create can fail in a healthy daemon (ctx cancelled after a slow git op), and no backfill exists, so
+// a Workspace row must never survive without its Node row.
 func (u *hierarchyUsecase) mintWorkspaceNode(
 	ctx context.Context,
 	id string,
@@ -82,11 +53,8 @@ func (u *hierarchyUsecase) mintWorkspaceNode(
 	return nil
 }
 
-// discardWorkspaceRow best-effort tombstones a workspace row created but then
-// abandoned because its own Node row could not be minted, so a caller with no
-// worktree/branch of its own to unwind still leaves nothing but the tombstone
-// behind — a row with no Node row must never survive. Logged, never returned:
-// the mint failure is the cause the caller reports, not this cleanup.
+// discardWorkspaceRow best-effort tombstones a workspace row whose Node could not be minted. Logged,
+// never returned: the mint failure is the cause the caller reports.
 func (u *hierarchyUsecase) discardWorkspaceRow(
 	ctx context.Context,
 	id string,

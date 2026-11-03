@@ -46,11 +46,8 @@ type ImportOutcome struct {
 	Err         error
 }
 
-// chainFor returns branch's ancestors-first chain of branches that must be
-// CREATED: [rootmost-missing-ancestor, …, branch]. The walk climbs the PR-base
-// graph and stops (EXCLUDING the terminal) at an existing workspace or the
-// default branch; a branch with no PR base terminates at the default branch. A
-// per-walk visited set breaks PR-base cycles.
+// chainFor returns branch's ancestors-first chain of branches to create. It climbs the PR-base graph,
+// stopping (exclusive) at an existing workspace or the default branch; a visited set breaks cycles.
 func chainFor(branch, defaultBranch string, base, existing map[string]string) []string {
 	var leafFirst []string
 	visited := map[string]bool{}
@@ -127,10 +124,8 @@ func (u *hierarchyUsecase) existingOutcome(
 	return ImportOutcome{Branch: branch, ChatID: owner, WorkspaceID: wsID, Err: err}
 }
 
-// prBaseGraph returns the open-PR head→base map used to parent imported
-// branches. It is best-effort: a provider failure yields an empty graph and the
-// import falls back to parenting everything under the default branch, which is
-// strictly better than refusing to import because GitHub was unreachable.
+// prBaseGraph returns the open-PR head→base map used to parent imports. Best-effort: a provider
+// failure yields an empty graph, parenting everything under the default branch rather than refusing.
 func (u *hierarchyUsecase) prBaseGraph(ctx context.Context, repoPath string) map[string]string {
 	base := map[string]string{}
 	links, err := u.provider.OpenPullRequests(ctx, repoPath)
@@ -145,14 +140,9 @@ func (u *hierarchyUsecase) prBaseGraph(ctx context.Context, repoPath string) map
 	return base
 }
 
-// existingBranchWorkspaces maps branch → workspace id for the repo's MANAGED
-// workspaces. The default workspace is excluded because it is the adopted repo
-// folder, not a branch Crowbar owns — the same rule the import branch list uses
-// for hasWorkspace. Every protected branch — the default branch included — DOES
-// appear here: repo import gives each one its own locked managed worktree, and
-// those are exactly the parents resolveImportParent nests imports under.
-//
-// A read failure yields an empty map, never an error: see CreateFromImport.
+// existingBranchWorkspaces maps branch → workspace id for the repo's managed workspaces, protected ones
+// included (they are the parents imports nest under); the adopted default folder is excluded. A read
+// failure yields an empty map, never an error.
 func (u *hierarchyUsecase) existingBranchWorkspaces(
 	ctx context.Context,
 	repoID string,
@@ -192,19 +182,9 @@ func creationOrder(
 	return order
 }
 
-// resolveImportParent picks the parent for branch: the workspace for its open
-// PR's base when one can be resolved, and the repo's DEFAULT BRANCH workspace
-// otherwise. Only when even that workspace is missing does it fall back to an
-// empty ParentID, which parents the branch under the repo home.
-//
-// The default branch used to be short-circuited to that empty ParentID before
-// the lookup ever ran — so a PR targeting develop/main, which is the shape of
-// almost every PR, landed its branch at the REPO ROOT as a sibling of the very
-// branch it is based on. The lookup would have succeeded: repo import gives
-// every protected branch (and, when the provider reports none, the resolved
-// default branch) its own locked managed workspace, and existingBranchWorkspaces
-// excludes only the repo home. A branch with NO PR resolves the same way — its
-// base is the default branch by definition, so it nests there too.
+// resolveImportParent picks the workspace of branch's PR base, else the default branch's workspace (so
+// PRs against main nest under main, not beside it). Only when that is missing does it return an empty
+// ParentID, parenting under the repo home.
 func resolveImportParent(
 	branch string,
 	defaultBranch string,
@@ -304,19 +284,9 @@ func (u *hierarchyUsecase) concurrentOutcome(
 	return u.existingOutcome(ctx, branch, wsID)
 }
 
-// importPlaceholder records a branch that could not be materialised as a
-// placeholder workspace: a row with an EMPTY WorktreePath (the placeholder
-// signal) carrying the holder path when a live worktree is what blocked it.
-// chatID is the chat the failed attempt minted, which owns it; "" mints one
-// under node.chatID.
-//
-// It is deliberately NOT protected. The protected-branch import seeds its
-// placeholders locked to inherit every protection guard, but locked survives
-// provisioning (ProvisionInPlace leaves Status untouched), so a locked imported
-// feature branch could never be merged, renamed or deleted again. The guards
-// that matter here key off the empty WorktreePath, not the status: the
-// parent-tip ops refuse with ErrParentUnprovisioned and removeOne drops the row
-// without running git against "".
+// importPlaceholder records an unmaterialisable branch as a placeholder (empty WorktreePath), with the
+// holder path when a live worktree blocked it; chatID owns it ("" mints one). It is not locked: locked
+// survives provisioning, and the empty-WorktreePath guards already protect it.
 func (u *hierarchyUsecase) importPlaceholder(
 	ctx context.Context,
 	in ImportInput,
@@ -355,11 +325,8 @@ func (u *hierarchyUsecase) importPlaceholder(
 	return ws, nil
 }
 
-// resolveHolderPath returns the worktree directory holding branch when that
-// holder is one the user can actually free — the repo home or an external
-// checkout, the same two kinds RetryProvision refuses to provision over. It
-// returns "" for every other outcome (free, already-managed, or an unresolvable
-// holder), which is the signal that there is no Detach… to offer.
+// resolveHolderPath returns the worktree dir holding branch when the user can free it (repo home or an
+// external checkout); "" otherwise, meaning there is no Detach to offer.
 func (u *hierarchyUsecase) resolveHolderPath(
 	ctx context.Context,
 	repoPath string,

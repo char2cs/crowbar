@@ -1,31 +1,10 @@
-// Package tree plans a sibling-ordered forest: rows that carry a parent id and a
-// dense index within that parent's sibling space, and nothing else.
-//
-// It is deliberately ignorant of WHY a parent changed, because its callers do
-// not agree on that and never will. The workspace sidebar must never let a drag
-// rewrite git lineage — organisation and lineage are separate edges there, and
-// the tree is only ever told the organisational one. The chats panel has a
-// single edge, so its drag is required to rewrite the very thing the sidebar
-// protects. A core that encoded either rule would have to be fought by the other
-// caller, so it encodes neither: a caller resolves its own edges down to one
-// parent id, hands the rows over, and reads back the ids that moved.
-//
-// Nothing here takes a context, reaches a store, or returns an error. Planning
-// is arithmetic over rows already in memory, which is what lets a caller read
-// the world ONCE, plan the whole change, and only then write what actually
-// moved. That is not merely an optimisation where the rows come from an
-// asynchronous projection: a re-read taken between a write and the renumber
-// that follows it can still be serving the pre-write list, and planning from a
-// single snapshot removes that race instead of papering over it with a barrier.
+// Package tree plans a sibling-ordered forest of rows carrying only a parent id and a dense index. It
+// is ignorant of why a parent changed, since callers disagree (lineage vs organisation), and pure
+// arithmetic over one in-memory snapshot, so callers plan once and write only what moved.
 package tree
 
-// Tree is a plan in progress over one sibling-ordered forest. It is built from
-// the rows as they were read, mutated by the operations below, and finally read
-// back through Dirty — the ids whose placement the plan changed, and only those.
-//
-// It is a plain in-memory value with no synchronisation: one plan belongs to one
-// operation on one goroutine, which is also what makes it safe to mutate rows in
-// place while guards run against them.
+// Tree is a plan in progress over one forest: built from rows as read, mutated by the operations
+// below, read back through Dirty. One plan belongs to one goroutine, so it needs no locking.
 type Tree interface {
 	// Node returns a row as the plan currently has it, and whether the forest
 	// holds it at all. The bool is the existence answer callers need before
@@ -33,18 +12,13 @@ type Tree interface {
 	Node(
 		id string,
 	) (Node, bool)
-	// Members returns a container's sibling space in render order. A container id
-	// is any node's id, or "" for the root; ids never collide across whatever row
-	// kinds a caller merges into one forest, so a single membership rule covers
-	// every level.
+	// Members returns a container's sibling space in render order; "" is the root, and ids never collide
+	// across row kinds, so one membership rule covers every level.
 	Members(
 		container string,
 	) []Node
-	// NextSlot returns the index a row joining container would take — the end of
-	// that sibling space. A newly created row has to ask for one: every kind of
-	// row shares a level, so a row that keeps the zero value collides with
-	// whatever already holds slot 0 and surfaces at the TOP of a level it should
-	// have joined at the end.
+	// NextSlot returns the end-of-level index a row joining container takes; a new row must ask, since
+	// a zero index collides with slot 0 and surfaces at the top.
 	NextSlot(
 		container string,
 	) int
@@ -65,49 +39,32 @@ type Tree interface {
 	Drop(
 		id string,
 	)
-	// SetParent moves a row into another container, marking it changed only when
-	// the container actually differs. The tree is told the destination and
-	// nothing about the reason, so the same call serves a caller that treats a
-	// drag as pure organisation and one that treats it as a real re-parenting.
+	// SetParent moves a row into another container, marking it changed only when the container differs.
+	// The tree is told the destination, not the reason.
 	SetParent(
 		id string,
 		parentID string,
 	)
-	// Touch records a row as changed for a reason the tree does not model — the
-	// caller's own edge behind the parent id moved while the container itself did
-	// not. Without it that write is silently dropped from the plan and the row
-	// reverts on the next read.
+	// Touch marks a row changed for a reason the tree does not model (the caller's own edge moved), so the
+	// write is not dropped from the plan.
 	Touch(
 		id string,
 	)
-	// Reorder assigns dense 0..n-1 indices across container's WHOLE sibling
-	// space, optionally lifting placed out and re-inserting it at target first. A
-	// target below zero means "placed is not being positioned here", which is how
-	// a caller densifies the level a row has just left. Leaving every level dense
-	// after every move is what makes the next drop index mean what it says.
+	// Reorder densifies container's whole sibling space to 0..n-1, optionally inserting placed at target
+	// first (target < 0 just densifies). Dense levels keep the next drop index meaningful.
 	Reorder(
 		container string,
 		placed string,
 		target int,
 	)
-	// Reparent hands every direct child of id to destination without touching id
-	// itself, so a caller can empty a container before dropping it rather than
-	// cascading the delete through rows the user only meant to unfile.
-	//
-	// It takes ONE destination on purpose. A caller whose rows are not all alike
-	// may need to send some of them elsewhere — a row kind whose expressible
-	// containers are narrower than the forest's cannot always follow its
-	// siblings — and it does that by moving those rows itself first; whatever is
-	// still a child when this runs follows destination.
+	// Reparent hands every direct child of id to destination without touching id, so a container can be
+	// emptied before it is dropped. Callers send differently-constrained rows elsewhere first.
 	Reparent(
 		id string,
 		destination string,
 	)
-	// Reaches reports whether walking UP from container ever arrives at ancestor.
-	// It is the cycle test every move owes: a level that ends up inside its own
-	// subtree still exists, nothing renders it, and nothing can drag it back out.
-	// The walk is bounded by a visited set so an already corrupt edge is answered
-	// rather than spun on.
+	// Reaches reports whether walking up from container arrives at ancestor — the cycle test every move
+	// owes. A visited set bounds the walk on an already corrupt edge.
 	Reaches(
 		container string,
 		ancestor string,
@@ -115,27 +72,16 @@ type Tree interface {
 	// Dirty returns the ids whose placement the plan changed, sorted, so a caller
 	// whose writes fail halfway fails reproducibly rather than arbitrarily.
 	Dirty() []string
-	// Reparented reports whether the plan moved this row into a DIFFERENT
-	// container, as against merely renumbering it where it already sat.
-	//
-	// Dirty alone cannot tell a caller that, and the difference decides what a
-	// write may ASSERT. A densify decides nothing about any row's container, so a
-	// caller whose store takes field-level writes must write only the index for
-	// those rows: restating the parent restates it from the snapshot, and a
-	// snapshot read from an asynchronous projection can still be serving the
-	// container a row had before the operation just before this one moved it.
+	// Reparented reports whether the plan moved this row to a different container rather than renumbering
+	// it in place. Field-level stores must write only the index for the latter: restating the parent from
+	// a possibly stale snapshot could undo a concurrent move.
 	Reparented(
 		id string,
 	) bool
 }
 
-// New builds a plan over rows already read from wherever they live. The rows are
-// copied, so a caller's slice is never renumbered behind its back.
-//
-// The id→index map is built up front because a renumber touches every row at a
-// level and each touch resolves a row by id; without it the walk is quadratic in
-// the forest's row count, which is exactly the shape that looks fine on a demo
-// repo and stalls on a real one.
+// New builds a plan over rows already read; they are copied so the caller's slice is never renumbered.
+// The id→index map keeps renumbering linear instead of quadratic in row count.
 func New(
 	nodes []Node,
 ) Tree {

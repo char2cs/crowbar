@@ -15,17 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// Signal is a broadcast edge: every waiter parked on Wait() is released by the
-// next Fire(). It is the primitive the integration harness uses to turn a real
-// event (a PTY frame, a completed hook request) into something a test can BLOCK
-// on — the alternative to sampling state on a clock.
-//
-// The Wait-then-check order is load-bearing and is why Fire swaps the channel
-// rather than merely closing it: a caller takes the channel FIRST, then
-// evaluates its predicate, then parks. An event landing in the gap between the
-// evaluation and the park therefore closes a channel the caller is already
-// holding, and the park returns immediately. Taking the channel after the check
-// would lose exactly that wakeup.
+// Signal is a broadcast edge: every Wait() is released by the next Fire(). Fire swaps the channel so a
+// caller that takes it BEFORE checking its predicate cannot lose an event landing between check and park.
 type Signal struct {
 	mu sync.Mutex
 	ch chan struct{}
@@ -52,20 +43,9 @@ func (s *Signal) Fire() {
 	s.ch = make(chan struct{})
 }
 
-// Await blocks until pred holds, re-evaluating it on every Fire of any of sigs,
-// and returns pred's value. It NEVER samples on a clock: between evaluations it
-// is parked on a real event. ctx is a failure BACKSTOP, not a synchronisation
-// device — if it expires, Await fails the test with what pred last saw, rather
-// than hanging until `go test -timeout` kills the binary with no diagnosis.
-//
-// pred is evaluated once up front, so a condition that is already true costs
-// nothing and cannot deadlock waiting for an event that has already happened.
-//
-// Several sigs are allowed because a condition can legitimately be advanced by
-// more than one kind of event — "the CLI bound a conversation (a hook landed) OR
-// it is still asking us to trust the folder (it painted a dialog)" is one
-// predicate over two independent sources, and parking on only one of them would
-// miss the other.
+// Await blocks until pred holds, re-evaluating it on every Fire of any sig (a condition may advance from
+// several sources), never on a clock. pred runs once up front; ctx is only a backstop that fails the
+// test with what pred last saw.
 func Await[T any](
 	t *testing.T,
 	ctx context.Context,
@@ -102,25 +82,12 @@ func Await[T any](
 	}
 }
 
-// ansiRe matches the escape sequences a TUI paints its screen with (CSI, OSC,
-// and the two-byte escapes). PTY output is a redraw stream, not a transcript:
-// the same words are repainted inside box borders, at new cursor positions,
-// wrapped at the terminal width. Stripping the control plane is the first half
-// of making the TEXT on screen matchable.
+// ansiRe matches CSI, OSC and two-byte escapes, the control plane stripped to make on-screen text
+// matchable.
 var ansiRe = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]`)
 
-// squeeze reduces PTY output to the letters and digits it painted, in order:
-// escape sequences dropped, then every character that is not alphanumeric
-// removed. It is what makes a substring match on a TUI screen RELIABLE rather
-// than lucky.
-//
-// A terminal hard-wraps at the screen width, so any token can be split across
-// two rows mid-character; Ink-style TUIs additionally repaint each row inside
-// box-drawing borders and pad with spaces. A raw match for "FALCON-7719" can
-// therefore fail against a screen that is plainly showing it (as "FALCON-77" /
-// newline / "│ 19"). Squeezing both haystack and needle to their alphanumerics
-// makes the match immune to wrapping, borders, padding and styling — the things
-// that are noise here — while still requiring the actual characters, in order.
+// squeeze keeps only the alphanumerics PTY output painted, in order, so a match survives hard wraps, box
+// borders, padding and styling while still requiring the actual characters.
 func squeeze(s string) string {
 	stripped := ansiRe.ReplaceAllString(s, "")
 	var b strings.Builder
@@ -133,11 +100,8 @@ func squeeze(s string) string {
 	return b.String()
 }
 
-// Readable renders captured PTY output for a HUMAN reading a failure message:
-// escape sequences stripped, blank rows collapsed. A raw dump is unreadable, and
-// an unreadable failure message is why "the CLI did not start" gets misdiagnosed
-// as "the CLI was slow" — the reason it actually died is usually printed right
-// there on its last screen.
+// Readable renders PTY output for a failure message (escapes stripped, blank rows collapsed): the reason a
+// CLI died is usually on its last screen.
 func Readable(
 	raw string,
 ) string {
@@ -152,16 +116,8 @@ func Readable(
 	return strings.Join(keep, "\n")
 }
 
-// PTYTap is a read-only client attached to a live PTY: it implements the
-// terminal engine's WSConn exactly as the frontend's WebSocket does, so it sees
-// precisely the bytes a user would see, and it turns them into a Signal a test
-// can block on.
-//
-// This is the observable that replaces "sleep and hope the TUI caught up".
-// Driving a real vendor CLI has two genuine synchronisation points — "the app
-// has finished booting and is showing me its dialog" and "the app has taken the
-// text I typed" — and both are visible ON SCREEN. Waiting for the screen to say
-// so is a real signal; waiting 300ms is a guess about how fast the machine is.
+// PTYTap is a read-only client on a live PTY, implementing WSConn like the frontend, so a test can block
+// on what the user would see on screen instead of sleeping.
 type PTYTap struct {
 	mu        sync.Mutex
 	buf       []byte
@@ -170,13 +126,8 @@ type PTYTap struct {
 	closeOnce sync.Once
 }
 
-// AttachPTY taps sessionID's PTY and returns the tap. The engine's Attach blocks
-// for the life of the connection (it runs its read pump on the calling
-// goroutine), so it is driven on its own goroutine here; the tap is closed on
-// test cleanup, which is what unblocks it.
-//
-// The tap is a passive OBSERVER: it never writes to the PTY. Drive input with
-// the terminal engine's Write (see Type), not through the tap.
+// AttachPTY taps sessionID's PTY on its own goroutine (Attach blocks for the connection's life) and
+// closes it on test cleanup. The tap never writes; drive input with the engine's Write.
 func AttachPTY(
 	t *testing.T,
 	term PTYAttacher,
@@ -200,10 +151,8 @@ type PTYAttacher interface {
 // to — so the engine cannot tell a test from a browser.
 var _ terminal.WSConn = (*PTYTap)(nil)
 
-// WriteMessage receives one binary PTY output frame (see ParseTerminalFrame),
-// appends its payload to the tap's buffer and fires the tap's Signal. Every
-// waiter re-checks its predicate against the new screen content. Text frames (the
-// exit frame) carry no screen content.
+// WriteMessage appends a binary output frame's payload and fires the Signal; text (exit) frames carry no
+// screen content.
 func (p *PTYTap) WriteMessage(
 	_ int,
 	msg []byte,
@@ -244,15 +193,8 @@ func (p *PTYTap) Screen() string {
 	return string(p.buf)
 }
 
-// Mark returns a cursor into the output stream: the amount painted so far. Pass
-// it to ScreenSince/WaitForScreenSince to match only what is painted AFTER this
-// moment.
-//
-// This is what makes "wait until the app echoes what I just typed" honest. The
-// screen is a scrollback of everything ever painted, so a bare Contains check
-// for text the test has typed BEFORE (a retried prompt, a repeated codeword)
-// would match the old paint and return before the app had taken the new input at
-// all — the exact race the check exists to close.
+// Mark returns a cursor (bytes painted so far) for ScreenSince/WaitForScreenSince, so text typed before
+// (a retried prompt) cannot match an old paint.
 func (p *PTYTap) Mark() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -337,11 +279,8 @@ func ScreenContains(
 	return strings.Contains(squeeze(screen), squeeze(needle))
 }
 
-// EchoNeedle picks the part of a typed prompt to look for in a TUI's composer. A
-// TUI truncates a long prompt with an ellipsis or re-flows it, so the whole string
-// is not guaranteed to appear verbatim; the TAIL is what the composer shows once it
-// has taken ALL of the input, and it is the part that proves the whole write landed
-// rather than a prefix of it.
+// EchoNeedle picks the TAIL of a typed prompt to look for: TUIs truncate or re-flow long input, and the
+// tail proves the whole write landed.
 func EchoNeedle(
 	text string,
 ) string {

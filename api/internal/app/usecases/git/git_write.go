@@ -262,10 +262,8 @@ func (u *gitUsecase) Fetch(
 	return nil
 }
 
-// Pull pulls with the given mode and resyncs the working tree, then cascades the
-// resync to the workspace's direct children: pulling advances this workspace's
-// branch ref, which its children measure their sidebar diff against, so their
-// Added/Deleted go stale until they are recomputed too.
+// Pull pulls with the given mode, resyncs, and cascades the resync to direct children, whose summaries
+// measure against this branch's moved ref.
 func (u *gitUsecase) Pull(
 	ctx context.Context,
 	wsID string,
@@ -281,20 +279,9 @@ func (u *gitUsecase) Pull(
 	return nil
 }
 
-// syncChildren resyncs the working-tree summary of every DIRECT child workspace
-// of parentID after a pull/fetch. A child's summary is measured against its
-// PARENT branch's live merge-base (workspace.summaryBase), so advancing the
-// parent's tip silently stales every child's Added/Deleted until it is resynced —
-// and the pull/fetch above only resynced the pulled workspace itself. This mirrors
-// worktree.finalizeMerge, which already resyncs BOTH parent and child after a
-// merge moves a ref their summaries depend on; a pull/fetch has the identical
-// exposure.
-//
-// Best-effort, matching the codebase's best-effort teardown/summary-resync style:
-// a List failure or one child's sync failure must NEVER fail the pull the user
-// just completed, nor block a sibling's resync — log and continue. Only DIRECT
-// children are cascaded; a grandchild's own base is its parent's branch, which
-// this pull did not move (see the doc note on the residual grandchild case).
+// syncChildren resyncs every direct child's working-tree summary after a pull/fetch moved the parent tip
+// they measure against. Best-effort: a failure is logged and never fails the pull or blocks a sibling.
+// Grandchildren measure against their own parent's branch, which did not move.
 func (u *gitUsecase) syncChildren(
 	ctx context.Context,
 	parentID string,
@@ -509,15 +496,9 @@ func (u *gitUsecase) ResolveHunk(
 	})
 }
 
-// OperationContinue finalizes an in-progress merge/rebase/pull and resyncs.
-//
-// A successful continue fully completes the operation in THIS worktree (git
-// errors the continue if any conflict remains), so any pr-conflicts status the
-// branch carried from its own kept rebase is now resolved. pr-conflicts is
-// otherwise sticky, so clear it here. This is safe for the merge-into-parent
-// case: that marks the CHILD pr-conflicts while the markers live in the PARENT,
-// and it is resolved via the PARENT's continue — a child never reaches this path
-// with a clean-but-still-logically-conflicting state.
+// OperationContinue finalizes an in-progress merge/rebase/pull and resyncs. Success means no conflict is
+// left in this worktree, so the sticky pr-conflicts status is cleared (a merge-into-parent conflict is
+// resolved by the parent's continue instead).
 func (u *gitUsecase) OperationContinue(
 	ctx context.Context,
 	wsID string,

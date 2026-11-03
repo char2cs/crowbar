@@ -12,20 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// OwningChats is the narrow chat-side surface this usecase needs so that no
-// workspace a repo import creates can exist without the chat that owns it.
-//
-// Declared HERE, by the consumer (the same rule chat.WorktreeCreator and
-// hierarchy.OwningChats follow): usecases/project and usecases/chat are
-// siblings, neither imports the other, and the container satisfies this with
-// whatever concrete type actually implements it.
-//
-// It is the three-verb shape rather than the hierarchy's one-call import,
-// because every workspace this usecase creates is one it builds ITSELF and in a
-// way no generic import could: the repo home is adopted in place on the folder
-// the user already had, a protected branch is checked out at origin's ref with
-// its upstream set, and a held branch gets a row with no worktree at all. What
-// they lacked was never the git work — it was the chat.
+// OwningChats is the chat-side surface ensuring no workspace a repo import creates exists without its
+// owning chat. Declared by the consumer (project and chat are siblings). Three verbs, not one import
+// call, because this usecase builds each workspace itself in ways no generic import could.
 type OwningChats interface {
 	// MintOwningChat mints and places the chat that is about to own a workspace,
 	// under the chat owning parentWorkspaceID (empty for a repo-tree root).
@@ -49,23 +38,13 @@ type OwningChats interface {
 	) error
 }
 
-// ErrNoOwningChats is returned when a repo import runs on a usecase whose chat
-// side was never wired.
-//
-// It refuses rather than falling back to the workspace-only create it used to
-// do, and that is the point: a create that quietly proceeded without a chat is
-// how a branch ended up on disk owned by nothing (spec §0). An unwired daemon
-// fails at its first import instead of producing rows nothing can address.
+// ErrNoOwningChats is returned when a repo import runs with no chat side wired. It refuses rather
+// than create a workspace owned by nothing, so an unwired daemon fails at its first import.
 var ErrNoOwningChats = errors.New("project import: no owning-chat surface wired; refusing to create a chat-less workspace")
 
-// createOwnedWorkspace is the chat-first create every workspace-making path in
-// this usecase goes through.
-//
-// The order is the whole contract: the chat is minted BEFORE the row exists,
-// and if the row cannot be written, or cannot be attached, neither survives. A
-// caller hands it the row it wants and the git-lineage parent that row hangs
-// off; where the new chat is PLACED follows from the chat owning that parent,
-// which is the chat side's join to make.
+// createOwnedWorkspace is the chat-first create every workspace path here uses: the chat is minted
+// before the row, and if the row cannot be written or attached neither survives. Placement follows
+// from the chat owning the git-lineage parent.
 func (u *projectImport) createOwnedWorkspace(
 	ctx context.Context,
 	in workspace.CreateInput,
@@ -82,10 +61,8 @@ func (u *projectImport) createOwnedWorkspace(
 	if err != nil {
 		return domain.Workspace{}, u.discardOwningChat(ctx, chatID, err)
 	}
-	// Every workspace mints its OWN Node{Kind:workspace} row unconditionally at
-	// creation, the same instant a repo does (see importOneRepo's own mint) —
-	// 2026-09-08 sidebar-placement-unification Task 7. Filed at the root the
-	// same way a fresh repo Node is; nothing places it for real yet.
+	// Every workspace mints its own Node row at creation, as a repo does, filed at the root; nothing
+	// places it for real yet.
 	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
 		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws.ID, nErr)
 	}
@@ -95,10 +72,8 @@ func (u *projectImport) createOwnedWorkspace(
 	return ws, nil
 }
 
-// mintWorkspaceNode mints wsID's own position row, refusing rather than
-// persisting a workspace with no Node row when the surface was never wired —
-// mirrors ErrNoNodesWired's own reasoning for a repo (project.go's
-// importOneRepo).
+// mintWorkspaceNode mints wsID's own position row, refusing rather than persisting a workspace with
+// no Node row when the surface was never wired.
 func (u *projectImport) mintWorkspaceNode(
 	ctx context.Context,
 	wsID string,
@@ -127,12 +102,8 @@ func (u *projectImport) discardOwningChat(
 	return cause
 }
 
-// discardUnownedWorkspace rolls back every half of a create that could not be
-// finished — either its own Node row failed to mint, or the row could not be
-// attached to the chat minted for it. The workspace goes first, while nothing
-// claims it, then its Node row (best-effort — Create may never have been
-// reached), then the chat — a row left behind here would be the exact orphan
-// this change exists to make unrepresentable.
+// discardUnownedWorkspace rolls back a create that could not finish: workspace first (while nothing
+// claims it), then its Node row (best-effort), then the chat — so no orphan is left.
 func (u *projectImport) discardUnownedWorkspace(
 	ctx context.Context,
 	chatID string,

@@ -6,23 +6,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// AgentWorkspaceReaper fakes the chat tree usecase's WorkspaceReaper seam: the
-// worktree teardown a cascading chat delete puts each workspace in its subtree
-// through.
-//
-// Reaped records every workspace id torn down, IN ORDER, because the order is
-// part of the contract under test: the subtree is walked deepest first so a
-// child's worktree goes before its lineage parent's cascade could reach it.
-//
-// Err fails EVERY reap; ErrFor fails one named workspace, which is what a test
-// needs to prove the failure contract — a delete that cannot tear a worktree
-// down must leave the chat, and its workspace, entirely intact.
-// Roster, when set, is the workspace census this reaper actually REMOVES from.
-// It is what lets a test assert the workspace is gone rather than merely that a
-// method was called — the difference between proving the bug is fixed and
-// proving a line of code runs.
-// Risks answers WorkAtRisk per workspace id; Consents records each delete's.
-// Takes names the git-lineage descendants a workspace's delete also takes.
+// AgentWorkspaceReaper fakes the chat tree's WorkspaceReaper seam. Reaped records torn-down ids in order
+// (deepest first is the contract); Err/ErrFor fail every/one reap; Roster is the census reaps remove from;
+// Risks answers WorkAtRisk, Consents records each delete's, Takes names the lineage descendants taken.
 type AgentWorkspaceReaper struct {
 	Takes    map[string][]string
 	Reaped   []string

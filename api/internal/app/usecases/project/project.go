@@ -36,16 +36,9 @@ type Usecase interface {
 		now time.Time,
 	)
 
-	// UpdateRepo applies a partial repository update — display name, sidebar
-	// order, owning project — in one load-mutate-save, returning the updated
-	// Repository so the caller can broadcast its DTO. Returns problem.ErrNotFound
-	// when no repo has the given id, or when a requested project does not exist.
-	//
-	// A rename touches the LABEL only. Repository.PathSlug — the repo's on-disk
-	// identity, seeded once at import — is deliberately left as loaded.
-	// UpdateRepo answers the updated repo together with the placement it
-	// DECIDED and every other Node the write shifted, so a caller announces
-	// the settled state rather than re-reading an async projection.
+	// UpdateRepo applies a partial repository update in one load-mutate-save. A rename touches the
+	// label only: PathSlug, the on-disk identity, is left as loaded. It answers the decided placement
+	// and every Node the write shifted, so the caller announces settled state, not an async projection.
 	UpdateRepo(
 		ctx context.Context,
 		repoID string,
@@ -59,14 +52,8 @@ type Usecase interface {
 		order int,
 	) (domain.Project, error)
 
-	// Update applies a partial project update — display name, icon — in one
-	// load-mutate-save, returning the updated Project so the caller can broadcast
-	// its DTO. Returns problem.ErrNotFound when no project has the given id.
-	//
-	// A rename touches the LABEL only. Project.Path — where the project actually
-	// lives on disk, chosen once at import — is deliberately left as loaded, for
-	// the same reason a repo rename leaves its PathSlug alone: the name is what
-	// the sidebar shows, not what anything on disk is keyed on.
+	// Update applies a partial project update in one load-mutate-save (problem.ErrNotFound for an
+	// unknown id). A rename touches the label only: Project.Path is what disk is keyed on.
 	Update(
 		ctx context.Context,
 		projectID string,
@@ -81,12 +68,9 @@ type Usecase interface {
 	) (int, error)
 }
 
-// Update is a partial project update: a nil field is left as it is.
-//
-// The icon fields travel together because they are one three-state choice, not
-// three independent ones (emoji > on-disk image > the sidebar's default glyph),
-// and setting one without clearing the others is how a project ends up showing
-// an emoji it was told to replace with an image.
+// Update is a partial project update: a nil field is left as it is. The icon fields are one
+// three-state choice (emoji > image > default glyph); setting one without clearing the others
+// leaves a project showing the icon it was told to replace.
 type Update struct {
 	Name          *string
 	AvatarEmoji   *string
@@ -106,13 +90,9 @@ type RepoUpdate struct {
 	FolderID  *string
 }
 
-// HomeWorkspaces answers which workspace IS project home, so a repo's sibling
-// search (placeRepoAmongHomeSiblings) can scope a ROOT-level container to THIS
-// project specifically — home chats otherwise carry no project id of their own
-// to filter by (every project's home resolves to the same "" repo scope).
-// Satisfied structurally by the workspace REPOSITORY (not the usecase —
-// container.go builds this one before the workspace usecase exists, which
-// itself depends on this package).
+// HomeWorkspaces answers which workspace is project home, so a root-level repo placement can scope
+// home chats (which carry no project id) to this project. The workspace repository satisfies it:
+// the workspace usecase is built after, and depends on, this package.
 type HomeWorkspaces interface {
 	GetHomeForProject(
 		ctx context.Context,
@@ -120,46 +100,21 @@ type HomeWorkspaces interface {
 	) (domain.Workspace, error)
 }
 
-// Folders is the home-folder identity surface validateRepoFolder
-// needs: confirming a FolderID names a genuine project-home folder (RepoID ==
-// "") before writing it — the same golden rule tree/validate.go's
-// checkFolderContainer enforces for an ordinary chat folder. It is the same
-// folder store the tree package's home-scoped CRUD uses (the Tree's ports).
+// Folders confirms a FolderID names a genuine project-home folder (RepoID == "") before
+// validateRepoFolder writes it — the same rule checkFolderContainer enforces for chat folders.
 type Folders interface {
 	FindByKey(ctx context.Context, id string) (*tree.Folder, error)
 }
 
-// HomeChats is the narrow chat-membership read placeRepoAmongHomeSiblings
-// needs to restore, for CHAT-kind Node rows only, the per-project scoping
-// the pre-Task-5 merge (homeContainerChats, deleted) used to guarantee via
-// this exact same ListByWorkspace(homeWorkspaceID) call. tree.Node carries
-// no project id of its own — unlike a repo (Repository.ProjectID, see
-// repoIDSet) or a home folder (which has NO project field at all, a
-// pre-existing, disclosed gap this interface does NOT attempt to close, see
-// placeRepoAmongHomeSiblings' own doc) — so a CHAT-kind sibling's project
-// membership can only be answered by asking the chat aggregate directly.
-// Satisfied structurally by the chat repository itself (repos.AgentChat).
+// HomeChats answers project membership for CHAT-kind home siblings: tree.Node carries no project id,
+// so only the chat aggregate can scope them. Satisfied by the chat repository (repos.AgentChat).
 type HomeChats interface {
 	ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Chat, error)
 }
 
-// NodePlacements is the narrow Node surface a repo's OWN placement needs
-// (2026-09-08 sidebar-placement-unification design §2, Task 3): minting the
-// position row at repo creation (Create), the repo-kind sibling-space read a
-// densify or a placement pass renumbers (ListByParent), one repo's own row for
-// UpdateRepo's before/after read and the DTO's folderId/order fields (GetNode),
-// the two writes a densify or a move ends in — SetOrder when a row's
-// container does not change, SetPlacement when it does (mirrors
-// chat/internal/tree/plan.go's writeRow dispatch) — and Forget, which undoes
-// a Create a repo import's own rollback takes back out (see importOneRepo).
-// Satisfied structurally by the node repository itself
-// (repositories.Container.Node).
-//
-// Every home-scope sibling a repo interleaves with — chat, folder, or
-// another repo — now shares this ONE surface (2026-09-08
-// sidebar-placement-unification Task 5 made chats/folders Node-backed too),
-// which is what let placeRepoAmongHomeSiblings drop its cross-aggregate merge
-// with the chat package entirely.
+// NodePlacements is the Node surface a repo's own placement needs: minting its row (Create), the
+// sibling reads a densify or placement renumbers, the SetOrder/SetPlacement writes, and Forget to
+// undo an import's Create. Every home-scope sibling (chat, folder, repo) shares this one surface.
 type NodePlacements interface {
 	Create(
 		ctx context.Context,
@@ -187,10 +142,8 @@ type NodePlacements interface {
 		parentID string,
 		order int,
 	) error
-	// Forget purges a Node row outright. Used ONLY to unwind a Create that a
-	// repo import's own rollback is taking back out — never to delete a
-	// live, in-use row (a repo delete leaving its Node row behind is a
-	// separate, harmless gap tracked elsewhere, not this method's job here).
+	// Forget purges a Node row outright, only to unwind a Create a repo import is rolling back —
+	// never to delete a live row.
 	Forget(
 		ctx context.Context,
 		id string,
@@ -206,16 +159,8 @@ type projectUsecase struct {
 	homeChats  HomeChats
 }
 
-// New builds a Usecase from the project and repository GORM stores, the
-// project-home lookup a root-level repo placement needs, the home-folder
-// identity store validateRepoFolder checks a FolderID against, the Node
-// surface that now owns every home-scope sibling's OWN position (see
-// NodePlacements), and the chat-membership read that keeps a bare-root
-// placement from leaking another project's chats into this one's densify
-// (see HomeChats). A nil homeChats degrades the same way a nil workspaces
-// already does elsewhere in this file: the bare-root densify simply cannot
-// narrow CHAT-kind siblings to this project and falls back to including
-// them all, rather than failing the request outright.
+// New builds a Usecase. A nil homeChats degrades rather than fails: the bare-root densify cannot
+// narrow CHAT-kind siblings to this project and includes them all.
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
@@ -284,19 +229,9 @@ func (u *projectUsecase) TouchProjectActivity(
 	}
 }
 
-// UpdateRepo applies a partial repository update in one load-mutate-save.
-//
-// A rename refreshes the generated avatar: the label + color derive from the
-// name and surface only as the fallback avatar (when the repo has no custom
-// icon/emoji), but must still track the name so a renamed repo's letter badge is
-// correct.
-//
-// The row is loaded and saved whole precisely so the fields an update must NOT
-// disturb travel through untouched. Repository.PathSlug is the load-bearing one:
-// it is the repo's on-disk identity, seeded once at import, and every managed
-// worktree already lives under it. Assigning it here would fork the repo's tree
-// in two — new workspaces under the new name, the existing ones stranded under
-// the old — and blind the sibling scan that rejects case-only path clashes.
+// UpdateRepo applies a partial repository update in one load-mutate-save. A rename refreshes the
+// generated avatar. The row is saved whole so PathSlug, the on-disk identity every worktree lives
+// under, travels untouched: changing it would split the repo's tree across two names.
 func (u *projectUsecase) UpdateRepo(
 	ctx context.Context,
 	repoID string,
@@ -374,14 +309,9 @@ func (u *projectUsecase) resolveTargetFolder(
 	return *in.FolderID, nil
 }
 
-// applyRepoPlacement runs whichever of the two densify/place passes an
-// update needs. An explicit order (a real drag) needs the CROSS-AGGREGATE
-// placement — see placeRepoAmongHomeSiblings's own doc for why densifyRepos
-// alone clamps it wrong the instant a home chat/folder shares the container.
-// A move with no explicit order (e.g. a bare project/folder change from some
-// other caller) keeps the old repo-only resort, which merely re-sorts by
-// each row's own current (order, id) — nothing to place at a specific
-// position, so nothing needs the wider sibling view.
+// applyRepoPlacement picks the pass an update needs: an explicit order (a drag) needs the
+// cross-aggregate placement, since densifyRepos alone clamps it wrong beside home chats/folders;
+// a move with no order only re-sorts the repo rows by their current (order, id).
 func (u *projectUsecase) applyRepoPlacement(
 	ctx context.Context,
 	repo domain.Repository,
@@ -395,26 +325,9 @@ func (u *projectUsecase) applyRepoPlacement(
 	return u.densifyRepos(ctx, repo.ProjectID, targetFolder, &subject)
 }
 
-// validateRepoFolder confirms folderID names a genuine project-home folder —
-// "" (the project's own home root) is always legal; anything else must
-// resolve to a tree.Folder row with no repo scope of its own (RepoID ==
-// ""). A repo-internal folder (one that organises that repo's OWN branches,
-// RepoID == the repo's id) is refused: a repo's entry is filed in some
-// project's home, never inside its own tree — that would be a repo
-// containing itself.
-//
-// This checks the SAME granularity checkFolderContainer (tree/validate.go)
-// already accepts for an ordinary chat folder move, no finer: it does not
-// confirm folderID belongs to THIS repo's own project specifically, because
-// nothing in the chat tree currently anchors a root-level home folder to one
-// project over another (every project's home folder scope reads "" alike).
-// The frontend never offers a cross-project target; closing that gap for real
-// would need a project anchor on the home tree itself, which is out of scope
-// here (Task 8's own golden-rule Node port is where this would land, per this
-// task's SDD ledger).
-//
-// This now validates against tree.Folder, not domain.Chat: home folders
-// are Node/Folder-backed (2026-09-08 sidebar-placement-unification Task 5).
+// validateRepoFolder accepts "" (project home root) or a tree.Folder with no repo scope; a
+// repo-internal folder is refused, as a repo cannot contain itself. It does not check the folder
+// belongs to this project: the home tree has no project anchor yet.
 func (u *projectUsecase) validateRepoFolder(
 	ctx context.Context,
 	folderID string,
@@ -434,15 +347,9 @@ func (u *projectUsecase) validateRepoFolder(
 	return nil
 }
 
-// refuseProjectMove answers ErrConflict for an update that names a project
-// other than the repo's own. A repo's project is fixed at import (spec §3
-// P0-3, invariant D6): everything it owns on disk — its managed worktrees
-// (<home>/projects/<P>/<slug>/<branch>), its home checkout's chats tree, its
-// workspaces' storage dirs, its entity dir — is keyed by that project, and
-// live agents and terminals run inside those worktrees. Re-pointing the rows
-// moved none of it (the worktrees stayed where another project's delete could
-// reach them) and re-pointed the workspaces one by one, non-atomically. A repo
-// that belongs elsewhere is removed and imported there instead.
+// refuseProjectMove answers ErrConflict for an update naming another project. A repo's project is
+// fixed at import: its worktrees, storage and entity dirs are keyed by it and live agents run there,
+// so moving rows would move none of that. Remove and re-import instead.
 func refuseProjectMove(
 	repo domain.Repository,
 	projectID *string,
@@ -456,11 +363,8 @@ func refuseProjectMove(
 	)
 }
 
-// repoIDSet answers the set of repo ids belonging to projectID — the project
-// scope every repo-kind Node read below needs, since tree.Node carries no
-// project id of its own (only ParentID/Order): membership comes from
-// domain.Repository.ProjectID, unchanged by this migration, intersected
-// against whatever Node.ListByParent returns.
+// repoIDSet answers the repo ids of projectID: tree.Node carries no project id, so membership comes
+// from Repository.ProjectID intersected with what Node.ListByParent returns.
 func (u *projectUsecase) repoIDSet(
 	ctx context.Context,
 	projectID string,
@@ -476,27 +380,9 @@ func (u *projectUsecase) repoIDSet(
 	return ids, nil
 }
 
-// densifyRepos renumbers folderID's repo-kind sibling space within project
-// projectID, 0..n-1, and writes back only the rows that moved. It never
-// targets an explicit index (that is placeRepoAmongHomeSiblings's job) — it
-// only closes gaps, sorting by each row's own current (order, id).
-//
-// subject, when given, is included AUTHORITATIVELY even when Node's read
-// model has not yet folded a just-decided reparent for it: UpdateRepo passes
-// its own pre-write read of the row (see getRepoNode) rather than trusting
-// ListByParent(folderID) to already show it there, the same defence
-// chat/internal/tree/plan.go's corrected() gives its own densify passes
-// against the identical async-projection race SetOrder's own doc describes.
-// When subject's own OLD parent differs from folderID, its write is
-// SetPlacement (it is reparenting as part of this pass); every other row,
-// subject included when its parent already matched, is SetOrder — the same
-// per-row dispatch plan.go's writeRow makes.
-//
-// Scoped to folderID, not the whole project: a repo's Order is only dense
-// among its OWN siblings — every other repo filed under that same
-// project-home folder (or, for "", every other root-level repo) — mirroring
-// how a workspace's Order densifies within its own folder rather than across
-// a whole repo.
+// densifyRepos renumbers folderID's repo siblings in projectID to 0..n-1, writing only moved rows.
+// subject is included authoritatively, since Node's read model may not have folded its reparent
+// yet; its write is SetPlacement when its old parent differs, every other row's is SetOrder.
 func (u *projectUsecase) densifyRepos(
 	ctx context.Context,
 	projectID string,
@@ -541,11 +427,8 @@ func (u *projectUsecase) densifyRepos(
 	return decided, nil
 }
 
-// densifyRows builds densifyRepos' candidate row list: every node belonging
-// to projectID (memberIDs) and sitting in folderID's sibling space (nodes,
-// from Node.ListByParent), minus subject's own stale copy — subject, when
-// given, is appended in its place as the authoritative one (see
-// densifyRepos' own doc for the race this defends against).
+// densifyRows lists densifyRepos' candidates: projectID's nodes in folderID's sibling space, with
+// subject's stale copy replaced by the authoritative one.
 func densifyRows(
 	memberIDs map[string]bool,
 	nodes []tree.Node,
@@ -567,11 +450,8 @@ func densifyRows(
 	return rows
 }
 
-// writeNode issues the one write a densify or placement pass owes a Node
-// row — repo, chat, or folder alike, now that every home-scope sibling
-// shares this one surface (2026-09-08 sidebar-placement-unification Task 5):
-// SetPlacement when it is reparenting, SetOrder otherwise — the same per-row
-// dispatch chat/internal/tree's own writeHomeNode makes.
+// writeNode issues the one write a densify or placement owes a Node row: SetPlacement when it
+// reparents, SetOrder otherwise.
 func (u *projectUsecase) writeNode(
 	ctx context.Context,
 	id string,
@@ -591,15 +471,8 @@ func (u *projectUsecase) writeNode(
 	return nil
 }
 
-// mintNode is the "best effort, no backfill" half of degrading a Node-less
-// row: a repo that predates this migration entirely (every real pre-existing
-// repo in production — this migration ships with no backfill by design) has
-// no Node row yet, and its FIRST reorder must Create one at exactly the
-// resolved (folderID, order) rather than hand it to SetOrder/SetPlacement,
-// which correctly refuse a row that was never Created (caught live: "node:
-// set order: no node: asynx: validation failed" on the very first drag of a
-// pre-existing repo). One Create call sets both fields the placement needs,
-// so there is no separate reparenting branch to consider here.
+// mintNode creates the Node row for a repo that has none yet (no backfill ships), at the resolved
+// (folderID, order): SetOrder/SetPlacement rightly refuse a row that was never Created.
 func (u *projectUsecase) mintNode(
 	ctx context.Context,
 	id string,
@@ -613,10 +486,8 @@ func (u *projectUsecase) mintNode(
 	return nil
 }
 
-// ensureSubjectWritten guarantees a REPARENTING subject lands in the container
-// it was asked for even when place()'s numeric diff saw no move to make — it
-// landed back on the same dense index it already held, which only compares
-// ORDER values, not parents. slots is the ORIGINAL (pre-sort) slot list.
+// ensureSubjectWritten lands a reparenting subject in its new container even when place() saw no
+// order change to make. slots is the original (pre-sort) slot list.
 func (u *projectUsecase) ensureSubjectWritten(
 	ctx context.Context,
 	slots []slot,
@@ -639,18 +510,9 @@ func (u *projectUsecase) ensureSubjectWritten(
 	return &tree.Node{ID: subjectID, Kind: tree.KindRepo, ParentID: folderID, Order: i}, nil
 }
 
-// placeRepoAmongHomeSiblings gives subject exactly the Order the caller asked
-// for within (projectID, folderID), shifting whatever ELSE shares that
-// container — other repos, home chats, AND home folders alike — out of its
-// way. The member set is homeLevel's: the one the sidebar renders.
-//
-// subject is included AUTHORITATIVELY — UpdateRepo's pre-write read of the
-// row being placed, not merely whatever Node.ListByParent(folderID) currently
-// answers. When subject's own OLD parent differs from folderID it is
-// reparenting as part of this call and its write is SetPlacement; every other
-// row, subject included when its parent already matched, is SetOrder. A row
-// with no Node yet (the subject before its first drag, or a legacy root chat)
-// is minted at the index it lands on.
+// placeRepoAmongHomeSiblings gives subject the asked Order within (projectID, folderID), shifting
+// repos, home chats and home folders alike; subject is included authoritatively (see densifyRepos),
+// and a row with no Node yet is minted where it lands.
 func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	ctx context.Context,
 	projectID string,
@@ -680,10 +542,8 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	return decided, nil
 }
 
-// densifyHomeLevel closes the gap a repo left in (projectID, folderID) over
-// the level's full member set — repos, home chats and home folders alike —
-// so the rows that stay keep their drawn order. exclude is the row known to
-// have LEFT even if Node's read model has not yet folded its departure.
+// densifyHomeLevel closes the gap a departed repo left over the level's full member set; exclude is
+// the row known to have left even if Node's read model has not folded it yet.
 func (u *projectUsecase) densifyHomeLevel(
 	ctx context.Context,
 	projectID string,

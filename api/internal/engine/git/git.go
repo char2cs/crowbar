@@ -117,29 +117,23 @@ type Engine interface {
 		repoPath string,
 	) error
 
-	// FetchRef fetches a single branch from the `origin` remote via
-	// `git fetch origin <branch>`, making `origin/<branch>` available locally.
-	// Used by the worktree usecase before checking out a branch that exists on
-	// the remote but not yet locally (07 / Spec §3).
+	// FetchRef fetches one branch from origin, making origin/<branch> available locally before
+	// checking out a branch that exists only on the remote.
 	FetchRef(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) error
 
-	// FetchPrune refreshes every refs/remotes/origin/* ref and drops the ones
-	// whose remote branch is gone (`git fetch --prune origin`). It is what makes
-	// a remote-branch listing reflect the remote as it is NOW; it moves no local
-	// branch ref.
+	// FetchPrune refreshes refs/remotes/origin/* and drops gone ones, so a remote-branch listing reflects
+	// the remote now; it moves no local branch ref.
 	FetchPrune(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// FastForwardBranch fetches origin/<branch> and updates the local branch ref
-	// to match via `git fetch origin <branch>:<branch>`. Unlike FetchRef, which
-	// only updates the remote-tracking ref, this ensures the local branch is at
-	// the same commit as origin before being checked out into a worktree.
+	// FastForwardBranch updates the local branch ref to origin/<branch> (`git fetch origin b:b`), unlike
+	// FetchRef, so the branch is at origin's commit before it is checked out.
 	FastForwardBranch(
 		ctx context.Context,
 		repoPath string,
@@ -271,13 +265,8 @@ type Engine interface {
 		repoPath string,
 	) error
 
-	// OperationInProgress reports the in-progress git operation at repoPath, if
-	// any: "rebase", "merge", "squash", or "" when the worktree is at rest. It
-	// reads the .git marker files (MERGE_HEAD, rebase-merge/, SQUASH_MSG, …) and
-	// never mutates. The recovery sweep uses it to tell a workspace that is mid
-	// conflict-resolution (markers resolved + staged but the rebase/merge not yet
-	// continued) apart from a truly clean tree, so it doesn't prematurely clear a
-	// real pr-conflicts state.
+	// OperationInProgress reports "rebase", "merge", "squash" or "" from the .git marker files, without
+	// mutating, so recovery does not clear a pr-conflicts state that is mid-resolution.
 	OperationInProgress(
 		ctx context.Context,
 		repoPath string,
@@ -291,10 +280,8 @@ type Engine interface {
 		branch string,
 	) error
 
-	// WorktreeRemove removes a git worktree (04 / 07). force passes --force,
-	// discarding uncommitted changes; without it git refuses a dirty worktree,
-	// which is the only safe way to remove one whose work is not Crowbar's to
-	// throw away (a protected or locked worktree).
+	// WorktreeRemove removes a git worktree. Without force git refuses a dirty worktree, the only safe way
+	// to remove one whose work is not Crowbar's to throw away.
 	WorktreeRemove(
 		ctx context.Context,
 		repoPath string,
@@ -302,10 +289,8 @@ type Engine interface {
 		force bool,
 	) error
 
-	// WorktreeRepair repoints the repo's admin files at a worktree that has
-	// already been relocated on disk (`git worktree repair`). Branch rename moves
-	// a workspace by renaming its whole root — worktree and agent chats together
-	// — then calls this so git follows.
+	// WorktreeRepair repoints the repo's admin files at a worktree already moved on disk, so git follows
+	// a branch rename that relocated the workspace root.
 	WorktreeRepair(
 		ctx context.Context,
 		repoPath string,
@@ -328,10 +313,8 @@ type Engine interface {
 		worktreePath string,
 	) (int, error)
 
-	// UnmergedCommits counts the commits reachable from tips that no branch but
-	// dropBranch, no remote-tracking branch and no tag reaches — what is gone for
-	// good once dropBranch is deleted and the tips' worktree removed. Tips
-	// resolve in dir (a worktree's HEAD is its own); missing tips are ignored.
+	// UnmergedCommits counts commits from tips that nothing but dropBranch reaches (no other branch,
+	// remote branch or tag): what is lost once dropBranch and its worktree go. Missing tips are ignored.
 	UnmergedCommits(
 		ctx context.Context,
 		dir string,
@@ -377,23 +360,17 @@ type Engine interface {
 		branch string,
 	) error
 
-	// WorkingTreeSummary returns +N/-N diff stats plus hasConflicts/hasCommits
-	// used by SyncWorkingTreeState (00 §5.3). base is EITHER a base branch name
-	// (e.g. "develop") or a fork-point SHA: the summary diffs against the
-	// merge-base of base's freshest tip and HEAD, so it counts only the branch's
-	// own changes and stays correct as the branch is rebased onto newer base
-	// commits — never a frozen fork point that would also count the base branch's
-	// advancement.
+	// WorkingTreeSummary returns +N/-N stats and conflict/commit flags against the merge-base of base's
+	// freshest tip and HEAD (base is a branch or fork-point SHA), so it counts only the branch's own
+	// changes and stays right across rebases.
 	WorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
 		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 
-	// ResolveDiffBase resolves base (a branch name or fork-point SHA) to the
-	// commit WorkingTreeSummary diffs against, and whether the branch has commits
-	// beyond it. The result changes only when refs move, so a caller that sees
-	// refs move can reuse it across working-tree changes.
+	// ResolveDiffBase resolves base to the commit WorkingTreeSummary diffs against; it changes only when
+	// refs move, so callers may reuse it across working-tree changes.
 	ResolveDiffBase(
 		ctx context.Context,
 		repoPath string,
@@ -411,10 +388,8 @@ type Engine interface {
 	// MergeBase returns the best common ancestor of commits a and b.
 	MergeBase(ctx context.Context, repoPath, a, b string) (string, error)
 
-	// WouldMergeConflicts reports, for each pair, whether a three-way merge of
-	// Theirs into Ours would conflict, computed non-destructively (git merge-tree
-	// --write-tree): the branch tips are read once, verdicts are remembered by
-	// commit, and the rest run concurrently.
+	// WouldMergeConflicts reports per pair whether merging Theirs into Ours would conflict, without
+	// touching the tree (merge-tree --write-tree); verdicts are cached by commit.
 	WouldMergeConflicts(
 		ctx context.Context,
 		repoPath string,
@@ -432,11 +407,9 @@ type Engine interface {
 		startPoint string,
 	) (string, error)
 
-	// WorktreeAddAtRef checks branch out into a fresh worktree at worktreePath
-	// with the branch ref RESET to startRef (`git worktree add -B`), returning
-	// the resolved start SHA. This is the import path's checkout: it guarantees
-	// the worktree holds startRef's commits even when a diverged local branch of
-	// the same name already exists.
+	// WorktreeAddAtRef checks branch out into a fresh worktree with the ref RESET to startRef
+	// (`git worktree add -B`), returning the start SHA, so an import holds startRef's commits even
+	// when a diverged local branch of that name exists.
 	WorktreeAddAtRef(
 		ctx context.Context,
 		repoPath string,
@@ -472,10 +445,8 @@ type Engine interface {
 		childBranch string,
 	) error
 
-	// RemoteBranchExists reports whether branch exists on the `origin` remote
-	// via `git ls-remote --heads origin <branch>` (non-empty output ⇒ true).
-	// Used by the worktree usecase to decide checkout-existing vs create-local
-	// before adding a worktree (07 / Spec §3).
+	// RemoteBranchExists reports whether branch exists on origin (`git ls-remote --heads`), deciding
+	// checkout-existing vs create-local before adding a worktree.
 	RemoteBranchExists(
 		ctx context.Context,
 		repoPath string,
@@ -493,18 +464,9 @@ type Engine interface {
 	// LocalBranchExists reports whether refs/heads/<branch> is present.
 	LocalBranchExists(ctx context.Context, repoPath, branch string) (bool, error)
 
-	// SetUpstream links a local branch back to its origin counterpart by setting
-	// branch.<branch>.remote/merge (`git branch --set-upstream-to=origin/<branch>
-	// <branch>`), so the branch is recognised as origin's <branch>. The imported-
-	// branch checkout path uses it to make an existing remote branch a proper
-	// review target on BOTH the origin-reachable and offline-fallback paths: the
-	// reachable path creates the local branch via `git fetch origin <b>:<b>`, which
-	// leaves NO upstream, so `git worktree add <path> <b>` checks out that branch
-	// untracked — while the fallback path DWIMs tracking from origin/<b>. It
-	// operates on the branch by NAME and touches only the shared repo config, so it
-	// works whether or not <branch> is repoPath's currently checked-out branch
-	// (the caller runs it after checking the branch out into a separate worktree).
-	// origin/<branch> must already exist locally as a remote-tracking ref.
+	// SetUpstream sets branch.<branch>.remote/merge to origin/<branch>, which must exist locally. An
+	// imported branch created by `git fetch origin b:b` has no upstream, so without this it is checked
+	// out untracked and is not a proper review target. It touches only repo config, by branch name.
 	SetUpstream(
 		ctx context.Context,
 		repoPath string,
@@ -530,14 +492,9 @@ type Engine interface {
 		ref string,
 	) (gitdomain.MultiFileDiff, error)
 
-	// ReviewFiles returns the files-only summary of DiffAgainstRef's file set —
-	// per-file status + line counts, no hunk content (`git diff --name-status`
-	// + `--numstat`). Backs the sidebar's full changed-files list without ever
-	// fetching line-level diff content (Task 27).
-	//
-	// dirty is the set of paths the caller's git status reports as differing
-	// from HEAD; passing it keeps the counts off the O(diff size) path. nil
-	// means unknown and recomputes every count.
+	// ReviewFiles returns DiffAgainstRef's file set as per-file status and line counts, no hunk
+	// content. dirty, the paths git status reports differ from HEAD, keeps counts off the O(diff)
+	// path; nil means unknown and recomputes every count.
 	ReviewFiles(
 		ctx context.Context,
 		repoPath string,
@@ -545,17 +502,9 @@ type Engine interface {
 		dirty []string,
 	) ([]gitdomain.ReviewFileSummary, error)
 
-	// ReviewFilePatch streams ONE file's unified patch into w and reports the
-	// number of patch lines written and whether the patch was cut short. It is
-	// the content half of the windowed review API: the outline gives the client
-	// the shape of every file, and this fills in one file at a time, so a
-	// million-line branch diff is never materialised anywhere — not in git's
-	// output, not in the daemon, not in the response.
-	//
-	// path addresses the file by its NEW name. maxLines <= 0 means unlimited;
-	// a positive cap always cuts on a hunk boundary, so what reaches the client
-	// is a patch its parser can read rather than a half-hunk it would render as
-	// garbage. A path with no changes is an empty patch, not an error.
+	// ReviewFilePatch streams one file's (by NEW name) unified patch into w, so a huge branch diff is
+	// never materialised. maxLines <= 0 is unlimited; a cap cuts on a hunk boundary so the client can
+	// still parse it. A path with no changes is an empty patch, not an error.
 	ReviewFilePatch(
 		ctx context.Context,
 		repoPath string,
@@ -565,27 +514,17 @@ type Engine interface {
 		w io.Writer,
 	) (int, bool, error)
 
-	// ReviewOutline returns the hunk geometry of ReviewFiles' file set against
-	// ref: per file the `@@` shapes of its diff and no content at all. The diff
-	// is streamed and discarded as it is read, so the result is O(hunks) where
-	// DiffAgainstRef is O(lines) — it describes a million-line diff in about a
-	// megabyte, which is what lets the client reserve scroll space per file
-	// before fetching a single patch.
+	// ReviewOutline returns per-file hunk geometry against ref with no content, streamed and discarded
+	// as read: O(hunks) rather than O(lines), so the client can reserve scroll space before any patch.
 	ReviewOutline(
 		ctx context.Context,
 		repoPath string,
 		ref string,
 	) ([]gitdomain.FileOutline, error)
 
-	// ReviewSearch finds query in the CONTENT of the diff against ref and
-	// returns the file and line number of each match, plus whether opts.Limit
-	// cut the results short. It is the server-side replacement for find-in-diff:
-	// once the client only ever holds a window of the patch, it has nothing left
-	// to search locally.
-	//
-	// The diff is streamed and matched a line at a time and the scan stops the
-	// moment the limit fills, so the cost is bounded by the hits asked for
-	// rather than by the size of the diff.
+	// ReviewSearch finds query in the diff CONTENT against ref, returning file and line of each match
+	// and whether opts.Limit cut it short. Streamed line by line and stopped when the limit fills, so
+	// cost is bounded by hits asked for; the client only holds a window and cannot search locally.
 	ReviewSearch(
 		ctx context.Context,
 		repoPath string,

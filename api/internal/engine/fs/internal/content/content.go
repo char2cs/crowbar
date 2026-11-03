@@ -107,10 +107,8 @@ func readFile(
 	return domain.FileContent{Content: string(data)}, nil
 }
 
-// Write persists content to a file, creating parent directories as needed. The
-// encoding mirrors the Read side: "base64" means content is a base64-encoded
-// byte payload — decoded and written verbatim so binary uploads stay
-// byte-faithful — while "" or "utf8" writes content as raw UTF-8 bytes.
+// Write persists content, creating parent directories. Encoding mirrors Read: "base64" is decoded and
+// written verbatim so binary uploads stay byte-faithful; "" or "utf8" writes raw UTF-8.
 func Write(
 	repoPath string,
 	filePath string,
@@ -172,30 +170,9 @@ func requireAbs(
 	return nil
 }
 
-// writeAtomic writes data to full by first writing a same-directory temp file
-// and then renaming it over the target. On POSIX the rename is atomic, which
-// gives two data-safety guarantees os.WriteFile does not:
-//
-//   - A crash or error mid-write leaves the ORIGINAL file intact. os.WriteFile
-//     opens the target with O_TRUNC, so it destroys the prior content before the
-//     first byte lands — a daemon SIGQUIT or a full disk during a large save then
-//     leaves a truncated stub with the original gone. Writing to a temp and
-//     renaming means a failed write only ever discards the temp.
-//   - A concurrent reader sees either the whole old file or the whole new one,
-//     never a half-written middle.
-//
-// The temp lives in the target's directory (rename must stay on one filesystem)
-// under a hidden ".<name>.tmp-*" name; it exists for sub-millisecond and is the
-// same atomic-save pattern external editors already force the watcher to tolerate.
-//
-// Two properties of os.WriteFile are preserved so the atomic upgrade is not a
-// silent regression:
-//   - A symlinked target is written THROUGH (its target updated, the link kept).
-//     The temp+rename would otherwise replace the link with a regular file. A
-//     dangling link is refused: its target is never created (writeThrough).
-//   - An existing file's permission bits are carried onto the replacement, so
-//     saving an executable script does not strip its +x. os.WriteFile kept them
-//     because O_TRUNC never chmods an existing file; a fresh inode would not.
+// writeAtomic writes a same-directory temp and renames it over full, so a failed write never destroys
+// the original and readers never see a half file. Like os.WriteFile it writes through a symlink
+// (refusing a dangling one) and keeps an existing file's permission bits.
 func writeAtomic(
 	full string,
 	data []byte,
@@ -272,18 +249,9 @@ func decodeContent(
 	}
 }
 
-// isBinary returns true if data contains a null byte or is not valid UTF-8.
-// Fix 4: added UTF-8 validity check so Latin-1 / invalid-UTF-8 files are
-// base64-encoded rather than returned as corrupted string content.
-//
-// It scans the WHOLE buffer, not a leading sample. A leading 8 KiB sample was a
-// silent-corruption bug: a file whose first 8 KiB is clean UTF-8 but which holds
-// an invalid byte later (e.g. a lone 0xE9 Latin-1 'é' at offset 9000) was
-// classed as text and returned as a Go string. Go's encoding/json (gin's
-// marshaller) then replaces every invalid UTF-8 byte in that string with U+FFFD,
-// so the client received corrupted content and a subsequent save persisted the
-// corruption. The buffer is already fully in memory (capped at maxReadBytes), so
-// a full scan is O(n) over ≤25 MiB — cheap, and the only way to be byte-faithful.
+// isBinary returns true if data contains a null byte or is not valid UTF-8. It scans the whole buffer
+// (≤ maxReadBytes): a late invalid byte classed as text would be replaced with U+FFFD by JSON encoding
+// and the corruption saved back.
 func isBinary(
 	data []byte,
 ) bool {

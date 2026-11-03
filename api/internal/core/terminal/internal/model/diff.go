@@ -9,40 +9,23 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// cup returns an always-explicit CUP sequence ("\x1b[<row>;<col>H", 1-based).
-// ansi.CursorPosition compacts default parameters ("\x1b[H" for 1;1); the emit
-// contract wants a deterministic full form so clients and tests can match the
-// exact bytes.
+// cup returns an always-explicit CUP sequence (1-based): ansi.CursorPosition compacts
+// default parameters, and the emit contract wants deterministic bytes clients can match.
 func cup(row, col int) string {
 	return "\x1b[" + strconv.Itoa(row) + ";" + strconv.Itoa(col) + "H"
 }
 
-// DiffEmitter converts model state changes into minimal incremental ANSI for
-// live clients (spec §3.2). It is the streaming counterpart of the Serializer:
-// where Serialize emits one full ground-state redraw, Emit produces only what
-// changed since the previous Emit/Prime. Like the Serializer it reads the
-// concrete model through the package wall (type assertion), never through the
-// session-facing interface. Not goroutine-safe; the owning session serialises
-// calls under its lock.
-//
-// Lifecycle: an unprimed (or invalidated) emitter answers Emit with
-// needKeyframe=true; the caller then sends a full snapshot (Serializer) and
-// calls Prime to re-base. Dimension changes, alt-screen flips and scrollback
-// shrinkage (ED3-style clears) are detected in Emit and demand a keyframe the
-// same way — a client reset+redraw is both simpler and cheaper than a
-// worst-case whole-screen diff with epoch bookkeeping.
+// DiffEmitter turns model changes into minimal incremental ANSI for live clients; an
+// unprimed emitter, a resize, an alt-screen flip or a scrollback shrink demands a keyframe,
+// since reset+redraw beats a worst-case diff. Not goroutine-safe: the session's lock serialises it.
 type DiffEmitter struct {
 	valid bool
 
 	cols, rows    int
 	alt           bool
 	scrollbackLen int
-	// scrollbackTail is the FNV-1a hash of the LAST scrollback line as of the
-	// previous Emit/Prime (zero when scrollbackLen==0). It is the rotation
-	// anchor: x/vt's ring evicts the oldest line at cap, so once saturated
-	// ScrollbackLen() plateaus and a plain length compare can no longer see
-	// scrolled-off lines. Matching this hash back in the current ring (see
-	// scrollbackNewStart) recovers the true new-line boundary across rotation.
+	// scrollbackTail hashes the last scrollback line at the previous Emit/Prime: once x/vt's
+	// ring saturates its length plateaus, so this anchor recovers the new-line boundary.
 	scrollbackTail uint64
 	lastGrid       [][]uv.Cell
 	// lastWrapped is each grid row's wrap bit as the client holds it.
@@ -51,10 +34,8 @@ type DiffEmitter struct {
 	chrome      chromeBase
 }
 
-// rotationScanLimit bounds how far back scrollbackNewStart scans for the
-// rotation anchor before giving up and demanding a keyframe. A gap larger than
-// this between emits is rare (it needs hundreds of lines committed in a single
-// coalesce window) and a keyframe resync is the correct, cheap recovery.
+// rotationScanLimit bounds the anchor scan; a bigger gap between emits is rare and a
+// keyframe is the correct, cheap recovery.
 const rotationScanLimit = 256
 
 // NewDiffEmitter returns an unprimed emitter (first Emit demands a keyframe).
@@ -90,24 +71,9 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 	e.valid = true
 }
 
-// Emit returns the incremental ANSI since the last Prime/Emit, or
-// needKeyframe=true when diffing is impossible. This is the ONE canonical,
-// exhaustive list of keyframe triggers (other docs reference it rather than
-// restate it):
-//
-//  1. emitter unprimed or Invalidate()d (no valid base)
-//  2. grid resize (cols or rows changed)
-//  3. alt-screen flip (primary↔alt)
-//  4. scrollback shrink (sbLen < the primed length — an ED3-style clear)
-//  5. scroll-region (DECSTBM) or origin-mode (DECOM, mode 6) CHANGE vs the base
-//     — the diff's absolute CUPs are invalid under either
-//  6. rotation-anchor loss — the scrollback tail hashed at the last emit rotated
-//     out of the bounded scan window (scrollbackNewStart returned ok=false)
-//  7. committed scrollback lines WHILE a scroll region or origin mode is already
-//     active (set before the base was primed) — the client's park-at-CUP(rows,1)
-//     +LF scroll trick cannot deposit them into history under an active region
-//
-// On success the emitter re-bases itself.
+// Emit returns the ANSI since the last Prime/Emit and re-bases, or needKeyframe on: no base, resize,
+// alt-screen flip, scrollback shrink, DECSTBM/DECOM change, anchor loss, or lines committed under an
+// already-active region/origin mode (the client's CUP+LF trick fails there).
 //
 //nolint:gocyclo // Emit is a linear sequence of independent bail-to-keyframe guards (§ ordering); decomposing them would obscure the documented step order without lowering real complexity.
 func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
@@ -125,10 +91,8 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		sh.scrollTop != e.chrome.scrollTop ||
 		sh.scrollBottom != e.chrome.scrollBottom ||
 		sh.modes[6] != e.chrome.origin {
-		// The diff emitter's absolute CUPs assume no active scroll region and
-		// no origin mode; a change to either is only correct to reproduce via
-		// a full keyframe redraw (which handles both in its documented step
-		// order), never an incremental diff.
+		// The diff's absolute CUPs assume no scroll region and no origin mode; only a keyframe
+		// reproduces a change to either.
 		return nil, true
 	}
 
@@ -143,22 +107,16 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	newLines := sbLen - sbStart
 
 	if newLines > 0 && !e.alt {
-		// Finding B: an active scroll region or origin mode confines the
-		// client's park-at-cup(rows,1)+LF scroll trick — it does not scroll
-		// below the region bottom, so committed lines would never enter client
-		// history. A keyframe reset clears + re-asserts both, then re-primes.
-		// (A change to either is already caught by the guard above; this covers
-		// a region/origin set BEFORE Prime, which passes that change-guard.)
+		// An active region or origin mode set before Prime confines the client's CUP+LF scroll,
+		// so committed lines would never reach client history; a keyframe re-asserts both.
 		if sh.scrollRegionSet || sh.modes[6] {
 			return nil, true
 		}
 		// The client screen scrolls while absorbing the delta; every row's
 		// on-screen identity moves, so rebuild the whole viewport after.
 		for y := range e.lastGrid {
-			// Truncate instead of nilling: a zero-length row still fails
-			// rowEqualsGrid's len(row) != cols check, so the forced rewrite is
-			// unchanged, but the backing array survives for snapshotRowInto to
-			// refill. Nilling here re-allocated every row on every scroll.
+			// Truncate instead of nilling: the zero-length row still forces a rewrite, and the
+			// backing array survives for snapshotRowInto to refill.
 			e.lastGrid[y] = e.lastGrid[y][:0]
 		}
 	}
@@ -185,28 +143,9 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	return b.Bytes(), false
 }
 
-// scrollbackNewStart returns the index of the first scrollback line committed
-// since the last emit/prime, tolerating x/vt's ring rotation at cap. It anchors
-// on e.scrollbackTail (the hash of the previously-last scrollback line): it
-// scans BACKWARD from the current tail within rotationScanLimit lines and
-// returns the index just past the match. ok=false means the anchor rotated out
-// of the scan window — the caller must resync via keyframe. This single
-// mechanism covers both plain growth and growth-with-rotation-at-cap: whatever
-// lies after the anchor is new.
-//
-// The scan runs ONLY once the ring has saturated (sbLen >= vm.scrollbackLines).
-// Below saturation nothing has ever been evicted, so the previous scrollbackLen
-// is already the exact boundary by construction — scanning there would only
-// risk misanchoring on a newer line whose CONTENT duplicates the anchor (not
-// just a 2^-64 hash collision: repeated blank/prompt lines are common, and if
-// the batch just committed itself ends in one, its hash equals the old tail's
-// and the scan matches immediately at the new tail, silently discarding the
-// whole batch). See scrollbackLineHash for the saturated-path residual this
-// still leaves.
-//
-// Lazy: with no anchor yet (scrollbackLen==0) every current line is new; and
-// below saturation the anchor is always still the tail, so the per-emit hash
-// is skipped entirely (keeping the interactive echo path hash-free).
+// scrollbackNewStart returns the first scrollback index committed since the last emit, scanning
+// back for the anchor only once the ring saturated: below that the old length is exact, and
+// scanning would misanchor on duplicate lines. ok=false means the anchor rotated out: keyframe.
 func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok bool) {
 	if e.alt {
 		return sbLen, true // alt screen has no scrollback
@@ -215,12 +154,8 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 		return 0, true
 	}
 	if sbLen < vm.scrollbackLines {
-		// Ring never saturated → nothing has ever been evicted → the previous
-		// length IS the exact boundary; scanning could only misanchor on
-		// duplicate content (e.g. a freshly committed batch that itself ends
-		// in a blank line, hashing the same as the old tail). Scan solely at
-		// saturation (sbLen == cap), which covers both the grew-into-cap
-		// transition and the plateau.
+		// Never saturated means nothing was evicted, so the old length is the exact boundary;
+		// scanning could only misanchor on duplicate content.
 		return e.scrollbackLen, true
 	}
 	lo := sbLen - 1 - rotationScanLimit
@@ -235,15 +170,8 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 	return 0, false
 }
 
-// scrollbackLineHash returns an FNV-1a hash over scrollback line idx's encoded
-// content — the anchor scrollbackNewStart matches against. Two distinct
-// misplacement triggers exist, both scoped to the SATURATED ring (the only
-// regime scrollbackNewStart still scans in): a genuine 2^-64 FNV-1a collision,
-// and — far more likely in practice — a newer scrolled-off line whose CONTENT
-// legitimately duplicates the anchor (repeated blank or prompt lines).
-// Either misplaces the new-line boundary (duplicating or dropping a scrolled
-// line in client history) and self-heals on the next keyframe — an accepted
-// residual.
+// scrollbackLineHash is the FNV-1a anchor hash. In a saturated ring a collision or a duplicate
+// line can misplace the boundary; that self-heals on the next keyframe and is accepted.
 func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	line := vm.emu.ScrollbackLine(idx)
 	h := fnv.New64a()
@@ -251,14 +179,8 @@ func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	return h.Sum64()
 }
 
-// EmitterGridBytes returns a coarse resident-size estimate for the diff base a
-// DiffEmitter retains for a cols×rows grid (the lastGrid cell buffer), for the
-// session's memory accounting (spec §4). ~32B/cell covers each uv.Cell's
-// content string header, style and link. Computed from the MODEL's dimensions
-// rather than the emitter's primed state so the estimate is stable from spawn:
-// the allocation is inevitable for a live session, and lazy accounting would
-// otherwise make a session's reported size jump ~3× at its first output —
-// destabilizing the engine's memory-ceiling arithmetic between observations.
+// EmitterGridBytes estimates the emitter's retained diff base (~32B/cell) from the model's
+// dimensions, so the memory-ceiling arithmetic sees a stable size from spawn.
 func EmitterGridBytes(cols, rows int) int64 {
 	return int64(cols) * int64(rows) * 32
 }
@@ -416,11 +338,8 @@ func snapshotRow(emu emulator, cols, y int) []uv.Cell {
 	return snapshotRowInto(emu, nil, cols, y)
 }
 
-// snapshotRowInto fills dst with row y and returns it, reusing dst's backing
-// array when it is large enough. Every element in [0,cols) is overwritten, so a
-// reused array carries no stale cells. A nil dst (the scrollback-growth
-// invalidation marker set in Emit) allocates, which keeps that marker's
-// force-rewrite meaning intact.
+// snapshotRowInto fills dst with row y, reusing its array when large enough; a nil dst
+// (the invalidation marker set in Emit) allocates, keeping the force-rewrite meaning.
 func snapshotRowInto(emu emulator, dst []uv.Cell, cols, y int) []uv.Cell {
 	if cap(dst) < cols {
 		dst = make([]uv.Cell, cols)
@@ -437,10 +356,8 @@ func snapshotRowInto(emu emulator, dst []uv.Cell, cols, y int) []uv.Cell {
 	return dst
 }
 
-// rowEqualsGrid reports whether row y of emu matches lastRow without
-// allocating a fresh snapshot to compare against. A nil lastRow (the
-// scrollback-growth invalidation marker set in Emit) always reports NOT
-// equal, forcing the row to be rewritten and re-snapshotted.
+// rowEqualsGrid compares row y against lastRow without allocating; a nil lastRow (the
+// invalidation marker) is never equal, forcing a rewrite.
 func rowEqualsGrid(emu emulator, lastRow []uv.Cell, cols, y int) bool {
 	if lastRow == nil || len(lastRow) != cols {
 		return false

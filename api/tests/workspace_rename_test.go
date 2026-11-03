@@ -10,11 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 )
 
 // runGitOut is runGit's reading counterpart: it returns stdout so a test can
@@ -101,44 +98,6 @@ func TestRegression_RenameWorkspaceBranch_RefusesBranchAlreadyHeld(t *testing.T)
 	after := renamedWorkspace(t, h, imported, firstID)
 	assert.Equal(t, "testing", after.Branch, "a refused rename must change nothing")
 	assert.DirExists(t, after.LocalPath, "the workspace must stay where it was")
-}
-
-// dropWorkspacePathsTable removes the workspace_paths table from the daemon's
-// live view.db, so the next workspace-record write fails at its very first
-// statement.
-//
-// It is fault injection at the storage layer, and it is the only seam that makes
-// the record write fail DETERMINISTICALLY: the aggregate's own refusals (a
-// validation error, OCC retries exhausted, a full command queue) all need either
-// a concurrent writer or a wedged runtime to provoke, and reproducing them by
-// racing would make the test time-dependent. What matters for the contract under
-// test is only THAT the record write returns an error after git and the disk have
-// both moved — not which of those produced it.
-func dropWorkspacePathsTable(
-	t *testing.T,
-	h *harness,
-) {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(h.home, "state", "view.db")),
-		&gorm.Config{Logger: gormlogger.Default.LogMode(gormlogger.Silent)})
-	require.NoError(t, err, "open the daemon's view.db")
-	require.NoError(t, db.Exec("PRAGMA busy_timeout=5000").Error)
-	require.NoError(t, db.Exec("DROP TABLE workspace_paths").Error)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
-}
-
-// resolved returns p with every symlink resolved, so a path git reports (fully
-// resolved) compares equal to the same path as the record derived it.
-func resolved(
-	t *testing.T,
-	p string,
-) string {
-	t.Helper()
-	out, err := filepath.EvalSymlinks(p)
-	require.NoError(t, err, "resolve %s", p)
-	return out
 }
 
 // TestRegression_RenameWorkspaceBranch_RenamesGitAndRecordAndMovesNothing pins

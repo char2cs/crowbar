@@ -165,11 +165,8 @@ func (u *projectImport) protectedBranches(
 	return protected
 }
 
-// writeRepoIcon resolves the repo icon bytes (local repo icon first, then a
-// best-effort GitHub owner-avatar download) and writes them to the
-// entity-scoped icon path <home>/projects/<P>/<R>/icon. It returns true when an
-// icon was written. All failures degrade to false (generated avatar) and never
-// fail the import.
+// writeRepoIcon writes the repo icon (local icon first, then a best-effort owner-avatar download) to
+// <home>/projects/<P>/<R>/icon and reports whether it did. Failures fall back to a generated avatar.
 func (u *projectImport) writeRepoIcon(
 	ctx context.Context,
 	projectID string,
@@ -215,15 +212,9 @@ func (u *projectImport) resolveIconBytes(
 	return data
 }
 
-// adoptRepoHome adopts the repo's main worktree (repo.Path) as the special
-// default workspace, IN PLACE on whatever branch it currently sits on. Crowbar
-// never runs git on this directory — it is the user-facing "home" that carries
-// chats/threads — so it is created non-protected. The home is NO LONGER
-// force-detached off a protected branch: that branch is materialised as a
-// placeholder by provisionProtectedWorktrees (the single owner), whose
-// holder.Resolve returns held-by-home for it, and freed only later with user
-// consent via the Detach-holder op (spec §3.5). The home is the one essential
-// workspace; its failure rolls the repo back.
+// adoptRepoHome adopts repo.Path as the default workspace in place, on its current branch, never running
+// git there. A held protected branch becomes a placeholder (provisionProtectedWorktrees), freed only by a
+// consented Detach; the home is essential, so its failure rolls the repo back.
 func (u *projectImport) adoptRepoHome(
 	ctx context.Context,
 	repo domain.Repository,
@@ -249,17 +240,9 @@ func (u *projectImport) adoptRepoHome(
 	return nil
 }
 
-// CheckRepoImportable refuses repoPath when a DIFFERENT project has already
-// imported that folder (symlink-resolving path compare, so the same repo reached
-// through a symlinked root is still caught).
-//
-// Two projects cannot share a folder: git checks a branch out in one worktree at
-// a time, so the second project's import claims nothing — every protected branch
-// its sibling already holds lands as a placeholder, and the repository sits there
-// looking imported while being unable to manage a single branch. Refusing up
-// front is the honest answer, and it names the project that has the folder so the
-// user knows where it went. A failed read is the caller's error: guessing
-// "importable" would let two projects share the folder.
+// CheckRepoImportable refuses repoPath when a DIFFERENT project already imported it (symlink-resolved):
+// git checks a branch out once, so a second project could manage nothing. The error names the owning
+// project; a failed read is returned rather than guessed importable.
 func (u *projectImport) CheckRepoImportable(
 	ctx context.Context,
 	projectID string,

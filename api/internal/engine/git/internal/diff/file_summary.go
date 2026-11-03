@@ -10,10 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// pathspecChunkBytes bounds the argument bytes one dirty-count invocation may
-// spend on pathspecs, comfortably under the smallest total ARG_MAX this daemon
-// runs on (1 MiB on macOS, ~2 MiB on Linux). Reaching it takes several hundred
-// simultaneously dirty paths.
+// pathspecChunkBytes bounds one dirty-count invocation's pathspec bytes well under the
+// smallest ARG_MAX this daemon runs on (1 MiB on macOS).
 var pathspecChunkBytes = 96 * 1024
 
 // runGit is the seam the committed-count query reaches git through. Tests
@@ -25,21 +23,9 @@ var runGit = exec.Git
 // and two commit SHAs, so every caller on a clone can share it.
 var committedCounts = &summaryCache{}
 
-// FileSummaries returns the files-only diff of the working tree against ref —
-// committed changes since ref merged with uncommitted tracked modifications,
-// exactly the file set of AgainstRef — but WITHOUT any hunk content. It runs
-// `git diff --name-status -M -z <ref> --` for the per-file status
-// classification and joins the result by path with the +/- line counts
-// resolved by summaryCounts.
-//
-// dirty is the set of working-tree paths git status reports as differing from
-// HEAD, which the caller already has from the status it fetches for the
-// uncommitted/staged flags. A nil slice means the caller could not determine
-// it, and every count is recomputed against the working tree.
-//
-// Untracked files are not included (they have no diff against ref); the caller
-// folds them in from git status. Additions/Deletions are -1 for binary files
-// (numstat "-"). Renames carry the NEW path in Path and the source in OldPath.
+// FileSummaries returns AgainstRef's file set (no hunks) with status from `--name-status -M` and
+// counts from summaryCounts. dirty is git status's changed paths; nil recomputes every count.
+// Untracked files are the caller's; binary counts are -1; renames carry OldPath.
 func FileSummaries(
 	ctx context.Context,
 	repoPath string,
@@ -71,20 +57,8 @@ type numCount struct {
 	deletions int
 }
 
-// summaryCounts resolves the +/- counts for entries without paying a
-// whole-branch numstat on every tick.
-//
-// The obvious query — `git diff --numstat -M -z <ref> --` — is O(diff size) and
-// runs on a timer, so it is split in two. The ref->HEAD half is a diff of two
-// immutable trees and is cached on (repoPath, ref, headSHA); only a commit
-// moves that key, so working-tree churn hits the cache. The remainder is
-// re-diffed against the working tree for the stale entries alone, which is
-// O(dirty), and wins per path — a file that is both committed-changed and
-// dirty needs its true ref->worktree count, which is neither half nor the sum
-// of the two.
-//
-// dirty == nil means the caller could not say which entries the working tree
-// has moved, so nothing may be taken from the cache.
+// summaryCounts avoids an O(diff) numstat per tick: ref->HEAD is cached on (repo, ref, headSHA) and
+// only stale entries are re-diffed against the worktree, winning per path. dirty == nil disables the cache.
 func summaryCounts(
 	ctx context.Context,
 	repoPath string,
@@ -95,11 +69,8 @@ func summaryCounts(
 	if dirty == nil {
 		return worktreeCounts(ctx, repoPath, ref)
 	}
-	// A ref naming BOTH ends is a diff of two commits, so the working tree is not
-	// in it and there is nothing for the split to split. It also cannot survive
-	// the split mechanically: the committed half appends HEAD, and
-	// `git diff <a>..<b> <head> --` is three commits, which git refuses outright
-	// with exit 129 rather than an empty result.
+	// A range ref is a diff of two commits with no worktree half, and the split would hand git
+	// three commits, which it refuses with exit 129.
 	if isRangeRef(ref) {
 		return worktreeCounts(ctx, repoPath, ref)
 	}
@@ -130,10 +101,8 @@ func isRangeRef(
 	return strings.Contains(ref, "..")
 }
 
-// worktreeCounts is the unsplit query — correct for every entry and O(diff
-// size). It is the fallback whenever the split cannot be trusted, and the query
-// the tests' equivalence oracle reproduces. Given a range ref it is not a
-// working-tree query at all; it is simply the one correct invocation.
+// worktreeCounts is the unsplit, always-correct O(diff) query: the fallback when the split
+// cannot be trusted, and the tests' equivalence oracle.
 func worktreeCounts(
 	ctx context.Context,
 	repoPath string,
@@ -197,12 +166,8 @@ func staleEntries(
 	return append(candidates, plain...)
 }
 
-// isStale reports whether an entry must be re-diffed against the working tree
-// rather than read from the cached ref->HEAD counts. Three ways it can be:
-// git status names it dirty; ref->HEAD produced no count for it at all, which
-// happens when rename detection pairs a path differently against HEAD than
-// against the working tree; or its name cannot survive git status's field
-// splitting, so its absence from the dirty set proves nothing.
+// isStale: the entry is dirty, got no ref->HEAD count (renames pair differently), or has a
+// name git status mangles, so its absence from the dirty set proves nothing.
 func isStale(
 	e gitdomain.ReviewFileSummary,
 	dirty map[string]bool,
@@ -217,11 +182,8 @@ func isStale(
 	return !statusNamesPathExactly(e.Path)
 }
 
-// statusNamesPathExactly reports whether a path round-trips through
-// `git status --porcelain=v2`. git leaves spaces unescaped in that format and
-// C-quotes any path carrying a byte outside printable ASCII, so either kind of
-// name reaches the dirty set mangled — or not at all — and its absence there
-// cannot be read as "clean".
+// statusNamesPathExactly: porcelain v2 leaves spaces unescaped and C-quotes non-ASCII, so
+// such a name's absence from the dirty set cannot be read as clean.
 func statusNamesPathExactly(
 	path string,
 ) bool {
@@ -266,12 +228,8 @@ func pathspecCounts(
 	return out, nil
 }
 
-// chunkPathspecs splits the stale entries into invocation-sized pathspec lists
-// so a large dirty set cannot exceed ARG_MAX. A rename's source travels with
-// its destination, and staleEntries has already ordered every rename candidate
-// ahead of the inert modifications, so the only shape chunking could re-pair is
-// a candidate block that alone overflows a chunk — thousands of simultaneously
-// added and deleted dirty files.
+// chunkPathspecs keeps pathspecs under ARG_MAX; a rename's source travels with its destination
+// and candidates come first, so only a single over-sized candidate block can be re-paired.
 func chunkPathspecs(
 	stale []gitdomain.ReviewFileSummary,
 ) [][]string {

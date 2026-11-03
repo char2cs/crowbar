@@ -109,10 +109,8 @@ type RepositoryStore struct {
 	// FindByKeyErr, when set, fails FindByKey only — separate from FindErr so a
 	// test can fail the single-row lookup without also breaking FindAll/FindWhere.
 	FindByKeyErr error
-	// FindByKeyFn, when set, overrides the default lookup entirely — used when a
-	// test needs to distinguish repeat FindByKey calls for the SAME id (e.g. the
-	// load at the top of an update vs. the re-fetch after its Save) rather than
-	// failing every call alike.
+	// FindByKeyFn, when set, overrides the lookup so a test can tell repeat FindByKey
+	// calls for the same id apart.
 	FindByKeyFn func(id string) (*domain.Repository, error)
 	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
 	// row importOneRepo mints alongside it in production, so a seeded repo is
@@ -252,11 +250,8 @@ type NodePlacements struct {
 	ListErr   error
 	OrderErr  error
 	PlaceErr  error
-	// OrderErrForID and PlaceErrForID, when set for a given node id, fail only
-	// that id's SetOrder/SetPlacement call — separate from OrderErr/PlaceErr so
-	// a test can fail one sibling's renumber write (e.g. densifying the
-	// ORIGIN project after a cross-project repo move) while another row's
-	// write in the same operation still succeeds.
+	// OrderErrForID and PlaceErrForID fail only that id's SetOrder/SetPlacement, so one
+	// sibling's write can fail while another in the same operation succeeds.
 	OrderErrForID map[string]error
 	PlaceErrForID map[string]error
 	Placed        []NodePlacementWrite
@@ -349,12 +344,8 @@ func (s *NodePlacements) ListAll(
 	return append([]tree.Node(nil), s.Rows...), nil
 }
 
-// SetOrder writes the index and leaves the parent exactly as it stands, like
-// the command it stands in for. Refuses an id with no row, mirroring the real
-// command's Validate (asynxModels.ErrValidation on current == nil) — a fake
-// that silently no-ops here instead let a real, live-caught bug (a
-// pre-existing repo/chat/folder with no Node row failing every reorder with
-// "no node: validation failed") pass every test that used this fake.
+// SetOrder writes the index and leaves the parent as it stands. It refuses an id with no
+// row, as the real command's Validate does; a silently no-op fake once hid a real bug.
 func (s *NodePlacements) SetOrder(
 	ctx context.Context,
 	id string,
@@ -399,10 +390,8 @@ func (s *NodePlacements) SetPlacement(
 	return fmt.Errorf("node: set placement: no node: %w", asynxModels.ErrValidation)
 }
 
-// Forget purges the row for id from Rows, mirroring the real store's hard
-// delete, and records the call in Forgotten regardless of whether a matching
-// row existed (Forget is best-effort at the caller — see importOneRepo's
-// rollback — and the real store does not error on an unknown id either).
+// Forget purges id's row and records the call even when no row matched: the real store
+// does not error on an unknown id either.
 func (s *NodePlacements) Forget(
 	ctx context.Context,
 	id string,
@@ -472,15 +461,8 @@ func (s *FolderStore) Delete(
 	return nil
 }
 
-// FindByKey returns a pointer to a COPY, deliberately — never &s.Saved[i].
-// Delete's own in-place compaction below (kept := s.Saved[:0]) reuses
-// s.Saved's backing array, so a caller holding a pointer straight INTO that
-// array (as this used to hand back) could have it silently overwritten with
-// a DIFFERENT row's data the moment Delete ran, before the caller ever read
-// it again — caught live: tree.go's own Delete resolves f via FindByKey,
-// calls folders.Delete(ctx, f.ID), THEN reads f.ID again for nodes.Forget,
-// and with the old aliasing pointer that second read could name the WRONG
-// folder whenever the deleted row was not gorm.Saved's last element.
+// FindByKey returns a pointer to a COPY: Delete compacts s.Saved in place, which would
+// overwrite a pointer into the array with another row's data.
 func (s *FolderStore) FindByKey(
 	ctx context.Context,
 	id string,
@@ -737,11 +719,6 @@ func (g *GitEngine) WorktreeAdd(
 	return nil
 }
 
-// WorktreeAddAtRef records into the SAME WorktreeAdds log as WorktreeAdd and
-// honours the same per-branch error map: to a caller asserting "which branches
-// got a worktree, and where", the two are one outcome — only the start point
-// differs. Keeping them in one log is what lets the existing provisioning tests
-// stay agnostic about which of the two the production path chose.
 // SetUpstream records the branches linked back to origin/<branch>, so a test can
 // assert the tracking info `git worktree add -B` does not create itself was set.
 func (g *GitEngine) SetUpstream(
@@ -753,6 +730,7 @@ func (g *GitEngine) SetUpstream(
 	return g.SetUpstreamErr
 }
 
+// WorktreeAddAtRef shares WorktreeAdd's log and error map: to a caller the two are one outcome.
 func (g *GitEngine) WorktreeAddAtRef(
 	ctx context.Context,
 	repoPath string,
@@ -1355,26 +1333,13 @@ func (s *TerminalProfileStore) FindAll(
 	return s.Saved, nil
 }
 
-// AgentChatPlacements is a fake chat-tree Chats AND Agent:
-// it holds every row the sidebar forest carries — folders and conversations
-// alike, now the same aggregate — records the placement writes made against
-// them, mints and starts the ones a create asks for, erases the ones a
-// cascade purges or a folder delete forgets, and records the lineage notes a
-// move asks for.
-//
-// Purged is kept in call order, because the cascade's whole contract is that a
-// chat is erased only once every chat below it already has been.
-//
-// Noted is kept in call order too, and records the LINEAGE each note carried
-// rather than merely that one happened: a note naming the wrong ancestors is
-// worse than no note, since the record it writes into the chat's conversation is
-// permanent and is what a reader would believe afterwards.
+// AgentChatPlacements is a fake chat-tree Chats AND Agent over the sidebar forest's rows.
+// Purged and Noted keep call order: a cascade erases children first, and a note's lineage
+// is permanent in the chat's conversation, so the recorded ancestors are asserted.
 type AgentChatPlacements struct {
 	Rows []domain.Chat
-	// Nodes is an OPTIONAL cross-reference to the fake NodePlacements a test
-	// wires the SAME tree.Usecase over — see parentOf's own doc. Left nil, a
-	// call site that never seeds one behaves exactly as it always has (Chat
-	// rows only).
+	// Nodes optionally cross-references the NodePlacements fake wired over the same
+	// tree.Usecase; nil means Chat rows only.
 	Nodes     *NodePlacements
 	Purged    []string
 	Forgotten []string
@@ -1384,17 +1349,12 @@ type AgentChatPlacements struct {
 	// MintedSurfaces is the landing surface each MintChat call asked for, in
 	// the same order as Minted — "" for the provider's own default.
 	MintedSurfaces []string
-	// MintedProviders is the provider each MintChat call recorded on the new row,
-	// in the same order as Minted — "" for a placeholder row that will never carry
-	// a CLI. It is asserted on rather than merely recorded: a create that mints
-	// without a provider leaves a chat that cannot name its own vendor when it goes
-	// dormant, which is the whole reason the mint carries one.
+	// MintedProviders is the provider each MintChat recorded, in Minted order ("" for a
+	// placeholder): a chat minted without one cannot name its vendor when dormant.
 	MintedProviders []string
 	Started         []StartCall
-	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call, in the SAME
-	// StartCall shape Started uses (including ParentAtStart) — CreateChat's
-	// ownWorktree counterpart to Started above, and provable ordering for the
-	// identical reason: the placement must land before this call, not after.
+	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call as a StartCall, proving
+	// the placement landed before the spawn.
 	SpawnedOwnWorktree []StartCall
 	// OwnWorktreeBranches is the branch name each SpawnedOwnWorktree call asked
 	// for, in the same order — "" for the server-generated-name case, mirroring
@@ -1414,12 +1374,8 @@ type AgentChatPlacements struct {
 	SetErr             error
 	OrderErr           error
 	PurgeErr           error
-	// PurgeNotFoundID makes PurgeChat answer problem.ErrNotFound for this one
-	// id specifically (still recorded into Purged, same as a real not-found
-	// still marks the row as gone) — a chat that exists at the TREE level
-	// but never minted a conversation aggregate, the case purgeAll's own
-	// not-found tolerance exists for. Independent of PurgeErr, which fails
-	// every call unconditionally with whatever error it holds.
+	// PurgeNotFoundID makes PurgeChat answer problem.ErrNotFound for this id (still recorded),
+	// as for a tree chat with no conversation aggregate; PurgeErr fails every call instead.
 	PurgeNotFoundID string
 	ForgetErr       error
 	CreateErr       error
@@ -1456,30 +1412,19 @@ type AgentChatPlacements struct {
 	// an owning row the backfill minted apart from somebody's conversation.
 	Spoken   map[string]bool
 	TurnsErr error
-	// Stale is the PROJECTED placement of a chat — what ListByWorkspace, ListChats
-	// and Get answer while the read model is behind the log. A placement write
-	// returns as soon as the aggregate has it, so this is the daemon's ordinary
-	// state for the microseconds after every one, not an exotic interleaving.
+	// Stale is the PROJECTED placement answered while the read model lags the log: the
+	// ordinary state right after every placement write.
 	Stale map[string]domain.Chat
-	// OrderNotFoundIDs simulates a SetOrder call landing on a chat whose
-	// aggregate a CONCURRENT request has already purged — the densify read it as
-	// a sibling still needing an index, but by the time the write reaches it the
-	// row is gone. Real SetOrder reports this as problem.ErrNotFound.
+	// OrderNotFoundIDs makes SetOrder answer problem.ErrNotFound, as when a concurrent
+	// request purged the chat between the densify read and the write.
 	OrderNotFoundIDs map[string]bool
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
 	NextID string
 }
 
-// StartCall is one recorded call to StartRunner: the chat a CLI was started on,
-// the provider it was started for, and — read AT THE MOMENT OF THE CALL — where
-// that chat was sitting in the tree.
-//
-// ParentAtStart is the whole point of recording anything here. A create that
-// placed the chat AFTER starting its CLI produces exactly the same end state as
-// one that placed it before: same chat, same parent, same runner. The only thing
-// that tells them apart is where the row was when the CLI came up, because that is
-// what the spawn read to decide what the new chat inherits.
+// StartCall is one recorded StartRunner call. ParentAtStart, read at call time, is what
+// tells place-then-start from start-then-place: the spawn reads it to decide inheritance.
 type StartCall struct {
 	ChatID        string
 	ProviderID    string
@@ -1826,11 +1771,8 @@ func (s *AgentChatPlacements) StartRunner(
 	return "runner-" + chatID, nil
 }
 
-// SpawnChatWithOwnWorktree fakes agentusecase.Usecase.SpawnChatWithOwnWorktree:
-// it records the call and, on success, fills the row's WorkspaceID — as the
-// real one does via WorktreeCreator.CreateChildWorkspace + Chats.SetWorkspace —
-// so a test can assert the row actually ended up owning a workspace, not merely
-// that the call happened.
+// SpawnChatWithOwnWorktree records the call and, on success, fills the row's WorkspaceID
+// as the real one does, so a test can assert the row owns a workspace.
 func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
@@ -1854,11 +1796,8 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 	return "ws-child-" + chatID, "runner-" + chatID, nil
 }
 
-// SpawnChatWithImportedWorktree mirrors SpawnChatWithOwnWorktree for an
-// existing branch: it records the call and the branch, fills the row's
-// workspace slot, and hands back the workspace so the caller can decide what
-// kind of row the chat is. An empty providerID starts no runner, exactly as
-// production does.
+// SpawnChatWithImportedWorktree mirrors SpawnChatWithOwnWorktree for an existing branch;
+// an empty providerID starts no runner, as in production.
 func (s *AgentChatPlacements) SpawnChatWithImportedWorktree(
 	_ context.Context,
 	chatID string,
@@ -1932,10 +1871,8 @@ func (s *AgentChatPlacements) parentOf(
 	return ""
 }
 
-// AgentWorkspaceRoster fakes the chat tree usecase's WorkspaceRoster seam: the
-// daemon's whole workspace census, answered in the order it was seeded — which
-// is deliberately NOT sorted, since the backfill's own root-first ordering is
-// the thing under test.
+// AgentWorkspaceRoster fakes the WorkspaceRoster seam, answering in seeded order: unsorted
+// on purpose, since the backfill's root-first ordering is under test.
 type AgentWorkspaceRoster struct {
 	Rows []domain.Workspace
 	Err  error

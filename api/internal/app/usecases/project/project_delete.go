@@ -59,11 +59,8 @@ type DeleteWorkspaceRepo interface {
 	) error
 }
 
-// DeleteRepoWorkspaces retires every workspace of one repo through the SAME
-// cascade a repo delete takes (hierarchy.DeleteRepoWorkspaces): the git
-// teardown that never deletes a branch Crowbar did not create, never forces a
-// locked worktree and, without consent, never destroys work at risk; then the
-// tombstone the delete reactor purges. RepoWorkAtRisk is what it would refuse over.
+// DeleteRepoWorkspaces retires a repo's workspaces through the repo-delete cascade (git teardown
+// that spares foreign branches, locked worktrees and, without consent, work at risk; then tombstones).
 type DeleteRepoWorkspaces interface {
 	DeleteRepoWorkspaces(
 		ctx context.Context,
@@ -94,28 +91,12 @@ type DeleteDeps struct {
 	CrowbarHome    func() (string, error)
 }
 
-// DeleteUsecase removes a project and everything it owns — and nothing it
-// does not.
-//
-// A delete first records its intent on the row (Deleting), so a failure or a
-// crash anywhere after it is never silent: the row stays, the caller's
-// operation records why, and boot re-drives it (spec §7-D, invariant D5).
-//
-// Its workspaces are retired through the one lifecycle path every delete takes
-// (repo cascade → tombstone → delete reactor), so the git rules hold here too:
-// no branch Crowbar did not create is deleted, no locked worktree is forced,
-// and the user's real repository directories are never touched. Then its repo
-// rows and Node rows, the project row, and finally the project's directory —
-// minus anything that is not the project's to remove (see removeProjectDir).
-//
-// Without consent, a delete that would destroy work existing nowhere else is
-// refused by Begin* before any intent is recorded (domain.WorkAtRisked),
-// and the teardown enforces the same rule; a resumed delete never has consent.
+// DeleteUsecase removes a project and everything it owns, and nothing else. Intent is recorded first
+// (Deleting) so a failure is never silent and boot re-drives it; workspaces retire through the one
+// lifecycle path, so the git rules hold. Without consent, work at risk is refused before any intent.
 type DeleteUsecase interface {
-	// BeginDelete records a project's delete intent (Deleting) and returns the
-	// row as recorded. Delete begins with it too;
-	// a caller that answers before the teardown runs calls it first, so the
-	// intent is durable and announced before the answer.
+	// BeginDelete records the delete intent and returns the row; a caller answering before the
+	// teardown calls it first, so the intent is durable before the answer.
 	BeginDelete(
 		ctx context.Context,
 		id string,
@@ -132,11 +113,8 @@ type DeleteUsecase interface {
 		repo domain.Repository,
 		consent domain.DeleteConsent,
 	) (domain.Repository, error)
-	// DeleteRepo removes one repo and everything it owns, in the one order a
-	// crash cannot corrupt: its workspaces are retired (git teardown, then the
-	// tombstones the delete reactor purges) BEFORE its row goes, so no crash can
-	// leave workspaces whose repo no longer resolves; then its row, its Node
-	// row and its entity directory.
+	// DeleteRepo retires the repo's workspaces BEFORE its row goes, so no crash leaves workspaces
+	// whose repo no longer resolves; then its row, Node row and entity directory.
 	DeleteRepo(
 		ctx context.Context,
 		repo domain.Repository,

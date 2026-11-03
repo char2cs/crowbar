@@ -1,19 +1,6 @@
-// Package lsp is the public LSP host facade Crowbar's API layer consumes. It
-// proxies synchronous editor features (completion, hover, definition,
-// references, rename, code action, document symbol) to per-workspace language
-// servers, forwards frontend-driven document-sync notifications, and surfaces
-// the latest diagnostics snapshot per workspace.
-//
-// Task-1 decision (10 §1): Crowbar self-implements the minimal JSON-RPC + LSP
-// framing surface it needs (id-correlated request/response and
-// publishDiagnostics notifications) in internal/protocol, rather than vendoring
-// a heavy LSP/JSON-RPC dependency. The protocol surface is small and a third-
-// party dependency would be unjustified.
-//
-// Graceful absence (10 §5): when no language server is configured or installed
-// for a file's language, feature methods return an empty result and a nil
-// error — never a hard failure — and DiagnosticsSnapshot returns empty until
-// diagnostics arrive. This is the documented "LSP server not running" state.
+// Package lsp proxies editor features and document sync to per-workspace language servers over a
+// minimal self-implemented JSON-RPC (a heavy dependency is unjustified). With no server installed,
+// features return empty results and a nil error: the "not running" state, never a failure.
 package lsp
 
 import (
@@ -34,10 +21,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
-// Engine is the public LSP host surface. Feature methods are synchronous LSP
-// requests; the DidOpen/DidChange/DidClose notifications drive document sync;
-// diagnostics flow asynchronously through OnDiagnostics and the per-workspace
-// snapshot. All methods are safe for concurrent use.
+// Engine is the public LSP host surface: synchronous feature requests, DidOpen/Change/Close
+// sync, and asynchronous diagnostics. Safe for concurrent use.
 type Engine interface {
 	// Completion returns the raw textDocument/completion result. The frontend
 	// speaks LSP/Monaco, so the wire payload is passed through unchanged. An
@@ -82,10 +67,8 @@ type Engine interface {
 		pos domlsp.Position,
 		newName string,
 	) (domlsp.WorkspaceEdit, error)
-	// CodeAction returns the raw textDocument/codeAction result. diagnostics
-	// (a JSON array of LSP Diagnostics, or nil) is forwarded as the request
-	// context so servers can offer quick fixes for them. Every workspace edit
-	// in the result is rewritten to workspace-relative paths.
+	// CodeAction returns the raw codeAction result, forwarding diagnostics (JSON or nil) as
+	// context for quick fixes; workspace edits come back workspace-relative.
 	CodeAction(
 		ctx context.Context,
 		wsID string,
@@ -118,10 +101,8 @@ type Engine interface {
 		filePath string,
 		lens json.RawMessage,
 	) (json.RawMessage, error)
-	// SemanticTokens returns the file's semantic tokens in the canonical
-	// legend (semtok): a delta against previousResultID when it is set and the
-	// server supports deltas, else the full set. Nil when no server serves the
-	// file or it offers no full semantic tokens.
+	// SemanticTokens returns the file's tokens in the semtok legend, as a delta when supported
+	// and previousResultID is set; nil when no server offers full tokens.
 	SemanticTokens(
 		ctx context.Context,
 		wsID string,
@@ -163,10 +144,8 @@ type Engine interface {
 		wsID string,
 		filePath string,
 	) domlsp.ServerStatus
-	// Restart respawns the running server for filePath's language, repeating
-	// the handshake and reopening every open document with its latest text.
-	// A server that is not running is left alone (it starts on the next open);
-	// either way the resulting status is returned.
+	// Restart respawns filePath's running server and reopens its documents; a stopped one is
+	// left to start on the next open. The resulting status is returned.
 	Restart(
 		ctx context.Context,
 		wsID string,
@@ -233,11 +212,8 @@ type Engine interface {
 		wsID string,
 		filePath string,
 	)
-	// ReleaseWorkspace tears down every language server running for wsID
-	// regardless of its refcount. The stream's LSP resource calls it when the
-	// last client lets go of the owner's lsp: scope, so a force-quit/crash/drop
-	// with documents still open never leaks the workspace's server processes
-	// (the per-document DidClose decrement-to-zero path may never run).
+	// ReleaseWorkspace tears down every server for wsID regardless of refcount, so a crash or
+	// drop with documents open (DidClose never ran) never leaks server processes.
 	ReleaseWorkspace(
 		ctx context.Context,
 		wsID string,
@@ -553,12 +529,8 @@ func (e *engine) rawRequest(
 	return raw, nil
 }
 
-// request issues a synchronous feature request. ServerForFile acquires a ref
-// (spawning if needed) that keeps the server warm for the duration; the
-// deferred releaseFile drops it. The acquire/release pair is net-zero, so a
-// feature request never permanently inflates the refcount: with an open
-// document the matching didOpen ref keeps the server warm across requests; with
-// no open document the request spawns, serves, then tears the server down.
+// request acquires a server ref for its duration and releases it: net-zero, so an open
+// document keeps the server warm, and with none the request spawns, serves and tears down.
 func (e *engine) request(
 	ctx context.Context,
 	wsID string,
@@ -603,10 +575,8 @@ func (e *engine) serve(
 	return true, fn(reqCtx, srv)
 }
 
-// releaseFile drops one refcount for the file's language server, resolving the
-// languageID from the registry. It mirrors the public Release accounting and is
-// the release half of the net-zero acquire/release pairs in request, DidChange,
-// and DidClose.
+// releaseFile drops one refcount for the file's server: the release half of the net-zero
+// pairs in request, DidChange and DidClose.
 func (e *engine) releaseFile(
 	ctx context.Context,
 	wsID string,
@@ -632,10 +602,8 @@ func absFilePath(
 	return filepath.Join(worktreePath, filePath)
 }
 
-// relLocations rewrites every location's FilePath to its workspace-relative
-// form. It is the outbound half of the path contract absFilePath opens: the
-// frontend addresses files by workspace-relative path, so absolute paths from
-// the language server never reach it.
+// relLocations rewrites FilePaths to workspace-relative form: the frontend addresses files
+// that way, so the server's absolute paths never reach it.
 func relLocations(
 	worktreePath string,
 	locations []domlsp.Location,
@@ -688,11 +656,8 @@ func (e *engine) DidOpen(
 			"text":       text,
 		},
 	}
-	// ServerForFile acquires a ref that is HELD for the lifetime of the open
-	// document; it is released only in the matching DidClose. This is what keeps
-	// the server warm across the feature requests issued while the document is
-	// open. On the graceful-absence / spawn-error path notify acquires nothing,
-	// so there is no ref to release later.
+	// The acquired ref is HELD until the matching DidClose, keeping the server warm while the
+	// document is open; the absence/spawn-error path acquires nothing.
 	return e.notify(ctx, wsID, worktreePath, filePath, "textDocument/didOpen", params)
 }
 
@@ -728,13 +693,8 @@ func (e *engine) DidClose(
 		"textDocument": map[string]any{"uri": uri},
 	}
 	e.forgetVersion(docKey(wsID, uri))
-	// DidClose forwards on the ref the matching DidOpen already holds, then drops
-	// that ref. RunningServerForFile does NOT acquire, so the single releaseFile
-	// below returns the refcount to its pre-open baseline (open→…→close is
-	// net-zero). When this drops the last ref the server is torn down. A close
-	// with no live server (graceful absence, or close without a prior open) is a
-	// no-op: ErrNoServer yields a nil notify and releaseFile is a no-op on an
-	// absent entry.
+	// RunningServerForFile does not acquire, so the one releaseFile returns the refcount to its
+	// pre-open baseline (tearing down on the last ref); with no live server both are no-ops.
 	srv, err := e.mgr.RunningServerForFile(wsID, filePath)
 	if errors.Is(err, manager.ErrNoServer) {
 		return nil

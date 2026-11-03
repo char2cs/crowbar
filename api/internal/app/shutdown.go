@@ -14,35 +14,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 )
 
-// Shutdown gracefully quiesces the application layer's asynchronous machinery
-// within the ctx deadline, BEFORE the adapter closes the DBs (spec §3.8 steps
-// 2-3, decision 11). It runs ahead of Close in the ordered teardown, and its whole
-// job is to leave every WRITER quiesced before the things they write to go away —
-// in dependency order, outermost writer first:
-//
-//  1. quiesce the terminal engine: kill every live PTY and JOIN the exit callbacks
-//     those deaths fire, the only record of a CLI's death. A callback that loses
-//     the race to step 4 cannot close its turn, so it records no exit either: the
-//     ledger keeps the runner live, and the next boot closes both;
-//  2. close the shared reactor drain gate (Cancel) so no post-commit reactor
-//     wireCallbacks registered starts new work;
-//  3. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
-//     wedge shutdown past the deadline (quiver's drainWg.Wait() is unbounded; we
-//     bound it, decision 11);
-//  4. Shutdown each per-type asynx singleton, draining its command/projection
-//     pool (itself ctx-bounded) so no event is half-processed when the adapter
-//     WAL-checkpoints and closes the event/read/view DBs. Step 1's writes are
-//     folded into the read models here, which is the other half of why it must
-//     precede this: a turn closed AFTER an asynx Shutdown is rejected ("asynx:
-//     shutting down"), and the death is left to the next boot.
-//
-// Note what step 1 is NOT: it is not a second opinion about liveness. The PTY
-// remains the sole authority — we kill the process and let its death carry the
-// runner away, exactly as every other teardown path does. All we have changed is
-// that the daemon now WAITS to hear the news before it dismantles the ears.
-//
-// Stream resources (file watchers, LSP hosts) are released separately by Close.
-// Every wait honors ctx, so the whole drain is bounded by the caller's deadline.
+// Shutdown quiesces every writer within ctx before the adapter closes the DBs, outermost first: kill the
+// PTYs and join their exit callbacks, close the reactor drain gate, wait out in-flight reactors (bounded),
+// then Shutdown each asynx singleton. Exits must fold before asynx stops, or the next boot closes them.
 func (c *Container) Shutdown(
 	ctx context.Context,
 ) error {
@@ -62,13 +36,8 @@ func (c *Container) Shutdown(
 	drain := c.Repositories.Drain()
 	drain.Cancel() // close the gate: reactors observing drainCtx stop starting new work.
 
-	// Bounded by ctx: a stuck reactor delays shutdown by the deadline and no longer.
-	//
-	// The gate — not a bare WaitGroup — is what makes this safe. Step 1 above kills the
-	// PTYs, and those deaths COMMIT EVENTS, which wake reactors: the daemon is at its most
-	// eventful in the very instant it is trying to go quiet. A reactor Adding on asynx's
-	// bus goroutine while this line Waits is textbook WaitGroup misuse, and `-race` caught
-	// it. drain.Gate makes admitting work and beginning to drain one critical section.
+	// Bounded by ctx. The gate, not a bare WaitGroup: the PTY deaths above wake reactors while this waits,
+	// and drain.Gate makes admitting work and starting to drain one critical section.
 	drain.Gate.Wait(ctx)
 
 	return errors.Join(
@@ -80,22 +49,9 @@ func (c *Container) Shutdown(
 	)
 }
 
-// logAgentToolUsage emits the one and only read of the agent capability
-// surface's call counters, as a single line at shutdown:
-//
-//	agent tool usage this boot  tools="post_review_comment=7/1 set_chat_title=3/0"
-//
-// (tool=calls/failures, sorted, so consecutive boots diff cleanly.)
-//
-// The counters exist to settle whether agents actually USE these tools — the
-// shell command this surface replaces is known to be ignored by real models —
-// and a counter nothing reads settles nothing. Shutdown is the right and only
-// place: the numbers are cumulative over a daemon's lifetime, so this is the
-// moment they are complete. A boot that saw no tool call logs nothing rather
-// than an empty line.
-//
-// Deliberately not an HTTP route. This is a diagnostic about the daemon, not a
-// resource of the product, and nothing in the UI consumes it.
+// logAgentToolUsage logs the agent tool call counters once at shutdown (tool=calls/failures, sorted),
+// when they are complete; they exist to show whether agents use these tools. Logs nothing for a boot
+// with no calls; deliberately not an HTTP route.
 func (c *Container) logAgentToolUsage() {
 	if c.Usecases == nil {
 		return
@@ -116,11 +72,8 @@ func (c *Container) logAgentToolUsage() {
 	slog.Info("agent tool usage this boot (tool=calls/failures)", "tools", strings.Join(parts, " "))
 }
 
-// quiesceTerminal runs Shutdown's step 1 — kill the PTYs, join their exit callbacks
-// — BOUNDED by ctx, mirroring how the reactor drain below it is bounded (decision
-// 11): a reaper wedged on something we do not control must not hold the daemon past
-// its deadline. The quiesce is latched in the engine container, so the later
-// engines.Close() never re-enters (and so never re-wedges) whatever we abandon here.
+// quiesceTerminal runs Shutdown's step 1 bounded by ctx, so a wedged reaper cannot hold the daemon past
+// its deadline; the engine latches the quiesce, so engines.Close() never re-wedges on it.
 func (c *Container) quiesceTerminal(
 	ctx context.Context,
 ) {
@@ -138,37 +91,17 @@ func (c *Container) quiesceTerminal(
 	}
 }
 
-// Close tears down the application layer's live stream resources: it stops
-// every file watcher and LSP host a held scope still runs, and — on whichever
-// path reaches Close WITHOUT a preceding Shutdown (harness.crash's simulated
-// death; a production Serve failure that returns before Run's ctx.Done branch
-// ever runs) — stops the six per-type asynx singletons' own background worker
-// pools too, so neither path leaks them into whatever the process does next.
-// It is idempotent and runs on graceful shutdown so fsnotify file descriptors
-// and LSP subprocesses are released promptly.
+// Close stops every file watcher and LSP host a held scope runs and, on paths that skip Shutdown (a
+// crash, a failed Serve), the asynx worker pools too. Idempotent.
 func (c *Container) Close() {
 	shutdownAgentRunners(c.Usecases)
 	c.resources.Close()
 	c.stopBackgroundWorkers(context.Background())
 }
 
-// stopBackgroundWorkers stops each per-type asynx singleton's own worker/
-// dispatcher goroutines (8 shards x 8 workers plus dispatchers apiece, spun up
-// by asynx.Builder at construction — see newAsynx) WITHOUT running Shutdown's
-// write-path steps (terminal quiesce, reactor drain): those exist to let a
-// GRACEFUL stop record every in-flight death before the stores close, and
-// Close running them again here would be meaningless at best (nothing is
-// listening any more, the graceful path already ran them) and unsafe at worst
-// on the paths that reach Close first (a stray write racing an adapter that
-// may already be closed).
-//
-// A Shutdown that already ran for this Container makes every call here an
-// immediate, harmless no-op (asynx.ErrAlreadyShuttingDown, not logged) — each
-// per-type Shutdown latches via its own CompareAndSwap, so Close can call this
-// unconditionally instead of tracking whether Shutdown ran. On the path that
-// DIDN'T run one (a crash, a Serve failure), this is what stops the shard
-// pools rather than leaving them idling on an empty queue forever: they were
-// the one background resource Close used to leave for the caller to leak.
+// stopBackgroundWorkers stops each asynx singleton's worker pools without Shutdown's write-path steps,
+// which would be unsafe once the stores may be closed. After a Shutdown it is a harmless no-op
+// (ErrAlreadyShuttingDown), so Close calls it unconditionally.
 func (c *Container) stopBackgroundWorkers(
 	ctx context.Context,
 ) {
