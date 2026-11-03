@@ -330,3 +330,8 @@ func countKind(rows []ledger.Row, kind ledger.Kind) int {
 	}
 	return n
 }
+
+// noLedger takes every outcome the desk writes back and keeps none.
+type noLedger struct{}
+
+func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }

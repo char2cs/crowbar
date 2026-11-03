@@ -389,11 +389,6 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	}
 }
 
-// noLedger takes every outcome the desk writes back and keeps none.
-type noLedger struct{}
-
-func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }
-
 // closeLedger tells which resolution the desk closes each ask with.
 type closeLedger chan<- string
 

@@ -341,20 +341,9 @@ func newAgentWiring(
 	if err != nil {
 		return agentWiring{}, fmt.Errorf("usecases: new container: %w", err)
 	}
-	// The Chats-panel lineage read, built FIRST and from the chat repository
-	// directly — folder rows and conversation rows are one table now, so one
-	// store answers it. The spawn path needs it to tell a thread which chats it
-	// reads, and it is deliberately not taken off the tree usecase, which already
-	// holds the chat usecase for the delete cascade and would close a
-	// construction cycle if that usecase reached back into it. (The tool surface
-	// needs the same answer and gets it from the chat usecase, which re-exposes
-	// this as Ancestors.)
-	//
-	// Wrapped, not the raw repository: a chat's ParentID is frozen at creation
-	// now, and this lineage read (LoadChat/ListByWorkspace) decides what a freshly
-	// spawned CLI is told to read. Container.AgentChat is wrapped separately in
-	// New; this one is built here, independently. See
-	// agentusecase.NewHomeCorrectedTreeChats' own doc.
+	// The Chats-panel lineage read, built first from the chat repository: taking it off
+	// the tree usecase would close a construction cycle. Wrapped, since a chat's ParentID
+	// is frozen at creation and this read decides what a spawned CLI is told to read.
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
 		repos.AgentChat, repos.Placement, repos.Placement,
 	))

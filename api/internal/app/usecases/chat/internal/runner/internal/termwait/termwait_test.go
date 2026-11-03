@@ -599,9 +599,7 @@ func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
 	assert.Equal(t, termwait.DefaultInterval, 2*time.Second)
 }
 
-// §6a: an idle daemon does no periodic work. With no live runner the sweep
-// parks after one pass — no ticker, no read transaction every interval — and a
-// runner being recorded live wakes it.
+// §6a: with no live runner the sweep parks after one pass; a runner recorded live wakes it.
 func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r := newRigEvery(t, time.Millisecond)
@@ -609,16 +607,11 @@ func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
 		live := r.runners.live
 		r.runners.live = nil
 		r.runners.mu.Unlock()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 
-		r.detector.Run(ctx, nil)
-		synctest.Wait()
-		require.Equal(t, 1, r.runners.callCount(), "one pass, then the loop parks")
-		// Fifty intervals of the bubble's clock pass with the loop parked.
+		r.detector.Run(t.Context(), nil)
 		time.Sleep(50 * time.Millisecond)
 		synctest.Wait()
-		assert.Equal(t, 1, r.runners.callCount(), "nothing to sweep: the loop must park, not tick")
+		assert.Equal(t, 1, r.runners.callCount(), "one pass, then the loop parks rather than ticks")
 
 		r.runners.mu.Lock()
 		r.runners.live = live
