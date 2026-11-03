@@ -155,17 +155,32 @@ func (e *engine) execNet(
 	repoPath string,
 	args ...string,
 ) error {
+	r, err := e.runNet(ctx, op, timeout, repoPath, args...)
+	if err != nil {
+		return err
+	}
+	return classifyGitError(op, r)
+}
+
+// runNet is execNet before classification; its error is only the timeout.
+func (e *engine) runNet(
+	ctx context.Context,
+	op string,
+	timeout time.Duration,
+	repoPath string,
+	args ...string,
+) (gitexec.Result, error) {
 	nctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	r := e.exec(nctx, repoPath, args...)
 	if errors.Is(nctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-		return &gitexec.GitError{
+		return r, &gitexec.GitError{
 			Op:       op,
 			ExitCode: r.ExitCode,
 			Message:  fmt.Sprintf("network operation timed out after %s", timeout),
 		}
 	}
-	return classifyGitError(op, r)
+	return r, nil
 }
 
 // errorRule maps a git exit code + output substrings to a sentinel error.
@@ -471,18 +486,6 @@ func (e *engine) FastForwardBranch(
 	return e.execNet(ctx, "fast-forward branch", netTransferTimeout, repoPath, "fetch", "origin", branch+":"+branch)
 }
 
-func (e *engine) Pull(
-	ctx context.Context,
-	repoPath string,
-	mode string,
-) error {
-	defer e.lockRepo(ctx, repoPath)()
-	flag := "--no-rebase"
-	if mode == "rebase" {
-		flag = "--rebase"
-	}
-	return e.execNet(ctx, "pull", netTransferTimeout, repoPath, "pull", flag)
-}
 
 func (e *engine) CreateBranch(
 	ctx context.Context,
@@ -580,31 +583,7 @@ func (e *engine) Reset(
 	return classifyGitError("reset", r)
 }
 
-func (e *engine) Merge(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) error {
-	defer e.lockRepo(ctx, repoPath)()
-	// `--` end-of-options separator so a branch value can never be read as a git
-	// option (argument injection); the usecase boundary also rejects leading-dash
-	// operands as defense in depth.
-	r := e.exec(ctx, repoPath, "merge", "--", branch)
-	return classifyGitError("merge", r)
-}
 
-func (e *engine) Rebase(
-	ctx context.Context,
-	repoPath string,
-	onto string,
-) error {
-	defer e.lockRepo(ctx, repoPath)()
-	// `--` end-of-options separator so an onto value can never be read as a git
-	// option such as `--exec=<cmd>` (argument injection → arbitrary command
-	// execution); the usecase boundary also rejects leading-dash operands.
-	r := e.exec(ctx, repoPath, "rebase", "--", onto)
-	return classifyGitError("rebase", r)
-}
 
 func (e *engine) ConflictedFiles(
 	ctx context.Context,

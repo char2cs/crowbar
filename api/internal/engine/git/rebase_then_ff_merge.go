@@ -16,8 +16,9 @@ func (e *engine) RebaseThenFFMerge(
 	childBranch string,
 ) error {
 	defer e.lockRepo(ctx, childWorktree)()
+	before := detectInProgressOp(ctx, childWorktree)
 	rb := e.exec(ctx, childWorktree, "rebase", parentBranch)
-	if err := classifyGitError("rebase", rb); err != nil {
+	if err := e.settleStoppable(ctx, childWorktree, before, "rebase", rb); err != nil {
 		return err
 	}
 	mg := e.exec(ctx, parentWorktree, "merge", "--ff-only", "--", childBranch)

@@ -154,8 +154,9 @@ func (e *engine) RebaseOnto(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
+	before := detectInProgressOp(ctx, repoPath)
 	r := e.exec(ctx, repoPath, "rebase", "--onto", newTip, forkPoint, branch)
-	return classifyGitError("rebase --onto", r)
+	return e.settleStoppable(ctx, repoPath, before, "rebase --onto", r)
 }
 
 func (e *engine) MergeFFOnly(

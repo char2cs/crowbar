@@ -18,12 +18,13 @@ func (e *engine) MergeSquash(
 ) error {
 	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()
+	before := detectInProgressOp(ctx, repoPath)
 	sq := e.exec(ctx, repoPath, "merge", "--squash", "--", branch)
-	if err := classifyGitError("merge --squash", sq); err != nil {
+	if err := e.settleStoppable(ctx, repoPath, before, "merge --squash", sq); err != nil {
 		return err
 	}
 	c := e.exec(ctx, repoPath, "commit", "-m", subject)
-	err := classifyGitError("merge squash commit", c)
+	err := e.settleStoppable(ctx, repoPath, before, "merge squash commit", c)
 	if errors.Is(err, ErrNothingToCommit) {
 		return nil
 	}

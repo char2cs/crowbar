@@ -10,6 +10,7 @@ func (e *engine) MergeCommit(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
+	before := detectInProgressOp(ctx, repoPath)
 	r := e.exec(ctx, repoPath, "merge", "--no-ff", "--no-edit", "--", branch)
-	return classifyGitError("merge --no-ff", r)
+	return e.settleStoppable(ctx, repoPath, before, "merge --no-ff", r)
 }
