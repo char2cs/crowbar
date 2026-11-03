@@ -33,6 +33,13 @@ type Container struct {
 	// DaemonAddress is the address the daemon bound (unix:// or tcp://). Callbacks
 	// are handed it, never one derived from the home (see WithDaemonAddress).
 	DaemonAddress string
+	// CrowbarBin is the crowbar binary a spawned CLI runs; empty is the one
+	// installed under the home. A daemon run from a build that is not installed
+	// there sets it before the app layer is built.
+	CrowbarBin string
+	// NoAPITransport runs every provider over hooks alone: no spawn forks a
+	// provider's serve process.
+	NoAPITransport bool
 
 	// termDown latches the terminal engine's quiesce so it is entered exactly once.
 	// See QuiesceTerminal: a second entrant must never BLOCK, because the first one

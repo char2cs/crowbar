@@ -145,7 +145,7 @@ func TestAgent_SpawnPlanRendersAnExecutableLaunch(t *testing.T) {
 	a := get(t, "claude")
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", Provider: "claude",
-		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
+		ProjectID: "P", WorkspaceID: "W", CrowbarBin: "/bin/crowbar",
 	}
 
 	plan, err := a.SpawnPlan(ctx, os.Environ(), nil)
@@ -519,7 +519,7 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "TOK",
-		ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarHook: "/bin/crowbar", DaemonHost: "tcp://127.0.0.1:3737",
+		ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarBin: "/bin/crowbar", DaemonHost: "tcp://127.0.0.1:3737",
 	}
 
 	claude, err := get(t, "claude").SpawnPlan(ctx, nil, nil)
@@ -541,7 +541,7 @@ func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 func hookCtx(tmp, provider, repo string) agents.TemplateCtx {
 	return agents.TemplateCtx{
 		Tmp: tmp, Cwd: filepath.Join(tmp, "cwd"), Segid: "SEG", RunnerToken: "TOK", Provider: provider,
-		ProjectID: "P", RepoID: repo, WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
+		ProjectID: "P", RepoID: repo, WorkspaceID: "W", CrowbarBin: "/bin/crowbar",
 		HookBase: "http://127.0.0.1:4242",
 	}
 }
@@ -1018,7 +1018,7 @@ func TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport(t *test
 
 	base := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", Provider: "claude",
-		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
+		ProjectID: "P", WorkspaceID: "W", CrowbarBin: "/bin/crowbar",
 	}
 
 	without, err := a.SpawnPlan(base, nil, nil)
@@ -1140,7 +1140,7 @@ func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
 func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {
 	tmp := t.TempDir()
 	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
-		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
+		Tmp: tmp, Segid: "seg", CrowbarBin: "/bin/crowbar", Cwd: tmp,
 	}, nil, nil)
 	require.NoError(t, err)
 	if plan.Cleanup != nil {
@@ -1182,7 +1182,7 @@ func TestAgent_ClaudeNeverInheritsASessionIdentity(t *testing.T) {
 		"CLAUDE_CODE_SESSION_ATTENDED=1", "CLAUDE_SESSION_INGRESS_TOKEN_FILE=/f",
 	}
 	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
-		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
+		Tmp: tmp, Segid: "seg", CrowbarBin: "/bin/crowbar", Cwd: tmp,
 	}, inherited, nil)
 	require.NoError(t, err)
 	if plan.Cleanup != nil {
@@ -1467,7 +1467,7 @@ mcp_injection:
 	require.NoError(t, err)
 
 	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
-		Segid: "seg-1", CrowbarHook: "/bin/crowbar",
+		Segid: "seg-1", CrowbarBin: "/bin/crowbar",
 	})
 	require.True(t, ok)
 	assert.Equal(t, []string{
@@ -1479,7 +1479,7 @@ mcp_injection:
 
 func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
 	a := get(t, "codex")
-	ctx := agents.TemplateCtx{Cwd: `/work/tree "a"`, CrowbarHook: "/bin/crowbar", Tmp: t.TempDir()}
+	ctx := agents.TemplateCtx{Cwd: `/work/tree "a"`, CrowbarBin: "/bin/crowbar", Tmp: t.TempDir()}
 
 	serveArgv, ok := a.APIServeArgv(ctx)
 	require.True(t, ok)

@@ -180,7 +180,7 @@ func (rs *Runners) renderSpawnContext(
 	tctx := engineagents.TemplateCtx{
 		Tmp:         in.tmpDir,
 		Cwd:         canonicalDir(in.worktree),
-		CrowbarHook: rs.crowbarHookPath(in.crowbarHome),
+		CrowbarBin:  rs.crowbarBinPath(in.crowbarHome),
 		CrowbarHome: in.crowbarHome,
 		DaemonHost:  rs.daemonHost,
 		Segid:       in.runnerID,
@@ -247,4 +247,13 @@ func (rs *Runners) renderSpawnContext(
 	// registered on that spawn either way — only the directive is missing.
 	inject := in.conversation != "" || !in.resuming
 	return tctx, inject
+}
+
+// crowbarBinPath is the crowbar binary the descriptors run: the injected one,
+// else the one installed under home.
+func (rs *Runners) crowbarBinPath(home string) string {
+	if rs.crowbarBin != "" {
+		return rs.crowbarBin
+	}
+	return filepath.Join(home, "bin", "crowbar")
 }

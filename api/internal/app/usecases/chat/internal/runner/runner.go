@@ -46,6 +46,10 @@ type Runners struct {
 	// daemonHost is the address the daemon bound, rendered into every callback's
 	// --host so none derives one of its own.
 	daemonHost string
+	// crowbarBin is the crowbar binary the descriptors run (empty: the home's);
+	// noAPITransport keeps every provider on hooks alone.
+	crowbarBin     string
+	noAPITransport bool
 	// chatLock is the chat's lock a user-initiated path decides under; parks are
 	// the waits it sits in outside it, which a stop cancels.
 	chatLock ChatLock
@@ -109,6 +113,11 @@ type Deps struct {
 	Ledger      *ledgerstore.Store
 	// DaemonHost is the address the daemon bound, rendered into the callbacks.
 	DaemonHost string
+	// CrowbarBin is the crowbar binary the descriptors run; empty is the one
+	// installed under the home.
+	CrowbarBin string
+	// NoAPITransport runs every provider over hooks alone, its serve never forked.
+	NoAPITransport bool
 
 	// ChatLock is the lock the hook ingress records each chat's hooks under.
 	ChatLock ChatLock
@@ -125,16 +134,18 @@ type Deps struct {
 // SetTurns, because the two call each other.
 func New(d Deps) *Runners {
 	return &Runners{
-		chats:       d.Chats,
-		choices:     d.Choices,
-		agents:      d.Agents,
-		term:        d.Terminal,
-		ws:          d.Workspace,
-		ancestorCwd: d.AncestorCwd,
-		ledger:      d.Ledger,
-		daemonHost:  d.DaemonHost,
-		chatLock:    d.ChatLock,
-		parks:       newParks(),
+		chats:          d.Chats,
+		choices:        d.Choices,
+		agents:         d.Agents,
+		term:           d.Terminal,
+		ws:             d.Workspace,
+		ancestorCwd:    d.AncestorCwd,
+		ledger:         d.Ledger,
+		daemonHost:     d.DaemonHost,
+		crowbarBin:     d.CrowbarBin,
+		noAPITransport: d.NoAPITransport,
+		chatLock:       d.ChatLock,
+		parks:          newParks(),
 		// Owned outright, so built here rather than handed in: the probe limiter is
 		// named by nothing outside this package.
 		catalogs:   catalog.New(),

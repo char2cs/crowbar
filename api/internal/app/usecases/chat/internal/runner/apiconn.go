@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 
@@ -162,13 +161,7 @@ func (rs *Runners) startAPIConn(
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
 ) (*apiconn, bool) {
-	// Test-only escape hatch, mirroring crowbarHookPath's CROWBAR_HOOK_BIN
-	// override below: a unit test may spawn a SHIPPED descriptor, and a machine
-	// with that provider's CLI installed would otherwise fork its real serve as
-	// a side effect — slow, leaks processes, and makes test behavior depend on
-	// what happens to be on the local PATH. CI (no CLI installed) already
-	// degrades this way for free; this makes every environment agree.
-	if os.Getenv("CROWBAR_DISABLE_API_TRANSPORT") != "" {
+	if rs.noAPITransport {
 		return nil, false
 	}
 	serveArgv, ok := agent.APIServeArgv(tctx)

@@ -75,11 +75,15 @@ func TestMain(m *testing.M) {
 	if out, err := build.CombinedOutput(); err != nil {
 		panic(fmt.Sprintf("build crowbar: %v\n%s", err, out))
 	}
-	_ = os.Setenv("CROWBAR_HOOK_BIN", bin)
+	crowbarBin = bin
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
+
+// crowbarBin is the crowbar binary TestMain built, which every daemon here
+// hands its CLIs.
+var crowbarBin string
 
 func apiRoot() string {
 	_, file, _, _ := runtime.Caller(0)
@@ -138,6 +142,7 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	require.NoError(t, err)
 	eng, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	eng.CrowbarBin = crowbarBin
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	container, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity, v0.NewSidebar)

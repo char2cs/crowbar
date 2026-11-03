@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/google/uuid"
 
@@ -420,11 +419,4 @@ func (rs *Runners) teardownForked(
 	// fall with the one just terminated, so it leaks unless dropped here too.
 	rs.apiConns.drop(runnerID)
 	return cause
-}
-
-func (rs *Runners) crowbarHookPath(home string) string {
-	if v := os.Getenv("CROWBAR_HOOK_BIN"); v != "" {
-		return v
-	}
-	return filepath.Join(home, "bin", "crowbar")
 }

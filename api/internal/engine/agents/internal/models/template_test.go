@@ -61,14 +61,14 @@ func TestReplacer_ExpandsCrowbarHome(t *testing.T) {
 func TestHookCommandValues_SurviveAShell(t *testing.T) {
 	c := TemplateCtx{
 		ProjectID: "p1", WorkspaceID: "w1",
-		CrowbarHome: "/Users/Jo Smith/.crowbar", CrowbarHook: "/Users/Jo Smith/.crowbar/bin/crowbar",
+		CrowbarHome: "/Users/Jo Smith/.crowbar", CrowbarBin: "/Users/Jo Smith/.crowbar/bin/crowbar",
 	}
 	got := c.Replacer().Replace("{scope_flags}")
 	want := "--project=p1 --workspace=w1 --home='/Users/Jo Smith/.crowbar'"
 	if got != want {
 		t.Fatalf("scope flags = %q, want %q", got, want)
 	}
-	if raw := c.Replacer().Replace("{crowbar}"); raw != c.CrowbarHook {
+	if raw := c.Replacer().Replace("{crowbar}"); raw != c.CrowbarBin {
 		t.Fatalf("{crowbar} is an argv/config value, not shell: got %q", raw)
 	}
 }

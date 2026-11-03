@@ -73,6 +73,11 @@ type Deps struct {
 	// DaemonAddress is the address the daemon bound, handed to every callback a
 	// spawned CLI runs.
 	DaemonAddress string
+	// CrowbarBin is the crowbar binary a spawned CLI runs for its tool bridge;
+	// empty is the one installed under the home.
+	CrowbarBin string
+	// NoAPITransport runs every provider over hooks alone.
+	NoAPITransport bool
 	// Installed is the install probe. Nil defaults to Agent.Installed, the real
 	// one; only a test injects a stub, to isolate from the host PATH.
 	Installed func(a engineagents.Agent) bool
@@ -228,20 +233,22 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Frames: hubFrames{feed: &u.feed, feeds: u.feeds},
 	})
 	u.runners = runner.New(runner.Deps{
-		Chats:         d.Chats,
-		Choices:       openAsks{ledger: d.Ledger},
-		Agents:        d.Agents,
-		Terminal:      d.Terminal,
-		Workspace:     d.Workspace,
-		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
-		Ledger:        d.Ledger,
-		DaemonHost:    d.DaemonAddress,
-		ChatLock:      sh.locks,
-		Minter:        d.Minter,
-		Answers:       sh.answers,
-		Conversations: u.conversations,
-		Providers:     u.providers,
-		Snapshots:     u.snapshots,
+		Chats:          d.Chats,
+		Choices:        openAsks{ledger: d.Ledger},
+		Agents:         d.Agents,
+		Terminal:       d.Terminal,
+		Workspace:      d.Workspace,
+		AncestorCwd:    cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
+		Ledger:         d.Ledger,
+		DaemonHost:     d.DaemonAddress,
+		CrowbarBin:     d.CrowbarBin,
+		NoAPITransport: d.NoAPITransport,
+		ChatLock:       sh.locks,
+		Minter:         d.Minter,
+		Answers:        sh.answers,
+		Conversations:  u.conversations,
+		Providers:      u.providers,
+		Snapshots:      u.snapshots,
 	})
 	u.ingress = ingress.New(ingress.Deps{
 		Runners: u.runners, Descriptors: u.recorder, Turns: u.recorder, Ledger: d.Ledger, Locks: sh.locks,

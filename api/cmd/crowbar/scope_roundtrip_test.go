@@ -104,7 +104,7 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 // parse as repo="--segment" with SEG left as a stray positional.
 func TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagents.TemplateCtx{
-		CrowbarHook: argvDumper(t),
+		CrowbarBin:  argvDumper(t),
 		Segid:       "SEG-1",
 		ProjectID:   "PROJ",
 		RepoID:      "", // ← project-home: WorktreeDir resolves no repo
@@ -129,7 +129,7 @@ func TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 // token baked in at spawn — so it is written directly into the command line.
 func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagents.TemplateCtx{
-		CrowbarHook: argvDumper(t),
+		CrowbarBin:  argvDumper(t),
 		ProjectID:   "PROJ",
 		RepoID:      "",
 		WorkspaceID: "WS",
@@ -167,7 +167,7 @@ func TestHandoffDumpRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *t
 	h, err := home.Resolve()
 	require.NoError(t, err)
 	ctx := engineagents.TemplateCtx{
-		CrowbarHook: argvDumper(t), ProjectID: "PROJ", RepoID: "REPO", WorkspaceID: "WS",
+		CrowbarBin: argvDumper(t), ProjectID: "PROJ", RepoID: "REPO", WorkspaceID: "WS",
 		CrowbarHome: h.Root(), DaemonHost: "unix://" + ln.Addr().String(),
 	}
 	command := engineagents.Expand("{crowbar} handoff dump {scope_flags} chat-1", ctx)

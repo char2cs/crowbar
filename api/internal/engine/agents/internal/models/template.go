@@ -23,9 +23,9 @@ type TemplateCtx struct {
 	Model  string
 	Effort string
 
-	Cwd         string
-	CrowbarHook string
-	Segid       string
+	Cwd        string
+	CrowbarBin string
+	Segid      string
 
 	RunnerToken string
 
@@ -155,7 +155,7 @@ func (c TemplateCtx) pairs() []string {
 		"{hook_url}", c.HookURL(),
 		"{hook_curl}", c.HookCurl(),
 
-		"{crowbar}", c.CrowbarHook,
+		"{crowbar}", c.CrowbarBin,
 		"{segid}", c.Segid,
 		"{runner_token}", c.RunnerToken,
 		"{provider}", c.Provider,

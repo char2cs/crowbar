@@ -959,7 +959,7 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	// Leave codex and come back: it resumes its own conversation, and Crowbar had no
 	// session store to lose in between. This fixture has no api connection
-	// (CROWBAR_DISABLE_API_TRANSPORT), so the PTY is the only codex there is and
+	// (NoAPITransport), so the PTY is the only codex there is and
 	// carries the resume itself — see apiResumes (resume_injection.go). Either
 	// way it is codex's OWN session id, not one this test could have papered over
 	// by owning CODEX_HOME.
@@ -2596,9 +2596,6 @@ func TestSpawnChat_ResolvesArgv0ToAbsolutePath(t *testing.T) {
 
 func TestSpawnRunner_CrowbarBinaryPathFallsBackToHomeBinCrowbar(t *testing.T) {
 	f := newFixture(t)
-	// Override the fixture's default CROWBAR_HOOK_BIN so the path falls back to
-	// <home>/bin/crowbar.
-	t.Setenv("CROWBAR_HOOK_BIN", "")
 	home := f.ws.home
 
 	f.spawn(t, "claude")

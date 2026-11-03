@@ -10,7 +10,7 @@
 // subprocess can never reach. So this package builds its own from-scratch
 // daemon (engine -> adapter -> app -> v0 router) and serves it on the real
 // unix socket, wires a real built `crowbar` binary as the hook seam
-// (CROWBAR_HOOK_BIN), and drives the agent usecase directly (SpawnChat /
+// (engine.Container.CrowbarBin), and drives the agent usecase directly (SpawnChat /
 // SwitchProvider) rather than through HTTP — the point of the test is proving
 // the hook comes BACK over the socket, not re-testing the REST surface.
 package agent_test
@@ -68,8 +68,8 @@ type harness struct {
 	trusted map[string]bool
 }
 
-// newHarness builds a real crowbar binary, points CROWBAR_HOME + the
-// CROWBAR_HOOK_BIN test seam at a fresh temp home, and serves the real v0
+// newHarness builds a real crowbar binary, hands it to the engine over a fresh
+// temp CROWBAR_HOME, and serves the real v0
 // router on the same unix socket a spawned claude/codex's `crowbar hook`
 // subprocess will dial (it inherits CROWBAR_HOME via os.Environ()).
 func newHarness(t *testing.T) *harness {
@@ -79,7 +79,7 @@ func newHarness(t *testing.T) *harness {
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
 
-	// PIN THIS SUITE TO THE HOOKS TRANSPORT. Every test here drives a vendor CLI by
+	// PIN THIS SUITE TO THE HOOKS TRANSPORT (engine.Container.NoAPITransport). Every test here drives a vendor CLI by
 	// TYPING INTO ITS PTY and asserts on what that CLI's own `crowbar hook` POSTs put
 	// in the ledger — the hook round trip over the unix socket is the entire reason
 	// this package exists (see the package doc).
@@ -98,8 +98,7 @@ func newHarness(t *testing.T) *harness {
 	// transport is unavailable to run — over hooks alone — the PTY is the ONLY codex
 	// and therefore the conversation, and the assertions mean what they say again.
 	// This is the same pin internal/app/usecases/chat/harness_test.go applies, for
-	// an adjacent reason (see apiconn.go's own comment on the variable).
-	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
+	// an adjacent reason.
 
 	// Before anything can spawn a CLI: point codex's and claude's OWN homes at
 	// throwaway directories, so the trust each one records for this test's temp repo
@@ -108,7 +107,6 @@ func newHarness(t *testing.T) *harness {
 	kit.IsolateProviderHomes(t)
 
 	bin := buildCrowbarBinary(t)
-	t.Setenv("CROWBAR_HOOK_BIN", bin)
 
 	// Released after the adapter's cleanup below (LIFO): the home is held until
 	// its stores are closed.
@@ -118,6 +116,7 @@ func newHarness(t *testing.T) *harness {
 
 	eng, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	eng.CrowbarBin, eng.NoAPITransport = bin, true
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)

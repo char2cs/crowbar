@@ -76,3 +76,17 @@ func TestRenderSpawnContext_NoPublishedHookServerLeavesHooksUnpointed(t *testing
 		t.Fatalf("HookBase = %q, HookURL = %q, want both empty", tctx.HookBase, tctx.HookURL())
 	}
 }
+
+// The binary the descriptors run for the MCP bridge is the one the daemon was
+// built with, and else the one installed under the home.
+func TestRenderSpawnContext_RunsTheInjectedCrowbarBinElseTheHomes(t *testing.T) {
+	injected, _ := (&Runners{crowbarBin: "/opt/crowbar"}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
+	installed, _ := (&Runners{}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
+
+	if injected.CrowbarBin != "/opt/crowbar" {
+		t.Fatalf("TemplateCtx.CrowbarBin = %q, want the injected binary", injected.CrowbarBin)
+	}
+	if want := filepath.Join("/tmp/h", "bin", "crowbar"); installed.CrowbarBin != want {
+		t.Fatalf("TemplateCtx.CrowbarBin = %q, want %q", installed.CrowbarBin, want)
+	}
+}

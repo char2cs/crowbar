@@ -95,8 +95,6 @@ type spawnHarness struct {
 
 func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 	t.Helper()
-	// No vendor serve forks: a test that wants a connection seeds one.
-	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
 	home := t.TempDir()
 	term := &fakeTermForAttach{}
 	lifecycle, l := newSpyLifecycle(t)
@@ -118,6 +116,8 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			answers: answerdesk.New(answerdesk.DefaultRetention, nil),
 			turns:   noopTurns{},
 			ledger:  l,
+			// No vendor serve forks: a test that wants a connection seeds one.
+			noAPITransport: true,
 		},
 		term: term, lifecycle: lifecycle, home: home, chatID: "chat-1",
 	}

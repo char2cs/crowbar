@@ -281,7 +281,7 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarBin: "/bin/crowbar"},
 	})
 
 	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -329,7 +329,7 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
 		// tctx.Session deliberately differs from the bound session.
-		tctx: engineagents.TemplateCtx{Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarBin: "/bin/crowbar"},
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")

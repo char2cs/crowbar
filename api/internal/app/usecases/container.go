@@ -377,6 +377,8 @@ func newAgentWiring(
 		ChatTelemetry:           gormStores.AgentChatTelemetry,
 		Home:                    crowbarHome,
 		DaemonAddress:           engines.DaemonAddress,
+		CrowbarBin:              engines.CrowbarBin,
+		NoAPITransport:          engines.NoAPITransport,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		Minter:    minter,

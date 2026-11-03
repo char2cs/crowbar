@@ -13,7 +13,7 @@ import (
 func TestExpand_ReplacesEveryDeclaredPlaceholder(t *testing.T) {
 	ctx := models.TemplateCtx{
 		Tmp: "/tmp/seg", ID: "sess-1", Message: "hi", Context: "doc",
-		ContextPointer: "see file", Cwd: "/work", CrowbarHook: "/bin/crowbar",
+		ContextPointer: "see file", Cwd: "/work", CrowbarBin: "/bin/crowbar",
 		Segid: "seg-1", RunnerToken: "tok", Provider: "claude",
 		ProjectID: "p", RepoID: "r", WorkspaceID: "w",
 	}

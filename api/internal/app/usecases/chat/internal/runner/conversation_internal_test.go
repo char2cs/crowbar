@@ -354,7 +354,7 @@ const helperServeMode = "CROWBAR_TEST_SERVE"
 func helperServeSpawn(t *testing.T, mode string, attach bool) *spawnHarness {
 	t.Helper()
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "")
+	h.rs.noAPITransport = false
 	t.Setenv(helperServeMode, mode)
 	doc := fmt.Sprintf(helperServeDescriptor, os.Args[0])
 	if attach {
