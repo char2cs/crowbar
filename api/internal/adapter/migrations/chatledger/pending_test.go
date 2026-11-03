@@ -266,7 +266,9 @@ func TestBoot_AChatWhoseImportKeepsFailingIsGivenUp(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
 	refuse(t, h, "chat-b")
-	log, tried := capture(func(r slog.Record) bool { return strings.HasPrefix(r.Message, "chatledger: skipped a chat whose import failed") })
+	log, tried := capture(func(r slog.Record) bool {
+		return strings.HasPrefix(r.Message, "chatledger: skipped a chat whose import failed")
+	})
 
 	for range importAttempts + 2 {
 		require.NoError(t, bootLogging(t, h, log))
