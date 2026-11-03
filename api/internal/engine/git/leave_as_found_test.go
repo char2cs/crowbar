@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/git"
+	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
 // stackedWorktree builds main -> p1 -> child plus a sibling p2, with child
@@ -256,4 +257,42 @@ func TestPull_RefusedOverTheUsersChangesKeepsThem(t *testing.T) {
 			requireUsersChangesKept(t, clone)
 		})
 	}
+}
+
+func TestMerge_NeverAbortsAMergeTheUserIsResolving(t *testing.T) {
+	ctx := context.Background()
+	_, wt := conflictingWorktree(t)
+	e := git.New()
+	require.ErrorIs(t, e.Merge(ctx, wt, "other"), git.ErrConflict)
+	require.NoError(t, os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved\n"), 0o600))
+	gitRun(t, wt, "add", "f.txt")
+
+	require.Error(t, e.Merge(ctx, wt, "other"))
+
+	op, err := e.OperationInProgress(ctx, wt)
+	require.NoError(t, err)
+	assert.Equal(t, "merge", op, "the user's resolved merge is theirs to conclude")
+	assert.Equal(t, "resolved", gitOutput(t, wt, "show", ":f.txt"))
+}
+
+// The request ends while git is stopped mid-rebase; the abort still runs.
+func TestRebaseOnto_ARequestCancelledMidRebaseStillLeavesTheWorktreeAsFound(t *testing.T) {
+	repo, wt := stackedWorktree(t)
+	before := headSHA(t, wt)
+	tip := gitOutput(t, repo, "rev-parse", "p2")
+	base := gitOutput(t, repo, "merge-base", "p1", "child")
+	withoutIdentity(t, repo)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e := git.NewWithExec(func(c context.Context, dir string, args ...string) gitexec.Result {
+		r := gitexec.Git(c, dir, args...)
+		if args[0] == "rebase" {
+			cancel()
+		}
+		return r
+	})
+
+	require.Error(t, e.RebaseOnto(ctx, wt, tip, base, "child"))
+
+	requireAtRest(t, git.New(), wt, before)
 }

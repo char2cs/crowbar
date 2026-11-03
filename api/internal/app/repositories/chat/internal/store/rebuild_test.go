@@ -262,3 +262,19 @@ func TestStore_AnEmptyModelThatRebuildLeavesEmptyIsNotRebuiltOnEveryRead(t *test
 
 	assert.Equal(t, 1, es.enumerations)
 }
+
+// A rebuild that healed rows does not stop a later lost model from healing.
+func TestStore_AModelLostAfterAHealIsRebuiltAgain(t *testing.T) {
+	ctx, st, ax, db, es := newCountedStore(t)
+	openChat(t, ctx, ax, "c1")
+	require.NoError(t, db.WithContext(ctx).Exec("UPDATE agent_chats_read SET data = ?", []byte("{not json")).Error)
+	_, err := st.ListChats(ctx)
+	require.NoError(t, err)
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
+
+	rows, err := st.ListChats(ctx)
+
+	require.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.Equal(t, 2, es.enumerations)
+}
