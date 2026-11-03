@@ -72,13 +72,14 @@ func (c *conversion) choices(choices []LegacyChoice) {
 		c.emit(ruleAsk, at, ch.Seq, ledger.KindAsk, turnID, "", ledger.Ask{
 			AskID: ch.ID, Event: event, Kind: ch.Kind, PromptID: ch.PromptID, ToolID: ch.ToolID, ToolName: ch.ToolName,
 			Title: ch.Title, Question: ch.Question, Mode: ch.Mode, Multi: ch.Multi,
-			Options: rawJSON(ch.Options), Questions: rawJSON(ch.Questions), Schema: rawJSON(ch.Schema),
+			Options: c.rawJSON(ch.ID, "options", ch.Options), Questions: c.rawJSON(ch.ID, "questions", ch.Questions),
+			Schema: c.rawJSON(ch.ID, "schema", ch.Schema),
 		})
 		resolved := ledger.AskResolved{AskID: ch.ID, Resolution: resolution(ch)}
 		if ch.ResolvedAt != nil {
 			end = *ch.ResolvedAt
 			if err := json.Unmarshal([]byte(ch.AnsweredOptionIDs), &resolved.OptionIDs); ch.AnsweredOptionIDs != "" && err != nil {
-				c.skipf("choice %s: answered options unreadable: %v", ch.ID, err)
+				c.unreadablef("choice %s: answered options unreadable: %v", ch.ID, err)
 			}
 		}
 		c.emit(ruleAsk, latest(end, at), ch.Seq, ledger.KindAskResolved, turnID, "", resolved)
@@ -93,8 +94,14 @@ func resolution(ch LegacyChoice) string {
 	return ch.Resolution
 }
 
-func rawJSON(s string) json.RawMessage {
-	if s == "" || s == "null" || !json.Valid([]byte(s)) {
+// rawJSON is a choice's JSON column as it is; one that is not JSON is left out
+// and counted.
+func (c *conversion) rawJSON(choiceID, column, s string) json.RawMessage {
+	if s == "" || s == "null" {
+		return nil
+	}
+	if !json.Valid([]byte(s)) {
+		c.unreadablef("choice %s: %s unreadable", choiceID, column)
 		return nil
 	}
 	return json.RawMessage(s)

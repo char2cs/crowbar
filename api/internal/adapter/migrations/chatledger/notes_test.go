@@ -128,6 +128,25 @@ func TestConvertChat_UnreadableColumnsAndUnknownKindsAreNamed(t *testing.T) {
 	assert.Len(t, rowsOf(res, ledger.KindToolCall), 4, "the calls are still restated")
 }
 
+// Each record the reader could not read, and each part of one the converter
+// had to drop, is counted in one marker the chat shows after its history.
+func TestConvertChat_WhatCouldNotBeReadIsCountedInOneMarker(t *testing.T) {
+	in := chatA()
+	in.Unreadable = []string{"agent_turns u-9: seq \"x\": invalid syntax"}
+	in.Choices[0].Options = "{broken"
+	in.Choices[0].Schema = "[1,"
+
+	res := convert(t, in, nobody)
+
+	markers := bodies[ledger.Marker](t, res, ledger.KindMarker)
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "3 legacy records could not be read"}, markers[len(markers)-1])
+	assert.Contains(t, res.Skipped, "choice ch-1: options unreadable")
+	assert.Contains(t, res.Skipped, "choice ch-1: schema unreadable")
+	for _, m := range bodies[ledger.Marker](t, convert(t, chatA(), nobody), ledger.KindMarker) {
+		assert.NotEqual(t, ledger.MarkerUnreadable, m.Kind, "a chat read in full shows none")
+	}
+}
+
 func TestAtRest_NamesTheWorkLeftOpen(t *testing.T) {
 	row := func(kind ledger.Kind, turnID, scope string, b any) ledger.Row {
 		r, err := ledger.NewRow(kind, turnID, scope, b)

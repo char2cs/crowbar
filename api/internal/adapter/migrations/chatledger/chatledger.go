@@ -23,9 +23,9 @@ type Result struct {
 // Owner answers which chat already holds a (provider, session) binding.
 type Owner func(provider, sessionID string) (chatID string, ok bool)
 
-// errCorruptRows is a chat with a legacy row the reader could not read: left
-// out, that row could change what every later row means.
-var errCorruptRows = errors.New("rows that cannot be read")
+// errUnreadable is a chat the reader could read nothing of, or not which
+// sessions it ran on.
+var errUnreadable = errors.New("records that cannot be read")
 
 // ErrNotAtRest is a conversion that would leave the chat with work open.
 var ErrNotAtRest = errors.New("chatledger: the converted chat is not at rest")
@@ -49,10 +49,10 @@ const (
 // ConvertChat restates in's records as ledger rows. It is pure: the same
 // input and owner give the same rows, ids included.
 func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
-	if len(in.Corrupt) > 0 {
-		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errCorruptRows, strings.Join(in.Corrupt, "; "))
+	if in.SessionsUnreadable || len(in.Unreadable) > 0 && nothingRead(in) {
+		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errUnreadable, strings.Join(in.Unreadable, "; "))
 	}
-	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable)}
+	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable), unreadable: len(in.Unreadable)}
 	c.bindSessions(in, owner)
 	c.turns(in)
 	c.subagents(in.Subagents)
@@ -60,6 +60,7 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	c.interruptions(in.Interruptions)
 	c.choices(in.Choices)
 	c.prompts(in.Prompts)
+	c.markUnreadable()
 	c.runners(in.Runners)
 	if c.err != nil {
 		return Result{}, fmt.Errorf("chatledger: convert %s: %w", in.ChatID, c.err)
@@ -71,6 +72,31 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	return Result{Rows: rows, Skipped: c.skipped}, nil
 }
 
+func nothingRead(in LegacyChat) bool {
+	return len(in.Conversations)+len(in.Turns)+len(in.Tools)+len(in.Subagents)+len(in.Interruptions)+
+		len(in.Choices)+len(in.Prompts)+len(in.Runners) == 0
+}
+
+// markUnreadable shows, after the chat's history, how many of its legacy
+// records were left out because they could not be read.
+func (c *conversion) markUnreadable() {
+	if c.unreadable == 0 {
+		return
+	}
+	what := fmt.Sprintf("%d legacy records could not be read", c.unreadable)
+	if c.unreadable == 1 {
+		what = "1 legacy record could not be read"
+	}
+	c.emit(ruleMarker, c.latest.Add(time.Microsecond), 0, ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: what})
+}
+
+// unreadablef names a part of a record the converter could not read and
+// left out, and counts it in the chat's marker.
+func (c *conversion) unreadablef(format string, args ...any) {
+	c.skipf(format, args...)
+	c.unreadable++
+}
+
 // entry is a row and what orders it among the chat's others.
 type entry struct {
 	row       ledger.Row
@@ -80,10 +106,11 @@ type entry struct {
 }
 
 type conversion struct {
-	chatID  string
-	out     []entry
-	skipped []string
-	err     error
+	chatID     string
+	out        []entry
+	skipped    []string
+	unreadable int // records, or parts of one, left out unread
+	err        error
 
 	current map[string]string // provider → the session the chat is bound to on it
 	bound   map[string]bool   // provider+"\x00"+session bound to this chat

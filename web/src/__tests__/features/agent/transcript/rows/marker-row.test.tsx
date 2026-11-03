@@ -147,4 +147,15 @@ describe('MarkerRow', () => {
     )
     expect(screen.getByRole('button', { name: 'Open terminal' })).toBeInTheDocument()
   })
+
+  it('says, in the daemon’s words, how many legacy records an upgrade could not read', () => {
+    const l = ledger()
+    const feed = seed([
+      l.row('marker', { kind: 'legacy_unreadable', detail: '3 legacy records could not be read' }),
+    ])
+    draw(markerOf(feed)!)
+    expect(screen.getByTestId('agent-marker-divider')).toHaveTextContent(
+      '3 legacy records could not be read',
+    )
+  })
 })

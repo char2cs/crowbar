@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
@@ -162,7 +164,7 @@ func TestReadLegacy_AHomeWithoutLegacyRecordsIsEmpty(t *testing.T) {
 }
 
 // A journal file the reader cannot decode is named, not fatal: it is one
-// record of one chat, and the step records what it skipped.
+// record of one chat, and a chat with nothing else is not converted.
 func TestReadLegacy_AnUnreadablePromptIsNamedNotFatal(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "chats/chat-z/"+PromptsDir+"/bad.json", "{not json")
@@ -176,7 +178,9 @@ func TestReadLegacy_AnUnreadablePromptIsNamedNotFatal(t *testing.T) {
 	assert.Empty(t, got[0].Prompts)
 	require.Len(t, got[0].Unreadable, 1)
 	assert.Contains(t, got[0].Unreadable[0], "prompt bad.json: unreadable")
-	assert.Contains(t, convert(t, got[0], nobody).Skipped, got[0].Unreadable[0], "the conversion names it as skipped")
+	_, err = ConvertChat(got[0], nobody)
+	require.ErrorIs(t, err, errUnreadable)
+	assert.Contains(t, err.Error(), got[0].Unreadable[0])
 }
 
 // spoil overwrites column of chatID's first row in table with value, as a
@@ -206,15 +210,16 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	assert.Equal(t, "chat-b", got[1].ChatID)
 	assert.Len(t, got[1].Turns, len(chatB().Turns)-1)
 	assert.Empty(t, got[1].Interruptions)
-	require.Len(t, got[1].Corrupt, 2)
-	assert.Contains(t, got[1].Corrupt[0], "agent_turns u-b1: started_at")
-	assert.Contains(t, got[1].Corrupt[0], "not-a-date")
-	assert.Contains(t, got[1].Corrupt[1], "agent_interruptions i-b1: seq")
+	require.Len(t, got[1].Unreadable, 2)
+	assert.Contains(t, got[1].Unreadable[0], "agent_turns u-b1: started_at")
+	assert.Contains(t, got[1].Unreadable[0], "not-a-date")
+	assert.Contains(t, got[1].Unreadable[1], "agent_interruptions i-b1: seq")
+	assert.False(t, got[1].SessionsUnreadable)
 }
 
 // Any one cell of any legacy table, overwritten with any value a damaged disk
-// or an older build could leave, never panics the read or the conversion and
-// never changes another chat's rows.
+// or an older build could leave, never panics the read or the conversion,
+// never changes another chat's rows, and skips its own only for its session.
 func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -247,6 +252,13 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 				require.NoError(t, err, damaged)
 				for _, chat := range chats {
 					res, err := convertNoPanic(t, chat, damaged)
+					if chat.ChatID == "chat-a" && !chat.SessionsUnreadable {
+						require.NoError(t, err, "%s: only an unreadable session skips the chat", damaged)
+						shown := slices.ContainsFunc(res.Rows, func(r ledger.Row) bool {
+							return r.Kind == ledger.KindMarker && body[ledger.Marker](t, r).Kind == ledger.MarkerUnreadable
+						})
+						require.True(t, shown || len(chat.Unreadable) == 0, "%s: what was left out is shown", damaged)
+					}
 					if chat.ChatID == "chat-b" {
 						require.NoError(t, err, damaged)
 						require.Equal(t, cleanB, res.Rows, damaged)

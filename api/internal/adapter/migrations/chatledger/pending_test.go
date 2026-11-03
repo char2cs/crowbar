@@ -140,5 +140,5 @@ func TestBoot_ASkippedChatIsRetriedOnceTheConverterChanges(t *testing.T) {
 // records is how many legacy records chat holds, as census counts them.
 func records(chat LegacyChat) int64 {
 	return int64(len(chat.Conversations) + len(chat.Turns) + len(chat.Tools) + len(chat.Subagents) +
-		len(chat.Interruptions) + len(chat.Choices) + len(chat.Prompts) + len(chat.Unreadable) + len(chat.Corrupt))
+		len(chat.Interruptions) + len(chat.Choices) + len(chat.Prompts) + len(chat.Unreadable))
 }

@@ -107,6 +107,9 @@ func (r *reader) conversation(rows *sql.Rows) error {
 	r.add(v.ChatID, "agent_chat_conversations "+v.SessionID, c.err, func(chat *LegacyChat) {
 		chat.Conversations = append(chat.Conversations, v)
 	})
+	if c.err != nil {
+		r.chat(v.ChatID).SessionsUnreadable = true
+	}
 	return nil
 }
 
@@ -183,12 +186,12 @@ func (r *reader) choice(rows *sql.Rows) error {
 	return nil
 }
 
-// add files a read row under its chat, or names it on the chat's Corrupt list
+// add files a read row under its chat, or names it in the chat's Unreadable
 // when one of its values could not be read.
 func (r *reader) add(chatID, row string, err error, keep func(*LegacyChat)) {
 	chat := r.chat(chatID)
 	if err != nil {
-		chat.Corrupt = append(chat.Corrupt, fmt.Sprintf("%s: %v", row, err))
+		chat.Unreadable = append(chat.Unreadable, fmt.Sprintf("%s: %v", row, err))
 		return
 	}
 	keep(chat)

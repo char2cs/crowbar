@@ -3,6 +3,7 @@ package chatledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -257,34 +258,61 @@ func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 	}
 }
 
-// One row the reader cannot read, in any legacy table, keeps only its chat
-// unconverted, and the warning names the row and the column.
-func TestApply_ARowItCannotReadSkipsOnlyItsChat(t *testing.T) {
+// One row the reader cannot read, in any legacy table, is left out of its
+// chat: the rest converts, the chat shows how many records it lost, and the
+// warning names the row and the column. An unreadable session skips the chat.
+func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 	for _, tc := range []struct{ db, table, column string }{
-		{RunnerDB, "agent_chat_conversations", "first_seen_at"},
 		{ActivityDB, "agent_turns", "started_at"},
 		{ActivityDB, "agent_tool_calls", "duration_ms"},
 		{ActivityDB, "agent_subagents", "ended_at"},
 		{ActivityDB, "agent_interruptions", "display_order"},
 		{ActivityDB, "agent_choices", "multi"},
+		{RunnerDB, "agent_chat_conversations", "first_seen_at"},
 	} {
 		t.Run(tc.table, func(t *testing.T) {
 			h := testutil.FixtureHome(t)
 			writeLegacy(t, h, chatA(), chatB())
 			spoil(t, h, tc.db, tc.table, tc.column, "chat-a", "garbled")
-			log, got := capture(testutil.Message("chatledger: skipped a chat that cannot be converted"))
+			log, got := capture(testutil.AtLeast(slog.LevelWarn))
 
 			require.NoError(t, bootLogging(t, h, log))
 
-			assert.Empty(t, held(t, h, "chat-a"))
 			assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"), "the other chat converts")
-			require.Len(t, *got, 1)
+			require.NotEmpty(t, *got)
 			attrs := testutil.Attrs((*got)[0])
 			assert.Equal(t, "chat-a", attrs["chat_id"].String())
-			assert.Contains(t, attrs["err"].String(), tc.table)
-			assert.Contains(t, attrs["err"].String(), tc.column+` "garbled"`)
+			logged := fmt.Sprint(attrs["err"].Any(), attrs["skipped"].Any())
+			assert.Contains(t, logged, tc.table)
+			assert.Contains(t, logged, tc.column+` "garbled"`)
+			if tc.table == "agent_chat_conversations" {
+				assert.Empty(t, held(t, h, "chat-a"), "which session the chat resumes is unknown")
+				return
+			}
+			rows := held(t, h, "chat-a")
+			require.NotEmpty(t, rows)
+			last := rows[len(rows)-1]
+			if last.Kind == ledger.KindRunnerStarted {
+				last = rows[len(rows)-2]
+			}
+			assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "1 legacy record could not be read"}, body[ledger.Marker](t, last))
 		})
 	}
+}
+
+// A chat none of whose records can be read is skipped and named.
+func TestApply_AChatWithNothingReadableIsSkipped(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	only := LegacyChat{ChatID: "chat-z", Turns: chatB().Turns[:1]}
+	only.Turns[0].ChatID = "chat-z"
+	writeLegacy(t, h, only, chatB())
+	spoil(t, h, ActivityDB, "agent_turns", "seq", "chat-z", "garbled")
+
+	boot(t, h)
+
+	assert.Empty(t, held(t, h, "chat-z"))
+	assert.Contains(t, migratetest.Notes(t, h)[stepNumber][skippedKey("chat-z")].Detail, `seq "garbled"`)
+	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 }
 
 // A legacy database that cannot be read is no chat to skip: the boot halts

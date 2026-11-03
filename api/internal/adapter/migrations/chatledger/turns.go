@@ -181,7 +181,7 @@ func (c *conversion) restatePlan(g *group) {
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(raw), &steps); err != nil {
-		c.skipf("turn %s: plan unreadable: %v", g.head.ID, err)
+		c.unreadablef("turn %s: plan unreadable: %v", g.head.ID, err)
 		return
 	}
 	items := make([]ledger.PlanItem, 0, len(steps))

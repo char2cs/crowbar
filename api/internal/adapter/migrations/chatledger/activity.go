@@ -73,7 +73,7 @@ func (c *conversion) lastMessage(a LegacySubagent) string {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal([]byte(a.Messages), &messages); err != nil {
-		c.skipf("subagent %s: messages unreadable: %v", a.ID, err)
+		c.unreadablef("subagent %s: messages unreadable: %v", a.ID, err)
 		return ""
 	}
 	if len(messages) == 0 {
@@ -120,7 +120,7 @@ func (c *conversion) locations(t LegacyTool) []ledger.ToolLocation {
 	}
 	var out []ledger.ToolLocation
 	if err := json.Unmarshal([]byte(t.Locations), &out); err != nil {
-		c.skipf("tool %s: locations unreadable: %v", t.ID, err)
+		c.unreadablef("tool %s: locations unreadable: %v", t.ID, err)
 		return nil
 	}
 	return out

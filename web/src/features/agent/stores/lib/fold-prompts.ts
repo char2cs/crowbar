@@ -75,6 +75,7 @@ const PILL_MARKERS = new Set([
   'provider_switched',
   'model_changed',
   'effort_changed',
+  'legacy_unreadable',
 ])
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
 

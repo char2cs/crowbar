@@ -25,6 +25,7 @@ export type MarkerKind =
   | 'model_changed'
   | 'effort_changed'
   | 'notification'
+  | 'legacy_unreadable'
 
 export interface PlanItem {
   id?: string
