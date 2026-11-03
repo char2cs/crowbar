@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -602,25 +603,31 @@ func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
 // parks after one pass — no ticker, no read transaction every interval — and a
 // runner being recorded live wakes it.
 func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
-	r := newRigEvery(t, time.Millisecond)
-	r.runners.mu.Lock()
-	live := r.runners.live
-	r.runners.live = nil
-	r.runners.mu.Unlock()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		r := newRigEvery(t, time.Millisecond)
+		r.runners.mu.Lock()
+		live := r.runners.live
+		r.runners.live = nil
+		r.runners.mu.Unlock()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	r.detector.Run(ctx, nil)
-	require.Eventually(t, func() bool { return r.runners.callCount() == 1 }, 5*time.Second, time.Millisecond)
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 1, r.runners.callCount(), "nothing to sweep: the loop must park, not tick")
+		r.detector.Run(ctx, nil)
+		synctest.Wait()
+		require.Equal(t, 1, r.runners.callCount(), "one pass, then the loop parks")
+		// Fifty intervals of the bubble's clock pass with the loop parked.
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+		assert.Equal(t, 1, r.runners.callCount(), "nothing to sweep: the loop must park, not tick")
 
-	r.runners.mu.Lock()
-	r.runners.live = live
-	r.runners.mu.Unlock()
-	r.detector.Wake()
-	require.Eventually(t, func() bool { return r.runners.callCount() > 3 }, 5*time.Second, time.Millisecond,
-		"a live runner resumes the cadence")
+		r.runners.mu.Lock()
+		r.runners.live = live
+		r.runners.mu.Unlock()
+		r.detector.Wake()
+		time.Sleep(5 * time.Millisecond)
+		synctest.Wait()
+		assert.Greater(t, r.runners.callCount(), 3, "a live runner resumes the cadence")
+	})
 }
 
 // The idle report arrives over the api channel, and an api-channel runner has
