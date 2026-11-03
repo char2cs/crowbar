@@ -98,3 +98,30 @@ func TestMergeSquash_NoNetChange_ReturnsNil(
 	require.NoError(t, err)
 	assert.Equal(t, parentTipBefore, headSHA(t, repo), "parent must be unchanged")
 }
+
+// A squash into a parent holding the user's staged work is refused before it
+// starts: committing would take that work into the squash, undoing would drop it.
+func TestMergeSquash_RefusesAParentWithStagedWork(t *testing.T) {
+	for name, edit := range map[string]string{"staged": "", "staged then edited": "edited\n"} {
+		t.Run(name, func(t *testing.T) {
+			repo := initRepo(t)
+			makeCommit(t, repo, "base.txt", "base\n", "base")
+			gitRun(t, repo, "checkout", "-b", "p1")
+			makeCommit(t, repo, "p1.txt", "p1\n", "p1")
+			gitRun(t, repo, "checkout", "main")
+			require.NoError(t, os.WriteFile(filepath.Join(repo, "mine.txt"), []byte("mine\n"), 0o600))
+			gitRun(t, repo, "add", "mine.txt")
+			if edit != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(repo, "mine.txt"), []byte(edit), 0o600))
+			}
+			failingHook(t, repo, "pre-commit")
+
+			err := git.New().MergeSquash(context.Background(), repo, "p1", "squash p1")
+
+			require.ErrorIs(t, err, git.ErrDirtyTree)
+			assert.Equal(t, "mine.txt", gitOutput(t, repo, "diff", "--cached", "--name-only"), "only the user's work is staged")
+			assert.Equal(t, "mine", gitOutput(t, repo, "show", ":mine.txt"))
+			assert.FileExists(t, filepath.Join(repo, "mine.txt"))
+		})
+	}
+}

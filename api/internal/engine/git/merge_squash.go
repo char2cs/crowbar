@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
@@ -15,6 +16,15 @@ import (
 // ErrNothingToCommit; that case is treated as success.
 func (e *engine) MergeSquash(ctx context.Context, repoPath, branch, subject string) error {
 	defer e.lockRepo(ctx, repoPath)()
+	// The user's staged work would be committed into the squash, or dropped by
+	// undoing a refused commit, so a parent holding any is refused up front.
+	staged := e.exec(ctx, repoPath, "diff", "--cached", "--quiet")
+	if staged.ExitCode > 1 {
+		return gitexec.RequireSuccess("diff --cached", staged)
+	}
+	if staged.ExitCode == 1 || fileExists(filepath.Join(resolveGitDir(ctx, repoPath), "SQUASH_MSG")) {
+		return fmt.Errorf("%w: merge --squash: the parent has staged changes or a squash pending", ErrDirtyTree)
+	}
 	if err := e.stoppable(ctx, repoPath, "merge --squash", "merge", "--squash", "--", branch); err != nil {
 		return err
 	}
@@ -22,7 +32,7 @@ func (e *engine) MergeSquash(ctx context.Context, repoPath, branch, subject stri
 	if err == nil || errors.Is(err, ErrNothingToCommit) {
 		return nil
 	}
-	// A squash runs only over an index matching HEAD, so this drops only what it staged.
+	// The index matched HEAD before the squash, so this drops only what it staged.
 	r := e.exec(context.WithoutCancel(ctx), repoPath, "reset", "--merge")
 	if resetErr := gitexec.RequireSuccess("reset --merge", r); resetErr != nil {
 		return fmt.Errorf("%w; restoring the worktree: %w", err, resetErr)
