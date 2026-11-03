@@ -77,8 +77,8 @@ type service struct {
 	storage storage
 	es      asynxModels.Store
 	ax      asynx.Asynx[domain.Chat]
-	// rebuiltFor is the row set the last rebuild left with nothing to read, so
-	// the same rows never earn a whole-log rebuild on every read.
+	// rebuiltFor is the row set the last rebuild left with nothing to read. Rows
+	// alone key it: a new aggregate reaches the model by its live save, not a rebuild.
 	mu         sync.Mutex
 	rebuiltFor *string
 }

@@ -47,9 +47,9 @@ func (s *service) ListOrRebuild(
 	return s.store.ListFrom(ctx, s.fromLog)
 }
 
-// fromLog answers a row that will not decode from the workspace's own history,
-// as every per-id read does, so no list or delete loses a workspace to one bad
-// row. A history that will not fold either fails the list: nothing is known.
+// fromLog answers an undecodable row from its history, as per-id reads do, at
+// one fold per such row per list; a history that will not fold either fails
+// the list, as nothing is known about that workspace.
 func (s *service) fromLog(
 	ctx context.Context,
 	id string,
