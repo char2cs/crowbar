@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
@@ -13,13 +14,18 @@ import (
 func LiveRunners(ctx context.Context, h home.Home) ([]LegacyRunner, error) {
 	var out []LegacyRunner
 	err := queryLegacy(ctx, filepath.Join(h.Store(), RunnerDB), "agent_runners", func(rows *sql.Rows) error {
-		var r LegacyRunner
-		if err := rows.Scan(&r.ID, &r.ChatID, &r.ProviderID); err != nil {
+		c, err := scanCells(rows, 4)
+		if err != nil {
 			return err
+		}
+		r := LegacyRunner{ID: c.str(), ChatID: c.str(), ProviderID: c.str(), StartedAt: c.time("started_at")}
+		// The start only dates the runner's row, so one it cannot read is none.
+		if c.err != nil {
+			r.StartedAt = time.Time{}
 		}
 		out = append(out, r)
 		return nil
-	}, `SELECT id, current_chat_id, provider_id FROM agent_runners
+	}, `SELECT COALESCE(id, ''), current_chat_id, provider_id, started_at FROM agent_runners
 		WHERE current_chat_id != '' AND provider_id != '' ORDER BY started_at, id`)
 	return out, err
 }

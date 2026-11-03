@@ -85,6 +85,23 @@ func TestConvertChat_ALegacyLiveRunnerIsAdopted(t *testing.T) {
 	assert.True(t, st.HasOpenWork())
 }
 
+// A chat the old daemon recorded only a runner for is dated by that runner's
+// start; a runner that started after the chat's last record keeps its own time.
+func TestConvertChat_ARunnerIsDatedByItsStartWhenThatIsLater(t *testing.T) {
+	lone := LegacyChat{ChatID: "chat-r", Runners: []LegacyRunner{{ID: "run-r", ChatID: "chat-r", ProviderID: "codex", StartedAt: at(8, 0, 0)}}}
+	assert.Equal(t, at(8, 0, 0), convert(t, lone, nobody).Rows[0].At)
+
+	in := chatB()
+	in.Runners = []LegacyRunner{
+		{ID: "run-early", ChatID: in.ChatID, ProviderID: "codex", StartedAt: at(8, 0, 0)},
+		{ID: "run-late", ChatID: in.ChatID, ProviderID: "codex", StartedAt: at(23, 0, 0)},
+	}
+	rows := rowsOf(convert(t, in, nobody), ledger.KindRunnerStarted)
+	require.Len(t, rows, 2)
+	assert.Equal(t, at(9, 11, 0), rows[0].At, "after everything else the chat recorded")
+	assert.Equal(t, at(23, 0, 0), rows[1].At)
+}
+
 // A record the old daemon wrote with JSON the reader cannot decode keeps the
 // rest of its row and is named as skipped; an unknown kind is named too.
 func TestConvertChat_UnreadableColumnsAndUnknownKindsAreNamed(t *testing.T) {

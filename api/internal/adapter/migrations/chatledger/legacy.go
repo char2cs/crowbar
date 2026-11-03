@@ -70,9 +70,10 @@ type placed struct {
 }
 
 // LegacyRunner is a CLI the pre-ledger daemon still held running on a chat:
-// one it never saw exit.
+// one it never saw exit. StartedAt is zero when the row holds no readable time.
 type LegacyRunner struct {
 	ID, ChatID, ProviderID string
+	StartedAt              time.Time
 }
 
 // LegacyConversation is an agent_chat_conversations row: a provider session

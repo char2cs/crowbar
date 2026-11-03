@@ -135,20 +135,19 @@ func (c *conversion) prompts(prompts []LegacyPrompt) {
 	}
 }
 
-// runners leave the chat live on each CLI the old daemon never saw exit, after
-// everything else, so the boot reconcile ends it as it would any other.
+// runners leave the chat live on each CLI the old daemon never saw exit, at
+// its start or after everything else, whichever is later, so the boot
+// reconcile ends it as it would any other.
 func (c *conversion) runners(runners []LegacyRunner) {
 	c.adopted = map[string]bool{}
+	last := c.latest
 	for _, r := range runners {
-		c.emit(ruleRunner, c.lastAt(), 0, ledger.KindRunnerStarted, "", "",
+		at := latest(last, r.StartedAt)
+		if at.IsZero() {
+			at = time.Unix(0, 0)
+		}
+		c.emit(ruleRunner, at, 0, ledger.KindRunnerStarted, "", "",
 			ledger.RunnerStarted{RunnerID: r.ID, Provider: r.ProviderID})
 		c.adopted[r.ID] = true
 	}
-}
-
-func (c *conversion) lastAt() time.Time {
-	if c.latest.IsZero() {
-		return time.Unix(0, 0)
-	}
-	return c.latest
 }
