@@ -8,6 +8,7 @@ import (
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // legacyHome is every legacy chat with its census count.
@@ -52,7 +53,7 @@ func convertAll(
 			continue
 		}
 		if err != nil {
-			if err := skip(ctx, log, cp, chat.ChatID, n, err); err != nil {
+			if err := giveUp(ctx, log, store, cp, chat.ChatID, n, err); err != nil {
 				return nonZero(unmarked), err
 			}
 			unmarked.Add(migrate.Counts{"skipped_chats": 1})
@@ -70,6 +71,43 @@ func convertAll(
 	}
 	return nonZero(unmarked), err
 }
+
+// giveUp skips chat for good. One holding rows of its own is told, in a row
+// after them, that its legacy history was not imported, before the note.
+func giveUp(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, chatID string, n int64, why error) error {
+	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
+		if err := sayNotImported(ctx, store, chatID); err != nil {
+			return err
+		}
+	}
+	return skip(ctx, log, cp, chatID, n, why)
+}
+
+// sayNotImported appends the historyNotImported marker to chatID, unless an
+// earlier attempt already did: an attempt killed before its note says it once.
+func sayNotImported(ctx context.Context, store ledgerStore, chatID string) error {
+	held, err := store.Read(ctx, chatID, 0, 0)
+	if err != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
+	}
+	for _, r := range held {
+		if b, err := ledger.DecodeBody[ledger.Marker](r); r.Kind == ledger.KindMarker && err == nil && b.Detail == historyNotImported {
+			return nil
+		}
+	}
+	r, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: historyNotImported})
+	if err == nil {
+		_, _, err = store.Append(ctx, chatID, r)
+	}
+	if err != nil {
+		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
+	}
+	return nil
+}
+
+// historyNotImported is what a chat that holds rows of its own says when its
+// legacy history cannot be imported under them.
+const historyNotImported = "This chat's history from before the upgrade could not be imported; the old daemon's files still hold it"
 
 // failedImport is a chat whose import failed in this run, for the next boot.
 type failedImport struct {
@@ -141,7 +179,7 @@ func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, 
 	level := slog.LevelWarn
 	switch {
 	case errors.Is(why, ledgerstore.ErrChatNotEmpty):
-		msg = "chatledger: skipped a chat whose ledger already holds rows"
+		msg = "chatledger: skipped a chat whose ledger already holds rows; its legacy history is not imported, and the chat says so"
 	case errors.Is(why, errNotAsConverted):
 		msg = "chatledger: skipped a chat whose import did not land as converted; its rows are kept, it is not tried again"
 	case retried(why) != nil:

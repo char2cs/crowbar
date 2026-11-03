@@ -49,6 +49,7 @@ type ledgerStore interface {
 	Import(ctx context.Context, chatID string, rows []ledger.Row) error
 	Read(ctx context.Context, chatID string, afterSeq int64, limit int) ([]ledger.Row, error)
 	State(ctx context.Context, chatID string) (ledger.State, error)
+	Append(ctx context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error)
 }
 
 // checkpoints is the part of *migrate.Checkpoints the conversion uses.

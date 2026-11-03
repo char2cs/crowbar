@@ -140,7 +140,9 @@ func TestApply_AChatAlreadyInTheLedgerIsSkippedAndCounted(t *testing.T) {
 
 	boot(t, h)
 
-	assert.Len(t, held(t, h, "chat-a"), 1, "a chat an intermediate build wrote is left as it is")
+	rows := held(t, h, "chat-a")
+	require.Len(t, rows, 2, "a chat an intermediate build wrote keeps its rows, and says what it lacks")
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: historyNotImported}, body[ledger.Marker](t, rows[1]))
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 	applied := migratetest.Applied(t, h)[stepNumber]
 	require.Len(t, applied, 1)
@@ -225,7 +227,7 @@ func TestApply_LogsWhatItSkippedAndWhy(t *testing.T) {
 
 	got := *recs
 	require.Len(t, got, 2)
-	assert.Equal(t, "chatledger: skipped a chat whose ledger already holds rows", got[0].Message)
+	assert.Equal(t, "chatledger: skipped a chat whose ledger already holds rows; its legacy history is not imported, and the chat says so", got[0].Message)
 	assert.Equal(t, "chat-b", testutil.Attrs(got[0])["chat_id"].String())
 	assert.Equal(t, "chatledger: skipped records", got[1].Message)
 	assert.Equal(t, "chat-a", testutil.Attrs(got[1])["chat_id"].String())

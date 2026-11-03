@@ -313,6 +313,31 @@ func TestBoot_ALedgerRefusingEveryImportGivesUpNoChat(t *testing.T) {
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 }
 
+// A chat written to while its import waits for a retry can no longer take
+// its legacy history: the next boot gives it up and says so in the chat, after
+// what was written, so the loss is seen where the history would have been.
+func TestBoot_AChatWrittenToWhileItsImportWaitsSaysItsHistoryWasNotImported(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	refuse(t, h, "chat-b")
+	boot(t, h)
+	allow(t, h)
+	r, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
+	require.NoError(t, err)
+	appendTo(t, h, "chat-b", r)
+
+	boot(t, h)
+
+	rows := held(t, h, "chat-b")
+	require.Len(t, rows, 2, "what was written, then the notice")
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: historyNotImported}, body[ledger.Marker](t, rows[1]))
+	note := migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")]
+	assert.Equal(t, int64(converterVersion), note.Counts["converter"])
+	before := testutil.TreeSnapshot(t, h)
+	boot(t, h)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "said once")
+}
+
 // notes is marks that also keeps the notes written.
 type notes struct {
 	marks

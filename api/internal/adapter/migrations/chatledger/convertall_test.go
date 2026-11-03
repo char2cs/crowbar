@@ -54,6 +54,10 @@ func (f *fakeLedger) State(_ context.Context, chatID string) (ledger.State, erro
 
 func (f *fakeLedger) Read(context.Context, string, int64, int) ([]ledger.Row, error) { return nil, nil }
 
+func (f *fakeLedger) Append(context.Context, string, ...ledger.Row) ([]ledger.Row, ledger.State, error) {
+	return nil, ledger.State{}, nil
+}
+
 type marks map[string]migrate.Counts
 
 func (m marks) Settled(string) bool { return false }
