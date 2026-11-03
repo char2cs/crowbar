@@ -122,9 +122,15 @@ func TestAcquire_APathQueuedWhenAStopBeginsIsStopped(t *testing.T) {
 			close(stopped)
 		}()
 
-		require.ErrorIs(t, <-acquired, ErrStopped)
+		synctest.Wait()
+		err = errStillWaiting
+		select {
+		case err = <-acquired:
+		default:
+		}
 		unlockHook()
 		<-stopped
+		require.ErrorIs(t, err, ErrStopped)
 		held(t, rs).release() // a path that starts after the stop holds the chat
 	})
 }
