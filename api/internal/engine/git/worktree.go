@@ -146,17 +146,9 @@ func (e *engine) CheckoutBranch(
 	return classifyGitError("switch", r)
 }
 
-func (e *engine) RebaseOnto(
-	ctx context.Context,
-	repoPath string,
-	newTip string,
-	forkPoint string,
-	branch string,
-) error {
+func (e *engine) RebaseOnto(ctx context.Context, repoPath, newTip, forkPoint, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()
-	before := detectInProgressOp(ctx, repoPath)
-	r := e.exec(ctx, repoPath, "rebase", "--onto", newTip, forkPoint, branch)
-	return e.settleStoppable(ctx, repoPath, before, "rebase --onto", r)
+	return e.stoppable(ctx, repoPath, "rebase --onto", "rebase", "--onto", newTip, forkPoint, branch)
 }
 
 func (e *engine) MergeFFOnly(

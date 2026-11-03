@@ -198,3 +198,62 @@ func TestRebaseOnto_NeverAbortsARebaseThatWasAlreadyInProgress(t *testing.T) {
 	require.NoError(t, opErr)
 	assert.Equal(t, "rebase", op, "the user's own rebase is theirs to finish")
 }
+
+// diverged is a repo on main with p1 and main each one commit past base, and
+// a file the user staged plus one they left dirty.
+func diverged(t *testing.T) string {
+	t.Helper()
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "checkout", "-b", "p1")
+	makeCommit(t, repo, "p1.txt", "p1\n", "p1")
+	gitRun(t, repo, "checkout", "main")
+	makeCommit(t, repo, "main.txt", "main\n", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "mine.txt"), []byte("mine\n"), 0o600))
+	gitRun(t, repo, "add", "mine.txt")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "base.txt"), []byte("dirty\n"), 0o600))
+	return repo
+}
+
+func requireUsersChangesKept(t *testing.T, repo string) {
+	t.Helper()
+	assert.Equal(t, "mine.txt", gitOutput(t, repo, "diff", "--cached", "--name-only"), "the staged file stays staged")
+	assert.Equal(t, "base.txt", gitOutput(t, repo, "diff", "--name-only"), "the dirty file stays dirty")
+	assert.FileExists(t, filepath.Join(repo, "mine.txt"))
+}
+
+func TestMergeVerbs_RefusedOverTheUsersChangesKeepThem(t *testing.T) {
+	verbs := map[string]func(git.Engine, string) error{
+		"merge":  func(e git.Engine, repo string) error { return e.Merge(context.Background(), repo, "p1") },
+		"commit": func(e git.Engine, repo string) error { return e.MergeCommit(context.Background(), repo, "p1") },
+		"squash": func(e git.Engine, repo string) error { return e.MergeSquash(context.Background(), repo, "p1", "s") },
+	}
+	for name, run := range verbs {
+		t.Run(name, func(t *testing.T) {
+			repo := diverged(t)
+
+			require.Error(t, run(git.New(), repo))
+
+			requireUsersChangesKept(t, repo)
+		})
+	}
+}
+
+func TestPull_RefusedOverTheUsersChangesKeepsThem(t *testing.T) {
+	for _, mode := range []string{"merge", "rebase"} {
+		t.Run(mode, func(t *testing.T) {
+			repo := diverged(t)
+			clone := filepath.Join(t.TempDir(), "clone")
+			gitRun(t, repo, "branch", "up", "p1")
+			gitRun(t, repo, "worktree", "add", "-q", clone, "-b", "work", "main")
+			gitRun(t, clone, "branch", "--set-upstream-to=up")
+			require.NoError(t, os.WriteFile(filepath.Join(clone, "mine.txt"), []byte("mine\n"), 0o600))
+			gitRun(t, clone, "add", "mine.txt")
+			require.NoError(t, os.WriteFile(filepath.Join(clone, "base.txt"), []byte("dirty\n"), 0o600))
+
+			require.Error(t, git.New().Pull(context.Background(), clone, mode))
+
+			requireUsersChangesKept(t, clone)
+		})
+	}
+}

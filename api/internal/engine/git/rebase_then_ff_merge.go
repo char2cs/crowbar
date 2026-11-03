@@ -8,17 +8,9 @@ import "context"
 // --ff-only. It takes the shared repo lock once and classifies errors with the
 // standard sentinels (ErrConflict on a conflicting rebase, ErrRejectedNonFastForward
 // if the parent moved).
-func (e *engine) RebaseThenFFMerge(
-	ctx context.Context,
-	childWorktree string,
-	parentBranch string,
-	parentWorktree string,
-	childBranch string,
-) error {
+func (e *engine) RebaseThenFFMerge(ctx context.Context, childWorktree, parentBranch, parentWorktree, childBranch string) error {
 	defer e.lockRepo(ctx, childWorktree)()
-	before := detectInProgressOp(ctx, childWorktree)
-	rb := e.exec(ctx, childWorktree, "rebase", parentBranch)
-	if err := e.settleStoppable(ctx, childWorktree, before, "rebase", rb); err != nil {
+	if err := e.stoppable(ctx, childWorktree, "rebase", "rebase", parentBranch); err != nil {
 		return err
 	}
 	mg := e.exec(ctx, parentWorktree, "merge", "--ff-only", "--", childBranch)
