@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -218,4 +219,68 @@ func TestBoot_AChatWrittenToAfterAKilledRunNeverHaltsALaterOne(t *testing.T) {
 
 	assert.Len(t, held(t, h, "chat-b"), len(convert(t, chatB(), nobody).Rows)+1)
 	assert.NotEmpty(t, held(t, h, "chat-c"))
+}
+
+// refuse makes the ledger refuse every row of chatID, as a busy or full disk
+// would refuse one import, until allow lifts it.
+func refuse(t *testing.T, h home.Home, chatID string) {
+	t.Helper()
+	require.NoError(t, withStore(t.Context(), h, func(*ledgerstore.Store) error { return nil }))
+	conn := writable(t, filepath.Join(h.Store(), ledgerstore.FileName))
+	_, err := conn.ExecContext(t.Context(), "CREATE TRIGGER refuse BEFORE INSERT ON chat_ledger WHEN NEW.chat_id = '"+
+		chatID+"' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END")
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+}
+
+func allow(t *testing.T, h home.Home) {
+	t.Helper()
+	conn := writable(t, filepath.Join(h.Store(), ledgerstore.FileName))
+	_, err := conn.ExecContext(t.Context(), "DROP TRIGGER refuse")
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+}
+
+// A chat whose import failed is tried again by the next boot, though no
+// legacy file changed, and converted once an import lands.
+func TestBoot_AChatWhoseImportFailedIsTriedAgainAtTheNextBoot(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	refuse(t, h, "chat-b")
+	boot(t, h)
+	require.Empty(t, held(t, h, "chat-b"))
+	allow(t, h)
+
+	boot(t, h)
+
+	assert.Equal(t, convert(t, chatA(), nobody).Rows, held(t, h, "chat-a"))
+	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
+	before := testutil.TreeSnapshot(t, h)
+	boot(t, h)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "once converted, boots are back to stats alone")
+}
+
+// A chat whose import fails at every boot costs one attempt per boot, and
+// only importAttempts of them: then it is skipped for good, and said so.
+func TestBoot_AChatWhoseImportKeepsFailingIsGivenUp(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	refuse(t, h, "chat-b")
+	log, tried := capture(func(r slog.Record) bool { return strings.HasPrefix(r.Message, "chatledger: skipped a chat whose import failed") })
+
+	for range importAttempts + 2 {
+		require.NoError(t, bootLogging(t, h, log))
+	}
+
+	require.Len(t, *tried, importAttempts)
+	assert.Contains(t, (*tried)[0].Message, "the next boot tries it again")
+	assert.Contains(t, (*tried)[importAttempts-1].Message, "not tried again")
+	note := migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")]
+	assert.Equal(t, int64(converterVersion), note.Counts["converter"])
+	assert.Equal(t, int64(importAttempts), note.Counts["attempts"])
+	assert.Contains(t, note.Detail, "disk I/O error")
+	assert.Empty(t, held(t, h, "chat-b"))
+	before := testutil.TreeSnapshot(t, h)
+	boot(t, h)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }

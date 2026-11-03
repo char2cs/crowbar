@@ -163,23 +163,39 @@ func interrupted(ctx context.Context, err error) bool {
 }
 
 // skip notes why chat was not converted and by which converter: no later boot
-// tries it again until a newer converter might convert it. A skip that is not
-// final, an import that failed, is noted by no converter: the next boot retries.
+// tries it again until a newer converter might convert it. An import that
+// failed is noted by no converter, so the next boots retry it, importAttempts
+// times in all: a chat failing at every boot is then given up like the others.
 func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
-	msg, by := "chatledger: skipped a chat that cannot be converted", int64(converterVersion)
+	msg, counts := "chatledger: skipped a chat that cannot be converted", migrate.Counts{legacyRecords: n, "converter": converterVersion}
 	switch {
 	case errors.Is(why, ledgerstore.ErrChatNotEmpty):
 		msg = "chatledger: skipped a chat whose ledger already holds rows"
 	case retried(why) != nil:
-		msg, by = "chatledger: skipped a chat whose import failed; the next boot tries it again", 0
+		counts["attempts"] = attempts(cp, chatID) + 1
+		msg = "chatledger: skipped a chat whose import failed; the next boot tries it again"
+		if counts["attempts"] < importAttempts {
+			counts["converter"] = 0
+		} else {
+			msg = fmt.Sprintf("chatledger: skipped a chat whose import failed at %d boots; it is not tried again until a newer converter", importAttempts)
+		}
 	}
 	detail := clip(why.Error(), noteBytes)
-	log.WarnContext(ctx, msg, "chat_id", chatID, "err", detail)
-	note := migrate.Note{Detail: detail, Counts: migrate.Counts{legacyRecords: n, "converter": by}}
-	if err := cp.Note(skippedKey(chatID), note); err != nil {
+	log.WarnContext(ctx, msg, "chat_id", chatID, "err", detail, "attempts", counts["attempts"])
+	if err := cp.Note(skippedKey(chatID), migrate.Note{Detail: detail, Counts: counts}); err != nil {
 		return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
 	}
 	return nil
+}
+
+// attempts is how many boots of this converter's line tried chatID's import
+// and failed: none once a skip names a converter, which starts it over.
+func attempts(cp checkpoints, chatID string) int64 {
+	note, ok := cp.Noted(skippedKey(chatID))
+	if !ok || note.Counts["converter"] != 0 {
+		return 0
+	}
+	return note.Counts["attempts"]
 }
 
 // recordChange notes a converted chat an older build has since added to. The

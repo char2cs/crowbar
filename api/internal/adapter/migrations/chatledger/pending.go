@@ -18,6 +18,10 @@ import (
 // refused, so the chats those builds skipped are tried again.
 const converterVersion = 3
 
+// importAttempts is how many boots try a chat whose import fails before it is
+// skipped until a newer converter.
+const importAttempts = 3
+
 // legacyRecords is the count label under which a chat's checkpoint and notes
 // keep how many legacy records it had.
 const legacyRecords = "legacy_records"
@@ -70,7 +74,9 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 	if err != nil || stamp == "" {
 		return migrate.Plan{}, err
 	}
-	if note, ok := env.Notes[stampKey]; ok && note.Detail == stamp {
+	note, ok := env.Notes[stampKey]
+	seen := ok && note.Detail == stamp
+	if seen && !retrying(env.Notes) {
 		return migrate.Plan{}, nil
 	}
 	counts, err := census(ctx, env.Home)
@@ -100,10 +106,21 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 	}
 	// Once a run has recorded anything, a stamp it did not see is recorded too,
 	// so the next boot is back to stats alone.
-	if plan.Empty() && ranBefore {
+	if plan.Empty() && ranBefore && !seen {
 		plan.Actions = []migrate.Action{{Kind: migrate.Record, Subject: "legacy files changed since the last run", Count: 1}}
 	}
 	return plan, nil
+}
+
+// retrying reports whether a chat whose import failed is owed another
+// attempt: its skip names no converter, so no build has given it up.
+func retrying(notes map[string]migrate.Note) bool {
+	for key, note := range notes {
+		if strings.HasPrefix(key, skippedKey("")) && note.Counts["converter"] == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // stampKey is the note under which a run keeps the legacyStamp it saw.
