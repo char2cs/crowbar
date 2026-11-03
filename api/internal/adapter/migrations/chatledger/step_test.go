@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -88,19 +89,22 @@ func appendTo(t *testing.T, h home.Home, chatID string, rows ...ledger.Row) {
 func TestApply_ConvertsEachChatOnceAndResumesFromItsCheckpoints(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
+	earlier := convert(t, chatB(), nobody).Rows
+	appendTo(t, h, "chat-b", earlier...)
 	testutil.WriteFile(t, h, "migrate/ledger.jsonl",
 		`{"v":1,"kind":"run.start","run":"r1","pending":[6]}`+"\n"+
-			`{"v":1,"kind":"checkpoint","run":"r1","step":6,"name":"chat-ledger","key":"chat-b","counts":{"rows":3}}`+"\n")
+			`{"v":1,"kind":"checkpoint","run":"r1","step":6,"name":"chat-ledger","key":"chat-b","counts":{"rows":`+
+			strconv.Itoa(len(earlier))+`}}`+"\n")
 
 	boot(t, h)
 
 	want := convert(t, chatA(), nobody)
 	assert.Equal(t, want.Rows, held(t, h, "chat-a"))
-	assert.Empty(t, held(t, h, "chat-b"), "a chat an earlier attempt marked done is not converted again")
+	assert.Len(t, held(t, h, "chat-b"), len(earlier), "a chat an earlier attempt marked done is not converted again")
 	applied := migratetest.Applied(t, h)[stepNumber]
 	require.Len(t, applied, 1)
 	assert.Equal(t, migrate.Counts{
-		"rows": int64(len(want.Rows)) + 3, "skipped_rows": int64(len(want.Skipped)), "legacy_records": records(chatA()),
+		"rows": int64(len(want.Rows) + len(earlier)), "skipped_rows": int64(len(want.Skipped)), "legacy_records": records(chatA()),
 	}, applied[0])
 
 	before := testutil.TreeSnapshot(t, h)
@@ -183,10 +187,23 @@ func TestVerify_FailsOnAChatLeftWithOpenWork(t *testing.T) {
 	require.NoError(t, err)
 	appendTo(t, h, "chat-y", live)
 
-	require.ErrorIs(t, verify(context.Background(), h, map[string]map[string]bool{"chat-x": nil}), ErrNotAtRest)
-	require.ErrorIs(t, verify(context.Background(), h, map[string]map[string]bool{"chat-y": nil}), ErrNotAtRest)
-	require.NoError(t, verify(context.Background(), h, map[string]map[string]bool{"chat-y": {"run-1": true}}),
+	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 1}}), ErrNotAtRest)
+	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-y": {rows: 1}}), ErrNotAtRest)
+	require.NoError(t, verify(context.Background(), h, map[string]landed{"chat-y": {adopted: map[string]bool{"run-1": true}, rows: 1}}),
 		"a runner the old daemon left is the boot reconcile's to end")
+}
+
+// A chat whose ledger does not end at the rows its checkpoint says the
+// import wrote is not what the conversion made.
+func TestVerify_FailsOnAChatWhoseLedgerIsNotTheRowsItConverted(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	marker, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
+	require.NoError(t, err)
+	appendTo(t, h, "chat-x", marker, marker)
+
+	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 1}}), errNotAsConverted)
+	require.ErrorIs(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 3}}), errNotAsConverted)
+	require.NoError(t, verify(context.Background(), h, map[string]landed{"chat-x": {rows: 2}}))
 }
 
 // Each chat skipped, and each record a converted chat left out, is logged
@@ -328,8 +345,6 @@ func (f *fakeLedger) Read(context.Context, string, int64, int) ([]ledger.Row, er
 
 type marks map[string]migrate.Counts
 
-func (m marks) Done(key string) bool { _, ok := m[key]; return ok }
-
 func (m marks) Settled(string) bool { return false }
 
 func (m marks) Marked(key string) (migrate.Counts, bool) { n, ok := m[key]; return n, ok }
@@ -346,7 +361,7 @@ func TestConvertAll_StopsBeforeTheNextChatOnceCancelled(t *testing.T) {
 	store := &fakeLedger{onImport: cancel}
 	cp := marks{}
 
-	_, err := convertAll(ctx, slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}}, map[string]map[string]bool{})
+	_, err := convertAll(ctx, slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}}, map[string]landed{})
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{"chat-b"}, store.imported, "no chat is imported after the cancel")
@@ -360,7 +375,7 @@ func TestConvertAll_ASessionOwnerFailureStopsTheStep(t *testing.T) {
 	store := &fakeLedger{ownerErr: broken}
 	cp := marks{}
 
-	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB()}}, map[string]map[string]bool{})
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB()}}, map[string]landed{})
 
 	require.ErrorIs(t, err, broken)
 	require.NotErrorIs(t, err, errUnconvertible)

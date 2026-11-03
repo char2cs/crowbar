@@ -25,7 +25,7 @@ import (
 func Impl() migrate.Impl {
 	// Verify checks what Apply converted: the engine runs Apply first on every
 	// attempt, and Apply also fills in the chats earlier attempts marked done.
-	converted := map[string]map[string]bool{} // chat → the runners it is left live on
+	converted := map[string]landed{}
 	return migrate.Impl{
 		Apply: func(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
 			return apply(ctx, env, cp, converted)
@@ -35,6 +35,16 @@ func Impl() migrate.Impl {
 		},
 	}
 }
+
+// landed is a chat this attempt, or an unverified earlier one, imported: the
+// runners it is left live on, and how many rows the import wrote.
+type landed struct {
+	adopted map[string]bool
+	rows    int64
+}
+
+// errNotAsConverted is a converted chat whose ledger is not the rows imported.
+var errNotAsConverted = errors.New("chatledger: the ledger is not what the conversion wrote")
 
 // errUnconvertible is a chat whose legacy records do not restate as rows at
 // rest: it is skipped and named, its legacy files kept for a later build.
@@ -49,7 +59,6 @@ type ledgerStore interface {
 
 // checkpoints is the part of *migrate.Checkpoints the conversion uses.
 type checkpoints interface {
-	Done(key string) bool
 	Settled(key string) bool
 	Marked(key string) (migrate.Counts, bool)
 	Mark(key string, n migrate.Counts) error
@@ -57,7 +66,7 @@ type checkpoints interface {
 	Note(key string, n migrate.Note) error
 }
 
-func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints, converted map[string]map[string]bool) (migrate.Counts, error) {
+func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints, converted map[string]landed) (migrate.Counts, error) {
 	stamp, err := legacyStamp(env.Home)
 	if err != nil || stamp == "" {
 		return nil, err
@@ -101,7 +110,7 @@ type legacyHome struct {
 // skipped and noted with why; a store failure stops the step.
 func convertAll(
 	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints,
-	legacy legacyHome, converted map[string]map[string]bool,
+	legacy legacyHome, converted map[string]landed,
 ) (migrate.Counts, error) {
 	unmarked := migrate.Counts{}
 	owed := recorded{marked: cp.Marked, noted: cp.Noted}
@@ -110,8 +119,8 @@ func convertAll(
 			return nonZero(unmarked), err
 		}
 		n := legacy.counts[chat.ChatID]
-		if cp.Done(chat.ChatID) && !cp.Settled(chat.ChatID) {
-			converted[chat.ChatID] = adoptedBy(chat)
+		if marked, ok := cp.Marked(chat.ChatID); ok && !cp.Settled(chat.ChatID) {
+			converted[chat.ChatID] = landed{adoptedBy(chat), marked["rows"]}
 		}
 		switch owed.owed(chat.ChatID, n) {
 		case dutyNone:
@@ -141,7 +150,7 @@ func convertAll(
 		if err := cp.Mark(chat.ChatID, counts); err != nil {
 			return nonZero(unmarked), fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
 		}
-		converted[chat.ChatID] = adoptedBy(chat)
+		converted[chat.ChatID] = landed{adoptedBy(chat), counts["rows"]}
 	}
 	return nonZero(unmarked), nil
 }
@@ -213,7 +222,7 @@ func importChat(ctx context.Context, store ledgerStore, chat LegacyChat) (Result
 	return res, nil
 }
 
-func verify(ctx context.Context, h home.Home, converted map[string]map[string]bool) error {
+func verify(ctx context.Context, h home.Home, converted map[string]landed) error {
 	if len(converted) == 0 {
 		return nil
 	}
@@ -223,7 +232,10 @@ func verify(ctx context.Context, h home.Home, converted map[string]map[string]bo
 			if err != nil {
 				return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
 			}
-			if err := AtRest(st, converted[chatID]); err != nil {
+			if want := converted[chatID].rows; st.Head() != want {
+				return fmt.Errorf("%w: chat %s: it holds %d rows, the import wrote %d", errNotAsConverted, chatID, st.Head(), want)
+			}
+			if err := AtRest(st, converted[chatID].adopted); err != nil {
 				return fmt.Errorf("chatledger: chat %s: %w", chatID, err)
 			}
 		}
