@@ -38,6 +38,10 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 })
 
+// jsdom has no Worker, so Monaco runs its worker code inline; Bun's native one
+// leaks into the environment and fails to load Vite's `?worker` URLs.
+delete (globalThis as { Worker?: unknown }).Worker
+
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
 
