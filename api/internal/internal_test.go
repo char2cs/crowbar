@@ -167,6 +167,8 @@ func TestNew_HaltsOnANewerLayout(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, projects.status)
 	assert.Equal(t, "daemon_halted", projects.Code)
 	assert.Equal(t, halt.Message, projects.Error)
+	page := call(t, d.client, http.MethodGet, "/", http.Header{"Accept": {"text/html"}})
+	assert.Contains(t, page.raw, "reloads by itself once Crowbar is ready", "a browser is told it waits")
 	_, err = hookserver.Read(h.Root())
 	require.Error(t, err, "a halted daemon serves no hooks")
 	assert.NoDirExists(t, h.MigrateDir())
@@ -196,6 +198,40 @@ func TestNew_AHaltedDaemonAnswersTheWebview(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, preflight.status)
 	assert.Equal(t, "tauri://localhost", preflight.header.Get("Access-Control-Allow-Origin"))
 	assert.Contains(t, preflight.header.Get("Access-Control-Allow-Methods"), "POST")
+}
+
+// A browser opening the daemon mid-migration is shown a page that waits for it,
+// while API calls keep reading the refusal they act on.
+func TestNew_AMigratingDaemonShowsABrowserAPageThatReloads(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	sock := testutil.ShortSocket(t)
+	client := testutil.UnixClient(t, sock)
+	browser := http.Header{"Accept": {"text/html,application/xhtml+xml,*/*;q=0.8"}, "Sec-Fetch-Dest": {"document"}}
+	api := http.Header{"Accept": {"application/json"}}
+	var page, refused, fetched answer
+	asked := false
+	midway := slog.New(testutil.OnLog("migrate: step started", func(slog.Record) {
+		if asked {
+			return
+		}
+		asked = true
+		page = call(t, client, http.MethodGet, "/", browser)
+		refused = call(t, client, http.MethodGet, "/", api)
+		fetched = call(t, client, http.MethodGet, "/v0/projects", http.Header{"Accept": {"text/html"}})
+	}))
+
+	c, err := internal.New(t.Context(), "unix://"+sock, nil, internal.WithHomeDir(h.Root()), internal.WithMigrateLog(midway))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	require.True(t, asked, "no step ran")
+	assert.Equal(t, http.StatusServiceUnavailable, page.status)
+	assert.True(t, strings.HasPrefix(page.header.Get("Content-Type"), "text/html"), page.header)
+	assert.Contains(t, page.raw, "this page reloads by itself")
+	assert.Contains(t, page.raw, `fetch("/v0/health")`)
+	assert.Contains(t, page.raw, "location.reload()")
+	assert.Equal(t, "daemon_migrating", refused.Code, refused.raw)
+	assert.Equal(t, "daemon_migrating", fetched.Code, "an API path is never the page: %s", fetched.raw)
 }
 
 func TestNew_HaltsWhenAStepFails(t *testing.T) {

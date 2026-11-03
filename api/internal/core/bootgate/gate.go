@@ -5,9 +5,12 @@ package bootgate
 
 import (
 	"encoding/json"
+	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 )
 
@@ -83,8 +86,9 @@ func (g *Gate) Open(
 }
 
 // ServeHTTP hands the request to the real handler once Open has run. Before
-// that it answers GET /v0/health with the current Report and refuses every
-// other request with a 503 whose code names the state.
+// that it answers GET /v0/health with the current Report, shows a browser a
+// page that reloads once ready, and refuses every other request with a 503
+// whose code names the state.
 func (g *Gate) ServeHTTP(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -101,6 +105,10 @@ func (g *Gate) answer(
 	r *http.Request,
 ) {
 	rep := g.report()
+	if navigation(r) {
+		writePage(w, rep)
+		return
+	}
 	if r.Method != http.MethodGet || r.URL.Path != healthPath {
 		writeJSON(w, http.StatusServiceUnavailable, refusal{
 			Success: false,
@@ -136,6 +144,46 @@ type refusal struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error"`
 	Code    string `json:"code"`
+}
+
+// navigation reports whether r is a browser opening a page rather than a
+// client calling the API, which keeps reading the refusal it acts on.
+func navigation(
+	r *http.Request,
+) bool {
+	return r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v0/") &&
+		strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+// page waits on the health route, the one route the gate answers, and reloads
+// once the real API answers it.
+const page = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Crowbar</title></head>
+<body style="font:16px system-ui,sans-serif;max-width:32rem;margin:20vh auto;padding:0 16px">
+<p>%s</p><p style="opacity:.6">%s</p>
+<script>setInterval(() => fetch("/v0/health").then((r) => r.json())
+  .then((b) => { if (b.data && b.data.status === "ok") location.reload() }).catch(() => {}), 1000)</script>
+</body></html>`
+
+// headlines say what each state means to someone who opened the page.
+var headlines = map[State]string{
+	StateMigrating: "Crowbar is updating your data… this page reloads by itself.",
+	StateHalted:    "Crowbar stopped before opening your data. This page reloads by itself once Crowbar is ready.",
+}
+
+// writePage answers a browser with the page for rep.
+func writePage(
+	w http.ResponseWriter,
+	rep Report,
+) {
+	body := fmt.Sprintf(page, html.EscapeString(headlines[rep.State]), html.EscapeString(rep.Message))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	if _, err := w.Write([]byte(body)); err != nil {
+		slog.Debug("bootgate: write page: the client is gone", "error", err)
+	}
 }
 
 // unencodable answers a request whose report cannot be encoded.
