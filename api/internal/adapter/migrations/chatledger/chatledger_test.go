@@ -166,6 +166,7 @@ func TestConvertChat_IsDeterministic(t *testing.T) {
 // in part or in full, are never converted again.
 var convertedByVersion = map[int]string{
 	2: "b0f1aac332a62331031fb2d760353eea45ed5714e5a88de5c5b85243727f0bb7",
+	3: "4c6559e36a2f6ddbdf4fc0cd4fb90348b489f74879731102cc5ef474e5113a29",
 }
 
 func TestConvertChat_AChangedConversionRaisesTheConverterVersion(t *testing.T) {

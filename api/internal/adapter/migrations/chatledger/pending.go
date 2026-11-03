@@ -16,7 +16,7 @@ import (
 
 // converterVersion is raised by a build that converts records an older one
 // refused, so the chats those builds skipped are tried again.
-const converterVersion = 2
+const converterVersion = 3
 
 // legacyRecords is the count label under which a chat's checkpoint and notes
 // keep how many legacy records it had.

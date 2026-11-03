@@ -139,12 +139,32 @@ func TestConvertChat_WhatCouldNotBeReadIsCountedInOneMarker(t *testing.T) {
 	res := convert(t, in, nobody)
 
 	markers := bodies[ledger.Marker](t, res, ledger.KindMarker)
-	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "3 legacy records could not be read"}, markers[len(markers)-1])
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "3 legacy records could not be converted"}, markers[len(markers)-1])
 	assert.Contains(t, res.Skipped, "choice ch-1: options unreadable")
 	assert.Contains(t, res.Skipped, "choice ch-1: schema unreadable")
 	for _, m := range bodies[ledger.Marker](t, convert(t, chatA(), nobody), ledger.KindMarker) {
 		assert.NotEqual(t, ledger.MarkerUnreadable, m.Kind, "a chat read in full shows none")
 	}
+}
+
+// A record the converter leaves out for any reason, not only one it could not
+// read, is counted in the marker: nothing is dropped unseen. Records restated
+// elsewhere (an ask's interruption, an inferred end) are not left out.
+func TestConvertChat_EveryRecordLeftOutIsCounted(t *testing.T) {
+	in := chatA()
+	in.Turns = append(in.Turns, LegacyTurn{ID: "x-1", ChatID: in.ChatID, Role: "abc", Text: "what is 2+2", StartedAt: at(10, 50, 0)})
+	in.Tools = append(in.Tools, LegacyTool{ID: "t-9", ChatID: in.ChatID, TurnID: "nowhere", StartedAt: at(10, 3, 0)})
+	in.Subagents = append(in.Subagents, LegacySubagent{ID: "sa-9", ChatID: in.ChatID, TurnID: "nowhere", StartedAt: at(10, 3, 0)})
+	in.Interruptions = append(in.Interruptions, LegacyInterruption{ID: "i-9", ChatID: in.ChatID, Kind: "weather", At: at(10, 9, 0)})
+	in.Choices = append(in.Choices, LegacyChoice{ChatID: in.ChatID, At: at(10, 9, 0)})
+	in.Prompts = append(in.Prompts, LegacyPrompt{RequestID: "req-q", State: "queued", CreatedAt: at(10, 25, 0)})
+
+	res := convert(t, in, nobody)
+
+	markers := bodies[ledger.Marker](t, res, ledger.KindMarker)
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "6 legacy records could not be converted"}, markers[len(markers)-1])
+	assert.Equal(t, 6, res.LeftOut)
+	assert.Contains(t, res.Skipped, "interruption i-2: permission, restated by its choice", "named, and not counted")
 }
 
 func TestAtRest_NamesTheWorkLeftOpen(t *testing.T) {

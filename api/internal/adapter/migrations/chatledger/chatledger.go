@@ -14,10 +14,12 @@ import (
 )
 
 // Result is one legacy chat as ledger rows: At is the legacy record's time,
-// Seq is 1..n in order. Skipped names each legacy record not converted, and why.
+// Seq is 1..n in order. Skipped names each legacy record not converted, and
+// why; LeftOut counts those no other row restates, as the chat's marker does.
 type Result struct {
 	Rows    []ledger.Row
 	Skipped []string
+	LeftOut int
 }
 
 // Owner answers which chat already holds a (provider, session) binding.
@@ -52,7 +54,7 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	if in.SessionsUnreadable || len(in.Unreadable) > 0 && nothingRead(in) {
 		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errUnreadable, clip(strings.Join(in.Unreadable, "; "), noteBytes))
 	}
-	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable), unreadable: len(in.Unreadable)}
+	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable), leftOut: len(in.Unreadable)}
 	c.bindSessions(in, owner)
 	c.turns(in)
 	c.subagents(in.Subagents)
@@ -60,7 +62,7 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	c.interruptions(in.Interruptions)
 	c.choices(in.Choices)
 	c.prompts(in.Prompts)
-	c.markUnreadable()
+	c.markLeftOut()
 	c.runners(in.Runners)
 	if c.err != nil {
 		return Result{}, fmt.Errorf("chatledger: convert %s: %w", in.ChatID, c.err)
@@ -69,7 +71,7 @@ func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Rows: rows, Skipped: c.skipped}, nil
+	return Result{Rows: rows, Skipped: c.skipped, LeftOut: c.leftOut}, nil
 }
 
 func nothingRead(in LegacyChat) bool {
@@ -77,24 +79,23 @@ func nothingRead(in LegacyChat) bool {
 		len(in.Choices)+len(in.Prompts)+len(in.Runners) == 0
 }
 
-// markUnreadable shows, after the chat's history, how many of its legacy
-// records were left out because they could not be read.
-func (c *conversion) markUnreadable() {
-	if c.unreadable == 0 {
+// markLeftOut shows, after the chat's history, how many of its legacy records
+// were left out: unreadable, or naming nothing the chat holds.
+func (c *conversion) markLeftOut() {
+	if c.leftOut == 0 {
 		return
 	}
-	what := fmt.Sprintf("%d legacy records could not be read", c.unreadable)
-	if c.unreadable == 1 {
-		what = "1 legacy record could not be read"
+	what := fmt.Sprintf("%d legacy records could not be converted", c.leftOut)
+	if c.leftOut == 1 {
+		what = "1 legacy record could not be converted"
 	}
 	c.emit(ruleMarker, c.latest.Add(time.Microsecond), 0, ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: what})
 }
 
-// unreadablef names a part of a record the converter could not read and
-// left out, and counts it in the chat's marker.
-func (c *conversion) unreadablef(format string, args ...any) {
-	c.skipf(format, args...)
-	c.unreadable++
+// restatedf names a legacy record another row already restates: nothing of
+// it is lost, so the marker does not count it.
+func (c *conversion) restatedf(format string, args ...any) {
+	c.skipped = append(c.skipped, clip(fmt.Sprintf(format, args...), reasonBytes))
 }
 
 // entry is a row and what orders it among the chat's others.
@@ -109,7 +110,7 @@ type conversion struct {
 	chatID     string
 	out        []entry
 	skipped    []string
-	unreadable int // records, or parts of one, left out unread
+	leftOut    int // records, or parts of one, left out
 	err        error
 
 	current map[string]string // provider → the session the chat is bound to on it
@@ -134,8 +135,11 @@ func (c *conversion) emit(rule int, at time.Time, legacySeq int64, kind ledger.K
 	c.out = append(c.out, entry{row: r, rule: rule, legacySeq: legacySeq, n: len(c.out)})
 }
 
+// skipf names a legacy record, or part of one, the chat is left without, and
+// counts it in the chat's marker.
 func (c *conversion) skipf(format string, args ...any) {
-	c.skipped = append(c.skipped, clip(fmt.Sprintf(format, args...), reasonBytes))
+	c.restatedf(format, args...)
+	c.leftOut++
 }
 
 // ordered numbers the rows by time, then rule, then legacy seq; legacy seqs of

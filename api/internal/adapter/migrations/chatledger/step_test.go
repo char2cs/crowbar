@@ -272,13 +272,16 @@ func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 // chat: the rest converts, the chat shows how many records it lost, and the
 // warning names the row and the column. An unreadable session skips the chat.
 func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
-	for _, tc := range []struct{ db, table, column string }{
-		{ActivityDB, "agent_turns", "started_at"},
-		{ActivityDB, "agent_tool_calls", "duration_ms"},
-		{ActivityDB, "agent_subagents", "ended_at"},
-		{ActivityDB, "agent_interruptions", "display_order"},
-		{ActivityDB, "agent_choices", "multi"},
-		{RunnerDB, "agent_chat_conversations", "first_seen_at"},
+	// A record left out takes with it what only it held: a subagent its tools.
+	for _, tc := range []struct {
+		db, table, column, shown string
+	}{
+		{ActivityDB, "agent_turns", "started_at", "2 legacy records could not be converted"},
+		{ActivityDB, "agent_tool_calls", "duration_ms", "1 legacy record could not be converted"},
+		{ActivityDB, "agent_subagents", "ended_at", "2 legacy records could not be converted"},
+		{ActivityDB, "agent_interruptions", "display_order", "1 legacy record could not be converted"},
+		{ActivityDB, "agent_choices", "multi", "1 legacy record could not be converted"},
+		{RunnerDB, "agent_chat_conversations", "first_seen_at", ""},
 	} {
 		t.Run(tc.table, func(t *testing.T) {
 			h := testutil.FixtureHome(t)
@@ -305,7 +308,7 @@ func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 			if last.Kind == ledger.KindRunnerStarted {
 				last = rows[len(rows)-2]
 			}
-			assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "1 legacy record could not be read"}, body[ledger.Marker](t, last))
+			assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: tc.shown}, body[ledger.Marker](t, last))
 		})
 	}
 }

@@ -99,7 +99,7 @@ func (c *conversion) inferEnds(interruptions []LegacyInterruption) {
 		}
 		g := c.turnOf(in.TurnID, in.At)
 		if g == nil || g.inferred != nil || g.ended() {
-			c.skipf("interruption %s: inferred, and its turn has an end", in.ID)
+			c.restatedf("interruption %s: inferred, and its turn has an end", in.ID)
 			continue
 		}
 		g.inferred = &interruptions[i]
@@ -181,7 +181,7 @@ func (c *conversion) restatePlan(g *group) {
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(raw), &steps); err != nil {
-		c.unreadablef("turn %s: plan unreadable: %v", g.head.ID, err)
+		c.skipf("turn %s: plan unreadable: %v", g.head.ID, err)
 		return
 	}
 	items := make([]ledger.PlanItem, 0, len(steps))

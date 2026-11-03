@@ -217,6 +217,26 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	assert.False(t, got[1].SessionsUnreadable)
 }
 
+// A conversation naming no provider or no session is a session the chat cannot
+// resume: like one that cannot be read, it keeps the chat unconverted.
+func TestReadLegacy_AConversationWithNoSessionIsUnreadable(t *testing.T) {
+	for _, column := range []string{"session_id", "provider_id"} {
+		t.Run(column, func(t *testing.T) {
+			h := testutil.FixtureHome(t)
+			writeLegacy(t, h, chatA(), chatB())
+			spoil(t, h, RunnerDB, "agent_chat_conversations", column, "chat-b", "")
+
+			got, err := ReadLegacy(context.Background(), h)
+
+			require.NoError(t, err)
+			assert.True(t, got[1].SessionsUnreadable)
+			assert.False(t, got[0].SessionsUnreadable)
+			_, err = ConvertChat(got[1], nobody)
+			require.ErrorIs(t, err, errUnreadable)
+		})
+	}
+}
+
 // Any one cell of any legacy table, overwritten with any value a damaged disk
 // or an older build could leave, never panics the read or the conversion,
 // never changes another chat's rows, and skips its own only for its session.
@@ -258,6 +278,9 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 							return r.Kind == ledger.KindMarker && body[ledger.Marker](t, r).Kind == ledger.MarkerUnreadable
 						})
 						require.True(t, shown || len(chat.Unreadable) == 0, "%s: what was left out is shown", damaged)
+						require.GreaterOrEqual(t, res.LeftOut, len(chat.Unreadable), damaged)
+						require.Equal(t, res.LeftOut > 0, shown, "%s: the marker counts every record left out", damaged)
+						require.Equal(t, res.LeftOut, len(res.Skipped)-restated(res.Skipped), "%s: every record named as left out is counted", damaged)
 					}
 					if chat.ChatID == "chat-b" {
 						require.NoError(t, err, damaged)
@@ -267,6 +290,17 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 			}
 		}
 	}
+}
+
+// restated is how many of skipped name a record restated by another row.
+func restated(skipped []string) int {
+	n := 0
+	for _, s := range skipped {
+		if strings.HasSuffix(s, ", restated by its choice") || strings.HasSuffix(s, "inferred, and its turn has an end") {
+			n++
+		}
+	}
+	return n
 }
 
 func columnsOf(t *testing.T, path, table string) []string {

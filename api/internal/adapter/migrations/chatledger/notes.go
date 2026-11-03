@@ -44,7 +44,7 @@ func (c *conversion) interruptions(interruptions []LegacyInterruption) {
 		case in.Kind == kindInferred:
 			// inferEnds made it its turn's end, or named why not.
 		case in.Kind == kindPermission || in.Kind == kindElicitation:
-			c.skipf("interruption %s: %s, restated by its choice", in.ID, in.Kind)
+			c.restatedf("interruption %s: %s, restated by its choice", in.ID, in.Kind)
 		default:
 			c.skipf("interruption %s: unknown kind %q", in.ID, in.Kind)
 		}
@@ -79,7 +79,7 @@ func (c *conversion) choices(choices []LegacyChoice) {
 		if ch.ResolvedAt != nil {
 			end = *ch.ResolvedAt
 			if err := json.Unmarshal([]byte(ch.AnsweredOptionIDs), &resolved.OptionIDs); ch.AnsweredOptionIDs != "" && err != nil {
-				c.unreadablef("choice %s: answered options unreadable: %v", ch.ID, err)
+				c.skipf("choice %s: answered options unreadable: %v", ch.ID, err)
 			}
 		}
 		c.emit(ruleAsk, latest(end, at), ch.Seq, ledger.KindAskResolved, turnID, "", resolved)
@@ -101,7 +101,7 @@ func (c *conversion) rawJSON(choiceID, column, s string) json.RawMessage {
 		return nil
 	}
 	if !json.Valid([]byte(s)) {
-		c.unreadablef("choice %s: %s unreadable", choiceID, column)
+		c.skipf("choice %s: %s unreadable", choiceID, column)
 		return nil
 	}
 	return json.RawMessage(s)
