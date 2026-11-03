@@ -53,36 +53,32 @@ func (p *parks) dropIfIdle(chatID string, e *chatParks) {
 }
 
 // open returns a context derived from ctx that a stop on chatID cancels, and
-// its close. A request that comes while a stop is under way is after it, so
-// it waits that stop out rather than being turned away by it.
-func (p *parks) open(ctx context.Context, chatID string) (context.Context, func(), error) {
+// its close. A request waits out the stops under way when it arrives, and a
+// stop begun after it arrived abandons it; simultaneous waiters run in no set order.
+func (p *parks) open(ctx context.Context, chatID string) (context.Context, func()) {
+	park, cancel := context.WithCancelCause(ctx)
 	p.mu.Lock()
 	e := p.entry(chatID)
-	for e.stopping > 0 {
-		stopped := e.stopped
-		p.mu.Unlock()
+	e.cancels[&cancel] = struct{}{}
+	stopped, waits := e.stopped, e.stopping > 0
+	p.mu.Unlock()
+	if waits {
 		select {
 		case <-stopped:
-		case <-ctx.Done():
-			return nil, nil, fmt.Errorf("agent: wait for a stop: %w", ctx.Err())
+		case <-park.Done():
 		}
-		p.mu.Lock()
-		e = p.entry(chatID)
 	}
-	park, cancel := context.WithCancelCause(ctx)
-	e.cancels[&cancel] = struct{}{}
-	p.mu.Unlock()
 	return park, func() {
 		cancel(nil)
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		delete(e.cancels, &cancel)
 		p.dropIfIdle(chatID, e)
-	}, nil
+	}
 }
 
 // preempt cancels every wait parked on chatID; one opened before the returned
-// release waits for it.
+// release waits until every stop under way has ended.
 func (p *parks) preempt(chatID string) (release func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -126,10 +122,7 @@ type hold struct {
 // acquire opens a park on chatID and takes the chat's lock on it: a stop that
 // begins while this path queues turns it away (ErrStopped).
 func (rs *Runners) acquire(ctx context.Context, chatID string) (*hold, error) {
-	park, closePark, err := rs.parks.open(ctx, chatID)
-	if err != nil {
-		return nil, err
-	}
+	park, closePark := rs.parks.open(ctx, chatID)
 	unlock, err := rs.chatLock.Lock(park, chatID)
 	if err != nil {
 		closePark()

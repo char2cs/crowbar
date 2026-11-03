@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"testing/synctest"
 
@@ -128,26 +129,84 @@ func TestAcquire_APathQueuedWhenAStopBeginsIsStopped(t *testing.T) {
 	})
 }
 
+// errStillWaiting is what a path that has not answered yet reads as.
+var errStillWaiting = errors.New("the path is still waiting")
+
+// acquireAsync starts a path on chat-1 and answers how its acquire ended.
+func acquireAsync(ctx context.Context, rs *Runners) <-chan error {
+	acquired := make(chan error, 1)
+	go func() {
+		h, err := rs.acquire(ctx, "chat-1")
+		if err == nil {
+			h.release()
+		}
+		acquired <- err
+	}()
+	return acquired
+}
+
+// answer is how acquired ended once the bubble settles, errStillWaiting if not.
+func answer(acquired <-chan error) error {
+	synctest.Wait()
+	select {
+	case err := <-acquired:
+		return err
+	default:
+		return errStillWaiting
+	}
+}
+
 // A path that begins while a stop is under way runs after it: the stop
 // abandons the waits parked before it, never a request that came later.
 func TestAcquire_APathThatBeginsDuringAStopRunsAfterIt(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rs := newLockedRunners()
 		stopping := rs.parks.preempt("chat-1")
-		acquired := make(chan error, 1)
-		go func() {
-			h, err := rs.acquire(context.Background(), "chat-1")
-			if err == nil {
-				h.release()
-			}
-			acquired <- err
-		}()
-		synctest.Wait()
-		assert.Empty(t, acquired, "the path waits for the stop under way")
+		acquired := acquireAsync(context.Background(), rs)
+		require.ErrorIs(t, answer(acquired), errStillWaiting, "the path waits for the stop under way")
 
 		stopping()
-		require.NoError(t, <-acquired)
+		require.NoError(t, answer(acquired))
 	})
+}
+
+// A stop begun after a path arrived abandons it however the two interleave:
+// while the path still waits out an earlier stop, or once it queues for the lock.
+func TestAcquire_AStopBegunAfterAPathArrivedAbandonsIt(t *testing.T) {
+	orders := map[string]func(rs *Runners, first func()) (second func()){
+		"during the earlier stop": func(rs *Runners, first func()) func() {
+			second := rs.parks.preempt("chat-1")
+			first()
+			return second
+		},
+		"as the earlier stop ends": func(rs *Runners, first func()) func() {
+			first()
+			return rs.parks.preempt("chat-1")
+		},
+		"once the path queues for the lock": func(rs *Runners, first func()) func() {
+			first()
+			synctest.Wait()
+			return rs.parks.preempt("chat-1")
+		},
+	}
+	for name, order := range orders {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				rs := newLockedRunners()
+				unlockHook, err := rs.chatLock.Lock(t.Context(), "chat-1") // a hook mid-record
+				require.NoError(t, err)
+				first := rs.parks.preempt("chat-1")
+				acquired := acquireAsync(context.Background(), rs)
+				synctest.Wait()
+
+				second := order(rs, first)
+				err = answer(acquired)
+				second()
+				unlockHook()
+				require.ErrorIs(t, err, ErrStopped)
+			})
+		})
+	}
 }
 
 // noticeTurns closes failed once it is asked to fail a turn on a notice.
