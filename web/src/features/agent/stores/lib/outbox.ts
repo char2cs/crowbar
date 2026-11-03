@@ -75,7 +75,10 @@ export function nextToSend(
     return undefined
   }
   // A reply streaming ahead of its rows is a turn the rows have not reported yet.
-  if ((facts.running || feed.liveTail.length > 0) && !head.steer) return undefined
+  const busy = facts.running || feed.liveTail.length > 0
+  // A prompt after Stop is the next turn: steered, it would end with the turn Stop ends.
+  const stopping = facts.stopping !== null && facts.stopping === facts.running?.turnId
+  if (busy && (!head.steer || stopping)) return undefined
   if (Object.values(facts.prompts).some((fact) => fact.state === 'pending')) return undefined
   return head
 }

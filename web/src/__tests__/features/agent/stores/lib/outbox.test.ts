@@ -63,6 +63,12 @@ describe('nextToSend', () => {
     expect(nextToSend([item('a', { steer: true })], running(), false)?.requestId).toBe('a')
   })
 
+  it('never steers into the turn Stop was pressed on: the prompt is the next turn', () => {
+    const feed = running()
+    const stopping = { ...feed, facts: { ...feed.facts, stopping: 'turn-1' } }
+    expect(nextToSend([item('a', { steer: true })], stopping, false)).toBeUndefined()
+  })
+
   it('never sends a prompt Esc is taking back', () => {
     expect(nextToSend([item('a', { retractOnAck: true })], emptyFeed(), false)).toBeUndefined()
   })
