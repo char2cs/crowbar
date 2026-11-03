@@ -3,8 +3,12 @@ package ingress
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -452,15 +456,8 @@ func TestDeriveTitle_IsThePromptsFirstLine(t *testing.T) {
 // dispatcher handles without the mapper; none falls between the two.
 func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
 	notMapped := []string{engineagents.HookSessionStart, engineagents.HookSessionEnd, engineagents.HookTelemetry}
-	vocabulary := append([]string{
-		engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed, engineagents.HookIdle,
-		engineagents.HookMessageDelta, engineagents.HookMessageComplete, engineagents.HookReasoningDelta,
-		engineagents.HookToolOutputDelta, engineagents.HookDiffUpdate, engineagents.HookPlanUpdate,
-		engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
-		engineagents.HookSubagentPre, engineagents.HookSubagentPost, engineagents.HookNotification,
-		engineagents.HookPermission, engineagents.HookElicitation, engineagents.HookCompactPre,
-		engineagents.HookCompactPost, engineagents.HookSubagentResult, engineagents.HookPlanStep,
-	}, notMapped...)
+	vocabulary := hookVocabulary(t)
+	require.Subset(t, vocabulary, notMapped)
 
 	for _, kind := range vocabulary {
 		assert.Equal(t, !slices.Contains(notMapped, kind), records(kind), kind)
@@ -468,6 +465,29 @@ func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
 	for kind := range mappers {
 		assert.Contains(t, vocabulary, kind, "the mapper decides rows for a known event")
 	}
+}
+
+// hookVocabulary reads the Hook constants from their declaring file: Go has no
+// runtime list of a package's constants, and a copied list would not grow with them.
+func hookVocabulary(t *testing.T) []string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "../../../../../engine/agents/internal/spec/hooks.go", nil, 0)
+	require.NoError(t, err)
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || !strings.HasPrefix(spec.Names[0].Name, "Hook") {
+			return true
+		}
+		lit, ok := spec.Values[0].(*ast.BasicLit)
+		require.True(t, ok, spec.Names[0].Name)
+		value, err := strconv.Unquote(lit.Value)
+		require.NoError(t, err)
+		out = append(out, value)
+		return false
+	})
+	require.NotEmpty(t, out)
+	return out
 }
 
 // noLedger takes every outcome the desk writes back and keeps none.
