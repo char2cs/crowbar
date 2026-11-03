@@ -5,7 +5,10 @@
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createHighlighterCore, type HighlighterCore } from 'shiki/core'
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
+import {
+  createJavaScriptRegexEngine,
+  defaultJavaScriptRegexConstructor,
+} from 'shiki/engine/javascript'
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 import { bundledLanguages, type BundledLanguage } from 'shiki/langs'
 import type { StateStack } from 'shiki/textmate'
@@ -129,11 +132,14 @@ it('builds the highlighter with the pinned regex options', async () => {
   fresh.grammarFor('lua')
   await vi.waitFor(() => expect(fresh.grammarStateOf('lua')).toBe('ready'), LOAD)
 
-  expect(engine.builtWith).toEqual([{ forgiving: true, target: 'ES2024' }])
+  expect(engine.builtWith).toEqual([expect.objectContaining({ forgiving: true, target: 'ES2024' })])
 }, 30_000)
 
 it('targets ES2024 regexes where the v flag compiles, else ES2018, never auto', () => {
-  expect(regexEngineOptions()).toEqual({ forgiving: true, target: 'ES2024' })
+  expect(regexEngineOptions(defaultJavaScriptRegexConstructor)).toMatchObject({
+    forgiving: true,
+    target: 'ES2024',
+  })
 
   const noVFlag = new Proxy(RegExp, {
     construct(target, args: [string, string?]) {
@@ -143,7 +149,10 @@ it('targets ES2024 regexes where the v flag compiles, else ES2018, never auto', 
   })
   vi.stubGlobal('RegExp', noVFlag)
   try {
-    expect(regexEngineOptions()).toEqual({ forgiving: true, target: 'ES2018' })
+    expect(regexEngineOptions(defaultJavaScriptRegexConstructor)).toMatchObject({
+      forgiving: true,
+      target: 'ES2018',
+    })
   } finally {
     vi.unstubAllGlobals()
   }
@@ -330,7 +339,9 @@ describe.each(['ES2024', 'ES2018'] as const)(
 
     beforeAll(async () => {
       ours = await createHighlighterCore({
-        engine: createJavaScriptRegexEngine(regexEngineOptions(target)),
+        engine: createJavaScriptRegexEngine(
+          regexEngineOptions(defaultJavaScriptRegexConstructor, target),
+        ),
         langs: [],
       })
       reference = await createHighlighterCore({

@@ -3,7 +3,10 @@
  * so a first open skips the oniguruma wasm. Grammars load once, then tokenize synchronously.
  */
 import type { HighlighterCore } from 'shiki/core'
-import type { JavaScriptRegexEngineOptions } from 'shiki/engine/javascript'
+import type {
+  defaultJavaScriptRegexConstructor,
+  JavaScriptRegexEngineOptions,
+} from 'shiki/engine/javascript'
 import type { BundledLanguage } from 'shiki/langs'
 import type { StateStack } from 'shiki/textmate'
 
@@ -46,9 +49,26 @@ let highlighter: Promise<HighlighterCore> | null = null
  * @internal Exported for unit tests.
  */
 export function regexEngineOptions(
+  construct: typeof defaultJavaScriptRegexConstructor,
   target: 'ES2024' | 'ES2018' = supportsUnicodeSets() ? 'ES2024' : 'ES2018',
 ): JavaScriptRegexEngineOptions {
-  return { forgiving: true, target }
+  return {
+    forgiving: true,
+    target,
+    // shiki's defaults but a lookbehind `^`: WebKit treats a regex led by `(^…)?` as
+    // anchored at 0, so `-- comment` after code never matched. One line, same start.
+    regexConstructor: (pattern) =>
+      construct(pattern, {
+        target,
+        rules: {
+          allowOrphanBackrefs: true,
+          asciiWordBoundaries: true,
+          captureGroup: true,
+          recursionLimit: 5,
+          singleline: false,
+        },
+      }),
+  }
 }
 
 function supportsUnicodeSets(): boolean {
@@ -61,14 +81,16 @@ function supportsUnicodeSets(): boolean {
 
 async function createHighlighter(): Promise<HighlighterCore> {
   try {
-    const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] = await Promise.all([
+    const [{ createHighlighterCore }, javascript] = await Promise.all([
       import('shiki/core'),
       import('shiki/engine/javascript'),
     ])
     // No theme: nothing here reads colours, and scopes need none.
     return await createHighlighterCore({
       langs: [],
-      engine: createJavaScriptRegexEngine(regexEngineOptions()),
+      engine: javascript.createJavaScriptRegexEngine(
+        regexEngineOptions(javascript.defaultJavaScriptRegexConstructor),
+      ),
     })
   } catch (error) {
     // A failed chunk load fails the languages waiting on it, not every later one.
