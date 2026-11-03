@@ -264,7 +264,7 @@ func TestReadLegacy_AConversationWithAnUnreadableTimeKeepsItsBinding(t *testing.
 	bound := rowsOf(res, ledger.KindSessionBound)
 	require.Len(t, bound, 1)
 	assert.Equal(t, "S-b", body[ledger.SessionBound](t, bound[0]).SessionID)
-	assert.Equal(t, len(convert(t, chatB(), nobody).Rows)+1, len(res.Rows), "the history and a marker")
+	assert.Len(t, res.Rows, len(convert(t, chatB(), nobody).Rows)+1, "the history and a marker")
 }
 
 // Any one cell of any legacy table, overwritten with any value a damaged disk

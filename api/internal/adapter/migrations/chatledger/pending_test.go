@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -171,7 +172,10 @@ func TestBoot_AHugeDamagedCellIsNamedShort(t *testing.T) {
 	info, err := os.Stat(filepath.Join(h.MigrateDir(), "ledger.jsonl"))
 	require.NoError(t, err)
 	assert.Less(t, info.Size(), int64(64<<10))
-	assert.Contains(t, migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")].Detail, "…(20971520 bytes)")
+	named := slices.ContainsFunc(*warned, func(r slog.Record) bool {
+		return strings.Contains(testutil.Attrs(r)["skipped"].String(), "…(20971520 bytes)")
+	})
+	assert.True(t, named, "the cell is named by its first bytes and its length")
 }
 
 // killAfterStamp leaves the run ledger as a process killed between the last
@@ -286,3 +290,13 @@ func TestBoot_AChatWhoseImportKeepsFailingIsGivenUp(t *testing.T) {
 	boot(t, h)
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
+
+// notes is marks that also keeps the notes written.
+type notes struct {
+	marks
+	notes map[string]migrate.Note
+}
+
+func (n notes) Noted(key string) (migrate.Note, bool) { v, ok := n.notes[key]; return v, ok }
+
+func (n notes) Note(key string, v migrate.Note) error { n.notes[key] = v; return nil }

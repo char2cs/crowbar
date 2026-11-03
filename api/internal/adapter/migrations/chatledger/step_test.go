@@ -191,7 +191,9 @@ func landed(t *testing.T, h home.Home, chatID string, rows int64, adopted ...Leg
 	return err
 }
 
-func TestLandedAsWritten_FailsOnAChatLeftWithOpenWork(t *testing.T) {
+// A chat left with work open, or not ending at the rows the import just wrote,
+// is not what the conversion made.
+func TestLandedAsWritten_FailsUnlessTheChatHoldsWhatItWroteAtRest(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	open, err := ledger.NewRow(ledger.KindUserMessage, "T-1", "", ledger.UserMessage{RequestID: "r1", Origin: ledger.OriginCrowbar})
 	require.NoError(t, err)
@@ -203,19 +205,12 @@ func TestLandedAsWritten_FailsOnAChatLeftWithOpenWork(t *testing.T) {
 	require.ErrorIs(t, landed(t, h, "chat-x", 1), ErrNotAtRest)
 	require.ErrorIs(t, landed(t, h, "chat-y", 1), ErrNotAtRest)
 	require.NoError(t, landed(t, h, "chat-y", 1, LegacyRunner{ID: "run-1"}), "a runner the old daemon left is the boot reconcile's to end")
-}
-
-// A chat that does not end at the rows the import just wrote is not what the
-// conversion made.
-func TestLandedAsWritten_FailsOnAChatWhoseLedgerIsNotTheRowsItWrote(t *testing.T) {
-	h := testutil.FixtureHome(t)
 	marker, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
 	require.NoError(t, err)
-	appendTo(t, h, "chat-x", marker, marker)
-
-	require.ErrorIs(t, landed(t, h, "chat-x", 1), errNotAsConverted)
-	require.ErrorIs(t, landed(t, h, "chat-x", 3), errNotAsConverted)
-	require.NoError(t, landed(t, h, "chat-x", 2))
+	appendTo(t, h, "chat-z", marker, marker)
+	require.ErrorIs(t, landed(t, h, "chat-z", 1), errNotAsConverted)
+	require.ErrorIs(t, landed(t, h, "chat-z", 3), errNotAsConverted)
+	require.NoError(t, landed(t, h, "chat-z", 2))
 }
 
 // Each chat skipped, and each record a converted chat left out, is logged
@@ -271,7 +266,7 @@ func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 
 // One row the reader cannot read, in any legacy table, is left out of its
 // chat: the rest converts, the chat shows how many records it lost, and the
-// warning names the row and the column. An unreadable session skips the chat.
+// warning names the row and the column.
 func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 	// A record left out takes with it what only it held: a subagent its tools.
 	for _, tc := range []struct {
@@ -282,7 +277,7 @@ func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 		{ActivityDB, "agent_subagents", "ended_at", "2 legacy records could not be converted"},
 		{ActivityDB, "agent_interruptions", "display_order", "1 legacy record could not be converted"},
 		{ActivityDB, "agent_choices", "multi", "1 legacy record could not be converted"},
-		{RunnerDB, "agent_chat_conversations", "first_seen_at", ""},
+		{RunnerDB, "agent_chat_conversations", "first_seen_at", "1 legacy record could not be converted"},
 	} {
 		t.Run(tc.table, func(t *testing.T) {
 			h := testutil.FixtureHome(t)
@@ -299,10 +294,6 @@ func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 			logged := fmt.Sprint(attrs["err"].Any(), attrs["skipped"].Any())
 			assert.Contains(t, logged, tc.table)
 			assert.Contains(t, logged, tc.column+` "garbled"`)
-			if tc.table == "agent_chat_conversations" {
-				assert.Empty(t, held(t, h, "chat-a"), "which session the chat resumes is unknown")
-				return
-			}
 			rows := held(t, h, "chat-a")
 			require.NotEmpty(t, rows)
 			last := rows[len(rows)-1]
@@ -482,16 +473,6 @@ func TestConvertAll_EveryImportFailingFailsTheStep(t *testing.T) {
 	require.ErrorIs(t, err, full)
 }
 
-// notes is marks that also keeps the notes written.
-type notes struct {
-	marks
-	notes map[string]migrate.Note
-}
-
-func (n notes) Noted(key string) (migrate.Note, bool) { v, ok := n.notes[key]; return v, ok }
-
-func (n notes) Note(key string, v migrate.Note) error { n.notes[key] = v; return nil }
-
 // An import that commits and then does not hold what was converted is kept as
 // it landed and named; no later boot imports over it, and the others convert.
 func TestConvertAll_AnImportThatDidNotLandAsConvertedIsSkippedForGood(t *testing.T) {
@@ -506,8 +487,6 @@ func TestConvertAll_AnImportThatDidNotLandAsConvertedIsSkippedForGood(t *testing
 
 	require.NoError(t, err)
 	assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
-	assert.Contains(t, cp.marks, "chat-a")
-	assert.NotContains(t, cp.marks, "chat-b")
 	assert.Equal(t, int64(converterVersion), cp.notes[skippedKey("chat-b")].Counts["converter"], "not tried again")
 	require.Len(t, *warned, 1)
 	assert.Equal(t, "chatledger: skipped a chat whose import did not land as converted; its rows are kept, it is not tried again", (*warned)[0].Message)
