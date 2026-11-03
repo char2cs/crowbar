@@ -101,7 +101,12 @@ func TestWatchExit_OnlyAServeThatDiesOnItsOwnIsALostConnection(t *testing.T) {
 			} else {
 				require.NoError(t, cmd.Process.Kill())
 			}
-			assert.Equal(t, tc.want, <-lost)
+			select {
+			case why := <-lost:
+				assert.Equal(t, tc.want, why)
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "the connection's exit was never reported")
+			}
 		})
 	}
 }

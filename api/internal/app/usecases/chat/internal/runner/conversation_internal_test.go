@@ -194,8 +194,17 @@ func assertSessionLost(t *testing.T, rs *Runners, asked <-chan string) {
 	_, live := rs.apiConns.get("runner-1")
 	require.False(t, live, "the connection is dropped")
 	var methods []string
-	for m := range asked {
-		methods = append(methods, m)
+	hungUp := time.After(5 * time.Second)
+	for open := true; open; {
+		select {
+		case m, ok := <-asked:
+			open = ok
+			if ok {
+				methods = append(methods, m)
+			}
+		case <-hungUp:
+			require.FailNow(t, "the dropped connection's server never hung up", "asked: %v", methods)
+		}
 	}
 	assert.Equal(t, []string{"thread/resume"}, methods)
 }
