@@ -205,26 +205,44 @@ func TestRegression_TheReplyIsReconciledFromTheStreamAndTheTerminatingHook(t *te
 		hooks                      []hook
 		want                       []string
 	}{
-		{"a message is visible before its turn ends", "streamstub", streamStubProviderDescriptorYAML,
-			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID EARLY")}}, []string{"SAID EARLY"}},
-		{"a provider with no stream records what it always did", "quietstub", quietStubProviderDescriptorYAML,
-			[]hook{stop("ONLY MESSAGE")}, []string{"ONLY MESSAGE"}},
-		{"the terminating hook supersedes a lossy stream", "streamstub", streamStubProviderDescriptorYAML,
+		{
+			"a message is visible before its turn ends", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID EARLY")}},
+			[]string{"SAID EARLY"},
+		},
+		{
+			"a provider with no stream records what it always did", "quietstub", quietStubProviderDescriptorYAML,
+			[]hook{stop("ONLY MESSAGE")},
+			[]string{"ONLY MESSAGE"},
+		},
+		{
+			"the terminating hook supersedes a lossy stream", "streamstub", streamStubProviderDescriptorYAML,
 			[]hook{
 				{"message_delta", delta("msg-one", 0, false, "THE BEGINNING ")},
 				{"message_delta", delta("msg-one", 2, true, "AND THE END")},
 				stop("THE BEGINNING AND THE MIDDLE AND THE END"),
-			}, []string{"THE BEGINNING AND THE MIDDLE AND THE END"}},
-		{"a lossy terminating hook never truncates the stream", "streamstub", streamStubProviderDescriptorYAML,
+			},
+			[]string{"THE BEGINNING AND THE MIDDLE AND THE END"},
+		},
+		{
+			"a lossy terminating hook never truncates the stream", "streamstub", streamStubProviderDescriptorYAML,
 			[]hook{
 				{"message_delta", delta("msg-one", 0, false, "THE BEGINNING AND THE MIDDLE ")},
 				{"message_delta", delta("msg-one", 1, true, "AND THE END")},
 				stop("AND THE END"),
-			}, []string{"THE BEGINNING AND THE MIDDLE AND THE END"}},
-		{"a streamed reply is not recorded twice", "streamstub", streamStubProviderDescriptorYAML,
-			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID ONCE")}, stop("SAID ONCE")}, []string{"SAID ONCE"}},
-		{"a final delta after its turn_stop joins the reply", "streamstub", streamStubProviderDescriptorYAML,
-			[]hook{stop("SAID"), {"message_delta", delta("msg-one", 0, true, "SAID IN FULL")}}, []string{"SAID IN FULL"}},
+			},
+			[]string{"THE BEGINNING AND THE MIDDLE AND THE END"},
+		},
+		{
+			"a streamed reply is not recorded twice", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID ONCE")}, stop("SAID ONCE")},
+			[]string{"SAID ONCE"},
+		},
+		{
+			"a final delta after its turn_stop joins the reply", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{stop("SAID"), {"message_delta", delta("msg-one", 0, true, "SAID IN FULL")}},
+			[]string{"SAID IN FULL"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)

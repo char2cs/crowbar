@@ -61,35 +61,29 @@ func TestCreate_Success(
 func TestCreate_ForwardsWhatTheRequestNames(t *testing.T) {
 	const wsPath, repoPath = "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", "/v0/projects/p1/repos/r1/chats"
 	wsParams, repoParams := gin.Params{{Key: "wsId", Value: "ws-1"}}, gin.Params{{Key: "repoId", Value: "r1"}}
-	onWS := createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}
+	onWS, onWS9 := createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}
+	var none createChatCall
 	for _, tc := range []struct {
-		name, path, body, surface string
-		params                    gin.Params
-		treeErr                   error
-		code, calls               int
-		want                      createChatCall
+		name, path string
+		params     gin.Params
+		body       string
+		surface    string
+		treeErr    error
+		code       int
+		calls      int
+		want       createChatCall
 	}{
-		{name: "the surface", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","surface":"terminal"}`,
-			code: http.StatusCreated, calls: 1, want: onWS, surface: "terminal"},
-		{name: "no surface is the provider's default", path: wsPath, params: wsParams, body: `{"provider":"vendor-a"}`,
-			code: http.StatusCreated, calls: 1, want: onWS},
-		{name: "an unknown surface is refused", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","surface":"holodeck"}`,
-			code: http.StatusBadRequest},
-		{name: "the parent", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","parentId":"parent-chat"}`,
-			code: http.StatusCreated, calls: 1, want: createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"}},
-		{name: "bad JSON", path: wsPath, params: wsParams, body: "{not json", code: http.StatusBadRequest},
-		{name: "a tree failure", path: wsPath, params: wsParams, body: `{"provider":"vendor-a"}`, treeErr: errors.New("boom"),
-			code: http.StatusInternalServerError, calls: 1, want: onWS},
-		{name: "the body's workspace at the repo mount", path: repoPath, params: repoParams, body: `{"provider":"vendor-a","workspaceId":"ws-9"}`,
-			code: http.StatusCreated, calls: 1, want: createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}},
-		{name: "no workspace at all is workspace-less", path: repoPath, params: repoParams, body: `{"provider":"vendor-a"}`,
-			code: http.StatusCreated, calls: 1, want: createChatCall{ProviderID: "vendor-a"}},
-		{name: "ownWorktree at the repo mount", path: repoPath, params: repoParams, body: `{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`,
-			code: http.StatusCreated, calls: 1, want: createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true}},
-		{name: "ownWorktree is ignored when the path names a workspace", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","ownWorktree":true}`,
-			code: http.StatusCreated, calls: 1, want: onWS},
-		{name: "ownWorktree is ignored when the body names a workspace", path: repoPath, params: repoParams, body: `{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`,
-			code: http.StatusCreated, calls: 1, want: createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}},
+		{"the surface", wsPath, wsParams, `{"provider":"vendor-a","surface":"terminal"}`, "terminal", nil, http.StatusCreated, 1, onWS},
+		{"no surface is the provider's default", wsPath, wsParams, `{"provider":"vendor-a"}`, "", nil, http.StatusCreated, 1, onWS},
+		{"an unknown surface is refused", wsPath, wsParams, `{"provider":"vendor-a","surface":"holodeck"}`, "", nil, http.StatusBadRequest, 0, none},
+		{"the parent", wsPath, wsParams, `{"provider":"vendor-a","parentId":"parent-chat"}`, "", nil, http.StatusCreated, 1, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"}},
+		{"bad JSON", wsPath, wsParams, "{not json", "", nil, http.StatusBadRequest, 0, none},
+		{"a tree failure", wsPath, wsParams, `{"provider":"vendor-a"}`, "", errors.New("boom"), http.StatusInternalServerError, 1, onWS},
+		{"the body's workspace at the repo mount", repoPath, repoParams, `{"provider":"vendor-a","workspaceId":"ws-9"}`, "", nil, http.StatusCreated, 1, onWS9},
+		{"no workspace at all is workspace-less", repoPath, repoParams, `{"provider":"vendor-a"}`, "", nil, http.StatusCreated, 1, createChatCall{ProviderID: "vendor-a"}},
+		{"ownWorktree at the repo mount", repoPath, repoParams, `{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`, "", nil, http.StatusCreated, 1, createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true}},
+		{"ownWorktree is ignored when the path names a workspace", wsPath, wsParams, `{"provider":"vendor-a","ownWorktree":true}`, "", nil, http.StatusCreated, 1, onWS},
+		{"ownWorktree is ignored when the body names a workspace", repoPath, repoParams, `{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`, "", nil, http.StatusCreated, 1, onWS9},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}, err: tc.treeErr}

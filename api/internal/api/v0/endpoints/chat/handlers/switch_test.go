@@ -160,25 +160,26 @@ func TestClose_Success(
 // A by-id route 404s a chat anchored to another workspace than :wsId exactly
 // like an unknown id, before its usecase (or the tree behind it) is reached.
 func TestByIDRoutes_AChatOfAnotherWorkspaceIs404BeforeTheUsecase(t *testing.T) {
+	type calls = func(*fakeAgentUsecase, *fakeChatTree) int
+	switched := func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.switchCalls) }
+	resumed := func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.resumeCalls) }
+	stopped := func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.stopCalls) }
+	renamed := func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.renameCalls) }
+	selected := func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.selectionCalls) }
+	purged := func(uc *fakeAgentUsecase, tree *fakeChatTree) int { return len(uc.purgeCalls) + len(tree.gotPurge) }
 	for _, tc := range []struct {
 		name    string
 		route   func(*handlers.Handlers, *gin.Context)
 		body    string
-		reached func(*fakeAgentUsecase, *fakeChatTree) int
+		reached calls
 	}{
-		{"switch", (*handlers.Handlers).Switch, `{"provider":"vendor-b"}`,
-			func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.switchCalls) }},
+		{"switch", (*handlers.Handlers).Switch, `{"provider":"vendor-b"}`, switched},
 		{"handoff", (*handlers.Handlers).Handoff, "", nil},
-		{"resume", (*handlers.Handlers).Resume, "",
-			func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.resumeCalls) }},
-		{"stop", (*handlers.Handlers).Stop, "",
-			func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.stopCalls) }},
-		{"rename", (*handlers.Handlers).Rename, `{"title":"My Title"}`,
-			func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.renameCalls) }},
-		{"set selection", (*handlers.Handlers).SetSelection, `{"model":"opus"}`,
-			func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.selectionCalls) }},
-		{"delete", (*handlers.Handlers).Delete, "",
-			func(uc *fakeAgentUsecase, tree *fakeChatTree) int { return len(uc.purgeCalls) + len(tree.gotPurge) }},
+		{"resume", (*handlers.Handlers).Resume, "", resumed},
+		{"stop", (*handlers.Handlers).Stop, "", stopped},
+		{"rename", (*handlers.Handlers).Rename, `{"title":"My Title"}`, renamed},
+		{"set selection", (*handlers.Handlers).SetSelection, `{"model":"opus"}`, selected},
+		{"delete", (*handlers.Handlers).Delete, "", purged},
 		{"get", (*handlers.Handlers).Get, "", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,13 +198,20 @@ func TestByIDRoutes_AChatOfAnotherWorkspaceIs404BeforeTheUsecase(t *testing.T) {
 	}
 }
 
-// A body that does not decode is 400 before the usecase is reached, and a
-// usecase failure surfaces through the shared mapper with its own status,
-// never a blanket 500 or a bare success.
+// A body that does not decode is 400 before the usecase is reached; a usecase
+// failure surfaces through the shared mapper with its own status, never a
+// blanket 500 or a bare success. An empty MCP message is not a notification,
+// and a selection outside the provider's catalogue is the client's error.
 func TestRoutes_RefuseBadBodiesAndMapUsecaseFailures(t *testing.T) {
 	const rpc = `{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`
-	byID := gin.Params{{Key: "id", Value: "c-1"}}
-	runner := gin.Params{{Key: "segid", Value: "seg-1"}}
+	type h = handlers.Handlers
+	byID, runner := gin.Params{{Key: "id", Value: "c-1"}}, gin.Params{{Key: "segid", Value: "seg-1"}}
+	byWS, byRepo := gin.Params{{Key: "wsId", Value: "ws1"}}, gin.Params{{Key: "repoId", Value: "r1"}}
+	switched := func(uc *fakeAgentUsecase) int { return len(uc.switchCalls) }
+	renamed := func(uc *fakeAgentUsecase) int { return len(uc.renameCalls) }
+	selected := func(uc *fakeAgentUsecase) int { return len(uc.selectionCalls) }
+	dispatched := func(uc *fakeAgentUsecase) int { return len(uc.dispatchMCPCalls) }
+	invalid := fmt.Errorf("no such model: %w", problem.ErrInvalidArgument)
 	for _, tc := range []struct {
 		name    string
 		route   func(*handlers.Handlers, *gin.Context)
@@ -215,45 +223,24 @@ func TestRoutes_RefuseBadBodiesAndMapUsecaseFailures(t *testing.T) {
 		code    int
 		reached func(*fakeAgentUsecase) int
 	}{
-		{name: "switch: bad JSON", route: (*handlers.Handlers).Switch, params: byID, body: "{not json",
-			code: http.StatusBadRequest, reached: func(uc *fakeAgentUsecase) int { return len(uc.switchCalls) }},
-		{name: "rename: bad JSON", route: (*handlers.Handlers).Rename, params: byID, body: "{not json",
-			code: http.StatusBadRequest, reached: func(uc *fakeAgentUsecase) int { return len(uc.renameCalls) }},
-		{name: "set selection: bad JSON", route: (*handlers.Handlers).SetSelection, params: byID, body: "{not json",
-			code: http.StatusBadRequest, reached: func(uc *fakeAgentUsecase) int { return len(uc.selectionCalls) }},
-		{name: "mcp: bad JSON", route: (*handlers.Handlers).MCP, params: runner, body: "{not json",
-			code: http.StatusBadRequest, reached: func(uc *fakeAgentUsecase) int { return len(uc.dispatchMCPCalls) }},
-		// An empty message is not a notification: answering it 204 would hide the caller's bug.
-		{name: "mcp: no rpc member", route: (*handlers.Handlers).MCP, params: runner, body: `{"token":"TOK"}`,
-			code: http.StatusBadRequest, reached: func(uc *fakeAgentUsecase) int { return len(uc.dispatchMCPCalls) }},
-		{name: "switch: not found", route: (*handlers.Handlers).Switch, uc: fakeAgentUsecase{switchErr: agentchat.ErrNotFound},
-			params: byID, body: `{"provider":"vendor-b"}`, code: http.StatusNotFound},
-		{name: "handoff: unmapped", route: (*handlers.Handlers).Handoff, uc: fakeAgentUsecase{handoffErr: errors.New("boom")},
-			params: byID, code: http.StatusInternalServerError},
-		{name: "resume: not found", route: (*handlers.Handlers).Resume, uc: fakeAgentUsecase{resumeErr: agentchat.ErrNotFound},
-			params: byID, code: http.StatusNotFound},
-		{name: "stop: not found", route: (*handlers.Handlers).Stop, uc: fakeAgentUsecase{stopErr: agentchat.ErrNotFound},
-			params: byID, code: http.StatusNotFound},
-		{name: "rename: not found", route: (*handlers.Handlers).Rename, uc: fakeAgentUsecase{renameErr: agentchat.ErrNotFound},
-			params: byID, body: `{"title":"My Title"}`, code: http.StatusNotFound},
-		// A value outside the provider's catalogue is the client's error, not an opaque 500.
-		{name: "set selection: rejected value", route: (*handlers.Handlers).SetSelection,
-			uc:     fakeAgentUsecase{selectionErr: fmt.Errorf("no such model: %w", problem.ErrInvalidArgument)},
-			params: byID, body: `{"model":"telepathy"}`, code: http.StatusBadRequest},
-		{name: "delete: not found", route: (*handlers.Handlers).Delete, treeErr: agentchat.ErrNotFound,
-			params: byID, code: http.StatusNotFound},
-		{name: "delete: a working subtree", route: (*handlers.Handlers).Delete, treeErr: agentusecase.ErrTreeSubtreeWorking,
-			params: byID, code: http.StatusConflict},
-		{name: "mcp: mapped", route: (*handlers.Handlers).MCP, uc: fakeAgentUsecase{dispatchMCPErr: agentusecase.ErrNoLiveRunner},
-			params: runner, body: rpc, code: http.StatusNotFound},
-		{name: "mcp: unmapped", route: (*handlers.Handlers).MCP, uc: fakeAgentUsecase{dispatchMCPErr: errors.New("tool surface not configured")},
-			params: runner, body: rpc, code: http.StatusInternalServerError},
-		{name: "get: not found", route: (*handlers.Handlers).Get, list: &configurableListGetUsecase{getErr: agentchat.ErrNotFound},
-			params: byID, code: http.StatusNotFound},
-		{name: "list: by workspace", route: (*handlers.Handlers).List, list: &configurableListGetUsecase{listErr: errors.New("db down")},
-			params: gin.Params{{Key: "wsId", Value: "ws1"}}, code: http.StatusInternalServerError},
-		{name: "list: by repo", route: (*handlers.Handlers).List, list: &configurableListGetUsecase{listErr: errors.New("db down")},
-			params: gin.Params{{Key: "repoId", Value: "r1"}}, code: http.StatusInternalServerError},
+		{"switch: bad JSON", (*h).Switch, fakeAgentUsecase{}, nil, nil, byID, "{not json", http.StatusBadRequest, switched},
+		{"rename: bad JSON", (*h).Rename, fakeAgentUsecase{}, nil, nil, byID, "{not json", http.StatusBadRequest, renamed},
+		{"set selection: bad JSON", (*h).SetSelection, fakeAgentUsecase{}, nil, nil, byID, "{not json", http.StatusBadRequest, selected},
+		{"mcp: bad JSON", (*h).MCP, fakeAgentUsecase{}, nil, nil, runner, "{not json", http.StatusBadRequest, dispatched},
+		{"mcp: no rpc member", (*h).MCP, fakeAgentUsecase{}, nil, nil, runner, `{"token":"TOK"}`, http.StatusBadRequest, dispatched},
+		{"switch: not found", (*h).Switch, fakeAgentUsecase{switchErr: agentchat.ErrNotFound}, nil, nil, byID, `{"provider":"vendor-b"}`, http.StatusNotFound, nil},
+		{"handoff: unmapped", (*h).Handoff, fakeAgentUsecase{handoffErr: errors.New("boom")}, nil, nil, byID, "", http.StatusInternalServerError, nil},
+		{"resume: not found", (*h).Resume, fakeAgentUsecase{resumeErr: agentchat.ErrNotFound}, nil, nil, byID, "", http.StatusNotFound, nil},
+		{"stop: not found", (*h).Stop, fakeAgentUsecase{stopErr: agentchat.ErrNotFound}, nil, nil, byID, "", http.StatusNotFound, nil},
+		{"rename: not found", (*h).Rename, fakeAgentUsecase{renameErr: agentchat.ErrNotFound}, nil, nil, byID, `{"title":"My Title"}`, http.StatusNotFound, nil},
+		{"set selection: rejected value", (*h).SetSelection, fakeAgentUsecase{selectionErr: invalid}, nil, nil, byID, `{"model":"telepathy"}`, http.StatusBadRequest, nil},
+		{"delete: not found", (*h).Delete, fakeAgentUsecase{}, nil, agentchat.ErrNotFound, byID, "", http.StatusNotFound, nil},
+		{"delete: a working subtree", (*h).Delete, fakeAgentUsecase{}, nil, agentusecase.ErrTreeSubtreeWorking, byID, "", http.StatusConflict, nil},
+		{"mcp: mapped", (*h).MCP, fakeAgentUsecase{dispatchMCPErr: agentusecase.ErrNoLiveRunner}, nil, nil, runner, rpc, http.StatusNotFound, nil},
+		{"mcp: unmapped", (*h).MCP, fakeAgentUsecase{dispatchMCPErr: errors.New("tool surface not configured")}, nil, nil, runner, rpc, http.StatusInternalServerError, nil},
+		{"get: not found", (*h).Get, fakeAgentUsecase{}, &configurableListGetUsecase{getErr: agentchat.ErrNotFound}, nil, byID, "", http.StatusNotFound, nil},
+		{"list: by workspace", (*h).List, fakeAgentUsecase{}, &configurableListGetUsecase{listErr: errors.New("db down")}, nil, byWS, "", http.StatusInternalServerError, nil},
+		{"list: by repo", (*h).List, fakeAgentUsecase{}, &configurableListGetUsecase{listErr: errors.New("db down")}, nil, byRepo, "", http.StatusInternalServerError, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			uc := &tc.uc
