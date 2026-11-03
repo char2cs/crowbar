@@ -217,9 +217,10 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	assert.False(t, got[1].SessionsUnreadable)
 }
 
-// A conversation naming no provider or no session is a session the chat cannot
-// resume: like one that cannot be read, it keeps the chat unconverted.
-func TestReadLegacy_AConversationWithNoSessionIsUnreadable(t *testing.T) {
+// A conversation naming no provider or no session is a binding the chat
+// cannot resume: its history converts without it, the loss is counted in the
+// chat's marker, and the next prompt starts a session of its own.
+func TestReadLegacy_AConversationWithNoSessionLosesOnlyItsBinding(t *testing.T) {
 	for _, column := range []string{"session_id", "provider_id"} {
 		t.Run(column, func(t *testing.T) {
 			h := testutil.FixtureHome(t)
@@ -229,10 +230,21 @@ func TestReadLegacy_AConversationWithNoSessionIsUnreadable(t *testing.T) {
 			got, err := ReadLegacy(context.Background(), h)
 
 			require.NoError(t, err)
-			assert.True(t, got[1].SessionsUnreadable)
-			assert.False(t, got[0].SessionsUnreadable)
-			_, err = ConvertChat(got[1], nobody)
-			require.ErrorIs(t, err, errUnreadable)
+			assert.False(t, got[1].SessionsUnreadable)
+			res, err := ConvertChat(got[1], nobody)
+			require.NoError(t, err)
+			assert.Equal(t, 1, res.LeftOut)
+			var kinds []ledger.Kind
+			for _, r := range res.Rows {
+				kinds = append(kinds, r.Kind)
+			}
+			assert.NotContains(t, kinds, ledger.KindSessionBound)
+			assert.Contains(t, kinds, ledger.KindTurnStarted, "the history is kept")
+			last := slices.IndexFunc(res.Rows, func(r ledger.Row) bool {
+				return r.Kind == ledger.KindMarker && body[ledger.Marker](t, r).Kind == ledger.MarkerUnreadable
+			})
+			require.GreaterOrEqual(t, last, 0, "the lost binding is shown")
+			assert.Equal(t, "1 legacy record could not be converted", body[ledger.Marker](t, res.Rows[last]).Detail)
 		})
 	}
 }

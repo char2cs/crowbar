@@ -105,9 +105,6 @@ func (r *reader) conversation(rows *sql.Rows) error {
 	}
 	v := LegacyConversation{ChatID: c.str(), ProviderID: c.str(), SessionID: c.str()}
 	v.FirstSeenAt, v.LastActiveAt = c.time("first_seen_at"), c.time("last_active_at")
-	if c.err == nil && (v.ProviderID == "" || v.SessionID == "") {
-		c.err = errors.New("names no provider or no session")
-	}
 	r.add(v.ChatID, "agent_chat_conversations "+v.SessionID, c.err, func(chat *LegacyChat) {
 		chat.Conversations = append(chat.Conversations, v)
 	})

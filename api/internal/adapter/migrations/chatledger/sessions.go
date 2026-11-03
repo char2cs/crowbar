@@ -11,14 +11,17 @@ import (
 
 // bindSessions binds every conversation of each provider when it began, so
 // the turns on it mark it turned, then binds the current one again last so
-// the chat resumes it. A session another chat owns is a conflict marker.
+// the chat resumes it. A session another chat owns is a conflict marker; one
+// naming no provider or no session is left out, so the next prompt starts one.
 func (c *conversion) bindSessions(in LegacyChat, owner Owner) {
 	c.current, c.bound = map[string]string{}, map[string]bool{}
 	byProvider := map[string][]LegacyConversation{}
 	for _, conv := range in.Conversations {
-		if conv.ProviderID != "" && conv.SessionID != "" {
-			byProvider[conv.ProviderID] = append(byProvider[conv.ProviderID], conv)
+		if conv.ProviderID == "" || conv.SessionID == "" {
+			c.skipf("agent_chat_conversations %q of %q: names no provider or no session", conv.SessionID, conv.ProviderID)
+			continue
 		}
+		byProvider[conv.ProviderID] = append(byProvider[conv.ProviderID], conv)
 	}
 	for _, provider := range slices.Sorted(maps.Keys(byProvider)) {
 		convs := byProvider[provider]
