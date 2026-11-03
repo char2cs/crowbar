@@ -95,7 +95,8 @@ interface TreeUiActions {
   /** The daemon refused a sent removal over work at risk: put it back,
    *  still hidden, waiting on an answer with that work attached. */
   askToDiscard: (entry: RemovalEntry, atRisk: readonly WorkAtRisk[]) => void
-  /** Opens the naming input; one is open at a time, so it replaces any other. */
+  /** Opens the naming input, unfolding its parent; one is open at a time, so it
+   *  replaces any other. */
   startDraft: (draft: CreateDraft) => void
   cancelDraft: () => void
   setActiveTab: (tab: SidebarTab) => void
@@ -193,7 +194,15 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
       }
     }),
 
-  startDraft: (draft) => set({ draft }),
+  startDraft: (draft) =>
+    set((s) => {
+      // The input is drawn under its parent; a folded parent would hide it.
+      if (!s.collapsed.has(draft.parentId)) return { draft }
+      const collapsed = new Set(s.collapsed)
+      collapsed.delete(draft.parentId)
+      void saveSidebarUI({ collapsedChatRows: [...collapsed] })
+      return { draft, collapsed }
+    }),
   cancelDraft: () => set({ draft: null }),
   setActiveTab: (activeTab) => set({ activeTab }),
 }))

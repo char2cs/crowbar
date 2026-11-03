@@ -254,6 +254,14 @@ describe('the create draft', () => {
     expect(state().draft).toEqual(draft({ parentId: 'row-2' }))
   })
 
+  it('opens a folded parent, so the naming input is drawn where it can be seen', async () => {
+    state().toggleChatRow('row-1')
+    state().toggleChatRow('c7')
+    state().startDraft(draft({ parentId: 'row-1' }))
+    expect([...state().collapsed]).toEqual(['c7'])
+    await vi.waitFor(async () => expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['c7']))
+  })
+
   it('cancelDraft clears the draft', () => {
     state().startDraft(draft())
     state().cancelDraft()
