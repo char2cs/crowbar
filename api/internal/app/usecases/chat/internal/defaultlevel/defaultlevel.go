@@ -5,22 +5,17 @@ package defaultlevel
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Valid is Crowbar's own closed set of level names — the ONLY thing this
-// package hardcodes about them, and purely to keep the global default (which
-// has no provider to validate against yet) from being set to garbage.
+// Valid keeps the global default, which has no provider to validate against
+// yet, inside Crowbar's own level names.
 func Valid(level string) bool {
-	switch level {
-	case "guarded", "trusted", "full-auto":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(domain.PermissionLevels(), level)
 }
 
 type DefaultLevel struct {

@@ -27,12 +27,9 @@ func Efforts(
 	return append([]string(nil), d.Effort.Available[spec.EffortFallbackKey]...)
 }
 
-// permissionCanonicalOrder is Crowbar's own guarded → trusted → full-auto
-// ordering, least to most permissive — purely for PermissionLevels' own
-// stable-order guarantee below, mirroring the identical ordering
-// runner.canonicalPermissionLevels keeps on the OTHER side of the
-// engine/agents package boundary (that package cannot reach this one's
-// internal spec types, so it keeps its own copy of the same three names).
+// permissionCanonicalOrder is Crowbar's least-to-most-permissive level order
+// for PermissionLevels' stable output; the engine does not import domain,
+// whose PermissionLevels is the same order on the usecase side.
 var permissionCanonicalOrder = []string{"guarded", "trusted", "full-auto"}
 
 // PermissionLevels reports which of Crowbar's own level names this provider

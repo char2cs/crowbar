@@ -1,6 +1,11 @@
 package runner
 
-import "context"
+import (
+	"context"
+	"slices"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+)
 
 // seedPermissionLevel delegates to Conversations' own — SpawnChat and
 // moveToNewChat are the two OTHER chat-creation paths, neither of which can
@@ -13,14 +18,6 @@ func (rs *Runners) seedPermissionLevel(
 ) {
 	rs.conversations.SeedPermissionLevel(ctx, chatID)
 }
-
-// canonicalPermissionLevels is Crowbar's own guarded → trusted → full-auto
-// ordering, least to most permissive — the ONLY place this feature encodes
-// what "more permissive" means, and purely for resolvePermissionLevel's own
-// use below. It names no provider vocabulary; these are Crowbar's own
-// concept names, the same three every descriptor's permission_levels.levels
-// map is keyed by.
-var canonicalPermissionLevels = []string{"guarded", "trusted", "full-auto"}
 
 // resolvePermissionLevel returns the level to actually spawn a provider
 // under: desired unchanged if the provider declares it, otherwise the
@@ -36,9 +33,10 @@ func resolvePermissionLevel(
 	available []string,
 	desired string,
 ) string {
-	if containsLevel(available, desired) {
+	if slices.Contains(available, desired) {
 		return desired
 	}
+	canonicalPermissionLevels := domain.PermissionLevels()
 	start := 0
 	for i, level := range canonicalPermissionLevels {
 		if level == desired {
@@ -47,23 +45,14 @@ func resolvePermissionLevel(
 		}
 	}
 	for _, level := range canonicalPermissionLevels[start:] {
-		if containsLevel(available, level) {
+		if slices.Contains(available, level) {
 			return level
 		}
 	}
 	for _, level := range canonicalPermissionLevels {
-		if containsLevel(available, level) {
+		if slices.Contains(available, level) {
 			return level
 		}
 	}
 	return desired
-}
-
-func containsLevel(levels []string, want string) bool {
-	for _, level := range levels {
-		if level == want {
-			return true
-		}
-	}
-	return false
 }
