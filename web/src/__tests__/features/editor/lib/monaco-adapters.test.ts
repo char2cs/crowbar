@@ -1,24 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { workspaceRef } from '@/lib/api/documents'
-import * as languages from '@/features/editor/monaco/language-contributions'
-import { toastManager } from '@/lib/toast-manager'
 
-// DOM-free: mock the light `editor.api.js` entry (what `monaco-adapters.ts`
-// imports instead of the bare `monaco-editor` specifier — see the comment
-// there) so no real editor/DOM is constructed.
-//
-// `langForUri` (under test below) also imports `language-contributions.ts`,
-// which imports the SAME `editor.api.js` specifier for its `languages`
-// namespace (registers the custom diff/gitignore/… Monarch languages and the
-// viewport semantic-tokens provider at module top level) — so the mock
-// needs a minimal `languages` fake too, or that import throws before any test
-// in this file runs. `loadLanguageForPath` itself resolves its per-language
-// loaders via DEEP subpath imports (e.g.
-// `monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution`),
-// which are separate module specifiers this mock does not intercept — those
-// load the real (small, registration-only) contribution modules, same as the
-// dedicated `language-contributions.test.ts` suite.
+// DOM-free: mock the light `editor.api.js` entry `monaco-adapters.ts` imports,
+// so no real editor/DOM is constructed. The languages it registers at import
+// need a minimal `languages` fake.
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
   class FakeUri {
     constructor(public value: string) {}
@@ -74,9 +60,6 @@ import {
   realModelApi,
 } from '@/features/editor/lib/monaco-adapters'
 
-/** What report() shows for a client bug. */
-const UNEXPLAINED = 'Something went wrong — details are in the log'
-
 describe('monaco-adapters', () => {
   it('realModelApi exposes createModel + getModel functions', () => {
     const api = realModelApi()
@@ -126,27 +109,5 @@ describe('monaco-adapters', () => {
 
   it('langForUri derives a monaco language id from the file path', () => {
     expect(langForUri(documentUri(workspaceRef('ws-1', '/proj/main.ts')))).toBe('typescript')
-  })
-
-  it('a failed language load is reported, its text kept to the log', async () => {
-    const toastAdd = vi.spyOn(toastManager, 'add')
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const load = vi
-      .spyOn(languages, 'loadLanguageForPath')
-      .mockRejectedValue(new Error('chunk failed to load'))
-
-    langForUri(documentUri(workspaceRef('ws-1', '/proj/main.rs')))
-
-    await vi.waitFor(() =>
-      expect(toastAdd).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Load language support',
-          description: UNEXPLAINED,
-        }),
-      ),
-    )
-    expect(logged).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
-    load.mockRestore()
-    toastAdd.mockRestore()
   })
 })

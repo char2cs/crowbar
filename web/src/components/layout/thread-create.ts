@@ -35,6 +35,8 @@ export interface ThreadCreate {
   /** Placement parent, in chat-id space; '' is the panel root. */
   parentId: string
   presentation?: LandingChatPresentation
+  /** The agent to start on when it is enabled; otherwise the first enabled one. */
+  providerId?: string
   /** Runs once the daemon created the chat — opens it. */
   onCreated?: (chatId: string) => void | Promise<void>
 }
@@ -50,7 +52,7 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
   if (createInFlight.has(spec.inFlightKey)) return
   createInFlight.add(spec.inFlightKey)
   const read = readUnreadHostProviders(spec.projectId)
-  const provider = read && !(await read) ? null : enabledProvider(spec.projectId)
+  const provider = read && !(await read) ? null : enabledProvider(spec.projectId, spec.providerId)
   if (!provider) {
     createInFlight.delete(spec.inFlightKey)
     return
@@ -91,17 +93,18 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
 }
 
 /**
- * The provider a new chat in `projectId` starts with, or null having said why — a
- * click that is refused must be visible. It comes from the project's own host's
- * list, so a remote host's list must have been read: see {@link readUnreadHostProviders}.
+ * The provider a new chat in `projectId` starts with (`preferred` when enabled), or null
+ * having said why — a click that is refused must be visible. It comes from the project's
+ * own host's list, so a remote host's list must have been read: see {@link readUnreadHostProviders}.
  */
-export function enabledProvider(projectId: string): AgentProvider | null {
+export function enabledProvider(projectId: string, preferred = ''): AgentProvider | null {
   const hostId = resolvedHostOf({ projectId })
   if (hostId === null) {
     toastUnresolvedHost(hostUnavailability({ projectId }))
     return null
   }
-  const provider = providersOf(useAgentProvidersStore.getState(), hostId).find((p) => p.enabled)
+  const enabled = providersOf(useAgentProvidersStore.getState(), hostId).filter((p) => p.enabled)
+  const provider = enabled.find((p) => p.id === preferred) ?? enabled[0]
   if (provider) return provider
   if (hostId === LOCAL_HOST.id) {
     toast.error(

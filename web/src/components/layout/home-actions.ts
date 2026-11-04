@@ -1,7 +1,7 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { openHomeChat, type NavigateFn } from './open-actions'
 import { newDraftChatId } from '@/features/agent/lib/draft-chat'
-import { finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
+import { draftLanding, finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startThread } from './thread-create'
 
 // Creates in a project's home: it rides no repo, so its rows live in
@@ -53,6 +53,7 @@ export function promoteHomeDraft(draft: DraftSpec, prompt: DraftPrompt): Promise
     projectId,
     workspaceId,
     parentId: '',
+    ...draftLanding(prompt),
     onCreated: (chatId) => finishDraftThread(draft, chatId, prompt),
   })
 }

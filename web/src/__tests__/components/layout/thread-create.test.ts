@@ -23,7 +23,8 @@ const presetChatLandingPresentation = vi
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { createThread } from '@/__tests__/__fixtures__/draft-thread'
+import { createThread, draftPaneId, FIRST_PROMPT } from '@/__tests__/__fixtures__/draft-thread'
+import { promoteDraftThread } from '@/components/layout/draft-promote'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
@@ -155,14 +156,7 @@ describe('starting a thread on a real workspace', () => {
 
     await createThread('ws-a', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'ws-a',
-      'claude',
-      'ws-a',
-      undefined,
-    )
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
   })
 
   // One new chat can land on Terminal without flipping the global default: handleCreate presets
@@ -185,17 +179,41 @@ describe('starting a thread on a real workspace', () => {
     )
   })
 
-  it('never presets a surface for an ordinary create', async () => {
+  // The draft's first prompt is a chat prompt: on Terminal it would wait unsent.
+  it('lands a draft on Chat, where its first prompt is sent, whatever the default', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
+      providers: [
+        { id: 'claude', enabled: true, hasTerminal: true, terminalStartHere: true },
+      ] as never,
     })
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
 
     await createThread('ws-a', vi.fn())
-    await Promise.resolve()
 
-    expect(presetChatLandingPresentation).not.toHaveBeenCalled()
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
+    await vi.waitFor(() =>
+      expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(mintedChatId(), 'chat'),
+    )
+  })
+
+  it('starts a draft on the agent its first prompt was written for', async () => {
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'claude', enabled: true },
+        { id: 'codex', enabled: true },
+      ] as never,
+    })
+
+    await handleCreate('ws-a', 'thread', vi.fn())
+    await promoteDraftThread(draftPaneId() ?? '', { ...FIRST_PROMPT, provider: 'codex' })
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'codex', 'ws-a', 'chat')
   })
 
   it('a thread create draws its row from the operation and opens at once', async () => {

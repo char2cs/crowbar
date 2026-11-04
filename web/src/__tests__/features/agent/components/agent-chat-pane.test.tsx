@@ -15,6 +15,7 @@ import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { heldScopes } from '@/__tests__/__fixtures__/stream-daemon'
+import { wsManager } from '@/lib/ws/manager'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
 
@@ -392,14 +393,8 @@ describe('AgentChatPane', () => {
     expect(document.querySelector('.agent-chat-pane')).toHaveAttribute('data-touch')
   })
 
-  // ── THE HEADLINE ───────────────────────────────────────────────────
-  // The user's bug: they type /clear inside the CLI, the CLI switches conversation,
-  // and Crowbar moves the running process to a DIFFERENT chat. The pane used to be
-  // pinned to a chatId for life, so it went "This agent has exited" — with a Resume
-  // button that would spawn a SECOND CLI — while the first was alive and well in a
-  // chat the user had to go find. The tab is a VIEWPORT on a moving target: it
-  // follows the runner, and because the terminal is keyed by the PTY (which a move
-  // does not change), the conversation changes WITHOUT changing the terminal.
+  // /clear in the CLI moves the running process to another chat: the tab follows its runner, and
+  // the terminal, keyed by the PTY a move does not change, stays mounted.
   it('follows its runner to a new chat without remounting the terminal', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
     const paneId = openChatPane(store, 'c1', 'r1')
@@ -790,6 +785,16 @@ describe('AgentChatPane', () => {
     expect(heldScopes('chat:')).toContain('chat:c1')
   })
 
+  // Holding the chat's stream scope is what counts a viewer: no socket of its own.
+  it('views a chat through its stream scope alone', async () => {
+    const subscribe = vi.spyOn(wsManager, 'subscribe')
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    await renderPane(store, openChatPane(store, 'c1', 'r1'))
+    expect(heldScopes('chat:')).toContain('chat:c1')
+    expect(subscribe.mock.calls.flat().join(' ')).not.toMatch(/\/attach\b/)
+    subscribe.mockRestore()
+  })
+
   // The feed is addressed by chat id alone, so no workspace has to vouch for it.
   it('opens the feed of a chat with no recorded workspace before the list lands', async () => {
     const store = unseededWorkspace()
@@ -1104,19 +1109,8 @@ describe('AgentChatPane', () => {
       )
     })
 
-    // The isVisible/isActivePane gates are read from the pane's OWN workspace
-    // store, and a workspace switch changes neither: WorkspaceHost keeps the
-    // outgoing workspace MOUNTED (display:none + inert), which hides DOM but
-    // does not unregister a window-level keydown listener. So N retained
-    // workspaces could each satisfy the guard at once — ⌘/ pressed in workspace
-    // B was swallowed by A's hidden listener, which killed B's Monaco comment
-    // toggle AND flipped the view on an invisible chat.
-    //
-    // A non-hotswap provider (codex) here, not the fixture default — the hotswap
-    // branch is a synchronous local setState with nothing to assert but the DOM,
-    // which two panes sharing one document can't cleanly scope apart. switchToTerminal
-    // is a real call carrying the ids of exactly which chat asked for it, so it
-    // survives a second pane sharing the page.
+    // A retained workspace stays mounted with its window keydown listener, so only the active one
+    // may act on the chord. Codex (non-hotswap) makes the switch a call naming the chat that asked.
     it('a HIDDEN WORKSPACE ignores the chord — only the ACTIVE workspace may switch', async () => {
       switchToTerminalFn.mockResolvedValue('pty-attached')
       const hidden = seedWorkspace(

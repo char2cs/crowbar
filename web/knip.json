@@ -75,7 +75,6 @@
     "src/features/editor/markdown/plate/html-node.tsx": ["exports", "types"],
     "src/features/editor/markdown/plate/markdown-image-node.tsx": ["exports"],
     "src/features/editor/monaco/define-theme.ts": ["exports", "types"],
-    "src/features/editor/monaco/language-contributions.ts": ["exports"],
     "src/features/editor/monaco/language.ts": ["exports"],
     "src/features/editor/monaco/semantic-tokens-provider.ts": ["exports"],
     "src/features/editor/monaco/shiki-tokens.ts": ["exports"],

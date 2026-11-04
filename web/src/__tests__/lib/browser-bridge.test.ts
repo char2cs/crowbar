@@ -32,4 +32,11 @@ describe('browserApi', () => {
     await expect(browserApi.close('t1')).rejects.toThrow(/desktop app/)
     expect(host.invoke).not.toHaveBeenCalled()
   })
+
+  // A browser tab mounts the webview listener too; with no desktop there is nothing to hear.
+  it('listens to nothing outside the desktop app', async () => {
+    host.desktop = false
+    const off = await browserApi.onNavigated(() => {})
+    expect(() => off()).not.toThrow()
+  })
 })

@@ -387,14 +387,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     await createThread('ws-a', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'ws-a',
-      'claude',
-      'ws-a',
-      undefined,
-    )
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
   })
 
   it('says why instead of silently doing nothing when no provider is enabled', async () => {

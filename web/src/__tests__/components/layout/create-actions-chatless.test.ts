@@ -69,12 +69,12 @@ beforeEach(() => {
 describe('chatless workspace rows — create verbs send the WORKSPACE id as the chat parent', () => {
   it('thread on a chatless repo header posts parentId = the default workspace id', async () => {
     await createThread('ws-main', navigate)
-    expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-main', 'claude', 'ws-main', undefined)
+    expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-main', 'claude', 'ws-main', 'chat')
   })
 
   it('thread on a chatless locked branch posts parentId = that workspace id', async () => {
     await createThread('ws-locked', navigate)
-    expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-locked', 'claude', 'ws-locked', undefined)
+    expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-locked', 'claude', 'ws-locked', 'chat')
   })
 
   it('new branch off a chatless repo header posts parentId = the default workspace id', () => {
