@@ -31,7 +31,7 @@ func Register(
 	mount(chatScoped, "/review", h)
 }
 
-// mount registers the 6-route review surface under prefix on rg.
+// mount registers the review surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,
@@ -46,5 +46,8 @@ func mount(
 	rg.GET(prefix+"/outline", h.GetOutline)
 	rg.GET(prefix+"/patch", h.GetPatch)
 	rg.GET(prefix+"/search", h.SearchDiff)
+	// The whole text of one file on each side, fetched only when the reader asks
+	// to reveal the unchanged lines between hunks.
+	rg.GET(prefix+"/contents", h.GetFileSides)
 	rg.PATCH(prefix, h.SetMergeStrategy)
 }

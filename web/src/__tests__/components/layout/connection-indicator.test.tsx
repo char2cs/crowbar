@@ -136,7 +136,7 @@ describe('ConnectionIndicator', () => {
     render(<ConnectionIndicator />)
 
     act(() => {
-      reportChannelState('/v0/ws/git', false)
+      reportChannelState('/v0/ws/git', false, 'local')
       reportMigrating({
         message: 'Crowbar is upgrading its data (step 2 of 5: chat-ledger)',
         step: { index: 2, total: 5, name: 'chat-ledger' },
@@ -159,12 +159,12 @@ describe('ConnectionIndicator', () => {
   it('the upgrade toast gives way to Reconnected when a socket opens', () => {
     render(<ConnectionIndicator />)
     act(() => {
-      reportChannelState('/v0/ws/git', false)
+      reportChannelState('/v0/ws/git', false, 'local')
       reportMigrating({ message: 'm', step: { index: 1, total: 2, name: 'chat-ledger' } })
     })
 
     act(() => {
-      reportChannelState('/v0/ws/git', true)
+      reportChannelState('/v0/ws/git', true, 'local')
     })
 
     expect(toast.dismissByKey).toHaveBeenCalledWith('connection-indicator')

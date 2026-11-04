@@ -1,8 +1,11 @@
 package v0
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/browser"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/console"
@@ -14,6 +17,7 @@ import (
 	homePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/operations"
+	pairingPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing"
 	projectsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -67,14 +71,23 @@ func (c *Container) Register(
 	// deeper nesting introduced here is guarded automatically.
 	rg.Use(rejectEmptyPathParams())
 
-	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
+	// Open routes go BEFORE requireBearerAuth: gin fixes a route's middleware
+	// chain at registration, so these never carry it. Only pairing belongs here
+	// (it mints the credential); health is guarded so a revoked token reads 401.
+	pairingPkg.RegisterOpen(rg, c.pairing, newSourceLimiter(5, time.Minute, time.Now).handle)
+
+	// Every route from here down needs a bearer token over TLS; plaintext
+	// (unix socket, loopback dev TCP) passes through — see requireBearerAuth.
+	rg.Use(requireBearerAuth(c.app.GORM.Clients, c.conns))
 	health.Register(rg, c.app.Usecases.AgentTurn)
+	pairingPkg.RegisterGuarded(rg, c.pairing)
 	system.Register(rg)
 	operations.Register(rg, c.app.Operations)
 	stream.Register(rg, c.app.Stream)
 	if c.logs != nil {
 		console.Register(rg, c.logs)
 	}
+	browser.Register(rg, c.app.Browser)
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")

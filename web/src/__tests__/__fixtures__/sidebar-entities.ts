@@ -31,7 +31,7 @@ export function markProjectsSynced(): void {
 }
 
 export function projectDTO(over: Partial<Project> & { id: string }): Project {
-  return { name: over.id, path: `/${over.id}`, lastActivity: new Date(0), ...over }
+  return { name: over.id, path: `/${over.id}`, lastActivity: new Date(0), hostId: 'local', ...over }
 }
 
 export function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {

@@ -1,5 +1,5 @@
 import { chatBase } from '@/features/agent/api/agent-chat-reads'
-import { API_BASE } from '@/lib/api/fetch'
+import { apiUrl } from '@/lib/api/fetch'
 import type { MarkdownAssetInfo } from '@/features/editor/markdown/plate/markdown-asset'
 
 /** `chats/{chatId}/attachments/{filename}`; the chatId need not be the open chat. */
@@ -23,9 +23,9 @@ export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   const parsed = parseChatAttachmentRef(ref)
   if (!parsed) return null
   try {
-    return (
-      `${API_BASE}${chatBase(wsId)}/${encodeURIComponent(parsed.chatId)}` +
-      `/attachments/${encodeURIComponent(parsed.filename)}`
+    return apiUrl(
+      `${chatBase(wsId)}/${encodeURIComponent(parsed.chatId)}` +
+        `/attachments/${encodeURIComponent(parsed.filename)}`,
     )
   } catch {
     return null

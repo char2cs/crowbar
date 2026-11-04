@@ -1,8 +1,19 @@
 import { readSelect, selectRepos, selectProjects } from '@/core/entities/select'
-import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { planRemoval, type DragSubject } from './removal-plan'
 import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import { resolveChatRow, resolveRow } from './open-actions'
+
+/** Closes the panes showing a chat that was just held, so the window is already elsewhere
+ *  when the delete lands instead of being pulled out of it. */
+function leaveHeldChats(drafts: readonly RemovalDraft[]): void {
+  const held = new Set(drafts.flatMap((draft) => draft.hiddenIds))
+  const { panes, paneActions } = windowPaneStore.getState()
+  for (const [paneId, pane] of Object.entries(panes)) {
+    if (pane.chatId && held.has(pane.chatId)) paneActions.closePane(paneId)
+  }
+}
 
 /**
  * Trashes a row — a chat, workspace, folder, or repo — through the SAME
@@ -43,7 +54,7 @@ import { resolveChatRow, resolveRow } from './open-actions'
  * through to `resolveRow`'s repo-scoped (and bleed-prone) folder lookup for
  * one.
  */
-export function handleTrash(id: string): boolean {
+export function handleTrash(id: string, drainMs?: number): boolean {
   const currentRepos = readSelect(selectRepos)
   const homeRow = resolveHomeRowScope(id)
   // Checked BEFORE resolveChatRow/resolveRow, which cannot see a home row at
@@ -58,7 +69,8 @@ export function handleTrash(id: string): boolean {
   const projects = readSelect(selectProjects)
   const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
-  treeUiStore.getState().hold(drafts)
+  treeUiStore.getState().hold(drafts, drainMs)
+  leaveHeldChats(drafts)
   return true
 }
 

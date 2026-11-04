@@ -49,7 +49,7 @@ beforeEach(() => {
   resetConnectionState()
   useDaemonHaltStore.getState().clear()
   // A closed channel, so a migrating report is not ignored as stale.
-  reportChannelState('/v0/ws/test', false)
+  reportChannelState('/v0/ws/test', false, 'local')
 })
 
 afterEach(() => {

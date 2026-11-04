@@ -27,7 +27,7 @@ import { dispatchDrop, type DropHandlers } from '@/components/sidebar/lib/sideba
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
- * One drag arm for the unified sidebar: `SidebarTree` and `RecentsBand` both bind
+ * One drag arm for the unified sidebar: `SidebarTree` and the Recents tabs both bind
  * through it. This owns the pointer (press, threshold, move, release, recovery);
  * `sidebar-drag-hover` resolves and paints what a position would drop on, and
  * `sidebar-drop-dispatch` commits a release. Refs only, window listeners subscribed

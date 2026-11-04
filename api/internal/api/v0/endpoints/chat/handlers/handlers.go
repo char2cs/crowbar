@@ -203,21 +203,15 @@ type RunnerUsecase interface {
 
 	// StopChat ends chatID's turn, in place where the provider can, else with its
 	// CLI, leaving the chat dormant and resumable. No live runner: a no-op.
-	StopChat(
-		ctx context.Context,
-		chatID string,
-	) error
+	StopChat(ctx context.Context, chatID string) error
 
 	// Retract withdraws a sent prompt: settled while the provider has not taken
 	// it, its turn interrupted once it has. A settled prompt is a conflict.
 	Retract(ctx context.Context, chatID, requestID string) (agentusecase.RetractResult, error)
 
-	// CloseChat retires chatID's live vendor CLI because no view displays the chat
-	// any more, mid-turn included, and leaves it dormant and resumable.
-	CloseChat(
-		ctx context.Context,
-		chatID string,
-	) error
+	// KillChat force-ends chatID's live vendor CLI, mid-turn included, and leaves
+	// it dormant and resumable. Closing a view never ends it: that only detaches.
+	KillChat(ctx context.Context, chatID string) error
 
 	// Compact asks the chat's CLI to compact its own context. Crowbar cannot compact
 	// anything itself — the context is the provider's — so this sends the provider's
@@ -257,6 +251,10 @@ type RunnerUsecase interface {
 // AnswerUsecase is the answer channel: the human deciding a prompt in the chat,
 // and the in-PTY relay holding the provider's gate open until they do.
 type AnswerUsecase interface {
+	// AnswerTerminalWait types a descriptor-declared reply into the terminal
+	// prompt the chat's CLI is parked on; ErrConflict once the prompt has gone.
+	AnswerTerminalWait(ctx context.Context, chatID, answerID string) error
+
 	// AnswerChoice records a human's decision and hands it to the relay blocking the
 	// provider's gate. optionIDs name what was picked; reason and content carry the
 	// free-form parts a provider accepts (a deny message, an elicitation's filled-in

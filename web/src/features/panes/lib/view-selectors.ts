@@ -1,5 +1,4 @@
-import type { LayoutNode, PaneGroup, ViewRecord } from '@/features/panes/types/pane'
-import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import type { PaneGroup, ViewRecord } from '@/features/panes/types/pane'
 
 const chatIndexCache = new WeakMap<Record<string, PaneGroup>, Map<string, string>>()
 
@@ -57,15 +56,12 @@ export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | u
   return pane.chatId === null && pane.editorTabIds.length === 0
 }
 
-/** The stage is on screen with nothing in it — the "nothing is open" screen. */
-export function selectIsShowingEmptyStage(state: {
-  activeViewId: string | null
-  stage: LayoutNode
+/** Focus rests on a pane holding nothing — the empty stage — so no workspace is focused. */
+export function selectIsFocusedPaneEmpty(state: {
+  activePaneId: string
   panes: Record<string, PaneGroup>
 }): boolean {
-  if (state.activeViewId !== null) return false
-  const leaves = getAllLeafIds(state.stage)
-  return leaves.length === 1 && isPaneEmpty(state.panes[leaves[0]])
+  return isPaneEmpty(state.panes[state.activePaneId])
 }
 
 /** Whether some pane holds `chatId`, off the memoized index. Subscribe per row. */

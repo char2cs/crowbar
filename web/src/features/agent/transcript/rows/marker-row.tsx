@@ -152,11 +152,11 @@ function MarkerRowBody({
   return (
     <div className="marker-row" data-row-id={item.id}>
       <div className="divider" role="separator" data-testid="agent-event-divider">
-        <span className="ln" />
+        <span className="wavy-rule" />
         <span className="tag" data-testid={testId}>
           {label}
         </span>
-        <span className="ln" />
+        <span className="wavy-rule" />
       </div>
       {item.marker === 'turn_failed' && (
         <FailedActions chatId={chatId} item={item} actions={actions} />

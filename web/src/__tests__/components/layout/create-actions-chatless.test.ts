@@ -24,6 +24,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
+import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { performSetWorkspaceLock, performRenameRow } from '@/components/sidebar/lib/row-actions'
 import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -66,13 +67,13 @@ beforeEach(() => {
 })
 
 describe('chatless workspace rows — create verbs send the WORKSPACE id as the chat parent', () => {
-  it('thread on a chatless repo header posts parentId = the default workspace id', () => {
-    handleCreate('ws-main', 'thread', navigate)
+  it('thread on a chatless repo header posts parentId = the default workspace id', async () => {
+    await createThread('ws-main', navigate)
     expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-main', 'claude', 'ws-main', undefined)
   })
 
-  it('thread on a chatless locked branch posts parentId = that workspace id', () => {
-    handleCreate('ws-locked', 'thread', navigate)
+  it('thread on a chatless locked branch posts parentId = that workspace id', async () => {
+    await createThread('ws-locked', navigate)
     expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-locked', 'claude', 'ws-locked', undefined)
   })
 

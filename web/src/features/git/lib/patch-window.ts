@@ -60,6 +60,8 @@ export interface WindowInput {
   paths: readonly string[]
   /** Per-path diff line count, from the outline geometry — known before any fetch. */
   lineCounts: Readonly<Record<string, number>>
+  /** Viewed paths render as a bare header: never fetched, dropped if held. */
+  viewed?: ReadonlySet<string>
 }
 
 export interface WindowPlan {
@@ -113,11 +115,16 @@ export function planWindow(input: WindowInput): WindowPlan {
   // A materialised path that is no longer in the file list describes a diff that
   // no longer exists; it can only be dropped.
   const evict = [...held].filter((p) => !indexOf.has(p))
+  const viewed = input.viewed
 
   const candidates: Candidate[] = []
   for (const path of held) {
     const index = indexOf.get(path)
     if (index === undefined) continue
+    if (viewed?.has(path)) {
+      evict.push(path)
+      continue
+    }
     const distance = distanceFrom(index, first, last)
     if (distance > EVICT_BEYOND_FILES) {
       evict.push(path)
@@ -127,7 +134,7 @@ export function planWindow(input: WindowInput): WindowPlan {
   }
   for (let index = bandStart(first); index <= bandEnd(last, count); index++) {
     const path = input.paths[index]
-    if (held.has(path)) continue
+    if (held.has(path) || viewed?.has(path)) continue
     candidates.push({ path, index, distance: distanceFrom(index, first, last), held: false })
   }
 

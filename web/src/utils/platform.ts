@@ -1,4 +1,4 @@
-type Platform = 'macos' | 'windows' | 'linux'
+type Platform = 'macos' | 'windows' | 'linux' | 'ios'
 
 /**
  * Single source of truth for platform detection.
@@ -20,6 +20,9 @@ function detectPlatform(): Platform {
   // Tauri v2 dropped OS detection from core (it's a separate plugin we don't
   // depend on), so the webview's own user agent is the only signal available.
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios'
+  // iPadOS asks for the desktop site: a Macintosh agent, but no Mac has a touch screen.
+  if (/Macintosh/i.test(ua) && (navigator.maxTouchPoints ?? 0) > 1) return 'ios'
   if (/Windows/i.test(ua)) return 'windows'
   if (/Linux/i.test(ua)) return 'linux'
   return 'macos'
@@ -30,12 +33,16 @@ export const currentPlatform: Platform = detectPlatform()
 export const IS_MAC: boolean = currentPlatform === 'macos'
 export const IS_WINDOWS: boolean = currentPlatform === 'windows'
 export const IS_LINUX: boolean = currentPlatform === 'linux'
+/** The phone app: a thin client of remote daemons, with no local daemon or desktop window. */
+export const IS_MOBILE: boolean = currentPlatform === 'ios'
+/** Command is the primary modifier, shown as ⌘⇧⌥: a Mac, and an iPhone's hardware keyboard. */
+export const APPLE_KEYBOARD: boolean = IS_MAC || IS_MOBILE
 
 /**
  * Normalize key combination for current platform.
- * Converts 'cmd' to 'ctrl' on Windows/Linux.
+ * Converts 'cmd' to 'ctrl' where Command is not the primary modifier.
  */
 export function normalizeKey(key: string): string {
-  if (IS_MAC) return key
+  if (APPLE_KEYBOARD) return key
   return key.replace(/\bcmd\b/gi, 'ctrl')
 }

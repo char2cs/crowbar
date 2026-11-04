@@ -4,7 +4,6 @@ import {
   ROW_GLYPH_BOX,
   ROW_HAS_VIEW_IDLE,
   ROW_INACTIVE,
-  ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
   ROW_NEST_TARGET,
   ROW_SUB_ACTION_HOVER,
@@ -22,6 +21,15 @@ import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
 import { OperationSidebarRow } from '@/components/sidebar/operation-sidebar-row'
 import { RemovingSidebarRow } from '@/components/sidebar/sidebar-row-removing'
+import {
+  rowBoxStyle,
+  rowGlyphStyle,
+  rowIndent,
+  rowSubStyle,
+  rowTitleStyle,
+  useRowMetrics,
+  type RowMetrics,
+} from '@/components/sidebar/lib/row-metrics'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -35,15 +43,15 @@ interface SidebarRowProps {
    *  already did (`sidebar-tree-surface.tsx`'s `onTrash`) — a refusal (a
    *  locked branch, a repo home) surfaces the same toast either way. */
   onTrash?: (id: string) => void
-  /** Recents' own "end this view" control (recents-band.tsx) — the opposite
+  /** Recents' own "end this view" control (view-row.tsx) — the opposite
    *  of `onTrash`'s destroy-the-chat verb, so never wired alongside it on the
-   *  same row (recents-band.tsx never sets `onTrash`). Same trailing-action
+   *  same row (view-row.tsx never sets `onTrash`). Same trailing-action
    *  token as every other control in this cluster (`ROW_SUB_ACTION_HOVER`):
    *  hidden and out of flow until hovered, so it costs the row a reflow on
    *  hover like Thread/Fork/Remove/Fold already do, never a permanently
    *  reserved margin the way an externally-overlaid button would (the "text
    *  still accounts for a button that isn't even shown" bug this replaced —
-   *  reported four times against recents-band.tsx's own bespoke absolute+
+   *  reported four times against view-row.tsx's own bespoke absolute+
    *  padding-reserve close button before it was unified with this cluster). */
   onClose?: (id: string) => void
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
@@ -79,7 +87,7 @@ interface SidebarRowProps {
   /** True only for the tree's own render path (sidebar-tree.tsx). A row with
    *  `row.hasView` gets the idle ground (`ROW_HAS_VIEW_IDLE`) instead of a
    *  muted label — the row IS active/open, so it should read as present, not
-   *  disabled. Recents (recents-band.tsx) leaves this unset on purpose: its
+   *  disabled. Recents (view-row.tsx) leaves this unset on purpose: its
    *  OWN doc explains why a solo "open but off screen" entry there keeps
    *  relying on the muted label instead of a ground of its own (giving it one
    *  would outrank the true ROW_ACTIVE entry sitting beside it in the same
@@ -88,7 +96,7 @@ interface SidebarRowProps {
   hasViewIdle?: boolean
   /** True when this row's body is painted directly on an inverted `ROW_ACTIVE`
    *  ground (Recents' own solo-showing row, or every member of a showing SET
-   *  — `recents-band.tsx`'s `isShowing`, unconditional on solo vs. set: a
+   *  — `view-row.tsx`'s `isShowing`, unconditional on solo vs. set: a
    *  showing SET's shell is ROW_ACTIVE for ALL its members alike, not just
    *  one). `ROW_INACTIVE`'s own `text-foreground` (and `ROW_SUBLABEL`'s own
    *  `text-muted-foreground`, via `BranchSecondLine` below) both track the
@@ -102,23 +110,11 @@ interface SidebarRowProps {
    *  `bg-background-inverse` (workspace-row-base.ts). Never set by the tree,
    *  which never draws ROW_ACTIVE at all. */
   activeGround?: boolean
-  /** Drops `ROW_BASE`'s own `mx-1.5 my-0.5` — for a caller whose OWN wrapper
-   *  already carries that exact margin (Recents' solo-showing row, whose
-   *  outer shell IS the row's real box; see `soloActive` in recents-band.tsx).
-   *  A block child's margin collapses with a plain wrapper's, so a second
-   *  copy here isn't just redundant, it can cancel out unpredictably against
-   *  whatever spacing the wrapper is also trying to cancel — this removes it
-   *  at the source instead. */
-  suppressOwnMargin?: boolean
-  /** Shrinks `ROW_BASE`'s own `h-9` to `h-8` — for a caller whose own shell
-   *  wraps this row in real padding on top of it (Recents' multi-chat SET,
-   *  `p-0.5` top+bottom around each member; see recents-band.tsx's own
-   *  doc). Padding added around an UNCHANGED `h-9` member makes the shell
-   *  itself taller than a plain row (live-reported) — the padding is the
-   *  point (the shared "grouped" ground the members sit on), so it's the
-   *  member that gives up exactly what the padding adds back, not the
-   *  padding that gives up the visual it was tuned for. */
-  compactHeight?: boolean
+  /** A row drawn inside a view-tab shell that owns the margin and padding:
+   *  `tab` drops `ROW_BASE`'s own margin and takes `h-8`; `tab-member` also
+   *  drops the resting glyph (a split's members share one tab and carry no
+   *  icon; the working spinner still shows). */
+  tab?: 'tab' | 'tab-member'
 }
 
 /**
@@ -154,8 +150,7 @@ export function SidebarRow({
   inlineRenameDisabled,
   hasViewIdle,
   activeGround,
-  suppressOwnMargin,
-  compactHeight,
+  tab,
 }: SidebarRowProps) {
   // Read UNCONDITIONALLY, before either early return below — rules of hooks:
   // a row's `operation`/`removal` state can flip between renders of the SAME
@@ -170,6 +165,7 @@ export function SidebarRow({
   // per-caller flag — decided this is the one that draws the editor; see
   // `inlineRenameDisabled`'s own doc below for why a shared id can resolve to
   // either this instance or its tree/Recents counterpart.
+  const metrics = useRowMetrics()
   const isThisRowRenaming = useTreeUi(
     (s) =>
       s.renaming === row.id &&
@@ -218,8 +214,9 @@ export function SidebarRow({
   // `label` IS `branchName`, which is what the last check below catches
   // without a field of its own: a second line would just repeat the label.
   const showBranchSecondLine =
+    !tab &&
     row.kind === 'branch' &&
-    !isProjectHome &&
+    row.repoIcon === undefined &&
     !row.locked &&
     !!row.branchName &&
     row.label !== row.branchName
@@ -228,9 +225,11 @@ export function SidebarRow({
   // `ROW_ACTIVE` ground needs its buttons re-keyed the same way its label/icon
   // already are.
   const subActionClass = cn(ROW_SUB_ACTION_HOVER, activeGround && ROW_SUB_ACTION_INVERTED)
+  // A header drawn where its icon can't be edited (the phone's list).
+  const isReadOnlyHeader = !isProjectHome && row.kind === 'branch' && !!row.repoIcon
 
   return (
-    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
       <div
         role="treeitem"
         aria-level={depth + 1}
@@ -238,6 +237,7 @@ export function SidebarRow({
         tabIndex={0}
         data-sidebar-row-id={row.id}
         {...dragProps}
+        style={rowBoxStyle(metrics)}
         className={cn(
           ROW_BASE,
           isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
@@ -249,8 +249,10 @@ export function SidebarRow({
           !isNestTarget && hasViewIdle && row.hasView && ROW_HAS_VIEW_IDLE,
           isDragging && 'opacity-40',
           'group',
-          suppressOwnMargin && 'mx-0 my-0',
-          compactHeight && 'h-8',
+          tab && 'mx-0 my-0',
+          // The shell's own inset plus this gives the pill the same 6px at the
+          // edges as above and below its single line.
+          tab && 'h-8 px-1',
         )}
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just
@@ -277,20 +279,32 @@ export function SidebarRow({
         }}
       >
         {/* The only signal of ownership (spec §3.1); work in flight swaps it
-            for the spinner in place, never beside it (§3.2). */}
-        <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
-          <SidebarRowGlyph
-            row={row}
-            isProjectHome={isProjectHome}
-            expanded={expanded}
-            activeGround={activeGround}
-          />
-        </span>
+            for the spinner in place, never beside it (§3.2). A split's tab
+            members carry no resting glyph. */}
+        {(tab !== 'tab-member' || row.working) && (
+          <span
+            className={cn(
+              ROW_GLYPH_BOX,
+              isProjectHome && 'size-5',
+              metrics && '[&_svg]:size-full',
+              metrics && isReadOnlyHeader && '[&>*]:size-full',
+            )}
+            style={rowGlyphStyle(metrics)}
+          >
+            <SidebarRowGlyph
+              row={row}
+              isProjectHome={isProjectHome}
+              readOnlyHeader={isReadOnlyHeader}
+              expanded={expanded}
+              activeGround={activeGround}
+            />
+          </span>
+        )}
 
         {renaming ? (
           <InlineRenameInput
             defaultValue={row.label}
-            mono={row.kind === 'branch' && !showBranchSecondLine}
+            mono={row.kind === 'branch' && !showBranchSecondLine && !tab}
             onConfirm={(name) => {
               treeUiStore.getState().stopRenaming()
               if (name !== row.label) void performRenameRow(row.id, name)
@@ -314,14 +328,19 @@ export function SidebarRow({
               // the label alone. See ROW_HAS_VIEW_IDLE's own doc. Never on an
               // inverted ground either (`activeGround`) — `row.hasView` is
               // already false for the one member actually painted on that
-              // ground (recents-band.tsx sets `hasView={isLive && !isShowing}`),
+              // ground (view-row.tsx sets `hasView={isLive && !isShowing}`),
               // but this guard keeps the two signals from ever fighting if
               // that invariant changes.
               row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
-            <span className={cn('truncate', row.labelProvisional && 'italic')}>{row.label}</span>
-            <BranchSecondLine row={row} activeGround={activeGround} />
+            <span
+              className={cn('truncate', row.labelProvisional && 'italic')}
+              style={rowTitleStyle(metrics)}
+            >
+              {row.label}
+            </span>
+            <BranchSecondLine row={row} activeGround={activeGround} metrics={metrics} />
           </span>
         ) : (
           <span
@@ -333,7 +352,7 @@ export function SidebarRow({
             data-sidebar-row-label=""
             className={cn(
               'min-w-0 flex-1 truncate',
-              row.kind === 'branch' && 'font-mono',
+              row.kind === 'branch' && !tab && 'font-mono',
               row.labelProvisional && 'italic',
               // A row with a view is grey — focused or not (§3.2) — UNLESS
               // the row's own ground already carries that signal (see the
@@ -370,8 +389,10 @@ export function SidebarRow({
 function BranchSecondLine({
   row,
   activeGround,
+  metrics,
 }: {
   row: SidebarRowType
+  metrics: RowMetrics | null
   /** See `SidebarRowProps.activeGround` — `ROW_SUBLABEL`'s own hardcoded
    *  `text-muted-foreground` tracks the ambient theme same as `ROW_INACTIVE`
    *  does, and needs the identical swap on an inverted ground. */
@@ -380,9 +401,12 @@ function BranchSecondLine({
   const added = row.added ?? 0
   const deleted = row.deleted ?? 0
   return (
-    <span className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}>
+    <span
+      className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}
+      style={rowSubStyle(metrics)}
+    >
       {row.branchName}
-      {(added > 0 || deleted > 0) && ' -- '}
+      {(added > 0 || deleted > 0) && ' '}
       {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
       {added > 0 && deleted > 0 && ' '}
       {deleted > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>}

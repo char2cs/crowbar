@@ -35,6 +35,8 @@ export function useChatSend(
   )
   return {
     queued: outbox.length,
+    /** Prompts still waiting their turn; a dispatched one is in flight, not queued. */
+    waiting: outbox.filter((item) => item.state === 'queued').length,
     sending,
     /** The provider cannot take a typed prompt at all. */
     unsupported: outbox.some((item) => item.code === 'prompt_submit_unsupported'),

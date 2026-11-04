@@ -192,3 +192,15 @@ func TestReviewSearch_NoMatchIsEmptyNotAnError(t *testing.T) {
 	assert.Empty(t, hits)
 	assert.False(t, truncated)
 }
+
+func TestReviewFileSides_ReadsBaseAndWorkingTree(t *testing.T) {
+	dir := reviewFixture(t)
+
+	sides, err := git.New().ReviewFileSides(context.Background(), dir, "main", "base.go", "")
+	require.NoError(t, err)
+
+	require.NotNil(t, sides.Old)
+	require.NotNil(t, sides.New)
+	assert.Equal(t, "package main\n\nfunc base() {}\n", *sides.Old)
+	assert.Equal(t, "package main\n\nfunc base() { needle() }\n", *sides.New)
+}

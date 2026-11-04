@@ -1,20 +1,10 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect } from 'react'
 import { holdScope } from '@/core/stream/stream'
+import { useHostResolved } from '@/lib/host-resolve'
 import { isHomeWorkspace } from '@/lib/workspace-scope-url'
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { useOwningChatId } from '@/lib/workspace-scope'
 import { useWorkspaceFileTree } from './use-workspace-file-tree'
 import { useWorkspaceGit } from './use-workspace-git'
-
-/**
- * `getOwningChatId(wsId)` as React state: the sidebar records it asynchronously,
- * and the chat-scoped routes throw without it, so effects must re-run once it lands.
- */
-function useOwningChatId(wsId: string): string | null {
-  return useSyncExternalStore(
-    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
-    () => getOwningChatId(wsId),
-  )
-}
 
 /**
  * A workspace's data feeds: its file tree and git status, written to the
@@ -29,7 +19,8 @@ export function useWorkspaceEffects(wsId: string, active: boolean) {
   // has recorded one there is nothing a fetch or subscription could address.
   const chatScopeReady = homeWorkspace || owningChatId !== null
 
-  useEffect(() => holdScope(`ws:${wsId}`), [wsId])
+  const hostResolved = useHostResolved({ wsId })
+  useEffect(() => (hostResolved ? holdScope(`ws:${wsId}`) : undefined), [wsId, hostResolved])
   useWorkspaceFileTree(wsId, active, chatScopeReady)
   useWorkspaceGit(wsId, active, owningChatId, homeWorkspace)
 }

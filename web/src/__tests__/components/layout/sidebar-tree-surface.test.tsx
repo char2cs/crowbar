@@ -29,7 +29,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   }),
 }))
 // Kept stubbed rather than removed: several rendered rows (the promote
-// dropdown, the space header overflow) can reach a real `toast.error` call on
+// dropdown, the tree foot's New thread) can reach a real `toast.error` call on
 // a rejected promise, and the real store would otherwise queue a live toast
 // during a render test.
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -56,8 +56,20 @@ import {
 } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-const projectA: Project = { id: 'p1', name: 'proj-a', path: '/p1', lastActivity: new Date(0) }
-const projectB: Project = { id: 'p2', name: 'proj-b', path: '/p2', lastActivity: new Date(0) }
+const projectA: Project = {
+  id: 'p1',
+  name: 'proj-a',
+  path: '/p1',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
+const projectB: Project = {
+  id: 'p2',
+  name: 'proj-b',
+  path: '/p2',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
 
 /**
  * A repo as the tree actually receives one: its home workspace already owns the
@@ -127,10 +139,8 @@ describe('SidebarTreeSurface', () => {
     expect(panels[1]).not.toHaveTextContent('repo-a')
   })
 
-  // RemovalTray no longer mounts here — the drag-to-trash addendum (§2) moved
-  // it into SidebarCarousel, rendered at the top of the file explorer card.
-  // "Mounts once, not once per project" is now covered there
-  // (sidebar-carousel.test.tsx), not at this component's level.
+  // RemovalTray no longer mounts here: it mounts once in the IDE shell
+  // (ide-shell.test.tsx covers that).
 
   // Explicit product request: an X on a row transforms it IN PLACE (its
   // countdown + Keep/undo control) instead of hiding it while a separate
@@ -230,7 +240,7 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
     expect(screen.queryByTestId('create-space-panel')).not.toBeInTheDocument()
   })
 
-  it('renders CreateSpacePanel instead of SpaceScroller while creating a space', () => {
+  it('renders CreateSpacePanel instead of SpaceScroller while creating a space', async () => {
     render(
       <SidebarTreeSurface
         projects={[projectA]}
@@ -241,11 +251,11 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
         onCancelCreateSpace={vi.fn()}
       />,
     )
-    expect(screen.getByTestId('create-space-panel')).toBeInTheDocument()
+    expect(await screen.findByTestId('create-space-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
   })
 
-  it('Cancel calls onCancelCreateSpace', () => {
+  it('Cancel calls onCancelCreateSpace', async () => {
     const onCancelCreateSpace = vi.fn()
     render(
       <SidebarTreeSurface
@@ -257,7 +267,7 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
         onCancelCreateSpace={onCancelCreateSpace}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
     expect(onCancelCreateSpace).toHaveBeenCalledOnce()
   })
 })

@@ -13,6 +13,7 @@ import { FolderOpen } from '@phosphor-icons/react'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { createProject } from '@/lib/store/create-project'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 import { report } from '@/lib/errors/report'
 
@@ -49,7 +50,8 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
           .split(/[\\/]/)
           .pop() ?? trimmedPath
       const name = projectName.trim() || fallbackName
-      onImport(await createProject(name, trimmedPath))
+      // The path is picked on this machine, so the local daemon imports it.
+      onImport(await createProject(name, trimmedPath, LOCAL_HOST.id))
       setSelectedPath('')
       setProjectName('')
     } catch (err) {

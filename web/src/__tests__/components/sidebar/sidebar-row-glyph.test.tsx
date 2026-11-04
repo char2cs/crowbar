@@ -21,7 +21,9 @@ beforeEach(() => resetOperations())
 
 describe('SidebarRowGlyph', () => {
   it('a workspace row spins while an operation naming it runs', () => {
-    const { container } = render(<SidebarRowGlyph row={row} isProjectHome={false} expanded />)
+    const { container } = render(
+      <SidebarRowGlyph row={row} isProjectHome={false} readOnlyHeader={false} expanded />,
+    )
     const spinner = () => container.querySelector('[data-flicker-spinner]')
     expect(spinner()).toBeNull()
 

@@ -19,6 +19,7 @@ import {
   type EditorContent,
 } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import {
   getEditorHost,
   loadEditorHost,
@@ -101,6 +102,7 @@ export function openFailure(target: DocumentTarget, error: unknown): DocumentUna
 }
 
 function reportOpenFailure(target: DocumentTarget, error: unknown): void {
+  if (toastHostFailure(error)) return
   const { title, message } = openFailure(target, error)
   toast.error(title, message)
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const deleteChat = vi.fn().mockResolvedValue([])
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({
@@ -37,6 +37,9 @@ import { DISCARD_WORK_INIT } from '@/lib/api'
 import type { Problem } from '@/lib/errors/problem'
 import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectHomeTree } from '@/core/entities/select'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -111,6 +114,11 @@ beforeEach(() => {
   resetEntities()
   seedRepos([repo()])
   resetOperations()
+})
+
+afterEach(() => {
+  destroyHostRuntime('h1')
+  resetHostWorld()
 })
 
 describe('committing a workspace removal', () => {
@@ -217,6 +225,31 @@ describe('committing a workspace removal', () => {
     deleteChat.mockRejectedValueOnce(UNWORDED)
     await commitRemoval(entry({ entryId: 'e2' }), context)
     expectReported(toastError, "Couldn't remove feature/one", 'request failed')
+  })
+
+  it('un-hides the rows and names the remote host when it is why the delete failed', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    deleteChat.mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
+    treeUiStore.getState().hold([
+      {
+        kind: 'workspace',
+        id: 'ws-fork',
+        label: 'feature/one',
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: '',
+        providerIcon: '',
+        hiddenIds: ['ws-fork', 'chat-fork'],
+        extra: 0,
+        fallbackWsId: null,
+      },
+    ])
+    await commitRemoval(entry(), context)
+
+    expect(treeUiStore.getState().hiddenIds.has('ws-fork')).toBe(false)
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'error', title: 'Couldn’t reach Studio Mac' }),
+    )
   })
 
   it('a delete refused while the daemon migrates shows the migrating state, not a toast', async () => {

@@ -59,7 +59,7 @@ describe('AgentTerminalWaitBanner', () => {
   // It never offers to ANSWER — that is the whole distinction from a choice card.
   // There is no channel to reply on, so the only control is the way to the place
   // where a reply is possible.
-  it('offers the terminal and nothing else', () => {
+  it('offers only the terminal when the prompt declares no answers', () => {
     const onOpenTerminal = vi.fn()
     render(
       <AgentTerminalWaitBanner
@@ -73,6 +73,25 @@ describe('AgentTerminalWaitBanner', () => {
     expect(buttons).toHaveLength(1)
     fireEvent.click(buttons[0]!)
     expect(onOpenTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it('puts each declared answer beside the terminal button', () => {
+    const onAnswer = vi.fn()
+    const onOpenTerminal = vi.fn()
+    render(
+      <AgentTerminalWaitBanner
+        kind={TERMINAL_WAIT_TRUST}
+        providerLabel="Claude"
+        onOpenTerminal={onOpenTerminal}
+        answers={[{ id: 'accept', label: 'Trust workspace' }]}
+        onAnswer={onAnswer}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trust workspace' }))
+    expect(onAnswer).toHaveBeenCalledWith('accept')
+    expect(onOpenTerminal).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Open Terminal/ })).toBeInTheDocument()
   })
 
   // Regression: this message used to be free to WRAP as the pane narrowed,

@@ -33,12 +33,6 @@ export function reparentWorkspace(
   return worktreeOp(wsId, 'reparent', opId, { newParentId })
 }
 
-/** "Finish the move": rebase a moved-but-conflicting workspace onto its parent;
- *  a conflicting rebase is kept for the standard resolve flow. */
-export function rebaseOntoParent(wsId: string, opId: string): Promise<OperationReply> {
-  return worktreeOp(wsId, 'rebase-onto-parent', opId)
-}
-
 /** Retry provisioning a placeholder workspace in place (§3.3). */
 export function retryProvision(wsId: string, opId: string): Promise<OperationReply> {
   return worktreeOp(wsId, 'retry-provision', opId)

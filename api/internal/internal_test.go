@@ -3,6 +3,7 @@ package internal_test
 import (
 	"context"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -82,16 +83,17 @@ func TestNew_ReportsItsBoundTCPAddress(t *testing.T) {
 	assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address(), "the port it bound, not the one asked")
 }
 
-// A wildcard bind is reachable on loopback; a callback dialing the address it
-// is handed must not be given an unspecified host.
-func TestNew_ReportsAWildcardBindAsLoopback(t *testing.T) {
+// An exposed bind, a wildcard included, serves TLS a callback cannot speak, so
+// the address a callback is handed is the home's socket bound beside it.
+func TestNew_AnExposedBindHandsCallbacksTheHomeSocket(t *testing.T) {
 	for _, host := range []string{"tcp://0.0.0.0:0", "tcp://[::]:0"} {
 		t.Run(host, func(t *testing.T) {
-			c, err := internal.New(context.Background(), host, nil, internal.WithHomeDir(t.TempDir()))
+			h := testutil.FixtureHome(t)
+			c, err := internal.New(context.Background(), host, nil, internal.WithHomeDir(h.Root()))
 			require.NoError(t, err)
 			t.Cleanup(c.Close)
 
-			assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address())
+			assert.Equal(t, "unix://"+h.Socket(), c.Address())
 		})
 	}
 }
@@ -406,6 +408,77 @@ func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 	assert.NotNil(t, c)
+}
+
+// writeFileInPlaceOfDir leaves path unusable as a directory, whoever runs the
+// test: unlike a permission bit, root cannot write through it.
+func writeFileInPlaceOfDir(
+	t *testing.T,
+	path string,
+) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+}
+
+func writeCorruptIdentity(
+	t *testing.T,
+	tlsDir string,
+) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(tlsDir, 0o700))
+	for _, name := range []string{"cert.pem", "key.pem"} {
+		require.NoError(t, os.WriteFile(filepath.Join(tlsDir, name), []byte("not a pem"), 0o600))
+	}
+}
+
+// TestRegression_New_LocalDaemonNeverTouchesTheTLSDir proves a daemon serving
+// no TLS — the unix socket alone, or the loopback dev bind — boots whatever
+// state its TLS identity directory is in, and never creates one.
+func TestRegression_New_LocalDaemonNeverTouchesTheTLSDir(t *testing.T) {
+	spoilers := map[string]func(t *testing.T, tlsDir string){
+		"absent":    func(*testing.T, string) {},
+		"not a dir": writeFileInPlaceOfDir,
+		"corrupt":   writeCorruptIdentity,
+	}
+	for _, host := range []string{"unix", "tcp://127.0.0.1:0"} {
+		for name, spoil := range spoilers {
+			t.Run(host+" "+name, func(t *testing.T) {
+				h := testutil.FixtureHome(t)
+				tlsDir := filepath.Join(h.Root(), "tls")
+				spoil(t, tlsDir)
+				bind := host
+				if host == "unix" {
+					bind = "unix://" + testutil.ShortSocket(t)
+				}
+
+				c, err := internal.New(context.Background(), bind, nil, internal.WithHomeDir(h.Root()))
+				require.NoError(t, err)
+				t.Cleanup(c.Close)
+
+				if name == "absent" {
+					_, statErr := os.Stat(tlsDir)
+					assert.ErrorIs(t, statErr, fs.ErrNotExist, "a local daemon must not create a TLS identity")
+				}
+			})
+		}
+	}
+}
+
+// TestRegression_New_ExposedBindRefusesAnUnloadableIdentity proves a corrupt
+// identity is never silently replaced on a network-exposed daemon — every
+// paired client pins it — and that the refusal says what replacing it means.
+func TestRegression_New_ExposedBindRefusesAnUnloadableIdentity(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	tlsDir := filepath.Join(h.Root(), "tls")
+	writeCorruptIdentity(t, tlsDir)
+
+	_, err := internal.New(context.Background(), "tcp://localhost.:0", nil, internal.WithHomeDir(h.Root()))
+
+	require.ErrorContains(t, err, "identity cannot be loaded")
+	require.ErrorContains(t, err, "identity change")
+	cert, readErr := os.ReadFile(filepath.Join(tlsDir, "cert.pem"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "not a pem", string(cert), "the corrupt identity must be left for the operator, not regenerated")
 }
 
 func TestRun_CancelledContext_Returns(t *testing.T) {

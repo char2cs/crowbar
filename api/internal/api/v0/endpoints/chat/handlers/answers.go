@@ -53,3 +53,24 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("choiceId"))
 }
+
+// AnswerTerminalWait types one of the descriptor-declared replies into the
+// provider's own terminal prompt, so the human need not open the terminal.
+func (h *Handlers) AnswerTerminalWait(ctx *gin.Context) {
+	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
+	if !ok {
+		return
+	}
+	var body struct {
+		AnswerID string `json:"answerId"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil || body.AnswerID == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "answerId is required")
+		return
+	}
+	if err := h.answers.AnswerTerminalWait(ctx.Request.Context(), chat.ID, body.AnswerID); err != nil {
+		libs.Fail(ctx, err)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusOK, chat.ID)
+}

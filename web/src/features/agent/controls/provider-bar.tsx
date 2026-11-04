@@ -3,6 +3,7 @@ import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import { IS_MOBILE } from '@/utils/platform'
 
 interface ProviderBarProps {
   provider?: AgentProvider
@@ -48,7 +49,7 @@ export function ProviderBar({
   onCompact,
 }: ProviderBarProps) {
   return (
-    <div className="underbar">
+    <div className="underbar" data-touch={IS_MOBILE || undefined}>
       <div className="left">
         <SelectionCluster
           provider={provider}
@@ -67,7 +68,8 @@ export function ProviderBar({
       </div>
       <div className="right">
         {queued > 0 && <span>{queued} queued</span>}
-        <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />
+        {/* The phone draws its meter natively, beside the IDE button (use-native-context). */}
+        {!IS_MOBILE && <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />}
       </div>
     </div>
   )

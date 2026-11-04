@@ -8,7 +8,7 @@ import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 // use-pane-keyboard dispatch that closes the active buffer instead.
 vi.mock('@/utils/platform', async () => {
   const actual = await vi.importActual<typeof import('@/utils/platform')>('@/utils/platform')
-  return { ...actual, IS_MAC: true }
+  return { ...actual, IS_MAC: true, APPLE_KEYBOARD: true }
 })
 
 const closeBuffer = vi.fn()
@@ -43,7 +43,12 @@ const openUntitled = vi.spyOn(openDocumentApi, 'openUntitledDocument').mockResol
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 
-type FakePane = { activeEditorTabId: string | null; editorTabIds: string[]; chatId?: string | null }
+type FakePane = {
+  activeEditorTabId: string | null
+  editorTabIds: string[]
+  chatId?: string | null
+  workspaceId?: string | null
+}
 type FakeLayout =
   | { type: 'pane'; id: string }
   | {
@@ -134,16 +139,7 @@ vi.mock('@/features/panes/utils/pane-command-actions', async () => {
 
 const { getOwningChatId } = vi.hoisted(() => ({ getOwningChatId: vi.fn() }))
 vi.mock('@/lib/workspace-scope', () => ({
-  bindActiveWorkspaceId: () => {},
   getOwningChatId,
-}))
-
-// pane-command-actions.ts (run for real above) also imports getActiveWorkspaceId
-// from the registry (for openBranchReviewForActiveWorkspace, unexercised here) —
-// mocked so importing it stays cheap: the real module pulls in the editor/Monaco
-// store graph, which previously timed out this suite's dynamic imports.
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => null,
 }))
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
@@ -153,9 +149,15 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 
 const setProviders = (providers: Array<Partial<AgentProvider>>) =>
   useAgentProvidersStore.setState({ status: 'ready', providers: providers as AgentProvider[] })
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { seedChats } from '@/__tests__/__fixtures__/agent-chat'
+
+afterEach(() => setActiveWorkspaceId(null))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The workspace in view is not the pane's: what a chord opens belongs to the pane's.
+  setActiveWorkspaceId('ws-in-view')
   getOwningChatId.mockReset()
   fakeState.activePaneId = ROOT_PANE_ID
   setProviders([])
@@ -288,6 +290,19 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
     expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
+  it('mod+w on a split pane whose chat is mid-turn just closes the view of it', () => {
+    setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 2 })
+    fakeState.panes[ROOT_PANE_ID] = {
+      ...fakeState.panes[ROOT_PANE_ID],
+      chatId: 'busy-chat',
+      workspaceId: 'ws-1',
+    } as FakePane
+    seedChats([{ id: 'busy-chat', workspaceId: 'ws-1', working: true }])
+    renderHook(() => usePaneKeyboard())
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
+    expect(closePane).toHaveBeenCalledWith(ROOT_PANE_ID)
+  })
+
   // C1 regression: `state.panes` ALSO holds BOTTOM_PANE_ID here (this is the
   // real, single-pane-workspace shape — see the fixture comment above), so the
   // old `Object.keys(state.panes).length > 1` guard was always true and called
@@ -327,18 +342,52 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
 })
 
 describe('usePaneKeyboard — new tab / terminal / file chords', () => {
-  // A New Tab is no longer a mintable placeholder tab — a pane already shows
-  // its own empty stage for free whenever it holds no editor tabs, and there
-  // is no primitive yet for "detach the active tab without closing it" to
-  // reproduce the old "add a blank scratch tab beside my real ones" gesture.
-  // The chord is inert until one exists; it must not fall through and open a
-  // terminal or anything else.
-  it('mod+t is currently a no-op (no more mintable New Tab placeholder)', () => {
+  it('mod+t opens a New Tab page in the active pane', () => {
+    fakeState.panes[ROOT_PANE_ID].chatId = 'chat-1'
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true }))
-    expect(openContent).not.toHaveBeenCalled()
-    expect(dropChatOnPane).not.toHaveBeenCalled()
-    expect(openChat).not.toHaveBeenCalled()
+    expect(openContent).toHaveBeenCalledWith(
+      { type: 'newTabPage', workspaceId: 'ws-1' },
+      { paneId: ROOT_PANE_ID },
+    )
+    expect(createChat).not.toHaveBeenCalled()
+  })
+
+  describe('mod+n with focus inside an editor area', () => {
+    let host: HTMLElement
+    beforeEach(() => {
+      fakeState.panes['pane-2'] = { activeEditorTabId: null, editorTabIds: [], chatId: 'chat-2' }
+      setProviders([{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }])
+      createChat.mockResolvedValue('chat-9')
+      host = document.createElement('div')
+      host.innerHTML =
+        '<div data-pane-id="pane-2"><div data-editor-view=""><button>in editor</button></div>' +
+        '<button>in chat</button></div>'
+      document.body.appendChild(host)
+    })
+    afterEach(() => host.remove())
+
+    const pressCmdN = () =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true }))
+
+    it('opens a New Tab page in THAT pane instead of a new chat', () => {
+      host.querySelector<HTMLButtonElement>('[data-editor-view] button')!.focus()
+      renderHook(() => usePaneKeyboard())
+      pressCmdN()
+      expect(openContent).toHaveBeenCalledWith(
+        { type: 'newTabPage', workspaceId: 'ws-1' },
+        { paneId: 'pane-2' },
+      )
+      expect(createChat).not.toHaveBeenCalled()
+    })
+
+    it('stays New Chat when focus is in the pane but outside its editor area', () => {
+      host.querySelectorAll<HTMLButtonElement>('button')[1]!.focus()
+      renderHook(() => usePaneKeyboard())
+      pressCmdN()
+      expect(createChat).toHaveBeenCalled()
+      expect(openContent).not.toHaveBeenCalled()
+    })
   })
 
   it("mod+j opens a terminal, attaching the workspace's real owning chat", () => {

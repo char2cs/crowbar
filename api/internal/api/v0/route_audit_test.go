@@ -194,6 +194,7 @@ func specRoutes() []string {
 		"DELETE " + chat + "/terminals/:sessionId",
 		// §2.12 System
 		"GET /v0/system/prerequisites",
+		"GET /v0/system/browse",
 		// §2.13 Health
 		"GET /v0/health",
 		// §3 the raw PTY stream, co-located on the flat chat prefix.
@@ -275,6 +276,9 @@ func extraRoutes() []string {
 		"GET " + chat + "/review/outline",
 		"GET " + chat + "/review/patch",
 		"GET " + chat + "/review/search",
+		// One file's full old and new text, fetched only when a reader expands
+		// the unchanged lines a patch leaves out.
+		"GET " + chat + "/review/contents",
 		// The three document-sync notifications, chat-scoped only (spec §4.2's
 		// OWNED bucket, §8 step 6) — their .../workspaces/:wsId/lsp/... twins
 		// are gone.
@@ -383,9 +387,12 @@ func extraRoutes() []string {
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
 		"POST " + repo + "/chats/:id/stop",
-		//   close: the last view of the chat went away. Unlike stop it never
-		//   interrupts in place; the CLI is retired and the chat stays dormant.
-		"POST " + repo + "/chats/:id/close",
+		//   kill: the explicit force-end. Unlike stop it never interrupts in
+		//   place; the CLI is retired and the chat stays dormant.
+		"POST " + repo + "/chats/:id/kill",
+		//   terminal-wait/answer: answers the provider's own prompt (trust, login,
+		//   permission) from the chat instead of the terminal.
+		"POST " + repo + "/chats/:id/terminal-wait/answer",
 		"POST " + repo + "/chats/:id/compact",
 		// Two more ways a session on a chat can end without the chat itself
 		// going anywhere: forcing the CLI into (or back out of) the host
@@ -497,7 +504,8 @@ func extraRoutes() []string {
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
-		"POST " + home + "/chats/:id/close",
+		"POST " + home + "/chats/:id/kill",
+		"POST " + home + "/chats/:id/terminal-wait/answer",
 		"POST " + home + "/chats/:id/compact",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
@@ -536,6 +544,15 @@ func extraRoutes() []string {
 		// The one stream and operations are process-wide, so they mount top-level too.
 		"GET /v0/stream",
 		"DELETE /v0/operations/:id",
+		// Pairing + client registry: mint/redeem stay open so an unpaired
+		// client can bootstrap trust; the registry routes are guarded.
+		"POST /v0/pair/code",
+		"POST /v0/pair",
+		"GET /v0/clients",
+		"DELETE /v0/clients/:id",
+		// The desktop app's browser-peer socket: process-wide like /system,
+		// it carries tab inventories up and agent browser_* requests down.
+		"GET /v0/browser/peer",
 	}
 }
 
@@ -544,7 +561,7 @@ func registeredRoutes(
 ) map[string]struct{} {
 	t.Helper()
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	out := map[string]struct{}{}
@@ -826,7 +843,7 @@ func TestRouteAudit_LiveReadRoutesAnswerREST(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -864,7 +881,7 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	log := slog.New(ring.Wrap(slog.NewTextHandler(&strings.Builder{}, nil)))
 	log.Info("old", "component", "boot")
 	r := gin.New()
-	c := v0.New(tc.app, tc.eng, v0.WithLogs(ring))
+	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(ring))
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)

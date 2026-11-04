@@ -8,6 +8,7 @@ import {
 } from '@/features/git/stores/git-refresh'
 import { holdScope, onSignal } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
+import { useHostResolved } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
@@ -26,7 +27,7 @@ function framesEqual(prev: unknown, next: unknown): boolean {
  * workspace is shown, then kept current by its git: scope while the
  * workspace is retained — so a switch never reloads it. Not for the home
  * workspace (no git surface). `owningChatId` is null until the sidebar records
- * it; the git routes are chat-scoped and throw without one.
+ * it; the git routes are chat-scoped and throw without one, or without a known host.
  */
 export function useWorkspaceGit(
   wsId: string,
@@ -36,7 +37,8 @@ export function useWorkspaceGit(
 ) {
   const store = useWorkspaceStore()
   const loaded = useStore(store, (s) => s.gitLoad === 'ready')
-  const canAddress = !homeWorkspace && owningChatId !== null
+  const hostResolved = useHostResolved({ wsId })
+  const canAddress = !homeWorkspace && owningChatId !== null && hostResolved
 
   useEffect(() => {
     if (!active || !canAddress) return

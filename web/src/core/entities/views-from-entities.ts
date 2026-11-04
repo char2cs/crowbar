@@ -9,6 +9,7 @@ import {
   toSidebarFolder,
 } from '@/lib/store/build-repo-tree'
 import type { Project, WorkspaceDTO } from '@/lib/types'
+import { LOCAL_HOST } from '@/features/hosts/types'
 
 /** A project's home chats and folders. */
 export interface HomeTree {
@@ -152,8 +153,9 @@ function derive(k: ByKind, synced: boolean): SidebarViews {
     if (data.repoId) repoChats.push(row)
     else home(data.projectId).chats.push(row)
   }
+  // The one stream is the local daemon's: every project it carries lives there.
   const projects = Object.values(k.project)
-    .map((r) => r.data)
+    .map((r) => ({ hostId: LOCAL_HOST.id, ...r.data }))
     .sort(byOrder)
   for (const p of projects) home(p.id)
   return {

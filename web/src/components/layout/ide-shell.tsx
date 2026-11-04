@@ -1,40 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStore } from 'zustand'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { lazy, Suspense, useCallback } from 'react'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
-import { SidebarCarousel } from './sidebar-carousel'
+import { SidebarBody } from './sidebar-body'
+import { SidebarFoot } from './sidebar-foot'
+import { SidebarProjectSwitcher } from './sidebar-project-switcher'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
-import { SidebarFooter } from './sidebar-footer'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
-import { useProjectStore } from '@/core/entities/active-project'
-import { selectProjects, useSelect } from '@/core/entities/select'
-import type { Project } from '@/lib/types'
-import SettingsDialog from '@/features/settings/components/settings-dialog'
-import { ErrorBoundary } from '@/components/error-boundary'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
-import { FpsOverlay } from './fps-overlay'
 import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
+import { useSidebarFocusMode } from './use-sidebar-focus-mode'
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
-import { recordWorkspaceScopeFromPath, setWorkspaceScope } from '@/lib/workspace-scope'
-import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { selectIsShowingEmptyStage } from '@/features/panes/lib/view-selectors'
-import { useIdeShellWorkspaceRetention } from './use-ide-shell-workspace-retention'
 import { IdeShellWorkspaceContent } from './ide-shell-workspace-content'
-import { useMeasuredHeight } from './use-measured-height'
-import { useRedirectIfProjectMissing } from './use-redirect-if-project-missing'
+import { useShellRouteState } from './use-shell-route-state'
 import { ConsoleDock } from '@/features/console/components/console-dock'
 import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-light-sync'
+
+// Opened on demand: the dialog and every settings tab stay out of the boot bundle.
+const SettingsDialog = lazy(() => import('@/features/settings/components/settings-dialog'))
 
 /** The shell inside the console's frame, so the console can cover or shrink the whole window. */
 export function IDEShell() {
@@ -46,8 +37,6 @@ export function IDEShell() {
 }
 
 function IdeShellBody() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const navigate = useNavigate()
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
@@ -60,110 +49,21 @@ function IdeShellBody() {
   // a side effect (see the hook's own doc).
   useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
-
-  // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
-  // canonical source for the active project/repo/workspace — read them directly
-  // rather than scanning the sidebar store (which lags the route on cold start).
-  // Recording the scope here, SYNCHRONOUSLY during render, is load-bearing: the
-  // WorkspaceView subtree (rendered below) builds workspace-scoped URLs via
-  // workspaceBase() during its own render, so the scope must exist before then —
-  // recording it only in the route component's post-render effect threw on first
-  // paint and tripped the ErrorBoundary (§14 add-repo regression).
-  const routeScope = recordWorkspaceScopeFromPath(pathname)
-  const homeRouteMatch = routeScope ? null : pathname.match(/\/ide\/([^/]+)\/home$/)
-  const activeProjectIdFromRoute = routeScope?.projectId ?? homeRouteMatch?.[1]
-  const activeRepoIdFromRoute = routeScope?.repoId
-  const activeWorkspaceId = routeScope?.wsId
-
-  // Resolve the home workspace id ONCE per project (cached for the session —
-  // see home-workspace-resolver.ts) instead of HomeRoute re-fetching and
-  // cold-mounting a fresh WorkspaceView on every single visit to project
-  // home. Kicking the fetch off here (not in HomeRoute) means WorkspaceHost
-  // below can keep the resulting workspace mounted-but-hidden via its normal
-  // keep-alive retention, so a repeat visit is a warm slot reveal.
-  // Not gated to `homeRouteMatch`: retention's sidebar-path lookup needs this project's home id/path off the home route too (a split can mix a home chat's pane with a repo route), or it falls through to the repo scan and dead-ends on "No folder open".
-  const homeProjectId = activeProjectIdFromRoute
+  useSidebarFocusMode()
   const {
-    wsId: homeWorkspaceId,
-    owningChatId: homeOwningChatId,
-    localPath: homeWorkspacePath,
-  } = useHomeWorkspaceState(homeProjectId ?? null)
-  // Recorded SYNCHRONOUSLY during render (matches recordWorkspaceScopeFromPath
-  // above) — WorkspaceHost, rendered below, mounts this workspace's
-  // WorkspaceView in the same render pass, and workspaceBase() needs the
-  // scope to exist before that.
-  if (homeRouteMatch && homeProjectId && homeWorkspaceId) {
-    // owningChatId travels with it: home is project-level, so it never appears in
-    // the sidebar's repo tree that records every other workspace's owning chat,
-    // and a chat-scoped URL (a terminal's) could not be built for it otherwise.
-    setWorkspaceScope({
-      projectId: homeProjectId,
-      repoId: '',
-      wsId: homeWorkspaceId,
-      owningChatId: homeOwningChatId ?? undefined,
-    })
-  }
-  // Every workspace-id fact WorkspaceHost's retention and the sidebar's
-  // file-explorer path need, resolved off the active pane/route — see the
-  // hook's own doc for why this lives outside IDEShell's body.
-  const allProjects = useSelect(selectProjects)
-  const projectPath = allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? ''
-  const { effectiveActiveWorkspaceId, paneWsIds, viewWsIds } = useIdeShellWorkspaceRetention(
-    activeWorkspaceId,
-    homeWorkspaceId,
-    activeProjectIdFromRoute,
-    activeRepoIdFromRoute,
-    Boolean(homeRouteMatch),
-    homeWorkspacePath,
-    projectPath,
-  )
-  // The tree's only entry point for a SECOND space (spec §3 ruling): a
-  // trailing `+` mark alongside the space marks in SidebarFooter. Swaps
-  // SpaceScroller for CreateSpacePanel in place (sidebar-tree-surface.tsx)
-  // rather than opening a modal — Zen's own "Create a Space" sheet lives in
-  // the sidebar itself. Lifted here, alongside `allProjects`, so both the
-  // footer (the marks) and the surface below can reach it.
-  const [creatingSpace, setCreatingSpace] = useState(false)
-  // The created project is already in the entity store: its operation settled after it.
-  const handleCreateSpace = useCallback((_project: Project) => {
-    setCreatingSpace(false)
-  }, [])
-  // Space marks (spec §4.1): same navigation the workspace switcher's own
-  // project-home rows already use (workspace-switcher.tsx's `select`).
-  // Shared verbatim with SidebarTreeSurface's SpaceScroller below
-  // (`onActiveProjectChange`) — one "switch to project" action, not two.
-  // Also cancels an in-progress space creation: picking an existing space
-  // while the create form is open has to replace it, not leave it stranded
-  // behind the newly-routed content.
-  //
-  // useCallback'd (stable across renders unless `navigate` itself changes —
-  // TanStack Router's own hook already returns a stable reference) so the
-  // memoized SidebarTreeSurface/SidebarFooter below don't see a fresh prop
-  // identity, and therefore don't re-render, on an IDEShell render this
-  // handler had no part in.
-  const handleSelectProject = useCallback(
-    (projectId: string) => {
-      setCreatingSpace(false)
-      void navigate({ to: '/ide/$projectId/home', params: { projectId } })
-    },
-    [navigate],
-  )
-  // Same reason as `handleSelectProject` above — stable identities so
-  // memoized SidebarTreeSurface/SidebarFooter can actually skip a render
-  // that doesn't touch space-creation state, instead of always seeing a
-  // fresh inline-arrow prop.
-  const handleCancelCreateSpace = useCallback(() => setCreatingSpace(false), [])
-  const handleAddProject = useCallback(() => setCreatingSpace(true), [])
-  // Browser-tab convention: Cmd/Ctrl+1-9 jump straight to a space by
-  // position (9 always the last one) — the same shortcut `develop` wired for
-  // sidebar context switching, now driving spaces instead.
-  //
-  // useCallback'd (same reasoning as `handleSelectProject` above) — this is
-  // the hook's own `onSelect`, an effect dependency INSIDE
-  // useSpaceSwitcherKeyboard: an inline arrow here was a fresh identity every
-  // render, so that effect tore down and re-added its window keydown
-  // listener on every IDEShell render instead of just when `allProjects` or
-  // `handleSelectProject` actually change.
+    activeProjectId: activeProjectIdFromRoute,
+    allProjects,
+    effectiveActiveWorkspaceId,
+    paneWsIds,
+    viewWsIds,
+    creatingSpace,
+    handleCreateSpace,
+    handleSelectProject,
+    handleCancelCreateSpace,
+    handleAddProject,
+  } = useShellRouteState()
+  // Browser-tab convention: Cmd/Ctrl+1-9 jump straight to a space by position
+  // (9 always the last one). Stable, as it is the hook's effect dependency.
   const handleSpaceSwitcherSelect = useCallback(
     (index: number) => {
       const project = allProjects[index]
@@ -173,120 +73,42 @@ function IdeShellBody() {
   )
   useSpaceSwitcherKeyboard(allProjects.length, handleSpaceSwitcherSelect)
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
-  // The file-explorer card only makes sense alongside a real view — with
-  // nothing open (the empty-stage fallback pane, spec §5.4's tumbling
-  // wordmark) there is no workspace in particular the Files/Git tabs would
-  // even be showing. `selectIsShowingEmptyStage` reads the exact same fact
-  // the pane store itself uses to decide whether the showing tree is worth
-  // parking at all — not a fresh guess at "empty" here.
-  const isShowingEmptyStage = useStore(windowPaneStore, selectIsShowingEmptyStage)
-
-  // The floating file-explorer card's own rail (spec §6: it "opens at one
-  // third of the sidebar's height" and "height is kept as a proportion of
-  // the rail"). Measured here, not inside SidebarCarousel, because the rail
-  // IS this column. `sidebarRailRef` sits on the whole sidebar column
-  // (header/tree/floating card/footer/toasts) and stays the
-  // height-measurement target even though SidebarFooter now sits below the
-  // card as a true flow sibling — the card's own bottom anchor resolves
-  // against a narrower `relative flex-1` wrapper around just the tree +
-  // carousel instead (see sidebarContent below), so the footer's height
-  // never eats into the card's own.
-  const sidebarRailRef = useRef<HTMLDivElement>(null)
-  const sidebarRailHeight = useMeasuredHeight(sidebarRailRef)
-  // The tree's own bottom inset (spec §6) no longer flows through React
-  // state or props here: SidebarCarousel writes its live height straight
-  // onto `sidebarRailRef` as a `--card-bottom-inset` CSS custom property
-  // (via the `railRef` prop below), and `space-scroller.tsx`'s `SpacePanel`
-  // reads it back through plain CSS inheritance. A per-frame React state
-  // update here previously re-rendered this whole shell — and, since none
-  // of SidebarTreeSurface/SpaceScroller/SpacePanel/SidebarTree/SidebarRow
-  // are memoized, every visible row — on every frame of a resize drag.
-
-  // BUG-003: when landing directly on a workspace route, the header project
-  // button showed "Select project" — the active project was never derived from
-  // the route. Keep the active project in sync with the route's projectId.
-  //
-  // THE ONE WRITER of the pane store's own `activeProjectId` too (the
-  // project-scoped panes design's trap 4): the route is already the one place
-  // a project change becomes state, and a second writer — a click handler
-  // racing this effect — is exactly how the sidebar's own project-switch bugs
-  // happened. `setActiveProject` no-ops on an unchanged id, so calling it
-  // unconditionally here is free; parking the space you left and bringing this
-  // one's own last view forward is all downstream of that single write.
-  const workspaceProjectId = activeProjectIdFromRoute
-  useEffect(() => {
-    if (!workspaceProjectId) return
-    if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {
-      useProjectStore.getState().setActiveProject(workspaceProjectId)
-    }
-    windowPaneStore.getState().paneActions.setActiveProject(workspaceProjectId)
-  }, [workspaceProjectId])
-
-  // See the hook's own doc for the "viewing a project that no longer exists"
-  // invariant this enforces.
-  useRedirectIfProjectMissing(activeProjectIdFromRoute, allProjects, navigate)
 
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
-  //
-  // The project marks (SidebarFooter) mount here as their own row, below the
-  // tree/card area and above the toast overlay — the sidebar's true last
-  // content element — per the product owner's explicit placement call, not
-  // squeezed into SidebarProjectHeader's window-chrome row any more. The tree
-  // and the floating card are wrapped in their own `relative flex-1` box so
-  // the card's `absolute`/`bottom-2` anchor (sidebar-carousel.tsx) resolves
-  // against THAT box's bottom edge, right above the footer, rather than
-  // against `sidebarRailRef`'s — which now extends past the footer too.
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
-      <div
-        ref={sidebarRailRef}
-        className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none"
-      >
+      <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none">
         {!hasNavScreen && <SidebarProjectHeader />}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          {!hasNavScreen && (
-            <SidebarTreeSurface
+        <SidebarBody
+          projectSwitcher={
+            <SidebarProjectSwitcher
               projects={allProjects}
               activeProjectId={activeProjectIdFromRoute}
-              onActiveProjectChange={handleSelectProject}
-              creatingSpace={creatingSpace}
-              onCreateSpace={handleCreateSpace}
-              onCancelCreateSpace={handleCancelCreateSpace}
+              onSelectProject={handleSelectProject}
+              onAddProject={handleAddProject}
             />
-          )}
-          {/* Floats absolutely over whatever SidebarTreeSurface renders
-              (its own doc: "never splits layout with it") — over the create-
-              space form that means it covers the Cancel button, not just the
-              tree. Hidden while creating a space rather than made to respect
-              a prop of its own: a rare, deliberate excursion, and its height/
-              fold state already round-trips through localStorage, so nothing
-              is lost by unmounting for it. Hidden with nothing open too
-              (`isShowingEmptyStage`): a Files/Git card for no view in
-              particular read as chrome left over from before the last view
-              closed — caught live, sitting there beside the empty-stage
-              wordmark with no workspace of its own to speak for. */}
-          {!creatingSpace && !isShowingEmptyStage && (
-            <ErrorBoundary>
-              <SidebarCarousel sidebarHeight={sidebarRailHeight} railRef={sidebarRailRef} />
-            </ErrorBoundary>
-          )}
-        </div>
+          }
+          chatsPanel={
+            !hasNavScreen && (
+              <SidebarTreeSurface
+                projects={allProjects}
+                activeProjectId={activeProjectIdFromRoute}
+                onActiveProjectChange={handleSelectProject}
+                creatingSpace={creatingSpace}
+                onCreateSpace={handleCreateSpace}
+                onCancelCreateSpace={handleCancelCreateSpace}
+              />
+            )
+          }
+        />
+        <SidebarFoot />
         {/* The removal service, mounted where NOTHING unmounts it.
             It draws no held row of its own (those transform in place in the
             tree, sidebar-row.tsx) — it owns the 8s commit clock, the seconds
-            numerals, the pagehide flush and `RemovalConfirmDialog`. It used
-            to live inside `SidebarCarousel`, which the gate above unmounts on
-            an empty stage: measured live, the hairline drained, the numerals
-            never counted, and no DELETE was ever sent. It cannot be gated on
-            anything. */}
+            numerals, the pagehide flush and `RemovalConfirmDialog`. It cannot
+            be gated on anything: a gated tray never sends its DELETE. */}
         <RemovalTray />
-        <SidebarFooter
-          projects={allProjects}
-          activeProjectId={activeProjectIdFromRoute}
-          onSelectProject={handleSelectProject}
-          onAddProject={handleAddProject}
-        />
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>
     </SidebarPeek>
@@ -327,12 +149,15 @@ function IdeShellBody() {
       >
         {contentEl}
       </SidebarSplitPane>
-      <SettingsDialog
-        isOpen={isSettingsOpen}
-        onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
-      />
+      {isSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            isOpen
+            onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
+          />
+        </Suspense>
+      )}
       <FontStyleInjector />
-      <FpsOverlay />
       <DetachHolderModal />
       <PlaceholderToastWatcher />
       <NavigationHistoryRecorder />
@@ -356,7 +181,7 @@ function IdeShellBody() {
  * rendered fibers and 78fps, against 120fps idle.
  *
  * Isolating it here leaves the subscription — and its React-effect timing,
- * which `navigateToJumpEntry`'s retarget handshake depends on (the marker is
+ * which the jump list's retarget handshake depends on (the marker is
  * moved onto the reopened buffer's brand-new id AFTER the pane-store write
  * that reveals it, so a recorder running synchronously with that write would
  * record the jump as a fresh navigation and truncate the forward branch) —

@@ -1,8 +1,8 @@
 import type React from 'react'
 import { cn } from '@/lib/utils'
 
-export const TREE_ROW_BASE_INDENT = 14
-export const TREE_ROW_INDENT_SIZE = 14
+const TREE_ROW_BASE_INDENT = 14
+const TREE_ROW_INDENT_SIZE = 14
 
 type TreeRowProps = React.ComponentProps<'button'> & {
   active?: boolean

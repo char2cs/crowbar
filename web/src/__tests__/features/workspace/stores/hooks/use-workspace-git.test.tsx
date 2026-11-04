@@ -2,20 +2,41 @@ import type { ReactNode } from 'react'
 import { describe, it, expect, beforeAll, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceGit } from '@/features/workspace/stores/hooks/use-workspace-git'
-import { requestGitRefresh, useGitRefreshStore } from '@/features/git/stores/git-refresh'
+import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
+import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
+import {
+  markGitStatusChanged,
+  requestGitRefresh,
+  useGitRefreshStore,
+} from '@/features/git/stores/git-refresh'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import { ApiError } from '@/lib/errors/api-error'
 
-const { fetchGitData } = vi.hoisted(() => ({ fetchGitData: vi.fn() }))
+const { fetchGitData, getReviewFiles } = vi.hoisted(() => ({
+  fetchGitData: vi.fn(),
+  getReviewFiles: vi.fn(),
+}))
 
 vi.mock('@/features/git/api/git-data-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/git/api/git-data-api')>()
   return { ...actual, fetchGitData }
 })
+vi.mock('@/features/git/api/review-api', () => ({ getReviewFiles }))
 
 const status = { branch: 'main', ahead: 0, behind: 0, files: [] }
 
@@ -175,5 +196,125 @@ describe('useWorkspaceGit', () => {
       await vi.advanceTimersByTimeAsync(500)
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('on an install that has paired a remote host', () => {
+  const signal = (wsId: string, data: unknown) =>
+    streamDaemon.deliver({ t: 'signal', scope: `git:${wsId}`, kind: 'git_status', data })
+
+  function mount(wsId: 'ws-remote' | 'ws-local') {
+    const store = createWorkspaceStore(wsId)
+    const reloadStatusAndLog = vi.fn(() => Promise.resolve())
+    store.setState({ gitActions: { ...store.getState().gitActions, reloadStatusAndLog } })
+    const chat = wsId === 'ws-remote' ? 'chat-remote' : 'chat-local'
+    const hook = renderHook(() => useWorkspaceGit(wsId, true, chat, false), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
+      ),
+    })
+    return { store, reloadStatusAndLog, ...hook }
+  }
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-remote',
+    })
+    setWorkspaceScope({
+      projectId: 'p-local',
+      repoId: 'r1',
+      wsId: 'ws-local',
+      owningChatId: 'chat-local',
+    })
+  })
+
+  afterEach(() => resetHostWorld())
+
+  it('loads nothing and holds no scope until the project list says whose workspace it is', async () => {
+    const remote = mount('ws-remote')
+    const local = mount('ws-local')
+    expect(fetchGitData).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
+    expect(remote.store.getState().gitLoad).not.toBe('ready')
+
+    // Each workspace waits for its OWN project's row, not merely for a list.
+    act(() => loadProjects(projectOn('p-remote', 'host-1')))
+    await waitFor(() => expect(remote.store.getState().gitLoad).toBe('ready'))
+    expect(fetchGitData.mock.calls).toEqual([['ws-remote']])
+    expect(local.store.getState().gitLoad).toBe('idle')
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+    await waitFor(() => expect(local.store.getState().gitLoad).toBe('ready'))
+    await waitFor(() => expect(held().sort()).toEqual(['git:ws-local', 'git:ws-remote']))
+  })
+
+  it('switching local to remote releases the old scope and a late signal on it reloads nothing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+      const local = mount('ws-local')
+      await vi.waitFor(() => expect(held()).toEqual(['git:ws-local']))
+
+      local.unmount()
+      const remote = mount('ws-remote')
+      await vi.waitFor(() => expect(held()).toEqual(['git:ws-remote']))
+
+      signal('ws-local', { ...status, ahead: 9 })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(remote.reloadStatusAndLog).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('revoking the host releases its scope and loads nothing more', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const { store } = mount('ws-remote')
+    await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
+    await waitFor(() => expect(held()).toEqual(['git:ws-remote']))
+    fetchGitData.mockClear()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+
+    expect(held()).toEqual([])
+    expect(fetchGitData).not.toHaveBeenCalled()
+  })
+})
+
+describe('files summary ownership', () => {
+  afterEach(() => destroyWorkspaceStore('ws-test'))
+
+  // The sidebar tree and the Files changed tab both read the workspace store's
+  // reviewFiles; the store alone fetches it when the git tick fires.
+  it('fetches the summary once per git tick for every consumer of the workspace', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
+    fetchGitData.mockResolvedValue({ status, commits: [], reviewFiles: [] })
+    getReviewFiles.mockResolvedValue([])
+    const store = getOrCreateWorkspaceStore('ws-test')
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
+    )
+    const { result } = renderHook(
+      () => {
+        useWorkspaceGit('ws-test', true, 'chat-test', false)
+        return { sidebar: useSidebarChangedFiles('ws-test'), tab: useReviewFilesSummary('ws-test') }
+      },
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.tab.loaded).toBe(true))
+    await waitFor(() => expect(held()).toEqual(['git:ws-test']))
+    getReviewFiles.mockClear()
+
+    act(() => markGitStatusChanged('ws-test'))
+
+    await waitFor(() => expect(getReviewFiles).toHaveBeenCalled())
+    await act(async () => {})
+    expect(getReviewFiles).toHaveBeenCalledTimes(1)
   })
 })

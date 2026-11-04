@@ -3932,3 +3932,25 @@ func TestSessionInvariants_HoldUnderRandomInterleavings(t *testing.T) {
 		})
 	}
 }
+
+// A chat closed mid-first-turn resumes the session Crowbar assigned at launch: the
+// turn started, so the CLI wrote it, though no session_start ever landed.
+func TestRegression_ResumeChat_ClosedMidFirstTurn_ResumesTheAssignedSession(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	assigned := argAfter(t, f.term.calls[0].argv, "--session-id")
+	hook(t, f, runnerID, "claude", "user_prompt", map[string]any{"prompt": "first words", "session_id": assigned})
+
+	require.NoError(t, f.usecase.KillChat(f.ctx, chatID))
+	f.wait()
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, assigned, argAfter(t, argv, "--resume"),
+		"the session Crowbar assigned must be resumed; argv was %v", argv)
+	assert.Equal(t, -1, indexOf(argv, "--session-id"), "a resume must not also assign a fresh id")
+}

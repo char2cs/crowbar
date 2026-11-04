@@ -1,11 +1,9 @@
 /**
- * Monaco language-feature providers backed by the daemon's /lsp routes
- * (owner decision 1): completion, hover, signature help, definition,
- * references, rename, code actions, document symbols, code lens, semantic
- * tokens and document formatting. Monaco owns every widget (suggest, hover,
- * parameter hints, peek, rename box, lightbulb, lenses, outline); this module
- * only answers queries (each through `lsp-query.ts`) and runs the server
- * commands lenses and actions carry.
+ * Monaco language-feature providers backed by the daemon's /lsp routes: completion, hover,
+ * signature help, definition, references, rename, code actions, document symbols, code lens,
+ * semantic tokens and document formatting. Monaco owns every widget (suggest, hover, parameter
+ * hints, peek, rename box, lightbulb, lenses, outline); this module only answers queries (each
+ * through `lsp-query.ts`) and runs the server commands lenses and actions carry.
  */
 import { editor as monacoEditor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'

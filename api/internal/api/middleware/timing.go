@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -88,6 +89,12 @@ func (w *timingWriter) WriteString(
 ) (int, error) {
 	w.stamp()
 	return w.ResponseWriter.WriteString(s)
+}
+
+// Unwrap lets http.ResponseController reach the connection's own controls
+// (read deadlines) through this wrapper.
+func (w *timingWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func (w *timingWriter) stamp() {

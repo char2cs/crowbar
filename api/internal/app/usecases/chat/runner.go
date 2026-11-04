@@ -50,10 +50,11 @@ type RunnerUsecase interface {
 	// interrupted once it runs. A prompt a CLI holds, or a settled one, is a conflict.
 	Retract(ctx context.Context, chatID, requestID string) (RetractResult, error)
 
-	// CloseChat retires the CLI on a chat nothing displays any more, even
-	// mid-turn, leaving the chat dormant. Unlike StopChat it never interrupts in
-	// place: the session ends with the view.
-	CloseChat(
+	// KillChat force-ends the CLI on a chat, even mid-turn, leaving the chat
+	// dormant and resumable. Unlike StopChat it never interrupts in place. It is
+	// the only way a running agent ends because of a client: closing a view only
+	// detaches.
+	KillChat(
 		ctx context.Context,
 		chatID string,
 	) error
@@ -257,12 +258,12 @@ func (u *Usecase) Retract(ctx context.Context, chatID, requestID string) (Retrac
 	return u.runners.Retract(ctx, chatID, requestID)
 }
 
-// CloseChat retires the CLI on a chat no view displays. The chat itself survives.
-func (u *Usecase) CloseChat(
+// KillChat force-ends the CLI on a chat. The chat itself survives.
+func (u *Usecase) KillChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	return u.runners.CloseChat(ctx, chatID)
+	return u.runners.KillChat(ctx, chatID)
 }
 
 // SwitchProvider replaces the chat's CLI with another provider's, waiting for any

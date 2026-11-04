@@ -1,11 +1,11 @@
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { useOwningChatId } from '@/lib/workspace-scope'
+import { IS_MOBILE } from '@/utils/platform'
 import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
-  useSyncExternalStore,
   type Ref,
 } from 'react'
 import { useTerminalAttachment } from '../hooks/use-terminal-attachment'
@@ -17,12 +17,15 @@ import { useTerminalShortcuts } from '../hooks/use-terminal-shortcuts'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useXtermInstance } from '../hooks/use-xterm-instance'
 import { useTerminalStore } from '../stores/terminal-store'
+import { TerminalHostNotice } from './terminal-host-notice'
 import { TerminalSearch } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
 
 export interface TerminalFocusHandle {
   focus: () => void
+  /** Types `data` into the session as if from the keyboard (the phone's key bar). */
+  send: (data: string) => void
 }
 
 interface XtermTerminalProps {
@@ -31,15 +34,17 @@ interface XtermTerminalProps {
    * The workspace this terminal BELONGS to. Attaching must target it, never the
    * currently-active one: workspace keep-alive keeps hidden workspaces'
    * terminals mounted, so a transport drop can land while a DIFFERENT workspace
-   * is active. Falls back to the active workspace when unset.
+   * is active.
    */
-  workspaceId?: string
+  workspaceId: string
   /**
    * The chat that OWNS this PTY, when the caller knows it directly — an agent
    * chat pane, whose terminal is that chat's own vendor-CLI session. Unset for a
    * shell tab, whose owner is the chat that owns the workspace's worktree.
    */
   chatId?: string
+  /** The pane this terminal is shown in; a link opened from it lands there. */
+  paneId?: string
   isActive: boolean
   isVisible?: boolean
   /** Focus handle for an owner that moves the keyboard here (the agent pane). */
@@ -71,22 +76,11 @@ interface XtermTerminalProps {
   flush?: boolean
 }
 
-/**
- * Reactive echo of `getOwningChatId(wsId)`: the sidebar records a workspace's
- * owning chat asynchronously, so a shell tab's terminals base cannot be built
- * until it has. Null (and no subscription) when there is no wsId to watch.
- */
-function useOwningChatIdFor(wsId: string | undefined): string | null {
-  return useSyncExternalStore(
-    (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
-    () => (wsId ? getOwningChatId(wsId) : null),
-  )
-}
-
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
   workspaceId,
   chatId,
+  paneId,
   isActive,
   isVisible = true,
   ref,
@@ -115,8 +109,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [activated, setActivated] = useState(isVisible)
   if (isVisible && !activated) setActivated(true)
 
-  const owningChatId = useOwningChatIdFor(chatId ? undefined : workspaceId)
-  const chatScopeReady = Boolean(chatId) || !workspaceId || owningChatId !== null
+  const owningChatId = useOwningChatId(workspaceId)
+  const chatScopeReady = Boolean(chatId) || owningChatId !== null
 
   // Where a new shell starts, recorded for the tab label and link resolution.
   useEffect(() => {
@@ -158,6 +152,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const { terminal, addons } = useXtermInstance({
     sessionId,
     workspaceId,
+    paneId,
     container,
     enabled: activated,
     write: writeFromTerminal,
@@ -194,12 +189,17 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const search = useTerminalSearch(terminal, addons)
   useTerminalShortcuts({ isActive, container, search })
 
-  useImperativeHandle(ref, () => ({ focus: focusTerminal }), [focusTerminal])
+  useImperativeHandle(
+    ref,
+    () => ({ focus: focusTerminal, send: (data: string) => write(data, 'key-bar') }),
+    [focusTerminal, write],
+  )
 
   // Focus follows the active pane. The effect runs after React commits the
   // visibility change, so the textarea is focusable: one call, no retries.
+  // Not on the phone: focus raises the keyboard there, so only a tap may.
   useEffect(() => {
-    if (isActive && isVisible && terminal) terminal.focus()
+    if (isActive && isVisible && terminal && !IS_MOBILE) terminal.focus()
   }, [isActive, isVisible, terminal])
 
   useImperativeHandle(
@@ -228,6 +228,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent">
       <TerminalSearch {...search.barProps} />
+      {connection === null && <TerminalHostNotice wsId={workspaceId} />}
       <div className={`flex min-h-0 flex-1 flex-col ${flush ? '' : 'pl-[16px]'}`}>
         {/* react-doctor-disable-next-line no-static-element-interactions -- this div is xterm.js's mount point: xterm renders its own canvas + a hidden `.xterm-helper-textarea` inside it, which is the actual focusable/keyboard-operable surface. onMouseDown here only forwards DOM focus onto that textarea for clicks that land on the container's own padding rather than the canvas. */}
         <div

@@ -32,6 +32,9 @@ func reviewTools(deps Deps) []toolDef {
 	if deps.Threads != nil {
 		out = append(out, listReviewThreadsTool(deps))
 	}
+	if deps.Threads != nil && deps.ThreadChanges != nil {
+		out = append(out, waitForReviewCommentsTool(deps))
+	}
 	if deps.Review != nil {
 		out = append(out, getReviewScopeTool(deps))
 	}

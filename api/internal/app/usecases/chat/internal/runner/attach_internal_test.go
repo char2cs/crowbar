@@ -53,6 +53,8 @@ func (f *fakeTermForAttach) CreateCommand(
 	return id, nil
 }
 
+func (f *fakeTermForAttach) Write(context.Context, string, []byte) error { return nil }
+
 // TerminateGraceful records the termination and, as the engine does, runs the
 // exit callback of a session it created before returning; a session it never
 // created is not found.

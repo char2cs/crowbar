@@ -1,6 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 import { FileExplorerTreeItem } from '@/features/file-explorer/file-explorer/components/file-explorer-tree-item'
+import { FILE_TREE_DENSITY_CONFIG } from '@/features/file-explorer/lib/file-tree-density'
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
 import type { FileEntry } from '@/features/file-system/types/app'
 
@@ -28,7 +30,7 @@ const defaultProps = {
   previousDepth: 0,
   nextDepth: 0,
   indentSize: 14,
-  density: 'default' as const,
+  rowHeight: FILE_TREE_DENSITY_CONFIG.default.rowHeight,
   isExpanded: false,
   isActive: false,
   dragOverPath: null,
@@ -193,5 +195,72 @@ describe('FileExplorerTreeItem disclosure chevron', () => {
     )
     const caret = screen.getByTestId('file-tree-chevron').querySelector('svg')
     expect(caret?.getAttribute('class')).toContain('rotate-90')
+  })
+})
+
+describe('FileExplorerTreeItem row', () => {
+  it('sits on the shared sidebar file-row pitch at the default density', () => {
+    expect(FILE_TREE_DENSITY_CONFIG.default.rowHeight).toBe(SIDEBAR_FILE_ROW_HEIGHT)
+    render(
+      <FileExplorerTreeItem
+        {...defaultProps}
+        file={makeFile('index.ts', '/repo/index.ts')}
+        getGitStatusDecoration={noDecoration}
+      />,
+    )
+    expect(screen.getByRole('treeitem').style.height).toBe(`${SIDEBAR_FILE_ROW_HEIGHT}px`)
+  })
+
+  it('exposes selection, depth and the delegated-handler path on the treeitem', () => {
+    render(
+      <FileExplorerTreeItem
+        {...defaultProps}
+        depth={2}
+        isActive
+        rowId="file-tree-row-x"
+        file={makeFile('x.ts', '/repo/a/b/x.ts')}
+        getGitStatusDecoration={noDecoration}
+      />,
+    )
+    const row = screen.getByRole('treeitem')
+    expect(row).toHaveAttribute('aria-selected', 'true')
+    expect(row).toHaveAttribute('aria-level', '3')
+    expect(row).toHaveAttribute('id', 'file-tree-row-x')
+    expect(row).toHaveAttribute('data-file-path', '/repo/a/b/x.ts')
+    expect(row.style.paddingLeft).toBe(`${6 + 2 * defaultProps.indentSize}px`)
+  })
+
+  it('shows copy feedback in the trailing slot', () => {
+    const file = makeFile('x.ts', '/repo/x.ts')
+    render(
+      <FileExplorerTreeItem
+        {...defaultProps}
+        file={file}
+        fileFeedback={new Map([[file.path, 'copied-path']])}
+        getGitStatusDecoration={noDecoration}
+      />,
+    )
+    expect(screen.getByRole('treeitem')).toHaveTextContent('✓ path copied')
+  })
+
+  it('swaps the row for the inline name input while creating', () => {
+    const onKeyDown = vi.fn()
+    const onBlur = vi.fn()
+    const file = { ...makeFile('', '/repo/new'), isEditing: true }
+    render(
+      <FileExplorerTreeItem
+        {...defaultProps}
+        file={file}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
+        getGitStatusDecoration={noDecoration}
+      />,
+    )
+    expect(screen.queryByRole('treeitem')).toBeNull()
+    const input = screen.getByPlaceholderText('file name')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+    expect(onKeyDown).toHaveBeenCalledWith(expect.anything(), file)
+    expect(onBlur).toHaveBeenCalledWith(file)
   })
 })

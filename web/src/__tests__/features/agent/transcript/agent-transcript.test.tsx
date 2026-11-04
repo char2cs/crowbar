@@ -27,6 +27,14 @@ vi.mock('@/features/agent/transcript/rows/tool-row', async (importOriginal) => {
   return { ...actual, ToolRow: memo(Counted) }
 })
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
 const originalRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {
@@ -38,6 +46,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  platform.mobile = false
   HTMLElement.prototype.getBoundingClientRect = originalRect
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -176,6 +185,18 @@ describe('AgentTranscript', () => {
     // Rows measure 800 each (the stubbed rect), so the new prompt, second, starts
     // at 800; the floor leaves a viewport below it, less the header it must clear.
     expect(stream.style.minHeight).toBe(`${800 + 800 - 52}px`)
+  })
+
+  it('does not lift a sent prompt to the top on a phone', () => {
+    platform.mobile = true
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1'), l.end('turn-1')])
+    const { container } = draw()
+    const stream = container.querySelector<HTMLElement>('.stream')!
+
+    act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
+
+    expect(stream.style.minHeight).toBe('')
   })
 
   it('does not pin a prompt queued behind a running turn until it is sent', () => {

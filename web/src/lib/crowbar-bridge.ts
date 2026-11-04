@@ -1,14 +1,16 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
 import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
-import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
+import type * as TauriMenu from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api/fetch'
 import { problemOf } from '@/lib/errors/problem'
+import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
+import { IS_MOBILE } from '@/utils/platform'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 // A terminal VIEW streams one daemon PTY session over its own WebSocket — a
@@ -181,11 +183,14 @@ export class TerminalConnection {
   }
 }
 
-function openSocket(path: string): TerminalSocket {
+// `qualified` may be host-qualified (`crowbar://<hostId>/v0/...`): the base a
+// remote chat's terminals are built on carries its host.
+function openSocket(qualified: string): TerminalSocket {
+  const { hostId, path } = splitHostPath(qualified)
   if (isTauri()) {
-    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS })
+    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS, hostId })
   }
-  const ws = new WebSocket(wsUrl(path))
+  const ws = new WebSocket(wsUrl(path, hostId))
   ws.binaryType = 'arraybuffer'
   return ws as unknown as TerminalSocket
 }
@@ -198,8 +203,14 @@ const sessionBases = new Map<string, string>()
 
 /** Open a view's stream to an existing daemon PTY session. */
 export function openTerminal(sessionId: string, base: string): TerminalConnection {
+  // Recorded only once the transport exists: a constructor that throws must not
+  // leave a base behind for terminalKill to act on.
+  const connection = new TerminalConnection(
+    sessionId,
+    `${base}/${encodeURIComponent(sessionId)}/ws`,
+  )
   sessionBases.set(sessionId, base)
-  return new TerminalConnection(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
+  return connection
 }
 
 /** Create a PTY session owned by the base's chat; returns its session id. */
@@ -240,19 +251,6 @@ export async function terminalListLive(base: string): Promise<string[]> {
   return live
 }
 
-// The file clipboard used to live here as an in-memory copy/cut store whose
-// `clipboardPaste` was a `return []` stub — Cmd+X then Cmd+V reported a
-// completed move that never happened. It now lives in the file-explorer
-// clipboard store, where paste drives the daemon's real copy/rename verbs.
-
-// ── Native Dialogs ────────────────────────────────────────────────────────────
-// FUTURE: Tauri plugin-dialog when crowbar desktop wrapper exposes it
-
-export async function openDirectory(): Promise<string | null> {
-  // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
-  return null
-}
-
 // ── File Manager ──────────────────────────────────────────────────────────────
 
 // The `reveal_in_finder` invoke should always settle in well under a second —
@@ -266,7 +264,7 @@ const REVEAL_IN_FINDER_TIMEOUT_MS = 3_000
 /** Reveal a file or directory in the OS file manager (Finder on macOS) with the
  *  item selected. `path` must be absolute. No-op outside Tauri (browser dev). */
 export async function revealItemInFinder(path: string): Promise<void> {
-  if (!isTauri()) return
+  if (!isDesktopApp()) return
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -282,7 +280,6 @@ export async function revealItemInFinder(path: string): Promise<void> {
 }
 
 // ── Window Management ─────────────────────────────────────────────────────────
-// FUTURE: Tauri plugin calls when Crowbar's desktop wrapper exposes them
 
 export async function setWindowTransparency(_enabled: boolean): Promise<void> {
   // FUTURE: invoke Tauri window transparency plugin
@@ -292,46 +289,36 @@ export async function setMacOSWindowAppearance(
   themeType: string,
   _transparencyEnabled: boolean,
 ): Promise<void> {
-  // Pin the window-vibrancy NSVisualEffectView's appearance to the app theme so
-  // the (dark) HUDWindow material renders a LIGHT frost in light mode. Targets the
-  // blur view (NSWindow fallback), NOT the app-level NSApp.appearance that Tauri's
-  // setTheme flips (fragile/inconsistent).
-  if (!isTauri()) return
+  // Pins the vibrancy blur view's appearance to the app theme (a LIGHT frost in light
+  // mode), not NSApp.appearance, which Tauri's setTheme flips inconsistently.
+  if (!isDesktopApp()) return
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
 }
 
-export async function toggleMenuBar(_toggle: boolean): Promise<void> {
-  // FUTURE: invoke Tauri menu bar plugin
-}
-
-/** Move the macOS traffic lights to `(x, y)` (logical points, window-relative)
- *  at runtime — the config-time `trafficLightPosition` in tauri.conf.json only
- *  applies once, at window creation. No-op outside Tauri (browser dev). See
- *  `useMacTrafficLightSync` for who calls this and why. */
+/** Move the macOS traffic lights to `(x, y)` (logical points, window-relative); the
+ *  config-time position applies only at window creation. See `useMacTrafficLightSync`. */
 export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
-  if (!isTauri()) return
+  if (!isDesktopApp()) return
   await tauriInvoke('set_traffic_light_position', { x, y })
 }
 
-/** Mirror the effective Toggle-console chord onto the host's Window-menu item so
- *  macOS cannot consume it first (Cmd+` is the system's window cycle). `null`
- *  clears the accelerator. No-op outside Tauri. */
+/** Mirror the Toggle-console chord onto the Window-menu item so macOS cannot consume it
+ *  first (Cmd+` cycles windows). `null` clears the accelerator. */
 export async function setConsoleMenuChord(chord: string | null): Promise<void> {
-  if (!isTauri()) return
+  if (!isDesktopApp()) return
   await tauriInvoke('set_console_menu_chord', { chord })
 }
 
-/** Subscribe to the host menu item being chosen in THIS window. Resolves to an
- *  unsubscribe; a no-op outside Tauri. */
+/** Subscribe to the host menu item being chosen in THIS window; resolves to an unsubscribe. */
 export async function onConsoleMenuToggle(handler: () => void): Promise<() => void> {
-  if (!isTauri()) return () => {}
+  if (!isDesktopApp()) return () => {}
   const { getCurrentWebview } = await import('@tauri-apps/api/webview')
   return getCurrentWebview().listen('console:toggle', handler)
 }
 
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
-type NativeMenuEntry = MenuItem | Submenu | PredefinedMenuItem
+type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem
 
 // Every native resource of the open menu, in creation order. Tauri drops an
 // item's click channel when its Rust wrapper drops, and an item passed inline
@@ -343,7 +330,12 @@ let openNativeMenu: Array<{ close(): Promise<void> }> = []
 // with that id drops, so ids must be unique across menus alive at once.
 let nativeMenuSeq = 0
 
+// Loaded with the first native menu, not statically: nothing before a right-click needs it.
+let menuApi: Promise<typeof TauriMenu> | null = null
+const loadMenuApi = () => (menuApi ??= import('@tauri-apps/api/menu'))
+
 async function toNativeMenuEntries(
+  api: typeof TauriMenu,
   items: ContextMenuItem[],
   menuId: number,
   owned: Array<{ close(): Promise<void> }>,
@@ -353,15 +345,15 @@ async function toNativeMenuEntries(
   for (const item of items) {
     let entry: NativeMenuEntry
     if (item.separator) {
-      entry = await PredefinedMenuItem.new({ item: 'Separator' })
+      entry = await api.PredefinedMenuItem.new({ item: 'Separator' })
     } else if (item.items && item.items.length > 0) {
-      entry = await Submenu.new({
+      entry = await api.Submenu.new({
         text: item.label,
         enabled: !item.disabled,
-        items: await toNativeMenuEntries(item.items, menuId, owned, onChosen),
+        items: await toNativeMenuEntries(api, item.items, menuId, owned, onChosen),
       })
     } else {
-      entry = await MenuItem.new({
+      entry = await api.MenuItem.new({
         id: `${menuId}:${item.id}`,
         text: item.label,
         enabled: !item.disabled,
@@ -405,14 +397,16 @@ export async function showNativeContextMenu(
   isCancelled?: () => boolean,
 ): Promise<void> {
   await closeNativeMenu(openNativeMenu)
+  const api = await loadMenuApi()
   const owned: Array<{ close(): Promise<void> }> = []
   const entries = await toNativeMenuEntries(
+    api,
     items,
     nativeMenuSeq++,
     owned,
     () => void closeNativeMenu(owned),
   )
-  const menu = await Menu.new({ items: entries })
+  const menu = await api.Menu.new({ items: entries })
   owned.push(menu)
   if (isCancelled?.()) {
     await closeNativeMenu(owned)
@@ -431,6 +425,11 @@ export async function showNativeContextMenu(
 
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+/** Tauri with a desktop window: the phone app is Tauri too, without window, menu or webview commands. */
+export function isDesktopApp(): boolean {
+  return isTauri() && !IS_MOBILE
 }
 
 /** A Tauri-picked filesystem path -> a URL its own webview can load
@@ -456,6 +455,44 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
  * zip in ~/Downloads. Resolves to the bundle's absolute path.
  */
 export async function exportDiagnostics(): Promise<string> {
-  if (!isTauri()) throw new UserFacingError('Diagnostics export requires the desktop app')
+  if (!isDesktopApp()) throw new UserFacingError('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')
+}
+
+// ── Remote Hosts ──────────────────────────────────────────────────────────────
+// Pairing and trust-on-first-contact for remote Crowbar daemon instances.
+
+/** Tell the runtime registry where a remote host listens. No fingerprint: the pinned
+ *  certificate is fixed at pairing, beside the token. Rejects a bad `hostId`
+ *  (`[a-z0-9-]`, not `localhost`) or an `endpoint` that is not `host:port`. */
+export async function registerRemoteHost(hostId: string, endpoint: string): Promise<void> {
+  await tauriInvoke('register_remote_host', { hostId, endpoint })
+}
+
+/** Unregister a remote host and close its streams. */
+export async function unregisterRemoteHost(hostId: string): Promise<void> {
+  await tauriInvoke('unregister_remote_host', { hostId })
+}
+
+/** Delete a remote host's stored bearer token from the OS keychain. */
+export async function forgetHostToken(hostId: string): Promise<void> {
+  await tauriInvoke('forget_host_token', { hostId })
+}
+
+/** Dials `endpoint` unpinned and returns the presented certificate's fingerprint: the
+ *  trust-on-first-connect step. The user MUST confirm it before `pairRemoteHost`. */
+export async function probeRemoteFingerprint(endpoint: string): Promise<string> {
+  return tauriInvoke<string>('probe_remote_fingerprint', { endpoint })
+}
+
+/** Redeems a pairing code against a CONFIRMED fingerprint. The token goes straight to the
+ *  OS keychain; resolves to this client's id on the host (not a secret; revokes later). */
+export async function pairRemoteHost(
+  hostId: string,
+  endpoint: string,
+  fingerprint: string,
+  code: string,
+  name: string,
+): Promise<string> {
+  return tauriInvoke<string>('pair_remote_host', { hostId, endpoint, fingerprint, code, name })
 }

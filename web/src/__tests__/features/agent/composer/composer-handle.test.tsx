@@ -1,6 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
 
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 
@@ -26,7 +34,23 @@ function draw(overrides: Partial<Parameters<typeof ComposerHandle>[0]> = {}) {
   return { ...view, onSend, onStop, onOpenExcalidraw, onOpenAttachFile }
 }
 
+afterEach(() => {
+  platform.mobile = false
+})
+
 describe('ComposerHandle', () => {
+  // Return is a newline on a phone, so the button is the only way to queue a follow-up.
+  it('queues typed text on a phone while a turn runs, and stops once the box is empty', () => {
+    platform.mobile = true
+    const typed = draw({ hasText: true, working: true, canStop: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    expect(typed.onSend).toHaveBeenCalled()
+    typed.unmount()
+
+    draw({ hasText: false, working: true, canStop: true })
+    expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeEnabled()
+  })
+
   it('sends when there is text to send', () => {
     const { onSend } = draw({ hasText: true })
 

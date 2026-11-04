@@ -16,8 +16,16 @@ import {
   resolveRow,
   type NavigateFn,
 } from './open-actions'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { newDraftChatId } from '@/features/agent/lib/draft-chat'
+import { finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startHomeRowThread } from './home-actions'
-import { createInFlight, enabledProvider, startThread } from './thread-create'
+import {
+  createInFlight,
+  enabledProvider,
+  readUnreadHostProviders,
+  startThread,
+} from './thread-create'
 
 // The sidebar's "+" on a row: a fork (named first, then minted) or a thread.
 
@@ -26,20 +34,20 @@ import { createInFlight, enabledProvider, startThread } from './thread-create'
  * naming input at its final slot, a thread is drawn from its operation at once.
  * A project-home row can only thread: home has no worktree to fork.
  */
-export function handleCreate(
+export async function handleCreate(
   parentId: string,
   kind: 'workspace' | 'thread',
   navigate: NavigateFn,
   /** The surface the new thread is created and landed on; undefined takes
    *  the user's default (`createSurfaceFor`). Never applies to a fork. */
   presentation?: LandingChatPresentation,
-): void {
+  /** A fork's branch name, already asked for (the phone); otherwise it is named inline. */
+  branchName?: string,
+): Promise<void> {
   const homeRow = resolveHomeRowScope(parentId)
   if (homeRow) {
-    if (kind === 'thread') {
-      startHomeRowThread(homeRow.projectId, homeRow.homeWorkspaceId, parentId, presentation)
-    }
-    return
+    if (kind !== 'thread') return
+    return startHomeRowThread(homeRow.projectId, homeRow.homeWorkspaceId, parentId, presentation)
   }
 
   const currentRepos = readSelect(selectRepos)
@@ -70,8 +78,17 @@ export function handleCreate(
       (subject.id === repo.defaultWorkspaceId
         ? resolveHomeOwnerId(subject.id, repo.defaultOwningChatId, repo.chats ?? [])
         : parentId)
-    // One fork in flight per parent; a fork with no provider says so here.
-    if (createInFlight.has(`workspace:${placementParentId}`) || !enabledProvider()) return
+    // One fork in flight per parent; a remote host's providers are read on first use.
+    const inFlightKey = `workspace:${placementParentId}`
+    if (createInFlight.has(inFlightKey)) return
+    const read = readUnreadHostProviders(projectId)
+    if (read) {
+      // Held while the host is asked, so a burst of clicks asks (and fails) once.
+      createInFlight.add(inFlightKey)
+      const answered = await read.finally(() => createInFlight.delete(inFlightKey))
+      if (!answered) return
+    }
+    if (!enabledProvider(projectId)) return
     // EVERY sibling counts, any kind: the daemon appends a fork by counting all
     // rows under the same parent (owning_chat.go's placeOwningRow).
     const order = renderedProjectRows(projectId).filter(
@@ -86,6 +103,8 @@ export function handleCreate(
       order,
       ownsWorktree: true,
     })
+    // The phone asks for the name first, so there is nothing to type inline.
+    if (branchName) confirmCreateDraft(branchName, navigate)
     return
   }
 
@@ -100,7 +119,16 @@ export function handleCreate(
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
     return
   }
-  void startThread({
+  // A plain new thread on a workspace is a draft: no chat exists until its first send.
+  if (!chatRow && subject.kind === 'workspace' && presentation === undefined) {
+    const draftId = newDraftChatId()
+    if (!openChatInOwnView(draftId, wsId)) {
+      await navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, draftId)
+    }
+    windowPaneStore.getState().paneActions.tagDraftThread(draftId, parentId)
+    return
+  }
+  return startThread({
     inFlightKey: `thread:${parentId}`,
     projectId,
     workspaceId: wsId,
@@ -122,9 +150,9 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
   const draft = treeUiStore.getState().draft
   treeUiStore.getState().cancelDraft()
   if (draft?.kind !== 'branch' || !draft.repoId) return
-  const provider = enabledProvider()
-  if (!provider) return
   const { projectId, repoId, parentId } = draft
+  const provider = enabledProvider(projectId)
+  if (!provider) return
   const inFlightKey = `workspace:${parentId}`
   if (createInFlight.has(inFlightKey)) return
   createInFlight.add(inFlightKey)
@@ -169,4 +197,16 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
 /** Closes the naming input; nothing was sent, so nothing rolls back. */
 export function cancelCreateDraft(): void {
   treeUiStore.getState().cancelDraft()
+}
+
+/** Creates the chat a repo-workspace draft was waiting to become, with its first prompt. */
+export function promoteRepoDraft(draft: DraftSpec, prompt: DraftPrompt): Promise<void> {
+  const { projectId, workspaceId } = draft
+  return startThread({
+    inFlightKey: `draft:${draft.draftId}`,
+    projectId,
+    workspaceId,
+    parentId: draft.parentId || workspaceId,
+    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt),
+  })
 }

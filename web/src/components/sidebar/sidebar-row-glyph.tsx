@@ -1,22 +1,26 @@
 import { ChatsCircle, Folder, FolderOpen, GitBranch, Lock } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
+import { RepoAvatar } from '@/components/layout/repo-avatar'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { selectEntityBusy, useOperations } from '@/core/entities/operations'
 
 /**
  * What a row's glyph box holds: the flip-dot spinner while the row works —
- * an agent turn, or an operation naming its workspace — else its icon.
+ * an agent turn, or an operation naming its workspace — else its icon. A
+ * read-only header (the phone's list) shows the repo's avatar, not its picker.
  */
 export function SidebarRowGlyph({
   row,
   isProjectHome,
+  readOnlyHeader,
   expanded,
   activeGround,
 }: {
   row: SidebarRowType
   isProjectHome: boolean
+  readOnlyHeader: boolean
   expanded: boolean
   activeGround?: boolean
 }) {
@@ -30,6 +34,19 @@ export function SidebarRowGlyph({
         repo={row.repoIcon}
         projectId={row.repoIcon.projectId}
         repoId={row.repoIcon.repoId}
+        size="lg"
+      />
+    )
+  }
+  if (readOnlyHeader && row.repoIcon) {
+    return (
+      <RepoAvatar
+        avatar={{
+          url: row.repoIcon.avatarURL,
+          label: row.repoIcon.avatarLabel,
+          color: row.repoIcon.avatarColor,
+        }}
+        name={row.repoIcon.name}
         size="lg"
       />
     )

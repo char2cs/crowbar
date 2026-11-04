@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { IS_MAC } from '@/utils/platform'
+import { APPLE_KEYBOARD } from '@/utils/platform'
 import { saveActiveBuffer, saveAllDirtyBuffers } from '@/features/editor/lib/buffer-save'
 
 /**
@@ -10,7 +10,7 @@ import { saveActiveBuffer, saveAllDirtyBuffers } from '@/features/editor/lib/buf
 export function useSaveKeyboard() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const modKey = IS_MAC ? e.metaKey : e.ctrlKey
+      const modKey = APPLE_KEYBOARD ? e.metaKey : e.ctrlKey
 
       if (!modKey || e.repeat) return
       if (e.key !== 's' && e.key !== 'S') return

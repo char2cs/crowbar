@@ -6,7 +6,8 @@ import { siblingRef } from '@/features/editor/documents/document-ref'
 import { openDocument } from '@/features/editor/documents/open-document'
 import { usePreviewSource } from '@/features/editor/documents/use-preview-source'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
-import { openExternalUrl } from '@/lib/external-open'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
+import { openWorkspaceLink } from '@/lib/workspace-link'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -66,6 +67,8 @@ function findAnchorTarget(root: HTMLElement | null, id: string): Element | null 
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   const { content: sourceContent, doc: sourceDoc } = usePreviewSource(bufferId)
+  // Links in a host document belong to no workspace, so none is refused as another host's.
+  const sourceWorkspaceId = sourceDoc?.authority === 'workspace' ? sourceDoc.workspaceId : null
   const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -113,7 +116,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
       if (isExternalLink) {
         try {
-          await openExternalUrl(href)
+          await openWorkspaceLink(href, sourceWorkspaceId)
         } catch (error) {
           logger.error('MarkdownPreview', 'Failed to open external link:', error)
         }
@@ -127,7 +130,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
-    [sourceDoc],
+    [sourceDoc, sourceWorkspaceId],
   )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
@@ -160,7 +163,9 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       onWheelCapture={handleWheelCapture}
     >
       <div className="markdown-content w-full max-w-3xl">
-        {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+        <LinkWorkspaceContext value={sourceWorkspaceId}>
+          {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+        </LinkWorkspaceContext>
       </div>
     </div>
   )

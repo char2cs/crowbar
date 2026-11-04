@@ -223,6 +223,20 @@ describe('the hit test, bound to a table and a policy', () => {
     expect(findNote(0, at(0.9), [dragged])).toMatchObject({ row: { mode: 'after' } })
   })
 
+  it('reads the pointer across the row, not down it, inside a side-by-side strip', () => {
+    const strip = document.createElement('div')
+    strip.setAttribute('data-drop-axis', 'x')
+    const row = mount(notes.props({ kind: 'note', id: 'n1' }))
+    strip.appendChild(row)
+    document.body.appendChild(strip)
+    stackAt(row)
+
+    // The row is 200 wide and 40 tall, with y held mid-row throughout.
+    expect(findNote(20, at(0.5), [dragged])).toMatchObject({ axis: 'x', row: { mode: 'before' } })
+    expect(findNote(100, at(0.5), [dragged])).toMatchObject({ row: { mode: 'into' } })
+    expect(findNote(180, at(0.5), [dragged])).toMatchObject({ row: { mode: 'after' } })
+  })
+
   it('uses the narrower band on the kind the policy calls a container', () => {
     stackAt(mount(notes.props({ kind: 'group', id: 'g1' })))
 

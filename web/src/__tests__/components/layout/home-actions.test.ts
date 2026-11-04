@@ -1,4 +1,5 @@
 /** Creates in a project home: a thread under a home row, and the header's thread. */
+import { act } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const { createChat, createChatWithOwnWorktree, toastError, getHomeWorkspaceId } = vi.hoisted(
@@ -18,8 +19,8 @@ vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
-// `handleCreate`'s home branch reads this directly; the real resolver needs an
-// async fetch+cache round trip these tests have no reason to exercise.
+// `handleCreate`'s home branch reads this directly; the real resolver's fetch+cache
+// round trip is not what these tests exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -28,11 +29,20 @@ import * as chatPresentation from '@/features/agent/hooks/use-chat-presentation'
 const presetChatLandingPresentation = vi
   .spyOn(chatPresentation, 'presetChatLandingPresentation')
   .mockImplementation(() => {})
+import * as providersApi from '@/features/agent/api/agent-providers-api'
+const listGlobalProviders = vi
+  .spyOn(providersApi, 'listGlobalProviders')
+  .mockImplementation(() => new Promise(() => {}))
 
 import { handleCreate } from '@/components/layout/create-actions'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { handleCreateHomeThread as openHomeDraft } from '@/components/layout/home-actions'
+import { promoteDraftThread } from '@/components/layout/draft-promote'
+import { FIRST_PROMPT, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState } from '@/core/entities/operations'
@@ -45,6 +55,18 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+
+const HOME_OF: Record<string, string> = {
+  p1: 'home-ws-1',
+  'p-local': 'home-local',
+  'p-remote': 'home-remote',
+}
 
 afterEach(() => {
   // A GLOBAL store — a leaked 'terminal' default would silently arm every
@@ -56,26 +78,45 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getHomeWorkspaceId.mockImplementation((projectId: string) => HOME_OF[projectId])
+  resetWindowPaneStoreForTests()
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  resetEntities()
-  treeUiStore.setState({ draft: null })
   resetOperations()
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
 const ANY = expect.any(String)
-const opRows = () => operationRows('p1')
+const opRows = (projectId = 'p1') => operationRows(projectId)
 const mintedChatId = () => (createChat.mock.calls.at(-1) as unknown as [string])[0]
 
-// Regression, reported live: a project-home chat's Fork was offered with no
-// git repo behind it at all ("why is it letting me create a branch from
-// this where there isn't a git workspace"), and its Thread did nothing.
-// Project home rides no repo (`resolveHomeRowScope`'s own doc) — Thread now
-// resolves through the project's own home workspace (same rule
-// `handleOpen` already follows), and Fork stays a no-op, matching a home
-// FOLDER's own `ownsWorktree: false` — no worktree exists for either to
-// clone.
+/** New thread: opens the blank draft pane. No chat exists yet. */
+async function openThreadDraft(
+  projectId: string,
+  homeWorkspaceId: string,
+  navigate: Parameters<typeof openHomeDraft>[2],
+): Promise<void> {
+  windowPaneStore.setState({ activeProjectId: projectId })
+  await openHomeDraft(projectId, homeWorkspaceId, navigate)
+}
+
+/** The first send from the open draft. */
+function sendDraft(): Promise<void> {
+  return promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
+}
+
+/** What a person does: open the New thread draft, then send its first message. */
+async function handleCreateHomeThread(
+  projectId: string,
+  homeWorkspaceId: string,
+  navigate: Parameters<typeof openHomeDraft>[2],
+): Promise<void> {
+  await openThreadDraft(projectId, homeWorkspaceId, navigate)
+  await sendDraft()
+}
+
+// Project home rides no repo: Thread resolves through the project's own home workspace
+// (as `handleOpen` does), and Fork stays a no-op, as there is no worktree to clone.
 describe('a project-home chat row resolves Thread through its home workspace, and refuses Fork', () => {
   it('a home thread create draws its row from the operation', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
@@ -86,7 +127,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'thread', vi.fn())
+    void handleCreate('c1', 'thread', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(
       ANY,
@@ -120,17 +161,15 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'thread', vi.fn(), 'terminal')
+    await handleCreate('c1', 'thread', vi.fn(), 'terminal')
 
-    await vi.waitFor(() =>
-      expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(
-        mintedChatId(),
-        'terminal',
-      ),
+    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(
+      mintedChatId(),
+      'terminal',
     )
   })
 
-  it('Fork is a silent no-op — no repo, no worktree to clone', () => {
+  it('Fork is a silent no-op — no repo, no worktree to clone', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     seedHomeTree('p1', {
       chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
@@ -141,21 +180,16 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'workspace', vi.fn())
+    await handleCreate('c1', 'workspace', vi.fn())
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(treeUiStore.getState().draft).toBeNull()
   })
 })
 
-// The sidebar header's Thread button (space-header.tsx) — NOT `handleCreate`,
-// which resolves its parentId against the repo-scoped sidebar store and has
-// no notion of project home at all. This is the fix for the regression where
-// that button landed threads on a REPO's home row instead of the project's.
+// The tree foot's New thread (tree-foot.tsx) — NOT `handleCreate`, which resolves its
+// parentId against the repo rows and has no notion of project home at all.
 describe('handleCreateHomeThread', () => {
-  beforeEach(() => {
-    resetWindowPaneStoreForTests()
-  })
   afterEach(() => {
     resetWindowPaneStoreForTests()
   })
@@ -175,20 +209,6 @@ describe('handleCreateHomeThread', () => {
       'claude',
       '',
       undefined,
-    )
-  })
-
-  it('presets the new chat onto Terminal when asked for one', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-
-    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn(), 'terminal')
-
-    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(
-      mintedChatId(),
-      'terminal',
     )
   })
 
@@ -218,7 +238,7 @@ describe('handleCreateHomeThread', () => {
     expect(toastError).toHaveBeenCalledOnce()
   })
 
-  it('a refused create keeps its row with the daemon’s reason and opens nothing', async () => {
+  it('a refused create keeps its row with the daemon’s reason and leaves the draft to resend', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -226,11 +246,9 @@ describe('handleCreateHomeThread', () => {
     createChat.mockImplementationOnce(() =>
       Promise.reject(new ApiError('parent ws-1 not found', 404, 'not_found')),
     )
-    const navigate = vi.fn()
 
-    await handleCreateHomeThread('p1', 'home-ws-1', navigate)
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
 
-    expect(navigate).not.toHaveBeenCalled()
     await vi.waitFor(() =>
       expect(opRows()).toMatchObject([
         {
@@ -239,26 +257,197 @@ describe('handleCreateHomeThread', () => {
         },
       ]),
     )
+    expect(draftPaneId()).toBeDefined()
   })
 
-  // The space header's Thread button is the ONE create path with no
-  // `createInFlight` key and no pending row: nothing on screen changes until
-  // the round trip lands, so a second click mints a second chat — the exact
-  // double-mint `handleCreate`'s own guard exists to stop (its doc: "a user
-  // who saw nothing happen clicked again").
-  it('a second click while the first create is still in flight mints nothing extra', async () => {
+  // New thread opens a blank draft and creates nothing: the chat, its sidebar
+  // row and its backend record all wait for the first send.
+  it('opens a draft pane on New thread without creating a chat or a sidebar row', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+
+    expect(draftPaneId()).toBeDefined()
+    expect(createChat).not.toHaveBeenCalled()
+    expect(opRows()).toEqual([])
+  })
+
+  it('leaves nothing behind when the draft is abandoned', async () => {
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+
+    windowPaneStore.getState().paneActions.closePane(draftPaneId()!)
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(opRows()).toEqual([])
+    expect(draftPaneId()).toBeUndefined()
+  })
+
+  it('turns the draft into the chat in the same pane', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+    const paneId = draftPaneId()!
+
+    await sendDraft()
+
+    expect(windowPaneStore.getState().panes[paneId]?.chatId).toBe(mintedChatId())
+  })
+
+  // A person who saw nothing happen taps send again: one chat, not two.
+  it('a second send while the first create is still in flight mints nothing extra', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     let settle!: (id: string) => void
     createChat.mockImplementationOnce(() => new Promise<string>((r) => (settle = r)))
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
 
-    const first = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
-    const second = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    const first = sendDraft()
+    const second = sendDraft()
+    await vi.waitFor(() => expect(createChat).toHaveBeenCalled())
     settle(mintedChatId())
     await Promise.all([first, second])
 
     expect(createChat).toHaveBeenCalledOnce()
+  })
+})
+
+// A provider list belongs to a daemon: a chat started in a remote project's home is
+// started with a provider THAT host offers, never one only the local daemon has.
+describe('a project-home thread on an install that has paired a remote host', () => {
+  const offered = (id: string, enabled = true) => ({ id, enabled }) as never
+  const started = () =>
+    (createChat.mock.calls as unknown as string[][]).map((call) => [call[2], call[3]])
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [offered('claude')],
+      remote: { 'host-1': [offered('codex-remote')] },
+    })
+  })
+  afterEach(() => {
+    destroyHostRuntime('host-1')
+    resetHostWorld()
+  })
+
+  it('picks each project’s provider from its own host’s list', async () => {
+    await handleCreateHomeThread('p-local', 'home-local', vi.fn())
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(started()).toEqual([
+      ['home-local', 'claude'],
+      ['home-remote', 'codex-remote'],
+    ])
+  })
+
+  it('refuses, rather than borrowing the local list, when the remote host has none enabled', async () => {
+    useAgentProvidersStore.setState({ remote: { 'host-1': [offered('codex-remote', false)] } })
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(listGlobalProviders).not.toHaveBeenCalled()
+  })
+
+  it('reads that host’s list on the first click and starts the chat with it', async () => {
+    useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockResolvedValueOnce([offered('codex-remote')])
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
+    expect(started()).toEqual([['home-remote', 'codex-remote']])
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['could not reach', new Error('offline'), 'Couldn’t reach host-1'],
+    [
+      'found with another identity',
+      proxyMarkerError('host-identity-changed', 'host-1'),
+      'host-1 is presenting a different identity — confirm it before pairing again',
+    ],
+  ])('names the host it %s, once however often the button is clicked', async (_, err, said) => {
+    useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockRejectedValueOnce(err)
+
+    await Promise.all([
+      handleCreateHomeThread('p-remote', 'home-remote', vi.fn()),
+      handleCreateHomeThread('p-remote', 'home-remote', vi.fn()),
+    ])
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(listGlobalProviders).toHaveBeenCalledOnce()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(said, expect.any(String))
+  })
+
+  // A refused create fails its operation and leaves the draft, on either host.
+  it.each([
+    ['local', new ApiError('parent ws-1 not found', 404, 'not_found')],
+    ['remote', proxyMarkerError('host-unreachable', 'host-1')],
+  ])('fails a %s thread the daemon refused, keeping the draft', async (where, err) => {
+    createChat.mockRejectedValueOnce(err)
+
+    await handleCreateHomeThread(`p-${where}`, `home-${where}`, vi.fn())
+
+    await vi.waitFor(() =>
+      expect(opRows(`p-${where}`)).toMatchObject([{ operation: { state: 'failed' } }]),
+    )
+    expect(draftPaneId()).toBeDefined()
+  })
+
+  it('names the host by its name, never its id, also when it was removed while being asked', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1', 'Studio Mac')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ remote: {} })
+    let fail!: (reason: Error) => void
+    listGlobalProviders.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+
+    await openThreadDraft('p-remote', 'home-remote', vi.fn())
+    const click = sendDraft()
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    fail(new Error('gone'))
+    await click
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      expect.any(String),
+    )
+  })
+
+  // Only a synced list can say a project's host is gone; before that a project is merely
+  // not known yet, and Hosts would be the wrong advice.
+  it.each([
+    [
+      'sends an unconfigured host’s project to Hosts',
+      () => loadProjects(projectOn('p', 'host-2')),
+      /^This project’s host is not available \| .*Hosts/,
+    ],
+    [
+      'says a loading list is loading',
+      () => resetHostWorld(),
+      /^Still loading your projects \| (?!.*Hosts)/,
+    ],
+  ])('%s, never a retry', async (_, arrange, said) => {
+    arrange()
+    pairRemoteHost('host-1')
+
+    await handleCreateHomeThread('p', 'home', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(toastError.mock.calls[0]?.join(' | ')).toMatch(said)
   })
 })

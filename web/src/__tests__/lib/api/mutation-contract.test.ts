@@ -26,7 +26,7 @@ function lastCall(): [string, RequestInit] {
 
 describe('hierarchical mutations', () => {
   test('POST /v0/projects sends its operation id', async () => {
-    await postProject('my-proj', '/tmp/my-proj', 'op-1')
+    await postProject('my-proj', '/tmp/my-proj', 'op-1', 'local')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects')
     expect(init.method).toBe('POST')

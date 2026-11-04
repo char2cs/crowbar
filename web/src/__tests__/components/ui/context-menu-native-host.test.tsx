@@ -5,6 +5,14 @@ import { ContextMenu } from '@/components/ui/context-menu'
 
 const MENU_RID = 7
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
 const closeMock = vi.fn().mockResolvedValue(undefined)
 const menuNewMock = vi.fn()
 
@@ -39,6 +47,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  platform.mobile = false
   cleanup()
   delete (window as TauriWindow).__TAURI_INTERNALS__
   vi.restoreAllMocks()
@@ -159,5 +168,26 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(invokeMock).toHaveBeenCalledOnce()
     expect(closeMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+// The phone app runs in Tauri but has no OS context menu: the rendered one is the menu.
+describe('ContextMenu — in the phone app', () => {
+  it('renders the menu itself and pops no native one', async () => {
+    platform.mobile = true
+    const onClick = vi.fn()
+    const { getByText } = render(
+      <ContextMenu
+        isOpen
+        position={{ x: 4, y: 4 }}
+        items={[{ id: 'a', label: 'Rename', onClick }]}
+        onClose={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(getByText('Rename'))
+    expect(onClick).toHaveBeenCalledOnce()
+    expect(menuNewMock).not.toHaveBeenCalled()
+    expect(invokeMock).not.toHaveBeenCalled()
   })
 })

@@ -5,18 +5,11 @@ import type { WindowPaneState } from './window-pane-store.types'
 import { createPaneSlice } from './slices/pane-slice'
 import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
+import { toPersistedBuffers } from '@/features/panes/utils/persisted-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { releaseDocumentOf } from '@/features/panes/lib/buffer-release'
-import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
-
-/** A failed read's reason belongs to this session: the boot restore reads the file again. */
-function withoutLoadFailure(buffer: PaneContent): PaneContent {
-  if (!isEditorContent(buffer) || !buffer.unavailable) return buffer
-  const { unavailable: _reason, ...kept } = buffer
-  return kept
-}
 
 /** @internal Exported for unit tests. */
 export type WindowPaneSnapshot = Partial<
@@ -118,7 +111,7 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         bottomLayout: current.bottomLayout,
         activePaneId: current.activePaneId,
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
-        buffers: current.buffers.map(withoutLoadFailure),
+        buffers: toPersistedBuffers(current.buffers),
         updatedAt: Date.now(),
       })
     }, 300)

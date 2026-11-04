@@ -247,6 +247,7 @@ func TestDispatchMCP_ListsTheChatTools(
 	assert.ElementsMatch(t, []string{
 		"set_chat_title",
 		"list_review_threads",
+		"wait_for_review_comments",
 		"get_review_scope",
 		"post_review_comment",
 		"reply_to_review_thread",

@@ -4,6 +4,7 @@
 package origin
 
 import (
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -59,13 +60,11 @@ func Allowed(origin, requestHost string) bool {
 	return false
 }
 
-// isLoopbackHost reports whether host is an IPv4/IPv6 loopback literal. The whole
-// 127.0.0.0/8 block is loopback, so any 127.* literal qualifies.
+// isLoopbackHost reports whether host is an IPv4/IPv6 loopback literal
+// (127.0.0.0/8, ::1). A DNS name never is, whatever it starts with.
 func isLoopbackHost(host string) bool {
-	if host == "::1" {
-		return true
-	}
-	return strings.HasPrefix(host, "127.")
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 func parseList(raw string) []string {

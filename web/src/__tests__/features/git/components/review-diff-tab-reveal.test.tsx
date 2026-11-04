@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { act, render } from '@testing-library/react'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { ReviewDiffTab } from '@/features/git/components/review-diff-tab'
+import { ReviewDiffTab, type LineRequest } from '@/features/git/components/review-diff-tab'
 
 // Captures what the surface was asked to reveal. The real ReviewCodeView is
 // lazy and drives a web component, neither of which a jsdom test can host —
@@ -49,10 +49,19 @@ vi.mock('@/features/git/hooks/use-review-outline', () => ({
 // The surface is behind React.lazy + Suspense, so the handle does not exist on
 // the first commit — flush the lazy resolution before asking for a reveal, the
 // same way a real click happens long after the pane has painted.
-async function renderTab(store: ReturnType<typeof createWorkspaceStore>, commit?: string) {
+async function renderTab(
+  store: ReturnType<typeof createWorkspaceStore>,
+  commit?: string,
+  lineRequest?: LineRequest,
+) {
   const view = render(
     <WorkspaceStoreContext.Provider value={store}>
-      <ReviewDiffTab onRetry={vi.fn()} wsId={store.getState().workspaceId} commit={commit} />
+      <ReviewDiffTab
+        onRetry={vi.fn()}
+        wsId={store.getState().workspaceId}
+        commit={commit}
+        lineRequest={lineRequest}
+      />
     </WorkspaceStoreContext.Provider>,
   )
   await act(async () => {
@@ -63,6 +72,7 @@ async function renderTab(store: ReturnType<typeof createWorkspaceStore>, commit?
 
 beforeEach(() => {
   revealFile.mockClear()
+  revealLine.mockClear()
 })
 
 describe('ReviewDiffTab — reveal a file from the sidebar', () => {
@@ -114,5 +124,29 @@ describe('ReviewDiffTab — a request raised before the surface exists', () => {
     await renderTab(store)
 
     expect(revealFile).toHaveBeenCalledWith('src/a.ts')
+  })
+})
+
+describe('ReviewDiffTab — jump to a thread line', () => {
+  it('reveals the requested line once the surface mounts, and only once per request', async () => {
+    const store = createWorkspaceStore('w1')
+    const request: LineRequest = { path: 'src/a.ts', lineNumber: 7, side: 'old', nonce: 1 }
+
+    const view = await renderTab(store, undefined, request)
+    expect(revealLine).toHaveBeenCalledExactlyOnceWith('src/a.ts', 7, 'old')
+
+    view.rerender(
+      <WorkspaceStoreContext.Provider value={store}>
+        <ReviewDiffTab onRetry={vi.fn()} wsId="w1" lineRequest={{ ...request }} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    expect(revealLine).toHaveBeenCalledTimes(1)
+
+    view.rerender(
+      <WorkspaceStoreContext.Provider value={store}>
+        <ReviewDiffTab onRetry={vi.fn()} wsId="w1" lineRequest={{ ...request, nonce: 2 }} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    expect(revealLine).toHaveBeenCalledTimes(2)
   })
 })

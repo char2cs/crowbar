@@ -1,10 +1,18 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
+import { toast } from '@/features/window/stores/toast-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
@@ -406,5 +414,51 @@ describe('ReviewThreadItem — comment menu', () => {
     await user.click(await screen.findByRole('menuitem', { name: /Copy as Markdown/ }))
 
     expect(writeText).toHaveBeenCalledWith('reply body')
+  })
+})
+
+// An agent on another host may post a comment that links that host's own localhost.
+describe('a link in a review comment', () => {
+  const linked = makeThread({
+    messages: [{ ...makeThread().messages[0], body: '[preview](http://localhost:3000/)' }],
+  })
+  let open: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    open = vi.spyOn(window, 'open').mockReturnValue(null)
+    resetHostWorld()
+    __resetWorkspaceScopesForTest()
+    pairRemoteHost('h1', 'Build box')
+    loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w-local' })
+  })
+
+  afterEach(() => {
+    open.mockRestore()
+    resetHostWorld()
+  })
+
+  it('is that host’s when the thread is on another host: not opened here', async () => {
+    render(<ReviewThreadItem thread={linked} {...defaultProps} wsId="w-remote" />)
+
+    await userEvent.click(screen.getByRole('link', { name: 'preview' }))
+
+    expect(open).not.toHaveBeenCalled()
+    expect(vi.mocked(toast.info).mock.calls[0]?.[0]).toMatch(/^This link is on Build box/)
+  })
+
+  it('opens here when the thread is on this computer', async () => {
+    render(<ReviewThreadItem thread={linked} {...defaultProps} wsId="w-local" />)
+
+    await userEvent.click(screen.getByRole('link', { name: 'preview' }))
+
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      'http://localhost:3000/',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    expect(toast.info).not.toHaveBeenCalled()
   })
 })

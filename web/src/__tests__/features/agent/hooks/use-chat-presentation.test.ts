@@ -22,6 +22,31 @@ import {
 import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
+// The phone shows the chat transcript only: the provider's TUI is a desktop surface.
+describe('useChatPresentation — on the phone', () => {
+  afterEach(() => {
+    platform.mobile = false
+    resetChatPresentationMemoryForTests()
+  })
+
+  it('lands on the chat and stays there, whatever the default or a pick says', () => {
+    platform.mobile = true
+    presetChatLandingPresentation('chat-t', 'terminal')
+    const { result } = renderHook(() => useChatPresentation('chat-t', { current: null }))
+    expect(result.current.presentation).toBe('chat')
+    act(() => result.current.setPresentation('terminal'))
+    expect(result.current.presentation).toBe('chat')
+  })
+})
+
 function ref(size: { clientWidth?: number; clientHeight?: number }) {
   return { current: size as unknown as HTMLElement }
 }
@@ -35,36 +60,36 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
-  it('keeps a chat on Terminal across switching to another chat and back, in one mount', () => {
+  it('keeps a chat on its own pick across switching to another chat and back, in one mount', () => {
     const container = { current: null }
     const { result, rerender } = renderHook(
       ({ chatId }) => useChatPresentation(chatId, container),
       { initialProps: { chatId: 'chat-a' } },
     )
-    expect(result.current.presentation).toBe('chat') // the global default
+    expect(result.current.presentation).toBe('terminal') // the global default
 
-    act(() => result.current.setPresentation('terminal'))
-    expect(result.current.presentation).toBe('terminal')
+    act(() => result.current.setPresentation('chat'))
+    expect(result.current.presentation).toBe('chat')
 
     // Switch to a different chat in the same pane — the ordinary re-seed path
     // (a runner move, or picking another tab) that already ran before this fix.
     rerender({ chatId: 'chat-b' })
-    expect(result.current.presentation).toBe('chat')
+    expect(result.current.presentation).toBe('terminal')
 
     // ...and back to chat A. Before this fix `chosen` was thrown away on every
     // re-seed unless it was 'split', so this landed back on the global default
-    // ('chat') instead of the 'terminal' the user had actually left it on.
+    // ('terminal') instead of the 'chat' the user had actually left it on.
     rerender({ chatId: 'chat-a' })
-    expect(result.current.presentation).toBe('terminal')
+    expect(result.current.presentation).toBe('chat')
   })
 
-  it('keeps a chat on Terminal across a real unmount/remount — a Recents row reopening a closed chat', () => {
+  it('keeps a chat on its own pick across a real unmount/remount — a Recents row reopening a closed chat', () => {
     const containerA = { current: null }
     const { result: first, unmount: unmountFirst } = renderHook(() =>
       useChatPresentation('chat-a', containerA),
     )
-    act(() => first.current.setPresentation('terminal'))
-    expect(first.current.presentation).toBe('terminal')
+    act(() => first.current.setPresentation('chat'))
+    expect(first.current.presentation).toBe('chat')
 
     // Closing a chat's view deletes its pane outright (`closePane`,
     // pane-slice.ts) rather than hiding it — this pane's own React state,
@@ -83,7 +108,7 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
     // mode should never be lost."
     const containerA2 = { current: null }
     const { result: second } = renderHook(() => useChatPresentation('chat-a', containerA2))
-    expect(second.current.presentation).toBe('terminal')
+    expect(second.current.presentation).toBe('chat')
   })
 })
 
@@ -112,33 +137,33 @@ describe('presetChatLandingPresentation — choosing a new chat’s surface at c
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
-  it('lands a specific brand-new chat on Terminal, with the global default untouched', () => {
-    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(true)
+  it('lands a specific brand-new chat on Chat, with the global default untouched', () => {
+    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(false)
 
-    presetChatLandingPresentation('new-chat-1', 'terminal')
+    presetChatLandingPresentation('new-chat-1', 'chat')
 
     const container = { current: null }
     const { result } = renderHook(() => useChatPresentation('new-chat-1', container))
-    expect(result.current.presentation).toBe('terminal')
+    expect(result.current.presentation).toBe('chat')
 
     // The preset named exactly one chat — everyone else still lands on
     // whatever the (untouched) global default says.
-    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
+    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)
     const otherContainer = { current: null }
     const { result: other } = renderHook(() =>
       useChatPresentation('some-other-chat', otherContainer),
     )
-    expect(other.current.presentation).toBe('chat')
+    expect(other.current.presentation).toBe('terminal')
   })
 
   it('is a one-time seed: an explicit pick made afterward still wins', () => {
-    presetChatLandingPresentation('new-chat-2', 'terminal')
+    presetChatLandingPresentation('new-chat-2', 'chat')
     const container = { current: null }
     const { result } = renderHook(() => useChatPresentation('new-chat-2', container))
-    expect(result.current.presentation).toBe('terminal')
-
-    act(() => result.current.setPresentation('chat'))
     expect(result.current.presentation).toBe('chat')
+
+    act(() => result.current.setPresentation('terminal'))
+    expect(result.current.presentation).toBe('terminal')
   })
 })
 

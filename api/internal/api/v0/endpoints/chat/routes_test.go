@@ -252,7 +252,7 @@ func (stubUsecase) StopChat(
 	return nil
 }
 
-func (stubUsecase) CloseChat(
+func (stubUsecase) KillChat(
 	_ context.Context,
 	_ string,
 ) error {
@@ -486,6 +486,8 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 func (stubUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return domain.AgentTerminalWait{}
 }
+
+func (stubUsecase) AnswerTerminalWait(context.Context, string, string) error { return nil }
 
 func (stubUsecase) AnswerChoice(
 	context.Context, string, string, []string, string, []byte,

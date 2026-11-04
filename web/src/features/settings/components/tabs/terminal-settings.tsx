@@ -20,6 +20,12 @@ const FONT_HELP_TEXT =
   'Note: Selected font must be installed on your system to work correctly. If icons are missing, try installing a Nerd Font.'
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive settings tab — a flat list of SettingRow controls over the terminal settings slice; no logic to extract.
+const CURSOR_STYLE_OPTIONS = [
+  { value: 'block', label: 'Block' },
+  { value: 'underline', label: 'Underline' },
+  { value: 'bar', label: 'Bar' },
+]
+
 export const TerminalSettings = () => {
   const settings = useSettingsStore((state) => state.settings)
   const updateSetting = useSettingsStore((state) => state.updateSetting)
@@ -70,6 +76,7 @@ export const TerminalSettings = () => {
         >
           <div className="flex items-center gap-2">
             <Select
+              items={fontOptions}
               value={settings.terminalFontFamily}
               onValueChange={(val) => {
                 if (val) updateSetting('terminalFontFamily', val)
@@ -176,6 +183,7 @@ export const TerminalSettings = () => {
           canReset={settings.terminalCursorStyle !== getDefaultSetting('terminalCursorStyle')}
         >
           <Select
+            items={CURSOR_STYLE_OPTIONS}
             value={settings.terminalCursorStyle}
             onValueChange={(val) => {
               if (val) updateSetting('terminalCursorStyle', val as 'block' | 'underline' | 'bar')
@@ -185,11 +193,7 @@ export const TerminalSettings = () => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[
-                { value: 'block', label: 'Block' },
-                { value: 'underline', label: 'Underline' },
-                { value: 'bar', label: 'Bar' },
-              ].map((opt) => (
+              {CURSOR_STYLE_OPTIONS.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>

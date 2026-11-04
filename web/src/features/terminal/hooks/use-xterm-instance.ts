@@ -2,17 +2,19 @@ import type { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
+import type { TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
 import { terminalLinksFor } from '../lib/terminal-links'
+import type { TerminalView } from '../lib/terminal-url-menu'
 import { resolveTerminalFont } from '../utils/resolve-font'
 
 interface UseXtermInstanceOptions {
   sessionId: string
-  /** The workspace the terminal belongs to: relative file links resolve against its root. */
-  workspaceId?: string
+  /** The workspace this terminal belongs to and the pane it is shown in; links open there. */
+  workspaceId: string
+  paneId?: string
   container: HTMLDivElement | null
   /** False until the view has been shown once: a never-seen tab builds nothing. */
   enabled: boolean
@@ -33,6 +35,7 @@ export interface XtermInstance {
 export function useXtermInstance({
   sessionId,
   workspaceId,
+  paneId,
   container,
   enabled,
   write,
@@ -40,12 +43,12 @@ export function useXtermInstance({
   const [instance, setInstance] = useState<XtermInstance>({ terminal: null, addons: null })
   const writeRef = useRef(write)
   const sessionIdRef = useRef(sessionId)
-  const workspaceIdRef = useRef(workspaceId)
+  const viewRef = useRef<TerminalView>({ workspaceId, paneId })
   useEffect(() => {
     writeRef.current = write
     sessionIdRef.current = sessionId
-    workspaceIdRef.current = workspaceId
-  }, [write, sessionId, workspaceId])
+    viewRef.current = { workspaceId, paneId }
+  }, [write, sessionId, workspaceId, paneId])
 
   const fontFamily = useSettingsStore((state) => state.settings.terminalFontFamily)
   const baseFontSize = useSettingsStore((state) => state.settings.terminalFontSize)
@@ -119,7 +122,7 @@ export function useXtermInstance({
             write: (data, origin) => writeRef.current(data, origin),
             links: terminalLinksFor(
               () => sessionIdRef.current,
-              () => workspaceIdRef.current,
+              () => viewRef.current,
             ),
           },
         )
@@ -139,14 +142,6 @@ export function useXtermInstance({
   }, [hasBox, container])
 
   const { terminal, addons } = instance
-
-  // Link colouring is scoped to the container, whose id follows the session — so
-  // an attach-only swap re-scopes it along with the PTY.
-  useEffect(() => {
-    if (!terminal || !container) return
-    injectLinkStyles(sessionId, container.id || `terminal-${sessionId}`)
-    return () => removeLinkStyles(sessionId)
-  }, [terminal, container, sessionId])
 
   // Keep a live xterm's options in step with the settings.
   useEffect(() => {

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // LspClient keeps one session per workspace, addressed by the id the caller
 // passes (the buffer's own workspace), never the active one. A session lives
 // while it has an open document or a diagnostics handler; it holds the owning
-// chat's lsp: scope exactly while it lives AND that chat is known.
+// chat's lsp: scope exactly while it lives AND that chat and its host are known.
 
 const { apiFetch } = vi.hoisted(() => ({
   apiFetch: vi.fn(async (..._args: unknown[]): Promise<unknown> => null),
@@ -12,14 +12,23 @@ const { apiFetch } = vi.hoisted(() => ({
 vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 
 import { LspClient } from '@/features/editor/lsp/lsp-client'
-import { holding } from '@/core/stream/stream'
-import { streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { holding, watchScope } from '@/core/stream/stream'
+import { reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import { toastManager } from '@/lib/toast-manager'
 import {
   __resetWorkspaceScopesForTest,
   forgetWorkspaceScope,
   recordWorkspaceScope,
+  recordWorkspaceScopeFromPath,
   setWorkspaceScope,
+  subscribeToWorkspaceScope,
 } from '@/lib/workspace-scope'
 
 const SCOPE_1 = 'lsp:chat-1'
@@ -60,8 +69,8 @@ beforeEach(() => {
 describe('LspClient document sync', () => {
   it("addresses each document to its own workspace's chat", async () => {
     const client = new LspClient()
-    await client.documentOpen('w1', 'src/a.ts', 'one', 'typescript')
-    await client.documentOpen('w2', 'src/a.ts', 'two', 'typescript')
+    await client.documentOpen('w1', 'src/a.ts', () => 'one', 'typescript')
+    await client.documentOpen('w2', 'src/a.ts', () => 'two', 'typescript')
     await client.documentSave('w2', 'src/a.ts')
     await client.documentClose('w1', 'src/a.ts')
 
@@ -76,8 +85,8 @@ describe('LspClient document sync', () => {
 
   it('opens a document once however many panes hold it, and closes it with the last', async () => {
     const client = new LspClient()
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     expect(postsTo('/didOpen')).toHaveLength(1)
 
     await client.documentClose('w1', 'a.ts')
@@ -85,7 +94,7 @@ describe('LspClient document sync', () => {
     await client.documentClose('w1', 'a.ts')
     expect(postsTo('/didClose')).toHaveLength(1)
 
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     expect(postsTo('/didOpen')).toHaveLength(2)
   })
 
@@ -99,7 +108,7 @@ describe('LspClient document sync', () => {
   it('defers didOpen until the owning chat is recorded, with the latest text', async () => {
     setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3' })
     const client = new LspClient()
-    await client.documentOpen('w3', 'a.ts', 'old', 'typescript')
+    await client.documentOpen('w3', 'a.ts', () => 'old', 'typescript')
     client.scheduleChange('w3', 'a.ts', () => 'new')
     await client.flushChange('w3', 'a.ts')
     expect(apiFetch).not.toHaveBeenCalled()
@@ -117,7 +126,7 @@ describe('LspClient document sync', () => {
   it('a document closed before its deferred didOpen went out is never sent', async () => {
     setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3' })
     const client = new LspClient()
-    await client.documentOpen('w3', 'a.ts', 'code', 'typescript')
+    await client.documentOpen('w3', 'a.ts', () => 'code', 'typescript')
     await client.documentClose('w3', 'a.ts')
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3', owningChatId: 'chat-3' })
     expect(apiFetch).not.toHaveBeenCalled()
@@ -128,7 +137,7 @@ describe('LspClient document sync', () => {
     setWorkspaceScope({ projectId: 'p', repoId: '', wsId: 'home-ws' })
     const client = new LspClient()
     client.onDiagnosticsUpdate('home-ws', () => {})
-    await client.documentOpen('home-ws', 'a.md', 'x', 'markdown')
+    await client.documentOpen('home-ws', 'a.md', () => 'x', 'markdown')
     expect(apiFetch).not.toHaveBeenCalled()
     expect(lspHeld()).toEqual([])
   })
@@ -137,7 +146,7 @@ describe('LspClient document sync', () => {
     const client = new LspClient()
     await client.reopen('w1', 'a.ts', 'x', 'typescript')
     expect(apiFetch).not.toHaveBeenCalled()
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     await client.reopen('w1', 'a.ts', 'y', 'typescript')
     expect(postsTo('/didOpen')).toHaveLength(2)
   })
@@ -146,7 +155,7 @@ describe('LspClient document sync', () => {
     const client = new LspClient()
     const opened = vi.fn()
     client.onDocumentOpened(opened)
-    await client.documentOpen('w2', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w2', 'a.ts', () => 'x', 'typescript')
     expect(opened).toHaveBeenCalledWith('w2', 'a.ts')
   })
 
@@ -154,7 +163,7 @@ describe('LspClient document sync', () => {
     const toastAdd = vi.spyOn(toastManager, 'add')
     const client = new LspClient()
     apiFetch.mockRejectedValueOnce(new Error('lsp: didOpen: server exited'))
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     apiFetch.mockRejectedValueOnce(new Error('lsp: didSave: server exited'))
     await client.documentSave('w1', 'a.ts')
     apiFetch.mockRejectedValueOnce(new Error('lsp: didClose: server exited'))
@@ -178,7 +187,7 @@ describe('LspClient didChange debounce and flush', () => {
 
   it('coalesces a burst of edits into one didChange carrying the latest text', async () => {
     const client = new LspClient()
-    await client.documentOpen('w2', 'a.ts', 'a', 'typescript')
+    await client.documentOpen('w2', 'a.ts', () => 'a', 'typescript')
     let text = 'a'
     client.scheduleChange('w2', 'a.ts', () => text)
     text = 'ab'
@@ -193,7 +202,7 @@ describe('LspClient didChange debounce and flush', () => {
 
   it('flushChange sends the pending text immediately, once', async () => {
     const client = new LspClient()
-    await client.documentOpen('w1', 'a.ts', 'foo', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'foo', 'typescript')
     client.scheduleChange('w1', 'a.ts', () => 'foo.')
     await client.flushChange('w1', 'a.ts')
     expect(changes()).toHaveLength(1)
@@ -204,7 +213,7 @@ describe('LspClient didChange debounce and flush', () => {
   it('sends nothing when the text is gone by flush time, or the document is not open', async () => {
     const client = new LspClient()
     client.scheduleChange('w1', 'closed.ts', () => 'x')
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     client.scheduleChange('w1', 'a.ts', () => null)
     await vi.advanceTimersByTimeAsync(1000)
     expect(changes()).toHaveLength(0)
@@ -212,7 +221,7 @@ describe('LspClient didChange debounce and flush', () => {
 
   it('closing a document drops its pending change', async () => {
     const client = new LspClient()
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     client.scheduleChange('w1', 'a.ts', () => 'y')
     await client.documentClose('w1', 'a.ts')
     await vi.advanceTimersByTimeAsync(1000)
@@ -251,7 +260,7 @@ describe('LspClient diagnostics subscription', () => {
     const client = new LspClient()
     const off1 = client.onDiagnosticsUpdate('w1', () => {})
     const off2 = client.onDiagnosticsUpdate('w1', () => {})
-    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     client.onDiagnosticsUpdate('w2', () => {})
 
     off1()
@@ -279,7 +288,7 @@ describe('LspClient diagnostics subscription', () => {
     const client = new LspClient()
     const handler = vi.fn()
     client.onDiagnosticsUpdate('w2', handler)
-    await client.documentOpen('w2', 'a.ts', 'x', 'typescript')
+    await client.documentOpen('w2', 'a.ts', () => 'x', 'typescript')
     signal(SCOPE_2, { wsId: 'w2', diagnostics: [diag('a.ts')] })
 
     forgetWorkspaceScope('w2')
@@ -342,5 +351,135 @@ describe('LspClient.request', () => {
     await client.restart('w1', 'main.go')
     expect(posts()[1]).toBe('/v0/chats/chat-1/lsp/restart')
     expect(bodyOf(1)).toEqual({ path: 'main.go' })
+  })
+})
+
+/** Resolves once `scope`'s current snapshot is complete. */
+async function synced(scope: string) {
+  let stop = () => {}
+  await new Promise<void>((resolve) => {
+    stop = watchScope(scope, { synced: resolve })
+  })
+  stop()
+}
+
+// Each test below has workspaces of its own: a session another test left open keeps its
+// documents, and would answer a reconnect or a host change on a shared one.
+
+// The daemon closes a chat's servers when its lsp: scope is let go, as a dropped stream does.
+describe('LspClient across a stream drop', () => {
+  it('opens what is open, with its text now, once the stream is back, and only then', async () => {
+    const client = new LspClient()
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w-drop', owningChatId: 'chat-d' })
+    let text = 'a1'
+    for (const path of ['a.ts', 'b.ts', 'closed.ts'])
+      await client.documentOpen('w-drop', path, () => (path === 'a.ts' ? text : path), 'ts')
+    await client.documentClose('w-drop', 'closed.ts')
+    await synced('lsp:chat-d')
+    expect(postsTo('/chat-d/lsp/didOpen')).toHaveLength(3)
+
+    apiFetch.mockClear()
+    text = 'a2'
+    reconnectStream()
+    await synced('lsp:chat-d')
+
+    // Every live session re-opens; this one's are the ones under test.
+    const mine = apiFetch.mock.calls.filter(([url]) => String(url).includes('/chats/chat-d/'))
+    expect(mine.map(([url]) => url)).toEqual([
+      '/v0/chats/chat-d/lsp/didOpen',
+      '/v0/chats/chat-d/lsp/didOpen',
+    ])
+    expect(mine.map(([, init]) => JSON.parse(String((init as RequestInit).body)))).toMatchObject([
+      { path: 'a.ts', text: 'a2' },
+      { path: 'b.ts', text: 'b.ts' },
+    ])
+    forgetWorkspaceScope('w-drop')
+  })
+})
+
+// A remote workspace's LSP route names its host: unknown until the project list loads, gone when
+// the host is revoked.
+describe('LspClient on a remote host', () => {
+  let n = 0
+  let remoteScope = { projectId: 'p-r', repoId: 'r', wsId: 'w-remote', owningChatId: 'chat-4' }
+  let REMOTE_BASE = ''
+  let REMOTE_SCOPE = ''
+  const remoteProject = () => projectOn('p-r', 'host-1')
+  const pairHost = () => pairRemoteHost('host-1')
+  const removeHost = () => useHostConfigStore.getState().removeHost('host-1')
+
+  beforeEach(() => {
+    resetHostWorld()
+    n += 1
+    remoteScope = { ...remoteScope, wsId: `w-remote-${n}`, owningChatId: `chat-r${n}` }
+    REMOTE_BASE = `crowbar://host-1/v0/chats/chat-r${n}/lsp`
+    REMOTE_SCOPE = `lsp:chat-r${n}`
+  })
+  afterEach(() => {
+    forgetWorkspaceScope(remoteScope.wsId)
+    resetHostWorld()
+  })
+
+  it('defers an open made before the project list loads, sends it once the host resolves, and again with what was typed once it resolves anew', async () => {
+    const client = new LspClient()
+    const ws = remoteScope.wsId
+    pairHost()
+    recordWorkspaceScope(remoteScope)
+    let text = 'x'
+
+    await expect(client.documentOpen(ws, 'a.ts', () => text, 'typescript')).resolves.toBeUndefined()
+    expect(() => recordWorkspaceScope(remoteScope)).not.toThrow()
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(holding(REMOTE_SCOPE)).toBe(false)
+
+    loadProjects(remoteProject())
+
+    expect(holding(REMOTE_SCOPE)).toBe(true)
+    expect(posts()).toEqual([`${REMOTE_BASE}/didOpen`])
+    recordWorkspaceScope(remoteScope)
+    expect(postsTo('/didOpen')).toHaveLength(1)
+
+    removeHost()
+    expect(holding(REMOTE_SCOPE)).toBe(false)
+    text = 'y'
+    client.scheduleChange(ws, 'a.ts', () => text)
+    await client.flushChange(ws, 'a.ts')
+    pairHost()
+    expect(postsTo('/didOpen')).toHaveLength(2)
+    expect(bodyOf(1)).toMatchObject({ path: 'a.ts', text: 'y' })
+  })
+
+  it('answers a request or status with nothing, not a throw, until the host resolves', async () => {
+    const client = new LspClient()
+    const ws = remoteScope.wsId
+    pairHost()
+    recordWorkspaceScope(remoteScope)
+    await expect(client.request(ws, 'hover', {})).resolves.toBeNull()
+    await expect(client.status(ws, 'a.ts')).resolves.toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    loadProjects(remoteProject())
+    await client.request(ws, 'hover', {})
+    expect(posts()).toEqual([`${REMOTE_BASE}/hover`])
+  })
+
+  it('lets the scope go when the host is revoked, and a later scope write neither throws nor starves a listener', async () => {
+    const client = new LspClient()
+    const ws = remoteScope.wsId
+    pairHost()
+    loadProjects(remoteProject())
+    recordWorkspaceScope(remoteScope)
+    client.onDiagnosticsUpdate(ws, () => {})
+    expect(holding(REMOTE_SCOPE)).toBe(true)
+
+    removeHost()
+    expect(holding(REMOTE_SCOPE)).toBe(false)
+    loadProjects() // the re-read that no longer holds the host's rows
+
+    const later = vi.fn()
+    subscribeToWorkspaceScope(ws, later)
+    expect(() => recordWorkspaceScopeFromPath(`/ide/p-r/r2/${ws}`)).not.toThrow()
+    expect(later).toHaveBeenCalledTimes(1)
+    expect(holding(REMOTE_SCOPE)).toBe(false)
   })
 })

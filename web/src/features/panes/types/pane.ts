@@ -14,6 +14,8 @@ export interface PaneGroup {
    * chatless pane.
    */
   workspaceId?: string | null
+  /** For a draft thread: the row its chat will be placed under, '' being the panel root. */
+  draftParentId?: string
   /** Everything the editor view holds: files, terminals, branch review — never chats or a "new tab" placeholder. */
   editorTabIds: string[]
   activeEditorTabId: string | null

@@ -1,4 +1,4 @@
-import { dropLineBox } from '@/components/layout/drop-indicator'
+import { dropLineBox, dropLineBoxX } from '@/components/layout/drop-indicator'
 import { anyModeAllowed, NO_MODES, type DropPolicy } from '@/components/tree-dnd/drop-core'
 import {
   createDropHitTest,
@@ -18,7 +18,7 @@ export interface RowDragExtra {
   path?: string
   expanded?: boolean
   hasChildren?: boolean
-  /** Published only by `RecentsBand`: spec §8.1 gives the same geometry over a Recents
+  /** Published only by a Recents tab (`view-row.tsx`): spec §8.1 gives the same geometry over a Recents
    *  entry another meaning than over a tree row, and `SidebarRow` cannot tell them apart. */
   inRecents?: boolean
 }
@@ -107,9 +107,12 @@ export function paintDropLine(el: HTMLDivElement | null, hit: Hit): void {
     el.style.display = 'none'
     return
   }
-  const box = dropLineBox(hit.rect, hit.row.mode)
+  const box =
+    hit.axis === 'x' ? dropLineBoxX(hit.rect, hit.row.mode) : dropLineBox(hit.rect, hit.row.mode)
   el.style.display = 'block'
   if (el.dataset.dropIndicator !== hit.row.mode) el.dataset.dropIndicator = hit.row.mode
+  const height = 'height' in box ? `${box.height}px` : ''
+  if (el.style.height !== height) el.style.height = height
   const left = `${box.left}px`
   const top = `${box.top}px`
   const width = `${box.width}px`

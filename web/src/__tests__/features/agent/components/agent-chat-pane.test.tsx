@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
@@ -52,7 +52,14 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
 // Force macOS regardless of whatever OS the test happens to run on (jsdom's
 // UA bakes in the CI runner's own host platform, which is Linux on GitHub
 // Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', () => ({
+  IS_MAC: true,
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+  APPLE_KEYBOARD: true,
+}))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
@@ -128,7 +135,7 @@ vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation
     ),
 )
 
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -360,6 +367,7 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // the chat back afterwards shows the runner now on it. Tests that are about failure say
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
 beforeEach(() => {
+  platform.mobile = false
   resetWindowPaneStoreForTests()
   resetChatStore()
   resetChatPresentationMemoryForTests()
@@ -404,6 +412,20 @@ beforeEach(() => {
 })
 
 describe('AgentChatPane', () => {
+  // The desktop chat keeps a left gutter against the sidebar beside it; the phone's
+  // sidebar is native, so a gutter there only made the left margin wider than the right.
+  it('drops the left-only chat gutter on the phone', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
+    expect(document.querySelector('.agent-chat-pane')).not.toHaveAttribute('data-touch')
+    cleanup()
+
+    platform.mobile = true
+    await renderPane(store, paneId)
+    expect(document.querySelector('.agent-chat-pane')).toHaveAttribute('data-touch')
+  })
+
   // ── THE HEADLINE ───────────────────────────────────────────────────
   // The user's bug: they type /clear inside the CLI, the CLI switches conversation,
   // and Crowbar moves the running process to a DIFFERENT chat. The pane used to be
@@ -630,7 +652,7 @@ describe('AgentChatPane', () => {
 
       await screen.findByTestId('agent-reviving-banner')
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
     })
 
     it('still clears the header inside AgentChatView once the chat is attached and no banner covers it', async () => {
@@ -643,11 +665,11 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('agent-idle-banner')).not.toBeInTheDocument()
       expect(screen.queryByTestId('agent-reviving-banner')).not.toBeInTheDocument()
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
     })
 
     // The transcript needs to clear the header's FULL EdgeDissolve zone
-    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 100px Mac), not just the 52px
+    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 98px Mac), not just the 50px
     // click-target the banners above clear — text left resting between the
     // two still renders visibly blurred by the dissolve's own mask layers.
     // See CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx.
@@ -659,7 +681,7 @@ describe('AgentChatPane', () => {
 
       await screen.findByTestId('agent-empty-document')
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('100px')
+      expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('98px')
     })
 
     it('gives the transcript no extra clearance with no overlay header above', async () => {

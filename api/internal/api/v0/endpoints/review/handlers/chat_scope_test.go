@@ -81,6 +81,17 @@ func (r *recordingUsecase) GetPatch(
 	return 0, false, nil
 }
 
+func (r *recordingUsecase) GetFileSides(
+	_ context.Context,
+	wsID string,
+	_ string,
+	_ string,
+	_ string,
+) (gitdomain.ReviewFileSides, error) {
+	r.seen = append(r.seen, wsID)
+	return gitdomain.ReviewFileSides{}, nil
+}
+
 func (r *recordingUsecase) SearchDiff(
 	_ context.Context,
 	wsID string,

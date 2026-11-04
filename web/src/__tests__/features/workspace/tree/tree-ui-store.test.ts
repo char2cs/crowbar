@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import {
+  parseSidebarTab,
   treeUiStore,
   type CreateDraft,
   type RemovalDraft,
@@ -125,7 +126,11 @@ describe('collapsed rows', () => {
       expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['f1', 'c7']),
     )
     const record = await loadSidebarUI()
-    expect(Object.keys(record ?? {}).sort()).toEqual(['collapsedChatRows', 'updatedAt'])
+    expect(Object.keys(record ?? {}).sort()).toEqual([
+      'activeTab',
+      'collapsedChatRows',
+      'updatedAt',
+    ])
   })
 
   it('a record an older build wrote, retired keys and all, folds the same rows after the upgrade', async () => {
@@ -295,8 +300,47 @@ describe('one store, independent parts', () => {
   })
 })
 
-describe('the sidebar panel tab', () => {
-  it('defaults to Files, the carousel panel shown on a cold start', () => {
-    expect(state().activeTab).toBe('files')
+// The sidebar's mode is saved in the same record as the folds, so either write must carry
+// the other or it would erase it.
+describe('the sidebar mode', () => {
+  it('defaults to Chats', () => {
+    expect(state().activeTab).toBe('chats')
+  })
+
+  it('persists the mode alongside the folds', async () => {
+    state().toggleChatRow('f1')
+    state().setActiveTab('files')
+    await vi.waitFor(async () => expect((await loadSidebarUI())?.activeTab).toBe('files'))
+    expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['f1'])
+  })
+
+  it('persists a fold without dropping the mode from the record', async () => {
+    state().setActiveTab('git')
+    state().toggleChatRow('f1')
+    await vi.waitFor(async () =>
+      expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['f1']),
+    )
+    expect((await loadSidebarUI())?.activeTab).toBe('git')
+  })
+
+  it('selecting the mode already showing changes nothing', () => {
+    const before = state()
+    state().setActiveTab('chats')
+    expect(state()).toBe(before)
+  })
+
+  it('reads a persisted mode back, and Chats for one this build has no panel for', () => {
+    expect(parseSidebarTab('git')).toBe('git')
+    expect(parseSidebarTab('workspaces')).toBe('chats')
+    expect(parseSidebarTab(undefined)).toBe('chats')
+  })
+})
+
+describe('a removal held with its own clock', () => {
+  it('drains on that clock instead of the 8 s one', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    state().hold([removal({ kind: 'chat', id: 'c1' })], 0)
+    expect(state().removals[0].deadlineAt).toBe(1_000)
   })
 })

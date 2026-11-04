@@ -1,11 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import { createElement } from 'react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   return {
@@ -29,7 +31,11 @@ function renderHeader() {
     createElement(
       WorkspaceStoreContext.Provider,
       { value: store },
-      createElement(ChatColumnHeader, { chatId: 'chat-1', wsId: 'w1', isBottomPane: false }),
+      createElement(ChatColumnHeader, {
+        chatId: 'chat-1',
+        wsId: 'w1',
+        isBottomPane: false,
+      }),
     ),
   )
 }
@@ -40,6 +46,24 @@ function renderHeader() {
 // renders first), but none of TabBar's pane-level actions — branch-review
 // shortcut and close-view already live in the IDE sector's own row.
 describe('ChatColumnHeader', () => {
+  afterEach(resetEntities)
+
+  it('shows the workspace route under the title', () => {
+    seedRepos([
+      {
+        id: 'repo-1',
+        name: 'crowbar',
+        workspaces: [
+          { id: 'w1', branch: 'fix/refactor-chats', parentBranch: 'develop' } as Workspace,
+        ],
+      } as Repo,
+    ])
+    renderHeader()
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
+      /^crowbar\/develop\/fix\/refactor-chats$/,
+    )
+  })
+
   it('carries the window drag region', () => {
     renderHeader()
     expect(screen.getByTestId('pane-top-row')).toHaveAttribute('data-tauri-drag-region')

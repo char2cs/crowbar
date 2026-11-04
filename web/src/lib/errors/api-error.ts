@@ -25,12 +25,15 @@ export class ApiError extends Error {
   readonly problem: Problem
   /** The error envelope's `data`, for the few refusals that carry detail. */
   readonly data?: unknown
-  constructor(message: string, status: number, code?: string, data?: unknown) {
+  /** The host the failed request or stream targeted, 'local' for the local daemon. */
+  readonly hostId?: string
+  constructor(message: string, status: number, code?: string, data?: unknown, hostId?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.problem = { code: (code as ProblemCode | undefined) ?? categoryFor(status), message }
     this.data = data
+    this.hostId = hostId
   }
 }
 

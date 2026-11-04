@@ -2,6 +2,7 @@ import { Asterisk, CaretDown, CaretUp, MagnifyingGlass, TextAa, X } from '@phosp
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { searchReviewDiff } from '@/features/git/api/review-window-api'
 import type { SearchDiffResult, SearchHit } from '@/features/git/api/review-window-api'
 import { cn } from '@/utils/cn'
@@ -103,7 +104,7 @@ export function ReviewSearchBar({
           // before it spawns anything — an ordinary answer to a half-typed
           // pattern, so it belongs inline in the bar, not in an error boundary.
           setResult(EMPTY_RESULT)
-          setError(err instanceof Error ? err.message : 'Search failed')
+          setError(actionErrorMessage(err, 'Search failed'))
           setSearching(false)
           setActiveIndex(-1)
         })

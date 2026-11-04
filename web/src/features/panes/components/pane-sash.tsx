@@ -69,6 +69,9 @@ export function PaneSash({
   // a GPU compositing layer and back within one tick, which can visibly glitch
   // WKWebView's compositor even though nothing was actually resized.
   const hasMovedRef = useRef<boolean>(false)
+  // React's own inline flex-basis, captured at pointerdown. A drag overwrites it
+  // imperatively; React will not rewrite it if the committed sizes are unchanged.
+  const renderedBasisRef = useRef<[string, string]>(['', ''])
 
   // Stable refs for listener functions so the same instance is always used for
   // both addEventListener and removeEventListener (including unmount cleanup).
@@ -116,8 +119,13 @@ export function PaneSash({
       document.documentElement.removeAttribute('data-pane-resizing')
       window.dispatchEvent(new CustomEvent('pane-resize-end'))
     }
+    if (hasMovedRef.current) {
+      const [firstBasis, secondBasis] = renderedBasisRef.current
+      if (firstPaneRef.current) firstPaneRef.current.style.flexBasis = firstBasis
+      if (secondPaneRef.current) secondPaneRef.current.style.flexBasis = secondBasis
+    }
     hasMovedRef.current = false
-  }, [])
+  }, [firstPaneRef, secondPaneRef])
 
   /**
    * Unmount-mid-drag cleanup: if a drag is in progress when the component is
@@ -146,6 +154,10 @@ export function PaneSash({
       const [firstPx] = percentsToPx(containerPx, sizesRef.current)
       liveFirstPx.current = firstPx
       hasMovedRef.current = false
+      renderedBasisRef.current = [
+        firstPaneRef.current?.style.flexBasis ?? '',
+        secondPaneRef.current?.style.flexBasis ?? '',
+      ]
 
       // Build stable listener instances and store in refs before attaching.
       const onMove = (ev: globalThis.PointerEvent) => {
@@ -182,11 +194,6 @@ export function PaneSash({
         const cPx = containerPxRef.current
         const finalSizes =
           cPx > 0 ? pxToPercents(cPx, liveFirstPx.current, minPx) : sizesRef.current
-
-        // Drop the inline imperative sizes so React's percentage flex-basis
-        // (driven by the committed store state) takes over again.
-        if (firstPaneRef.current) firstPaneRef.current.style.flexBasis = ''
-        if (secondPaneRef.current) secondPaneRef.current.style.flexBasis = ''
 
         teardownDrag()
         onResizeCommitRef.current(finalSizes)

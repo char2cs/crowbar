@@ -207,46 +207,22 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, o.chatSnapshots)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, o.chatSnapshots, o.browser)
 	if err != nil {
 		return nil, err
 	}
-	// Wired AFTER agentic exists, not as a workspace.New(...) option: the chat
-	// usecase itself depends on the workspace usecase (Promote forks a
-	// workspace through worktreeChildCreator above), so at workspace.New's own
-	// call site the chat usecase does not exist yet to hand over. See
-	// workspace.Usecase.SetChatObserver's doc comment.
+	// Wired after agentic exists: the chat usecase depends on the workspace
+	// usecase, so neither setter can be a workspace.New option.
 	workspaceUsecase.SetChatObserver(agentic.chat)
-	// Both ways a branch becomes locked at RUNTIME — the user's own lock, and a
-	// provider poll reporting the branch protected — used to hand the workspace
-	// to a chat-tree reconciler here (EnsureOwningChat), so its owning row was a
-	// branch row from that instant rather than from the next boot's backfill.
-	// Deleted (2026-09-08 sidebar-placement-unification Task 7): every
-	// Workspace now mints its own Node{Kind:workspace} row unconditionally at
-	// creation (see hierarchy.WithNodes / project.ImportDeps.Nodes below), so
-	// there is no more "does this now-locked workspace have an owning row yet"
-	// question for a reconciler to answer here. workspaceUsecase.SetLock and
-	// providerSync.SyncFromState no longer take a reconciler at all.
-	// Every workspace the import paths create is minted UNDER a chat from here
-	// on. Wired at the same point and for the same reason as the two setters
-	// above — the chat tree does not exist until agentic is built — and this is
-	// the wiring that makes the §0 orphan unrepresentable rather than merely
-	// reconciled: without it both importers refuse outright (ErrNoOwningChats)
-	// instead of falling back to a workspace-first create.
+	// Every workspace an import creates is minted under a chat; without this
+	// both importers refuse (ErrNoOwningChats).
 	owningChats := hierarchyOwningChats{tree: agentic.chatTree, chats: repos.AgentChat}
 	workspaceUsecase.SetOwningChats(owningChats)
 	projectImport.SetOwningChats(owningChats)
-	// Built inside newAgentWiring, where the chat tree's own delete already
-	// needs it (see the holders argument to NewTree), and handed back rather
-	// than rebuilt here: one resolver means "which chats hold this worktree"
-	// has one answer in the daemon, whether it is asked to fan a push out or to
-	// decide whether a delete may cascade that worktree away.
+	// One chat→worktree resolver, the one the chat tree's delete already uses.
 	worktreeUsecase := agentic.worktree
-	// Built HERE, not beside the other usecases above, because both take the
-	// chat→worktree resolver: a terminal session is owned by a CHAT and merely
-	// RUNS in a worktree (spec §4.2's owned bucket), so each needs to turn a
-	// chat id into the workspace behind it, and worktreeUsecase does not exist
-	// until the chat usecase above does.
+	// Built here: a terminal session is owned by a chat, and the resolver that
+	// maps it to its worktree exists only once the chat usecase does.
 	terminalMeta := terminal.NewSessionMetaStore(
 		worktreeUsecase,
 		gormStores.TerminalSessions,
@@ -313,6 +289,13 @@ type Option func(*options)
 
 type options struct {
 	chatSnapshots *agentusecase.ChatSnapshots
+	browser       agentusecase.ToolBrowserBridge
+}
+
+// WithBrowserBridge gives agents the browser tools. Without it they are not
+// registered, like any tool whose dependency is absent.
+func WithBrowserBridge(b agentusecase.ToolBrowserBridge) Option {
+	return func(o *options) { o.browser = b }
 }
 
 // WithChatSnapshots hands the chat usecase the snapshot owner the composition
@@ -331,6 +314,7 @@ func newAgentWiring(
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaceUsecase workspace.Usecase,
 	chatSnapshots *agentusecase.ChatSnapshots,
+	browser agentusecase.ToolBrowserBridge,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -347,7 +331,7 @@ func newAgentWiring(
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
 		repos.AgentChat, repos.Placement, repos.Placement,
 	))
-	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
+	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase, browser)
 	if err != nil {
 		return agentWiring{}, err
 	}
@@ -487,6 +471,7 @@ func newAgentToolDeps(
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaces agentusecase.ToolWorkspaceBranchRenamer,
+	browser agentusecase.ToolBrowserBridge,
 ) (agentusecase.ToolDeps, error) {
 	switch {
 	case minter == nil:
@@ -499,6 +484,8 @@ func newAgentToolDeps(
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no workspace store")
 	case repos.ReviewThread == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no review thread store")
+	case repos.ReviewThreadChanges == nil:
+		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no review thread change source")
 	case review == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no branch review usecase")
 	case threadBroadcast == nil:
@@ -511,9 +498,11 @@ func newAgentToolDeps(
 		Review:          review,
 		Threads:         repos.ReviewThread,
 		ThreadWrites:    repos.ReviewThread,
+		ThreadChanges:   repos.ReviewThreadChanges,
 		Idempotency:     agentusecase.NewToolIdempotency(),
 		ThreadBroadcast: threadBroadcast,
 		ChatReads:       chatReader,
+		Browser:         browser,
 		Metrics:         agentusecase.NewToolMetrics(),
 	}, nil
 }

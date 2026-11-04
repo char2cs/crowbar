@@ -43,6 +43,7 @@ const project: Project = {
   name: 'test-proj',
   path: '/tmp/test-proj',
   lastActivity: new Date(0),
+  hostId: 'local',
 }
 const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/project')
 const importButton = () => screen.getByRole('button', { name: /import/i })
@@ -75,8 +76,9 @@ test('import waits on the operation and hands over the project from the store', 
   fireEvent.click(importButton())
 
   await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalledTimes(1))
-  const [name, path, opId] = vi.mocked(api.postProject).mock.calls[0]
-  expect([name, path]).toEqual(['test-proj', '/tmp/test-proj'])
+  const [name, path, opId, hostId] = vi.mocked(api.postProject).mock.calls[0]
+  // The path was picked on this machine, so the local daemon imports it.
+  expect([name, path, hostId]).toEqual(['test-proj', '/tmp/test-proj', 'local'])
   await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
 
   streamOperation(createOp(opId, 2, 'succeeded'))
@@ -96,6 +98,7 @@ test('uses the typed project name over the path fallback', async () => {
       'Nice Name',
       '/tmp/test-proj',
       expect.any(String),
+      'local',
     ),
   )
 })

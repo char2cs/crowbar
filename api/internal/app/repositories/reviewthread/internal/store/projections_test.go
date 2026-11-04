@@ -93,7 +93,7 @@ func (f *failFirstSave) Save(ctx context.Context, th domain.ReviewThread) error 
 func TestStoreProjection_CreateUpsertsRow(t *testing.T) {
 	ctx, ax, st, _ := newProjected(t)
 	_, err := ax.SendWait(ctx, rtcmds.OpenReviewThread{
-		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", Now: time.Unix(1, 0).UTC(),
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", LineNumber: 1, Now: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
 
@@ -162,7 +162,7 @@ func TestReviewThreadProjection_ASaveFailureIsRetriedNotDropped(t *testing.T) {
 	ctx, ax, _ := buildOver(t, p)
 
 	_, err = ax.SendWait(ctx, rtcmds.OpenReviewThread{
-		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", Now: time.Unix(1, 0).UTC(),
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", LineNumber: 1, Now: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
 

@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api/fetch'
 import { folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api/wire'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
 
@@ -20,12 +21,8 @@ import type { FolderDTO } from '@/lib/types'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
-function repoBase(projectId: string, repoId: string): string {
-  return `/v0/projects/${projectId}/repos/${repoId}`
-}
-
 function homeBase(projectId: string): string {
-  return `/v0/projects/${projectId}/home`
+  return `${projectBase(projectId)}/home`
 }
 
 /** A workspace's SIDEBAR placement. `folderId` is never a fork parent. */
@@ -142,7 +139,7 @@ function toFolderWriteResult(
  * `row-actions.ts`'s `performCreateFolder` places the answer at once, so the
  * row shows before its folder entity frame lands.
  */
-export function createFolder(
+export async function createFolder(
   projectId: string,
   repoId: string,
   name: string,
@@ -159,7 +156,7 @@ export function createFolder(
 }
 
 /** {@link createFolder}, for the project-home workspace instead of a repo. */
-export function createHomeFolder(
+export async function createHomeFolder(
   projectId: string,
   name: string,
   parentId: string,
@@ -174,7 +171,7 @@ export function createHomeFolder(
   ).then((raw) => toFolderWriteResult(raw, projectId, ''))
 }
 
-export function placeFolder(
+export async function placeFolder(
   projectId: string,
   repoId: string,
   folderId: string,
@@ -191,7 +188,7 @@ export function placeFolder(
 }
 
 /** {@link placeFolder}, for the project-home workspace instead of a repo. */
-export function placeHomeFolder(
+export async function placeHomeFolder(
   projectId: string,
   folderId: string,
   placement: FolderPlacement,
@@ -209,7 +206,7 @@ export function placeHomeFolder(
 /** Delete a folder, and answer with the rows its children's promotion moved.
  *  Its children reparent to the folder's own parent — a folder holds no
  *  worktrees, so removing one is not removing what it held. */
-export function deleteFolder(
+export async function deleteFolder(
   projectId: string,
   repoId: string,
   folderId: string,
@@ -222,7 +219,7 @@ export function deleteFolder(
 }
 
 /** {@link deleteFolder}, for the project-home workspace instead of a repo. */
-export function deleteHomeFolder(
+export async function deleteHomeFolder(
   projectId: string,
   folderId: string,
   init?: RequestInit,
@@ -242,12 +239,12 @@ export interface RepoPlacement {
   folderId?: string
 }
 
-export function placeRepo(
+export async function placeRepo(
   projectId: string,
   repoId: string,
   placement: RepoPlacement,
 ): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}`, {
+  return apiFetch(repoBase(projectId, repoId), {
     method: 'PATCH',
     headers: JSON_HEADERS,
     body: JSON.stringify(placement),
@@ -255,8 +252,8 @@ export function placeRepo(
 }
 
 /** A project's index in the sidebar. */
-export function placeProject(projectId: string, order: number): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, {
+export async function placeProject(projectId: string, order: number): Promise<void> {
+  return apiFetch(projectBase(projectId), {
     method: 'PATCH',
     headers: JSON_HEADERS,
     body: JSON.stringify({ order }),

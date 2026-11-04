@@ -100,7 +100,7 @@ func TestRepoLists_ShareOnePlacementsSoABrokenProjectLogsOnce(t *testing.T) {
 		return tree.Node{}, errors.New("tree: read: disk gone")
 	}, func(context.Context, string, error) { logged++ })
 	r := gin.New()
-	New(a, eng).Register(r.Group("/v0"))
+	New(a, eng, "").Register(r.Group("/v0"))
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v0/projects/p1/repos", nil))

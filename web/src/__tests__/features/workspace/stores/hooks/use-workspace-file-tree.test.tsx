@@ -1,15 +1,22 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceFileTree } from '@/features/workspace/stores/hooks/use-workspace-file-tree'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { ApiError } from '@/lib/errors/api-error'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { fetchFileTree, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
@@ -227,5 +234,117 @@ describe('useWorkspaceFileTree', () => {
       ),
     })
     expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+})
+
+describe('on an install that has paired a remote host', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-remote',
+    })
+    setWorkspaceScope({
+      projectId: 'p-local',
+      repoId: 'r1',
+      wsId: 'ws-local',
+      owningChatId: 'chat-local',
+    })
+  })
+
+  afterEach(() => resetHostWorld())
+
+  it('lists nothing and stays idle until the project list says whose workspace it is', async () => {
+    const remote = setup('ws-remote')
+    const local = setup('ws-local')
+    expect(fetchFileTree).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
+    expect(remote.store.getState().fileTreeStatus).toBe('idle')
+    expect(local.store.getState().fileTreeStatus).toBe('idle')
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+
+    await waitFor(() => expect(remote.store.getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(local.store.getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(held().sort()).toEqual(['files:ws-local', 'files:ws-remote']))
+  })
+
+  it('does not fetch an expanded folder before the host is known', () => {
+    useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-remote': new Set(['src']) } })
+    const store = createWorkspaceStore('ws-remote')
+    store.getState().fileTreeActions.setFiles(rootTree)
+    renderHook(() => useWorkspaceFileTree('ws-remote', true, true), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
+      ),
+    })
+    expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+
+  it('switching local to remote releases the old scope and no signal on it reaches the new tree', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const stores = {
+      'ws-local': createWorkspaceStore('ws-local'),
+      'ws-remote': createWorkspaceStore('ws-remote'),
+    }
+    let current: keyof typeof stores = 'ws-local'
+    const { rerender } = renderHook(() => useWorkspaceFileTree(current, true, true), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceStoreContext.Provider value={stores[current]}>
+          {children}
+        </WorkspaceStoreContext.Provider>
+      ),
+    })
+    await waitFor(() => expect(stores['ws-local'].getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(held()).toEqual(['files:ws-local']))
+
+    current = 'ws-remote'
+    rerender()
+    await waitFor(() => expect(stores['ws-remote'].getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(held()).toEqual(['files:ws-remote']))
+
+    fetchFileTree.mockClear()
+    streamDaemon.deliver({
+      t: 'signal',
+      scope: 'files:ws-local',
+      kind: 'file_change',
+      data: { type: 'created', path: 'new.ts' },
+    })
+    expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+
+  it('revoking the host releases its scope and lists nothing more', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const { store } = setup('ws-remote')
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(held()).toEqual(['files:ws-remote']))
+    fetchFileTree.mockClear()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+
+    expect(held()).toEqual([])
+    expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+
+  // The scope's synced on re-hold re-reads a tree that may have missed changes in the gap.
+  it('re-lists the tree when its host returns, picking up what changed in the gap', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const { store } = setup('ws-remote')
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    fetchFileTree.mockClear()
+    fetchFileTree.mockResolvedValueOnce([
+      ...rootTree,
+      { name: 'new.ts', path: 'new.ts', isDir: false },
+    ])
+
+    act(() => pairRemoteHost('host-1'))
+
+    await waitFor(() => expect(store.getState().files).toHaveLength(3))
+    expect(fetchFileTree.mock.calls.map(([wsId]) => wsId)).toEqual(['ws-remote'])
   })
 })

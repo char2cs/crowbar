@@ -4,31 +4,39 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { Terminal, type ILink, type ILinkProvider } from '@xterm/xterm'
 
-const { revealInEditor, openExternalUrl } = vi.hoisted(() => ({
+const { revealInEditor, showTerminalUrlMenu } = vi.hoisted(() => ({
   revealInEditor: vi.fn(),
-  openExternalUrl: vi.fn().mockResolvedValue(undefined),
+  showTerminalUrlMenu: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/features/editor/lib/reveal', () => ({ revealInEditor }))
-vi.mock('@/lib/external-open', () => ({ openExternalUrl }))
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  getActiveWorkspaceId: () => 'ws-a',
-}))
+vi.mock('@/features/terminal/lib/terminal-url-menu', () => ({ showTerminalUrlMenu }))
 
 import {
   registerTerminalLinks,
   terminalLinksFor,
   type TerminalLinksOptions,
 } from '@/features/terminal/lib/terminal-links'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { toast } from '@/features/window/stores/toast-store'
 import type { Repo } from '@/core/entities/repo-types'
+import { IS_MAC } from '@/utils/platform'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 // The daemon's Go conformance suite wraps the same URL (wrapTestURL, 58 chars).
 const WRAP_URL = 'https://example.com/docs/guide/getting-started?ref=crowbar'
 
+// A link opens only on a click with the platform's primary modifier (Cmd on macOS, Ctrl elsewhere).
+const PRIMARY = IS_MAC ? { metaKey: true } : { ctrlKey: true }
+const OTHER = IS_MAC ? { ctrlKey: true, altKey: true } : { metaKey: true, altKey: true }
+const primaryClick = (init: MouseEventInit = {}) =>
+  new MouseEvent('mouseup', { clientX: 40, clientY: 50, ...PRIMARY, ...init })
+
 const terminals: Terminal[] = []
+const registrations: Array<{ dispose: () => void }> = []
 afterEach(() => {
+  for (const registration of registrations.splice(0)) registration.dispose()
   for (const terminal of terminals.splice(0)) terminal.dispose()
+  document.body.innerHTML = ''
 })
 
 async function terminalWith(data: string, cols = 80, rows = 6): Promise<Terminal> {
@@ -42,8 +50,8 @@ function linkProvider(terminal: Terminal, options: Partial<TerminalLinksOptions>
   let provider: ILinkProvider | undefined
   const registerLinkProvider = (p: ILinkProvider) => ((provider = p), { dispose: () => {} })
   registerTerminalLinks(
-    { buffer: terminal.buffer, registerLinkProvider },
-    { getRoot: () => '/repo', openFile: vi.fn(), openUrl: vi.fn(), ...options },
+    { buffer: terminal.buffer, element: terminal.element, registerLinkProvider },
+    { getRoot: () => '/repo', openFile: vi.fn(), onUrl: vi.fn(), ...options },
   )
   if (!provider) throw new Error('no link provider registered')
   return provider
@@ -64,17 +72,17 @@ async function click(
   { row = 1, cols = 80, getRoot = () => '/repo' as string | undefined },
 ) {
   const openFile = vi.fn()
-  const openUrl = vi.fn()
+  const onUrl = vi.fn()
   const onUnresolved = vi.fn()
   const provider = linkProvider(await terminalWith(data, cols), {
     getRoot,
     openFile,
-    openUrl,
+    onUrl,
     onUnresolved,
   })
   const [link] = (await linksAt(provider, row)) ?? []
-  link?.activate(new MouseEvent('click'), link.text)
-  return { openFile, openUrl, onUnresolved }
+  link?.activate(primaryClick(), link.text)
+  return { openFile, onUrl, onUnresolved }
 }
 
 describe('link tokens', () => {
@@ -289,9 +297,9 @@ describe('links over the logical line', () => {
     expect(link?.range).toEqual({ start: { x: 5, y: 1 }, end: { x: 4, y: 2 } })
   })
 
-  it('opens a URL through openUrl once', async () => {
-    const { openUrl, openFile } = await click('see ' + WRAP_URL, { row: 2, cols: 40 })
-    expect(openUrl).toHaveBeenCalledExactlyOnceWith(WRAP_URL)
+  it('hands a URL to onUrl once, with the pointer position', async () => {
+    const { onUrl, openFile } = await click('see ' + WRAP_URL, { row: 2, cols: 40 })
+    expect(onUrl).toHaveBeenCalledExactlyOnceWith(WRAP_URL, { x: 40, y: 50 })
     expect(openFile).not.toHaveBeenCalled()
   })
 
@@ -302,6 +310,80 @@ describe('links over the logical line', () => {
     await linksAt(linkProvider(terminal), chainRows)
     expect(chainRows).toBeGreaterThan(300)
     expect(getLine.mock.calls.length).toBeLessThan(chainRows / 3)
+  })
+})
+
+/** A terminal opened into the document, so its element carries the modifier events. */
+async function openedTerminal(data: string, options: Partial<TerminalLinksOptions> = {}) {
+  const terminal = await terminalWith(data, 40)
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  terminal.open(container)
+  let provider: ILinkProvider | undefined
+  const all: TerminalLinksOptions = {
+    getRoot: () => '/repo',
+    openFile: vi.fn(),
+    onUrl: vi.fn(),
+    ...options,
+  }
+  registrations.push(
+    registerTerminalLinks(
+      {
+        buffer: terminal.buffer,
+        element: terminal.element,
+        registerLinkProvider: (p) => ((provider = p), { dispose() {} }),
+      },
+      all,
+    ),
+  )
+  if (!provider) throw new Error('no link provider registered')
+  return { terminal, options: all, links: async () => (await linksAt(provider!, 1)) ?? [] }
+}
+
+describe('link activation', () => {
+  it('does nothing on a plain click', async () => {
+    const { options, links } = await openedTerminal('https://a.test/x web/src/a.ts:3')
+    for (const link of await links()) link.activate(new MouseEvent('mouseup'), link.text)
+    expect([options.onUrl, options.openFile].map((fn) => vi.mocked(fn).mock.calls)).toEqual([
+      [],
+      [],
+    ])
+  })
+
+  it("does not treat the other platform's modifier as the gate", async () => {
+    const { options, links } = await openedTerminal('https://a.test/x')
+    const [link] = await links()
+    link.activate(new MouseEvent('mouseup', OTHER), link.text)
+    expect(options.onUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('link affordance', () => {
+  const press = (terminal: Terminal, type: 'keydown' | 'keyup', held: boolean) =>
+    terminal.element?.dispatchEvent(new KeyboardEvent(type, held ? PRIMARY : {}))
+
+  it('shows underline and pointer only while the modifier is held over the link', async () => {
+    const { terminal, links } = await openedTerminal('https://a.test/x')
+    const [link] = await links()
+    expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
+
+    link.hover?.(new MouseEvent('mousemove'), link.text)
+    press(terminal, 'keydown', true)
+    expect(link.decorations).toEqual({ underline: true, pointerCursor: true })
+
+    press(terminal, 'keyup', false)
+    expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
+
+    press(terminal, 'keydown', true)
+    window.dispatchEvent(new Event('blur'))
+    expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
+  })
+
+  it('starts underlined when the modifier is already held as the link is provided', async () => {
+    const { terminal, links } = await openedTerminal('https://a.test/x')
+    terminal.element?.dispatchEvent(new MouseEvent('mousemove', PRIMARY))
+    const [link] = await links()
+    expect(link.decorations).toEqual({ underline: true, pointerCursor: true })
   })
 })
 
@@ -388,7 +470,8 @@ describe('xterm wrap idioms the daemon emitter relies on', () => {
 describe('terminalLinksFor', () => {
   beforeEach(() => {
     revealInEditor.mockReset()
-    openExternalUrl.mockClear()
+    showTerminalUrlMenu.mockClear()
+    setActiveWorkspaceId('ws-a')
     const ws = (id: string, localPath: string) => ({ id, branch: id, localPath })
     seedRepos([
       {
@@ -405,23 +488,33 @@ describe('terminalLinksFor', () => {
     const terminal = await terminalWith(text)
     let provider: ILinkProvider | undefined
     registerTerminalLinks(
-      { buffer: terminal.buffer, registerLinkProvider: (p) => ((provider = p), { dispose() {} }) },
+      {
+        buffer: terminal.buffer,
+        element: terminal.element,
+        registerLinkProvider: (p) => ((provider = p), { dispose() {} }),
+      },
       terminalLinksFor(
         () => 'tab-1',
-        () => workspaceId,
+        () => ({ workspaceId, paneId: workspaceId && 'pane-1' }),
       ),
     )
     const [link] = (provider && (await linksAt(provider, 1))) || []
-    link?.activate(new MouseEvent('click'), link.text)
+    link?.activate(primaryClick(), link.text)
   }
 
   it("resolves a relative link against its own terminal's workspace, not the active one", async () => {
     await clickIn('error in src/a.ts:10', 'ws-b')
 
     expect(revealInEditor).toHaveBeenCalledExactlyOnceWith({
-      doc: { absolutePath: '/disk/b/src/a.ts' },
+      doc: { authority: 'workspace', workspaceId: 'ws-b', path: 'src/a.ts' },
       position: { line: 9, character: 0 },
     })
+  })
+
+  it("opens a local terminal's path outside its worktree as a file of this machine", async () => {
+    await clickIn('see /etc/hosts', 'ws-b')
+
+    expect(revealInEditor.mock.calls).toEqual([[{ doc: { absolutePath: '/etc/hosts' } }]])
   })
 
   it('a terminal of no workspace opens absolute links only', async () => {
@@ -431,10 +524,25 @@ describe('terminalLinksFor', () => {
     expect(revealInEditor.mock.calls).toEqual([[{ doc: { absolutePath: '/etc/hosts' } }]])
   })
 
-  it('opens a URL in the default browser', async () => {
+  it("offers a URL's menu in the terminal's own view", async () => {
     await clickIn('docs at https://x.dev/guide', 'ws-b')
 
-    expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('https://x.dev/guide')
+    expect(showTerminalUrlMenu).toHaveBeenCalledExactlyOnceWith(
+      'https://x.dev/guide',
+      { x: 40, y: 50 },
+      { workspaceId: 'ws-b', paneId: 'pane-1' },
+    )
     expect(revealInEditor).not.toHaveBeenCalled()
+  })
+
+  it('reports a path it cannot resolve', async () => {
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    await clickIn('see ~/notes.md', 'ws-b')
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Cannot open file',
+      'Could not resolve ~/notes.md to a path.',
+    )
+    toastError.mockRestore()
   })
 })

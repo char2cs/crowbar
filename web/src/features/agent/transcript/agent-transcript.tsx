@@ -17,6 +17,7 @@ import {
   type Virtualizer,
 } from '@tanstack/react-virtual'
 import { layoutHeight } from '@/lib/layout-size'
+import { IS_MOBILE } from '@/utils/platform'
 import { markEnd } from '@/lib/perf/instrumentation'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
@@ -345,7 +346,8 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const pendingPin = useRef<string | null>(null)
   const sawFirstOutbox = useRef(false)
   const pin = (id: string) => {
-    if (id === pinnedId) return
+    // The phone has no room to spare for a reply that has not arrived yet.
+    if (IS_MOBILE || id === pinnedId) return
     stick()
     setPinnedId(id)
   }

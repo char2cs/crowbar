@@ -5,6 +5,7 @@ import type {
   CaretEdges,
   ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { isSendKey } from '@/features/agent/chat/lib/send-key'
 
 interface ComposerKeyTargets {
   slash: {
@@ -64,7 +65,7 @@ export function handleComposerKey(
     targets.selectSlashItem(slash.highlighted)
     return
   }
-  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+  if (isSendKey(event)) {
     event.preventDefault()
     // Enter completes when there is a completion, else sends: the catalogue is
     // incomplete by declaration, so a built-in like /compact matches nothing.

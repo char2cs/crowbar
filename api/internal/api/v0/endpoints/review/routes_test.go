@@ -66,6 +66,16 @@ func (stubUsecase) GetPatch(
 	return 0, false, nil
 }
 
+func (stubUsecase) GetFileSides(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+) (gitdomain.ReviewFileSides, error) {
+	return gitdomain.ReviewFileSides{}, nil
+}
+
 func (stubUsecase) SearchDiff(
 	_ context.Context,
 	_ string,
@@ -92,6 +102,7 @@ func reviewSurface() []struct {
 		{http.MethodGet, "/outline"},
 		{http.MethodGet, "/patch?path=a.go"},
 		{http.MethodGet, "/search?q=todo"},
+		{http.MethodGet, "/contents?path=a.go"},
 		{http.MethodPatch, ""},
 	}
 }

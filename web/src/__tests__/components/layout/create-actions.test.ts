@@ -24,6 +24,10 @@ vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
 }))
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'deleteChat').mockImplementation(deleteChat)
+import * as providersApi from '@/features/agent/api/agent-providers-api'
+const listGlobalProviders = vi
+  .spyOn(providersApi, 'listGlobalProviders')
+  .mockImplementation(() => new Promise(() => {}))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
@@ -33,6 +37,7 @@ import {
   confirmCreateDraft,
   cancelCreateDraft,
 } from '@/components/layout/create-actions'
+import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { handleTrash } from '@/components/layout/trash-actions'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
@@ -48,6 +53,12 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -74,14 +85,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  resetEntities()
-  treeUiStore.setState({ draft: null })
   resetOperations()
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  // A create needs a provider, read from the global store: there is no workspace yet to scope by.
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
 const ANY = expect.any(String)
@@ -406,14 +412,14 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  it('its thread "+" still runs in the workspace, not in the owning chat', () => {
+  it('its thread "+" still runs in the workspace, not in the owning chat', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     seedRepos([forkRepo()])
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(
       ANY,
@@ -425,14 +431,14 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  it('says why instead of silently doing nothing when no provider is enabled', () => {
+  it('says why instead of silently doing nothing when no provider is enabled', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: false }] as never,
     })
     seedRepos([forkRepo()])
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalledOnce()
@@ -446,5 +452,59 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalledOnce()
+  })
+})
+
+// A provider list belongs to a daemon: a fork on a remote host reads that host's list
+// on its first use, and says so — once — when the host does not answer.
+describe('forking a workspace of a project on a remote host', () => {
+  const remoteRepo = () =>
+    repo({
+      projectId: 'p-remote',
+      workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' }],
+      chats: [
+        { id: 'c-owner', repoId: 'r1', type: 'chat', workspaceId: 'ws-a', title: '', order: 0 },
+      ],
+    })
+  const offered = [{ id: 'codex-remote', enabled: true }] as never
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
+    seedRepos([remoteRepo()])
+  })
+  afterEach(() => resetHostWorld())
+
+  it('reads the host’s providers on the first click, then opens the naming input with one of them', async () => {
+    listGlobalProviders.mockResolvedValueOnce(offered)
+
+    await handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName()
+
+    expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
+    expect(createChatWithOwnWorktree.mock.calls[0]?.slice(2, 5)).toEqual([
+      'p-remote',
+      'r1',
+      'codex-remote',
+    ])
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it('names the host it could not reach once, opens no naming input, and lets the next click retry', async () => {
+    listGlobalProviders.mockRejectedValueOnce(new Error('offline'))
+
+    await Promise.all([
+      handleCreate('ws-a', 'workspace', vi.fn()),
+      handleCreate('ws-a', 'workspace', vi.fn()),
+    ])
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith('Couldn’t reach host-1', expect.any(String))
+    expect(treeUiStore.getState().draft).toBeNull()
+
+    listGlobalProviders.mockResolvedValueOnce(offered)
+    await handleCreate('ws-a', 'workspace', vi.fn())
+    expect(treeUiStore.getState().draft).toMatchObject({ kind: 'branch', parentId: 'c-owner' })
   })
 })

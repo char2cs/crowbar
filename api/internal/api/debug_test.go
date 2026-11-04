@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,10 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The daemon listens on a private unix socket only, so the pprof surface is
-// reachable exclusively by local processes that can already open the socket —
-// it exists so the desktop watchdog (and a developer with curl) can capture a
-// goroutine dump from a live-but-wedged daemon.
+// A plaintext (local socket / loopback) request still gets pprof, so the
+// desktop watchdog can capture a goroutine dump from a wedged daemon.
 func TestMountDebug_ServesGoroutineDump(
 	t *testing.T,
 ) {
@@ -27,6 +26,32 @@ func TestMountDebug_ServesGoroutineDump(
 
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "goroutine profile:")
+}
+
+// TestRegression_MountDebug_RefusesTLS proves pprof is local-only: a request
+// that arrived over the network (TLS) is refused before any profile runs,
+// whatever its method or credentials.
+func TestRegression_MountDebug_RefusesTLS(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	mountDebug(router)
+
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/debug/pprof/"},
+		{http.MethodGet, "/debug/pprof/cmdline"},
+		{http.MethodGet, "/debug/pprof/goroutine?debug=2"},
+		{http.MethodGet, "/debug/pprof/profile?seconds=1"},
+		{http.MethodPost, "/debug/pprof/symbol"},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		req.Header.Set("Authorization", "Bearer any-token")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equalf(t, http.StatusForbidden, w.Code, "%s %s over TLS must be refused", tc.method, tc.path)
+		assert.NotContainsf(t, w.Body.String(), "goroutine", "%s %s leaked profile data", tc.method, tc.path)
+	}
 }
 
 func TestMountDebug_ServesIndex(

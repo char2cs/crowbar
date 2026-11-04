@@ -16,9 +16,9 @@ export function usePanePresentation(
 ) {
   const presentation = usePaneViewPresentation(pane.editorOpen, viewsContainerRef)
   const hasChat = Boolean(pane.chatId)
-  // A chat with no editor tabs has no IDE sector: chat only, whatever the
-  // split toggle or the room says.
-  const chatFillsPane = hasChat && pane.editorTabIds.length === 0
+  // A chat with no editor tabs and no open editor area has no IDE sector: chat
+  // only. Opening the area (the header's Open editor) shows it, empty.
+  const chatFillsPane = hasChat && pane.editorTabIds.length === 0 && !pane.editorOpen
   // Collapsed with real tabs: the chat is "just another tab". Read as
   // `!== false` — a layout saved before the field existed shows the chat.
   const chatSelectedInTabsMode = pane.chatSelected !== false

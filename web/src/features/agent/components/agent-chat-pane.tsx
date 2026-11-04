@@ -15,14 +15,15 @@ import { useChatStore } from '@/features/agent/stores/chat-store'
 import { selectRunnerChat, useSelect } from '@/core/entities/select'
 import { deliveryPending as promptOnItsWay } from '@/features/agent/stores/lib/outbox'
 import { switchProvider } from '@/features/agent/api/agent-chat-commands'
+import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneAttachment } from '@/features/agent/components/use-pane-attachment'
+import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
+import { useChatAttachment } from '@/features/agent/hooks/use-chat-attachment'
 import {
   SPLIT_MIN_HALF_PX,
   SPLIT_MIN_STACKED_PX,
@@ -31,7 +32,6 @@ import {
 } from '@/features/agent/hooks/use-chat-presentation'
 import { PaneSash } from '@/features/panes/components/pane-sash'
 import { cn } from '@/lib/utils'
-import { IS_MAC } from '@/utils/platform'
 import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
@@ -40,8 +40,11 @@ import { useTerminalEscort } from '@/features/agent/components/use-terminal-esco
 import { useWindowChord } from '@/features/agent/components/use-window-chord'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
+import type { TerminalFocusHandle } from '@/features/terminal/components/terminal'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
+import { IS_MOBILE } from '@/utils/platform'
 
-interface AgentChatPaneProps {
+export interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
   /** The runner this pane follows, or '' when it has none (a dormant chat). */
@@ -58,7 +61,7 @@ interface AgentChatPaneProps {
 
 // PaneTopRow's clickable row; that file's CHAT_BLUR_EXTRA_PX (56) is the
 // header dissolve's further reach, which scrolled text must clear too.
-const HEADER_ROW_HEIGHT_PX = IS_MAC ? 44 : 34
+const HEADER_ROW_HEIGHT_PX = CHROME_ROW_HEIGHT_PX
 const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
 
 /**
@@ -67,17 +70,19 @@ const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
  * The terminal is keyed by the runner's PTY, so a move never remounts xterm.
  */
 // react-doctor-disable-next-line no-giant-component -- one live PTY-backed chat whose resize, focus and surface state are coupled
-export function AgentChatPane({
+export function AgentChatPaneBody({
   chatId,
   runnerId,
   wsId,
+  hostId,
   paneId,
   isActivePane,
   isVisible,
   belowOverlayHeader = false,
-}: AgentChatPaneProps) {
-  // Passive, so it follows the wrapper's layout-effect `begin` even in one commit.
-  useEffect(() => pendingChatSurfaces.getState().end(paneId), [paneId])
+}: AgentChatPaneProps & {
+  /** The host `wsId` resolved to: the gate mounts this body only once it has. */
+  hostId: string
+}) {
   // Banners clear the header's row (+8px of air); the transcript its whole dissolve.
   const headerClearancePx = belowOverlayHeader ? HEADER_ROW_HEIGHT_PX + 8 : 8
   const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
@@ -85,6 +90,7 @@ export function AgentChatPane({
   // My runner's chat, '' when it is nowhere; a move shows up as a different id.
   const runnerChatId = useSelect((s) => (runnerId ? selectRunnerChat(s, runnerId) : ''))
   const shownChatId = runnerChatId || chatId
+  useChatAttachment(wsId, shownChatId)
 
   // A landed list turns `!known` from "not yet" into "not in it".
   const listSeeded = useChatListReady()
@@ -94,22 +100,17 @@ export function AgentChatPane({
   // On 'terminal' the daemon has no api connection and refuses a Crowbar compaction.
   const onTerminalSurface = useChatField(shownChatId, (c) => c?.surface === 'terminal')
   const working = useChatField(shownChatId, (c) => c?.working ?? false)
-  const title = useChatField(shownChatId, (c) => c?.title ?? '')
   const chatModel = useChatField(shownChatId, (c) => c?.model ?? '')
   const chatEffort = useChatField(shownChatId, (c) => c?.effort ?? '')
   // What the live runner spawned as: the current launch, never the next one's request.
   const launchModel = useChatField(shownChatId, (c) => c?.launchModel ?? '')
-  // An empty catalogue deletes every provider control; a pane whose workspace
-  // mounted no scope loads it itself.
-  const providers = useAgentProvidersStore((s) => s.providers)
-  useEffect(() => {
-    if (useAgentProvidersStore.getState().status !== 'idle') return
-    void useAgentProvidersStore.getState().load(wsId)
-  }, [wsId])
+  const providers = usePaneProviders(wsId, hostId)
 
   // A prompt Crowbar cannot answer: undefined is none, '' is unidentified.
   const waitKind = useChatField(shownChatId, (c) => c?.terminalWait?.kind)
   const waiting = waitKind !== undefined
+  const waitAnswers = useChatField(shownChatId, (c) => c?.terminalWait?.answers)
+  const answerTerminalWait = useAnswerTerminalWait(wsId, shownChatId)
 
   const columnRef = useRef<HTMLDivElement>(null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
@@ -160,7 +161,7 @@ export function AgentChatPane({
     presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && !deliveryPending
 
   const rootRef = useRef<HTMLDivElement>(null)
-  const terminalApiRef = useRef<{ focus: () => void } | null>(null)
+  const terminalApiRef = useRef<TerminalFocusHandle | null>(null)
   // The halves PaneSash resizes imperatively during a drag.
   const chatSurfaceRef = useRef<HTMLDivElement>(null)
   const terminalSurfaceRef = useRef<HTMLDivElement>(null)
@@ -260,6 +261,8 @@ export function AgentChatPane({
       kind={waitKind ?? ''}
       providerLabel={providers.find((p) => p.id === activeProviderId)?.displayName ?? ''}
       onOpenTerminal={escort.openTerminalFromBanner}
+      answers={waitAnswers}
+      onAnswer={answerTerminalWait}
     />
   ) : revivingBannerShown && revival ? (
     <div data-testid="agent-reviving-banner">
@@ -297,12 +300,14 @@ export function AgentChatPane({
           and split drop the cap and keep only the left gutter beside the sidebar. */}
       <div
         ref={columnRef}
+        // The phone's sidebar is native: no neighbour to keep the left gutter from.
+        data-touch={IS_MOBILE || undefined}
         className={cn(
           // Shared controls hang off this scope: the terminal is not inside `.agent-chat`.
           'agent-chat-pane',
           'mx-auto flex min-h-0 w-full flex-1 flex-col',
           splitting || presentation === 'chat' ? 'max-w-none' : 'max-w-4xl',
-          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4',
+          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4 data-touch:pl-0',
         )}
       >
         <div
@@ -345,6 +350,7 @@ export function AgentChatPane({
               onOpenTerminal={escort.openTerminal}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
+              terminalWaitAnswers={waitAnswers}
               headerClearancePx={headerClearancePx}
               transcriptHeaderClearancePx={transcriptHeaderClearancePx}
               blankSignpost={blankSignpost}
@@ -379,6 +385,7 @@ export function AgentChatPane({
             ref={terminalSurfaceRef}
             wsId={wsId}
             chatId={shownChatId}
+            paneId={paneId}
             attachment={attachment}
             presentation={presentation}
             splitting={splitting}
@@ -386,7 +393,6 @@ export function AgentChatPane({
             basis={splitSizes[1]}
             isActivePane={isActivePane}
             isVisible={isVisible}
-            title={title}
             gridSlack={gridSlack}
             providers={providers}
             activeProviderId={activeProviderId}

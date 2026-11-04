@@ -371,11 +371,7 @@ type Engine interface {
 
 	// ResolveDiffBase resolves base to the commit WorkingTreeSummary diffs against; it changes only when
 	// refs move, so callers may reuse it across working-tree changes.
-	ResolveDiffBase(
-		ctx context.Context,
-		repoPath string,
-		base string,
-	) gitdomain.DiffBase
+	ResolveDiffBase(ctx context.Context, repoPath, base string) gitdomain.DiffBase
 
 	// DiffStat returns the +N/-N of the working tree against commit, as resolved
 	// by ResolveDiffBase. An empty commit yields 0, 0.
@@ -513,6 +509,10 @@ type Engine interface {
 		maxLines int,
 		w io.Writer,
 	) (int, bool, error)
+
+	// ReviewFileSides is one file's full old and new text against ref, for the lines a patch omits;
+	// oldPath is a rename source ("" means path), and an oversized side fails ErrFileTooLarge.
+	ReviewFileSides(ctx context.Context, repoPath, ref, path, oldPath string) (gitdomain.ReviewFileSides, error)
 
 	// ReviewOutline returns per-file hunk geometry against ref with no content, streamed and discarded
 	// as read: O(hunks) rather than O(lines), so the client can reserve scroll space before any patch.

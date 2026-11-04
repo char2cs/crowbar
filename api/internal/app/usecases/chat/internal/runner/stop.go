@@ -20,18 +20,18 @@ func (rs *Runners) StopChat(
 	return rs.endRunner(ctx, chatID, true)
 }
 
-// CloseChat answers a closed view: no view holds the chat any more, so its
-// runner is retired even mid-turn. The chat record stays, dormant and resumable.
-func (rs *Runners) CloseChat(
+// KillChat is the explicit force-kill: the runner is retired even mid-turn. The
+// chat record stays, dormant and resumable.
+func (rs *Runners) KillChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	// Detached: nothing re-sends a close, so a request dropped mid-teardown
-	// (app quit, socket loss) must not leave the runner live with no view.
+	// Detached: nothing re-sends a kill, so a request dropped mid-teardown
+	// (app quit, socket loss) must not leave the runner live.
 	return rs.endRunner(context.WithoutCancel(ctx), chatID, false)
 }
 
-// endRunner is the one owner of what a Stop or Close records: stopRunner.
+// endRunner is the one owner of what a Stop or Kill records: stopRunner.
 // Waits parked on the chat are cancelled rather than queued behind, so Stop
 // is bounded by the teardown alone (invariant A2); an end already under way is
 // waited out, with the chat's lock released.

@@ -1,23 +1,22 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import type { NavigateFn } from '@tanstack/react-router'
-import { selectProjectsSynced, useSelect } from '@/core/entities/select'
-import type { Project } from '@/lib/types'
+import { subscribeHostResolution } from '@/lib/host-resolve'
+import { isProjectGone } from '@/lib/host-unavailability'
 
 /**
- * Leaves a route whose project is gone, whatever took it: `allProjects` follows the
- * projects scope, and `/` redirects to a project that exists or to `/oobe`. Gated on
- * the scope's first snapshot, before which an absent project is unknown, not gone.
+ * Leaves for `/` (its own router picks a project that exists or `/oobe`) once the routed
+ * project is gone, whatever took it (deleted, its host revoked). Before the project list
+ * is synced and every paired host has answered, an absent project is unknown, not gone.
  */
 export function useRedirectIfProjectMissing(
-  activeProjectIdFromRoute: string | undefined,
-  allProjects: Project[],
+  projectId: string | undefined,
   navigate: NavigateFn,
 ): void {
-  const synced = useSelect(selectProjectsSynced)
+  const gone = useSyncExternalStore(
+    useCallback((onChange: () => void) => subscribeHostResolution(undefined, onChange), []),
+    () => projectId !== undefined && isProjectGone(projectId),
+  )
   useEffect(() => {
-    if (!synced) return
-    if (!activeProjectIdFromRoute) return
-    if (allProjects.some((p) => p.id === activeProjectIdFromRoute)) return
-    void navigate({ to: '/' })
-  }, [synced, activeProjectIdFromRoute, allProjects, navigate])
+    if (gone) void navigate({ to: '/' })
+  }, [gone, navigate])
 }

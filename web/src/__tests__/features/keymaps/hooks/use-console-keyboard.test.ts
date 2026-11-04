@@ -6,6 +6,7 @@ import { toastManager } from '@/lib/toast-manager'
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   IS_MAC: false,
+  APPLE_KEYBOARD: false,
 }))
 
 const { chordMap, setMenuChord, menuListeners, listenFailure } = vi.hoisted(() => ({

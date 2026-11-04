@@ -3,19 +3,40 @@ import { ApiError } from '@/lib/errors/api-error'
 import { UNREACHED } from '@/lib/errors/report'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
+import { isTauri } from '@/lib/crowbar-bridge'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { HostNotConfiguredError, PROXY_HEADER, proxyMarkerError } from '@/lib/api/errors'
+import { routeToHost } from '@/lib/api/host-route'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
 /**
- * The desktop proxy's own answer when nothing is listening on the daemon
- * socket (api_proxy.rs: a 503 carrying this header, text/plain, no envelope)
- * — the daemon is starting or respawning, not refusing. Named so UI copy can
- * say so; deliberately NOT retried in apiFetchRaw, the proxy already spent
- * the idempotent-read connect budget.
+ * The API base for a host: the local daemon's API_BASE, or a registered remote
+ * host, which only the desktop app can reach (its bridge, crowbar://<hostId>,
+ * completes the pinned-TLS dial).
  */
-const PROXY_HEADER = 'x-crowbar-proxy'
-const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
+export function apiBaseFor(hostId: string): string {
+  if (hostId === LOCAL_HOST.id) return API_BASE
+  if (!isTauri()) {
+    throw new Error(`remote host "${hostId}" is only reachable from the desktop app`)
+  }
+  const known = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)
+  if (!known) throw new HostNotConfiguredError(hostId)
+  return `crowbar://${hostId}`
+}
+
+/**
+ * The absolute URL for a daemon-relative path, qualified or not, for callers that
+ * build their own `fetch`. Throws for a host this window cannot reach rather than
+ * falling back to the local daemon.
+ */
+export function apiUrl(path: string): string {
+  const target = routeToHost(path)
+  return `${apiBaseFor(target.hostId)}${target.path}`
+}
 
 /** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
  *  (a network/transport error — never an HTTP status) means the request never
@@ -59,16 +80,28 @@ export async function apiFetchRaw(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
+  hostId?: string,
 ): Promise<Response> {
+  const target = routeToHost(path, hostId)
+  if (target.hostId === LOCAL_HOST.id && !hasLocalDaemon()) {
+    throw new ApiError(
+      'this install has no local daemon',
+      503,
+      'daemon_unavailable',
+      undefined,
+      target.hostId,
+    )
+  }
   const read = isIdempotentRead(init)
   if (!read) noteDaemonChange()
   const maxAttempts = read ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
+  const base = apiBaseFor(target.hostId)
 
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${API_BASE}${path}`, init)
+      res = await fetch(`${base}${target.path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
@@ -88,18 +121,24 @@ export async function apiFetchRaw(
     // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
     // must never be retried.
     if (!res.ok) {
-      if (res.headers?.get(PROXY_HEADER) === 'daemon-unavailable') {
-        throw new ApiError('the daemon is not running yet', res.status, DAEMON_UNAVAILABLE_CODE)
-      }
+      const proxied = proxyMarkerError(res.headers?.get(PROXY_HEADER), target.hostId, res.status)
+      if (proxied) throw proxied
       const errorBody = await parseBody(res)
       if (errorBody === null) {
-        throw new ApiError(`${res.status} ${res.statusText}`, res.status, 'internal')
+        throw new ApiError(
+          `${res.status} ${res.statusText}`,
+          res.status,
+          'internal',
+          undefined,
+          target.hostId,
+        )
       }
       const refusal = new ApiError(
         errorBody.error ?? `${res.status} ${res.statusText}`,
         res.status,
         typeof errorBody.code === 'string' ? errorBody.code : undefined,
         errorBody.data,
+        target.hostId,
       )
       // A daemon that is migrating or halted refuses everything; that is its state, not this call's.
       reportDaemonRefusal(refusal.problem)
@@ -149,20 +188,22 @@ async function readEnvelope(res: Response): Promise<Envelope> {
   return { status: res.status, statusText: res.statusText, body }
 }
 
-/** Plain GETs in flight, by path, with the change count they were sent at. */
+/** Plain GETs in flight, by `hostId:path`, with the change count they were
+ *  sent at: two hosts' reads of the same path must not collide. */
 const readsInFlight = new Map<string, { changes: number; envelope: Promise<Envelope> }>()
 
 /** A plain GET, shared with an identical one still in flight when nothing the
  *  client could know of has changed since that one was sent. Joiners get a
  *  copy: callers may hand their answer to a store that freezes it. */
-async function sharedRead(path: string, retry: RetryConfig): Promise<Envelope> {
-  const held = readsInFlight.get(path)
+async function sharedRead(path: string, retry: RetryConfig, hostId: string): Promise<Envelope> {
+  const key = `${hostId}:${path}`
+  const held = readsInFlight.get(key)
   if (held && held.changes === daemonChanges()) return structuredClone(await held.envelope)
-  const envelope = apiFetchRaw(path, undefined, retry).then(readEnvelope)
+  const envelope = apiFetchRaw(path, undefined, retry, hostId).then(readEnvelope)
   const entry = { changes: daemonChanges(), envelope }
-  readsInFlight.set(path, entry)
+  readsInFlight.set(key, entry)
   const release = () => {
-    if (readsInFlight.get(path) === entry) readsInFlight.delete(path)
+    if (readsInFlight.get(key) === entry) readsInFlight.delete(key)
   }
   envelope.then(release, release)
   return envelope
@@ -172,11 +213,13 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
+  hostId?: string,
 ): Promise<T> {
+  const target = routeToHost(path, hostId)
   const { status, statusText, body } =
     init === undefined
-      ? await sharedRead(path, retry)
-      : await readEnvelope(await apiFetchRaw(path, init, retry))
+      ? await sharedRead(target.path, retry, target.hostId)
+      : await readEnvelope(await apiFetchRaw(target.path, init, retry, target.hostId))
   if (body === null) {
     return undefined as T
   }
@@ -186,6 +229,7 @@ export async function apiFetch<T>(
       status,
       typeof body.code === 'string' ? body.code : undefined,
       body.data,
+      target.hostId,
     )
   }
   return body.data as T

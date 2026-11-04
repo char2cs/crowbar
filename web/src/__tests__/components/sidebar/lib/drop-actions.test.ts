@@ -99,6 +99,7 @@ import {
 } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
+import { HostNotResolvedError } from '@/lib/host-path'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastManager } from '@/lib/toast-manager'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
@@ -771,6 +772,23 @@ describe('performSidebarDrop — failures', () => {
     ).resolves.toBeUndefined()
 
     expectReported('locked')
+  })
+
+  it('a move whose host is not known yet says the projects are loading, not why inside', async () => {
+    vi.mocked(placeWorkspace).mockRejectedValueOnce(
+      new HostNotResolvedError('workspace', 'ws-c', 'no scope is recorded for the workspace'),
+    )
+
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'before',
+    )
+
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Still loading your projects',
+      'Try again in a moment.',
+    )
   })
 })
 
@@ -2151,6 +2169,23 @@ describe('performSidebarDrop — targetInRecents', () => {
     expect(windowPaneStore.getState().viewOrder).toEqual([otherPane, ROOT_PANE_ID].map(viewOfPane))
   })
 
+  it('a drag carrying every chat of a split moves the split whole instead of breaking it up', async () => {
+    seedChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+    paneActions.dropChatOnPane('chat-b', paneOfChat('chat-a'), 'right', 'ws-x')
+    paneActions.openChat('chat-c', { runnerId: 'runner-3' })
+
+    await performSidebarDrop(
+      [chatRow('chat-a', 'ws-x'), chatRow('chat-b', 'ws-x')],
+      chatRow('chat-c', 'ws-x'),
+      'after',
+      true,
+    )
+
+    expect(liveRecents()).toEqual([['chat-c'], ['chat-a', 'chat-b']])
+  })
+
   it('a second reorder only moves the dragged entry, leaving every other tracked id in place', async () => {
     seedChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
@@ -2278,7 +2313,9 @@ describe('performSidebarDrop — targetInRecents', () => {
       projectId === 'proj-2' ? 'home-ws-2' : null,
     )
     resetEntities()
-    seedProjects([{ id: 'proj-2', name: 'p2', path: '', lastActivity: new Date() }])
+    seedProjects([
+      { id: 'proj-2', name: 'p2', path: '', lastActivity: new Date(), hostId: 'local' },
+    ])
     seedChats([chat('chat-a', 'ws-x')])
     seedChats([chat('home-chat', 'home-ws-2')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })

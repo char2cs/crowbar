@@ -1,20 +1,9 @@
-import { ChatsCircle, GitBranch } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { CHAT_TITLE_TEXT } from '@/components/ui/chat-title-text'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
-import { formatChangeCount } from '@/components/layout/format-change-count'
-import {
-  ROW_GLYPH_BOX,
-  ROW_SUBLABEL,
-  ROW_SUBLABEL_ADD,
-  ROW_SUBLABEL_DEL,
-} from '@/components/layout/workspace-row-base'
-import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
-import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
-import { useChatWorking } from '@/features/agent/hooks/use-chat-entity'
-import { selectWorkspace, useSelect } from '@/core/entities/select'
-import { cn } from '@/lib/utils'
+import { useChatBranchHeaderModel } from '@/features/tabs/hooks/use-chat-branch-header-model'
+import { ChatBranchHeaderView } from './chat-branch-header-view'
 
 interface ChatBranchHeaderProps {
   chatId: string
@@ -42,84 +31,31 @@ interface ChatBranchHeaderProps {
  * a chat's name has one write path regardless of which surface edits it.
  */
 export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderProps) {
-  // `null` = this store has no record for the chat — a gap, not a name, so the
-  // header shows the pending mark and offers no rename (there is no current
-  // title to edit from).
-  const title = useChatTitle(chatId)
-  const working = useChatWorking(chatId)
-  const workspace = useSelect((s) => (wsId ? (selectWorkspace(s, wsId) ?? null) : null))
-  // A thread owns no branch — it runs on the one its parent owns — so it gets
-  // the bubble, never the branch mark, exactly as `RowGlyph` (sidebar-row.tsx)
-  // already draws it in the tree. `wsId` above cannot answer this: a thread
-  // inherits its parent's workspace id.
-  const isThread = useChatIsThread(chatId)
+  const model = useChatBranchHeaderModel(chatId, wsId)
   const [renaming, setRenaming] = useState(false)
-
-  const added = workspace?.added ?? 0
-  const deleted = workspace?.deleted ?? 0
+  // A null title is a gap with nothing to edit from, so it offers no rename.
+  const title = model.title
 
   return (
-    <div
-      data-testid="chat-branch-header"
-      className={cn('flex items-center gap-1.5 text-[13px]', className)}
+    <ChatBranchHeaderView
+      model={model}
+      className={className}
       onDoubleClick={() => {
         if (title !== null) setRenaming(true)
       }}
-    >
-      <span data-testid="chat-branch-header-glyph" className={ROW_GLYPH_BOX}>
-        {working ? (
-          <FlickerSpinner className="size-3.5" />
-        ) : isThread ? (
-          <ChatsCircle
-            data-testid="chat-branch-header-chat-icon"
-            className="size-3.5 text-muted-foreground"
-            weight="regular"
+      titleSlot={
+        renaming && title !== null ? (
+          <InlineRenameInput
+            defaultValue={title}
+            className={CHAT_TITLE_TEXT}
+            onConfirm={(name) => {
+              setRenaming(false)
+              if (name !== title) void performRenameChat(chatId, name)
+            }}
+            onCancel={() => setRenaming(false)}
           />
-        ) : (
-          <GitBranch
-            data-testid="chat-branch-header-branch-icon"
-            className="size-3.5 text-muted-foreground"
-          />
-        )}
-      </span>
-
-      {renaming && title !== null ? (
-        <InlineRenameInput
-          defaultValue={title}
-          onConfirm={(name) => {
-            setRenaming(false)
-            if (name !== title) void performRenameChat(chatId, name)
-          }}
-          onCancel={() => setRenaming(false)}
-        />
-      ) : workspace?.branch ? (
-        <span className="flex min-w-0 flex-1 flex-col justify-center">
-          <ChatTitle title={title} className="truncate" />
-          <span className={ROW_SUBLABEL}>
-            {workspace.branch}
-            {(added > 0 || deleted > 0) && ' -- '}
-            {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
-            {added > 0 && deleted > 0 && ' '}
-            {deleted > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>}
-          </span>
-        </span>
-      ) : (
-        <ChatTitle title={title} className="min-w-0 flex-1 truncate" />
-      )}
-    </div>
-  )
-}
-
-/** The name line. A `null` title is the store's gap, drawn as the pending mark
- *  and marked as such, never as a chat that happens to be untitled. */
-function ChatTitle({ title, className }: { title: string | null; className: string }) {
-  return (
-    <span
-      data-testid="chat-branch-header-title"
-      data-title-pending={title === null ? 'true' : undefined}
-      className={className}
-    >
-      {title ?? CHAT_TITLE_PENDING_LABEL}
-    </span>
+        ) : undefined
+      }
+    />
   )
 }

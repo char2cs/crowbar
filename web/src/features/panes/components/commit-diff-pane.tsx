@@ -46,7 +46,7 @@ export function CommitDiffPane({ sha, isActivePane, wsId }: CommitDiffPaneProps)
           wsId={wsId}
           commit={sha}
           onRetry={retry}
-          branchHeader={{ title: `Commit ${sha.substring(0, 7)}` }}
+          title={`Commit ${sha.substring(0, 7)}`}
           emptyMessage="This commit changed no files."
           isActivePane={isActivePane}
         />

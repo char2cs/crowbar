@@ -13,6 +13,7 @@ import { workspaceRef } from '@/lib/api/documents'
 import { findDocumentBuffer } from '../documents/open-document'
 import { isUntitledRef } from '../documents/document-ref'
 import { useSettingsStore } from '@/features/settings/store'
+import { useHostResolved } from '@/lib/host-resolve'
 import { dataOf } from '@/lib/loadable'
 import { formatRelativeDate } from '@/utils/date'
 
@@ -39,11 +40,14 @@ export function useInlineBlame(
     useSettingsStore((s) => s.settings.inlineBlame) && !isUntitledRef({ path: filePath })
   const key = workspaceId === null ? '' : blameKey(workspaceId, filePath)
   const blame = useGitBlameStore((s) => s.blame[key])
+  // A load before the workspace's host is known is recorded as a failure and not retried.
+  const hostResolved = useHostResolved({ wsId: workspaceId ?? '' })
 
   useEffect(() => {
-    if (!enabled || workspaceId === null || !editor || !model || !filePath || blame) return
+    if (!enabled || workspaceId === null || !hostResolved) return
+    if (!editor || !model || !filePath || blame) return
     void loadBlame(workspaceId, filePath)
-  }, [enabled, editor, model, filePath, workspaceId, blame])
+  }, [enabled, editor, model, filePath, workspaceId, blame, hostResolved])
 
   useEffect(() => {
     const entries = dataOf(blame)

@@ -118,6 +118,7 @@ func Register(
 	// suppressed) is all a route pointed at it needs.
 	repoScoped.HEAD("/chats/:id/attachments/:file", h.Attachment)
 	repoScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
+	repoScoped.POST("/chats/:id/terminal-wait/answer", h.AnswerTerminalWait)
 	repoScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)
 	repoScoped.GET("/chats/:id/telemetry", h.Telemetry)
 	repoScoped.GET("/chats/:id/slash-catalog", h.SlashCatalog)
@@ -126,7 +127,7 @@ func Register(
 	repoScoped.POST("/chats/:id/compact", h.Compact)
 	repoScoped.POST("/chats/:id/stop", h.Stop)
 	repoScoped.POST("/chats/:id/prompts/:requestId/retract", h.Retract)
-	repoScoped.POST("/chats/:id/close", h.Close)
+	repoScoped.POST("/chats/:id/kill", h.Kill)
 	repoScoped.POST("/chats/:id/switch-to-terminal", h.SwitchToTerminal)
 	repoScoped.POST("/chats/:id/switch-to-native", h.SwitchToNative)
 	repoScoped.POST("/chats/:id/rename", h.Rename)

@@ -1,7 +1,13 @@
 import { isTauri } from '@/lib/crowbar-bridge'
+import { streamFailureOf } from '@/lib/api/errors'
+import { splitHostPath } from '@/lib/host-path'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { getHostRuntime, subscribeHostStatus } from '@/features/hosts/stores/host-runtime-registry'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 
 import { wsUrl, isWebSocketCapable } from './url'
-import { reportChannelState, reportChannelGone } from './connection-store'
+import { reportChannelState, reportChannelFailure, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
 import { noteSocketOpened, probeDaemon } from './daemon-probe'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
@@ -28,24 +34,57 @@ interface Waiter {
 }
 
 interface Channel {
-  socket: WSLike
+  /** Null while parked: its host may not be dialled now (see mayDial). */
+  socket: WSLike | null
   callbacks: Set<Callback>
+  /** Its socket's open has happened and it has not closed since. */
+  opened: boolean
   reconnectDelay: number
   endpoint: string
+  hostId: string
   /** Waiting on this socket's open; once it has closed, on the reconnect's, which takes them. */
   waiters: Waiter[]
-  everOpen: boolean
   /** Sent while this socket connected; dies with it, as a reconnect's subscribers ask afresh. */
   outbox: string[]
   /** What the transport reported failing, handed to the waiters it refuses. */
   failure?: unknown
 }
 
-// Construct the live transport for the active environment: the native WebSocket
-// in the browser, the unix-socket-bridged shim on desktop (where `crowbar://`
-// has no native WebSocket). Both share the surface the manager uses.
+/** What a reopened channel takes over from the one it replaces. */
+interface Carried {
+  callbacks: Set<Callback>
+  waiters: Waiter[]
+}
+
+// A remote host whose status is down or needs repair refuses every attempt, and one nobody
+// has paired is not to be dialled: its channels wait, parked, for it to be 'up' again. The
+// local daemon is not probed; it is always dialled.
+function mayDial(hostId: string): boolean {
+  if (hostId === LOCAL_HOST.id) return true
+  if (!useHostConfigStore.getState().hosts.some((host) => host.id === hostId)) return false
+  const status = getHostRuntime(hostId)?.getState().status
+  return status !== 'down' && status !== 'needs-repair'
+}
+
+// The daemon pings every stream each 30 s. A remote one silent for two pings is half-open
+// (a network change, sleep): the bridge closes it, and it is redialled like any drop instead of
+// read as live forever. The local daemon is a unix socket away, with no network to lose.
+const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
+
+// The live transport for the active environment: the native WebSocket in the
+// browser, the unix-socket-bridged shim on desktop (where `crowbar://` has no
+// native WebSocket). A host-qualified endpoint dials that host.
 export function createTransport(endpoint: string): WSLike {
-  return isTauri() ? new TauriWebSocket(endpoint) : (new WebSocket(wsUrl(endpoint)) as WSLike)
+  const { hostId, path } = splitHostPath(endpoint)
+  if (isTauri()) {
+    if (hostId === LOCAL_HOST.id) return new TauriWebSocket(path)
+    return new TauriWebSocket(path, { hostId, idleTimeoutMs: REMOTE_READ_IDLE_TIMEOUT_MS })
+  }
+  return new WebSocket(wsUrl(path, hostId)) as WSLike
+}
+
+function isLocal(endpoint: string): boolean {
+  return splitHostPath(endpoint).hostId === LOCAL_HOST.id
 }
 
 export interface WSManager {
@@ -84,29 +123,78 @@ function refuse(waiters: Waiter[], endpoint: string, why: string, cause?: unknow
 export function createWSManager(): WSManager {
   const channels = new Map<string, Channel>()
   const dropListeners = new Map<string, Set<() => void>>()
+  /** Per remote host with parked channels, the watch on its status that reopens them. */
+  const parkedHosts = new Map<string, () => void>()
+
+  function park(endpoint: string, hostId: string, carried: Carried): Channel {
+    const ch: Channel = {
+      socket: null,
+      ...carried,
+      opened: false,
+      reconnectDelay: 1000,
+      endpoint,
+      hostId,
+      outbox: [],
+    }
+    channels.set(endpoint, ch)
+    reportChannelState(endpoint, false, hostId)
+    if (!parkedHosts.has(hostId)) {
+      const watch = subscribeHostStatus(hostId, () => {
+        // Up but not dialable (no longer paired) stays parked: reopening would park again.
+        if (getHostRuntime(hostId)?.getState().status === 'up' && mayDial(hostId)) {
+          reopenParked(hostId)
+        }
+      })
+      parkedHosts.set(hostId, watch)
+    }
+    return ch
+  }
+
+  function reopenParked(hostId: string): void {
+    parkedHosts.get(hostId)?.()
+    parkedHosts.delete(hostId)
+    for (const ch of [...channels.values()]) {
+      if (ch.socket !== null || ch.hostId !== hostId) continue
+      open(ch.endpoint, 1000, true, { callbacks: ch.callbacks, waiters: ch.waiters.splice(0) })
+    }
+  }
+
+  function stopWatchingIfNoneParked(hostId: string): void {
+    for (const ch of channels.values()) if (ch.socket === null && ch.hostId === hostId) return
+    parkedHosts.get(hostId)?.()
+    parkedHosts.delete(hostId)
+  }
 
   /** `resumed`: this socket replaces a dropped one, so its open is the moment
    *  the stream is back and subscribers must refetch what they missed. */
-  function open(endpoint: string, reconnectDelay = 1000, resumed = false): Channel {
+  function open(
+    endpoint: string,
+    reconnectDelay = 1000,
+    resumed = false,
+    carried: Carried = { callbacks: new Set(), waiters: [] },
+  ): Channel {
+    const { hostId } = splitHostPath(endpoint)
+    if (!mayDial(hostId)) return park(endpoint, hostId, carried)
+    const socket = createTransport(endpoint)
     const ch: Channel = {
-      socket: createTransport(endpoint),
-      callbacks: new Set(),
+      socket,
+      ...carried,
+      opened: false,
       reconnectDelay,
       endpoint,
-      waiters: [],
-      everOpen: false,
+      hostId,
       outbox: [],
     }
 
     // A successful connection resets the backoff so the next outage starts
     // from the base delay again.
-    ch.socket.onopen = () => {
+    socket.onopen = () => {
       ch.reconnectDelay = 1000
       if (channels.get(endpoint) !== ch) return
-      ch.everOpen = true
-      for (const data of ch.outbox.splice(0)) ch.socket.send(data)
-      noteSocketOpened()
-      reportChannelState(endpoint, true)
+      ch.opened = true
+      for (const data of ch.outbox.splice(0)) socket.send(data)
+      if (hostId === LOCAL_HOST.id) noteSocketOpened()
+      reportChannelState(endpoint, true, hostId)
       for (const waiter of ch.waiters.splice(0)) waiter.resolve()
       // Only now, not per attempt: a refetch while the daemon is still down
       // just fails, and every subscriber's refetch would repeat each retry.
@@ -115,7 +203,7 @@ export function createWSManager(): WSManager {
       ch.callbacks.forEach((cb) => cb({ reconnected: true }))
     }
 
-    ch.socket.onmessage = (e) => {
+    socket.onmessage = (e) => {
       let parsed: unknown
       try {
         parsed = JSON.parse(e.data as string)
@@ -126,21 +214,27 @@ export function createWSManager(): WSManager {
       ch.callbacks.forEach((cb) => cb(parsed))
     }
 
-    ch.socket.onerror = (failure) => {
+    socket.onerror = (failure) => {
       ch.failure = failure
+      // A refused remote open names why: whether the host is down or changed.
+      if (hostId === LOCAL_HOST.id) return
+      const reason = streamFailureOf(failure, hostId)
+      if (reason && channels.get(endpoint) === ch) reportChannelFailure(endpoint, reason)
     }
 
-    ch.socket.onclose = () => {
+    socket.onclose = () => {
+      const wasOpen = ch.opened
+      ch.opened = false
       // Only the live channel for this endpoint reports state — a stale socket
       // closing after a reconnect must not flag the endpoint as down.
       const live = channels.get(endpoint) === ch
-      if (live) reportChannelState(endpoint, false)
-      // Refused before it opened: the daemon may be up but not serving, and only
-      // its health route says why (a dropped open socket is just a drop).
-      if (live && !ch.everOpen) void probeDaemon()
+      if (live) reportChannelState(endpoint, false, hostId)
+      // Refused before it opened: the local daemon may be up but not serving, and
+      // only its health route says why (a dropped open socket is just a drop).
+      if (live && !wasOpen && hostId === LOCAL_HOST.id) void probeDaemon()
       refuse(ch.waiters, endpoint, 'closed before it opened', ch.failure)
       if (ch.callbacks.size === 0) return
-      if (live && ch.everOpen)
+      if (live && wasOpen)
         for (const listener of [...(dropListeners.get(endpoint) ?? [])]) listener()
       setTimeout(() => {
         // All subscribers may have left while we waited — do not resurrect a
@@ -153,12 +247,12 @@ export function createWSManager(): WSManager {
           refuse(ch.waiters, endpoint, 'no subscriber left')
           return
         }
-        // Carry the (doubled) backoff into the new channel so repeated
-        // failures actually back off instead of restarting at the base delay.
-        const fresh = open(endpoint, Math.min(ch.reconnectDelay * 2, 30_000), true)
-        fresh.callbacks = ch.callbacks
-        fresh.waiters = ch.waiters.splice(0)
-        channels.set(endpoint, fresh)
+        // Carry the (doubled) backoff into the new channel so repeated failures
+        // actually back off; a host that refuses is parked here, not redialled.
+        open(endpoint, Math.min(ch.reconnectDelay * 2, 30_000), true, {
+          callbacks: ch.callbacks,
+          waiters: ch.waiters.splice(0),
+        })
       }, ch.reconnectDelay)
     }
 
@@ -172,7 +266,8 @@ export function createWSManager(): WSManager {
       // desktop's crowbar:// unix-socket scheme). Constructing one throws and
       // crashes startup, so skip the live channel entirely — mark it gone so
       // the UI reflects "no live stream" rather than a perpetual "connecting".
-      if (!isWebSocketCapable()) {
+      // Nor is there a stream from a local daemon the install does not have.
+      if (!isWebSocketCapable() || (!hasLocalDaemon() && isLocal(endpoint))) {
         reportChannelGone(endpoint)
         return () => {}
       }
@@ -185,11 +280,12 @@ export function createWSManager(): WSManager {
           // subscription was created; close the live socket, not the stale one.
           const current = channels.get(endpoint)
           if (current && current.callbacks === ch.callbacks) {
-            closeSocketQuietly(current.socket)
+            if (current.socket) closeSocketQuietly(current.socket)
             channels.delete(endpoint)
             reportChannelGone(endpoint)
             refuse(current.waiters, endpoint, 'no subscriber left')
-          } else {
+            stopWatchingIfNoneParked(current.hostId)
+          } else if (ch.socket) {
             closeSocketQuietly(ch.socket)
           }
         }
@@ -198,8 +294,9 @@ export function createWSManager(): WSManager {
 
     send(endpoint, data) {
       const ch = channels.get(endpoint)
-      if (ch?.socket.readyState === WebSocket.OPEN) ch.socket.send(JSON.stringify(data))
-      else if (ch?.socket.readyState === WebSocket.CONNECTING) ch.outbox.push(JSON.stringify(data))
+      if (!ch?.socket) return
+      if (ch.socket.readyState === WebSocket.OPEN) ch.socket.send(JSON.stringify(data))
+      else if (ch.socket.readyState === WebSocket.CONNECTING) ch.outbox.push(JSON.stringify(data))
     },
 
     opened(endpoint) {
@@ -207,7 +304,7 @@ export function createWSManager(): WSManager {
       if (!isWebSocketCapable() || !ch) {
         return Promise.reject(new Error(`${endpoint}: no socket can carry it`))
       }
-      if (ch.socket.readyState === WebSocket.OPEN) return Promise.resolve()
+      if (ch.socket?.readyState === WebSocket.OPEN) return Promise.resolve()
       return new Promise((resolve, reject) => ch.waiters.push({ resolve, reject }))
     },
 

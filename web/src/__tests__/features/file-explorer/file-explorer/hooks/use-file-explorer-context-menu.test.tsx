@@ -2,6 +2,7 @@ import { act, render, renderHook, screen, within } from '@testing-library/react'
 import { isValidElement, type ReactNode } from 'react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useFileExplorerContextMenu } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu'
+import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { joinPath } from '@/utils/path-helpers'
 import * as documents from '@/lib/api/documents'
@@ -143,6 +144,27 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
     expect(options.onUploadFile).toHaveBeenCalledWith('')
     click(root.items, 'Add Folder to Workspace')
     expect(options.onAddFolderToWorkspace).toHaveBeenCalledTimes(1)
+  })
+
+  // Its paths mean something only in the explorer's workspace: a paste anywhere else refuses.
+  it.each([
+    ['Copy', 'copy'],
+    ['Cut', 'cut'],
+  ] as const)('%s records the explorer’s workspace with the entry', (label, operation) => {
+    useFileClipboardStore.setState({ clipboard: null })
+    const { items } = openMenu(
+      { ...baseOptions(), workspaceId: 'ws-explorer' },
+      'api/main.go',
+      false,
+    )
+
+    click(items, label)
+
+    expect(useFileClipboardStore.getState().clipboard).toEqual({
+      entries: [{ path: 'api/main.go', is_dir: false }],
+      operation,
+      wsId: 'ws-explorer',
+    })
   })
 })
 
@@ -305,5 +327,49 @@ describe('useFileExplorerContextMenu — failures', () => {
     )
     expect(options.onCreateNewFileInDirectory).not.toHaveBeenCalled()
     expect(write).not.toHaveBeenCalled()
+  })
+})
+
+// "Create .env.example" reads and writes files: those belong to the workspace the tree
+// shows, never to whichever other one is in view.
+describe('useFileExplorerContextMenu — env template', () => {
+  function createEnvExample(workspaceId: string) {
+    const read = vi.spyOn(documents, 'readDocument').mockImplementation(async (ref) => {
+      if (ref.path.endsWith('.env.example')) throw new ApiError('not found', 404, 'not_found')
+      return { ref, text: 'KEY=secret\n' }
+    })
+    const write = vi.spyOn(documents, 'writeDocument').mockResolvedValue(undefined as never)
+    onTestFinished(() => {
+      read.mockRestore()
+      write.mockRestore()
+    })
+    const options = {
+      ...baseOptions(),
+      workspaceId,
+      onCreateNewFileInDirectory: vi.fn().mockResolvedValue('.env.example'),
+    }
+    const { items } = openMenu(options, '.env', false)
+    click(items, 'Create .env.example')
+    return { read, write }
+  }
+
+  it('reads the source and writes the template in the explorer’s workspace', async () => {
+    const { read, write } = createEnvExample('ws-a')
+
+    await vi.waitFor(() =>
+      expect(write).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ workspaceId: 'ws-a' }),
+        expect.stringContaining('KEY='),
+      ),
+    )
+    expect(
+      read.mock.calls.map(([ref]) => ref.authority === 'workspace' && ref.workspaceId),
+    ).toEqual(['ws-a', 'ws-a'])
+  })
+
+  it('offers no template when the tree shows no workspace', () => {
+    const { labels } = openMenu({ ...baseOptions(), workspaceId: null }, '.env', false)
+
+    expect(labels).not.toContain('Create .env.example')
   })
 })

@@ -163,6 +163,16 @@ jobs:
           name: nightly-macos
           path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
+  ios:
+    needs: derive-version
+    uses: ./.github/workflows/ios-build.yml
+    secrets: inherit
+    with:
+      ref: develop
+      version: ${{ needs.derive-version.outputs.version }}
+      channel: nightly
+      timestamp: ${{ needs.derive-version.outputs.timestamp }}
+
   desktop-linux:
     name: desktop-linux (${{ matrix.goarch }})
     needs: derive-version
@@ -240,7 +250,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/deb/*.deb
 
   publish:
-    needs: [derive-version, daemon, desktop-macos, desktop-linux]
+    needs: [derive-version, daemon, desktop-macos, desktop-linux, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

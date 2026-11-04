@@ -7,7 +7,7 @@ import { compactChat, resumeChat } from '@/features/agent/api/agent-chat-command
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { sendPrompt, stopTurn } from '@/features/agent/stores/chat-outbox'
 import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
-import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
+import type { AgentTerminalAnswer, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { TodoStrip } from '@/features/agent/activity/todo-strip'
@@ -34,6 +34,7 @@ import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
 import { useChatTelemetry, limitResetsAt } from '@/features/agent/hooks/use-chat-entity'
+import { useNativeContext } from '@/features/agent/hooks/use-native-context'
 import {
   getScrollPosition,
   setScrollPosition,
@@ -72,6 +73,7 @@ export interface AgentChatViewProps {
   /** The daemon found the CLI blocked on a prompt Crowbar cannot answer. */
   terminalWaiting?: boolean
   terminalWaitKind?: string
+  terminalWaitAnswers?: AgentTerminalAnswer[]
   /** The overlay header's clickable row, for opaque content under it. */
   headerClearancePx?: number
   /** The header's full dissolve reach, which scrolled text must clear. */
@@ -112,6 +114,7 @@ export function AgentChatView({
   onOpenTerminal,
   terminalWaiting = false,
   terminalWaitKind,
+  terminalWaitAnswers,
   headerClearancePx = 0,
   transcriptHeaderClearancePx = 0,
   onBlankChange,
@@ -200,8 +203,18 @@ export function AgentChatView({
   // The person's pick first, then what the last turn reported running at.
   const effectiveEffort = effort || facts.latestEffort
   const reportedModel = telemetry?.model?.displayName || telemetry?.model?.id || ''
-  const terminalWait = terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined
+  const terminalWait = terminalWaiting
+    ? { kind: terminalWaitKind ?? '', answers: terminalWaitAnswers }
+    : undefined
   const halted = facts.halted
+  // The pick wins: the chip says what the next message runs as. Unpicked, the
+  // report's display name wins over the last confirmed raw launch id.
+  const shownModel = model || (reportedModel ? '' : confirmedModel)
+  const offeredCompact =
+    provider?.compaction && live && !compacting && !onTerminalSurface
+      ? () => void compactChat(wsId, chatId)
+      : undefined
+  useNativeContext({ visible, telemetry, compacting, onCompact: offeredCompact })
 
   // The one serialization of a prompt: the key handler's read, or the box's on a click.
   const enqueueDraft = (text?: string) => {
@@ -422,7 +435,7 @@ export function AgentChatView({
                 onStop={handleStop}
                 onOpenTerminal={onOpenTerminal}
                 takeoverContainer={chatSurfaceEl}
-                controls={<SelectionCluster {...selection} model={model} />}
+                controls={<SelectionCluster {...selection} model={shownModel} />}
                 banner={blankSignpost}
                 headerClearancePx={headerClearancePx}
                 documentRef={emptyDocRef}
@@ -430,16 +443,10 @@ export function AgentChatView({
               {!blank && (
                 <ProviderBar
                   {...selection}
-                  // The pick wins: this chip says what the next message runs as. The
-                  // launch report only fills the gap, from the last one confirmed.
-                  model={model || confirmedModel}
+                  model={shownModel}
                   telemetry={telemetry}
-                  queued={prompts.queued}
-                  onCompact={
-                    provider?.compaction && live && !compacting && !onTerminalSurface
-                      ? () => void compactChat(wsId, chatId)
-                      : undefined
-                  }
+                  queued={prompts.waiting}
+                  onCompact={offeredCompact}
                 />
               )}
               {composer.error && (

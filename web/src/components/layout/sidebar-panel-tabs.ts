@@ -1,31 +1,46 @@
 import type React from 'react'
-import { FolderOpen, GitBranch } from '@phosphor-icons/react'
-import type { SidebarTab } from '@/features/workspace/tree/tree-ui-store'
+import { ChatsCircle, FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { useTreeUi, type SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 import {
   hasRepoWorkspace,
+  useFocusedWorkspaceContextStore,
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
 
-/** One tab of the sidebar panel. Availability is decided by the focused
+/** One mode of the sidebar. Availability is decided by the focused
  *  workspace context alone — never the route. */
-export interface SidebarPanelTabDescriptor {
+interface SidebarPanelTabDescriptor {
   tab: SidebarTab
   label: string
   Icon: React.ComponentType<{ size: number; weight: 'fill' | 'regular' }>
   available: (ctx: FocusedWorkspaceContext) => boolean
 }
 
-// Panel order (Files, then Git) — must match use-carousel-scroll-sync.ts's TABS.
-export const SIDEBAR_PANEL_TABS: SidebarPanelTabDescriptor[] = [
-  { tab: 'files', label: 'Files', Icon: FolderOpen, available: () => true },
-  { tab: 'git', label: 'Git', Icon: GitBranch, available: hasRepoWorkspace },
+export const SIDEBAR_PANEL_TABS: readonly SidebarPanelTabDescriptor[] = [
+  { tab: 'chats', label: 'Chats', Icon: ChatsCircle, available: () => true },
+  { tab: 'files', label: 'Files', Icon: FolderOpen, available: (ctx) => ctx.workspaceId != null },
+  { tab: 'git', label: 'Changes', Icon: GitBranch, available: hasRepoWorkspace },
 ]
 
-export const FALLBACK_SIDEBAR_PANEL_TAB: SidebarTab = 'files'
+const FALLBACK_SIDEBAR_PANEL_TAB: SidebarTab = 'chats'
 
 /** Stable string key of the available tabs, for a primitive-returning selector. */
 export function availableSidebarPanelTabsKey(ctx: FocusedWorkspaceContext): string {
   return SIDEBAR_PANEL_TABS.filter((t) => t.available(ctx))
     .map((t) => t.tab)
     .join(',')
+}
+
+function resolveShownTab(chosen: SidebarTab, ctx: FocusedWorkspaceContext): SidebarTab {
+  const descriptor = SIDEBAR_PANEL_TABS.find((t) => t.tab === chosen)
+  return descriptor?.available(ctx) ? chosen : FALLBACK_SIDEBAR_PANEL_TAB
+}
+
+/**
+ * The mode on screen: the chosen one while the focused workspace offers it,
+ * else Chats. Derived, not written back, so the store stays the one owner.
+ */
+export function useShownSidebarTab(): SidebarTab {
+  const chosen = useTreeUi((s) => s.activeTab)
+  return useFocusedWorkspaceContextStore((ctx) => resolveShownTab(chosen, ctx))
 }

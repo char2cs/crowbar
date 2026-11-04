@@ -392,6 +392,14 @@ describe('grouping threads by file', () => {
 
     expect(counts).toEqual({ 'src/a.ts': 2, 'never/materialised.ts': 1 })
   })
+
+  it('ignores un-anchored (Conversation-only) threads in annotations and counts', () => {
+    const general = makeThread({ id: 'g', filePath: '', lineNumber: 0 })
+    const anchored = makeThread({ id: 'a', filePath: 'src/a.ts', lineNumber: 2 })
+
+    expect([...groupAnnotationsByPath([general, anchored]).keys()]).toEqual(['src/a.ts'])
+    expect(countThreadsByPath([general, anchored])).toEqual({ 'src/a.ts': 1 })
+  })
 })
 
 // ── The hook ────────────────────────────────────────────────────────

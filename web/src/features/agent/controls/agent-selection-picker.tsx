@@ -6,6 +6,9 @@ import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
+import { hasNativeChrome } from '@/lib/native-chrome'
+import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
+import { NativeModelPicker } from './native-model-picker'
 
 // Fits the longest model id unwrapped. An inline style because Dropdown locks
 // its measured width on open and would overwrite a class-set one.
@@ -65,20 +68,6 @@ function fuzzyScore(query: string, text: string): number {
 
 function effortLabel(level: string): string {
   return level === 'xhigh' ? 'XHigh' : level.charAt(0).toUpperCase() + level.slice(1)
-}
-
-/** Effort levels are a property of the model, never the provider alone. */
-function effortLevelsFor(provider: AgentProvider | undefined, model: string): string[] {
-  if (!provider?.effortSelect) return []
-  return provider.efforts?.[model] ?? []
-}
-
-/** Keep the current effort if the new model declares it, else its first level,
- *  so every pick lands on a concrete, visible value. */
-function resolveEffort(provider: AgentProvider, model: string, currentEffort: string): string {
-  const levels = effortLevelsFor(provider, model)
-  if (currentEffort && levels.includes(currentEffort)) return currentEffort
-  return levels[0] ?? ''
 }
 
 /** Search results, split out so the running rowIndex used for highlighting
@@ -398,46 +387,62 @@ export function AgentSelectionPicker({
         {showsReport && (
           <span className="truncate text-[11px] text-muted-foreground">({reportedModel})</span>
         )}
-        <span className="opacity-50">&middot;</span>
-        <span className="truncate">{effortLabel(effortLabelText)}</span>
+        {(model || effort) && (
+          <>
+            <span className="opacity-50">&middot;</span>
+            <span className="truncate">{effortLabel(effortLabelText)}</span>
+          </>
+        )}
         <UpDownIcon size={12} className="opacity-55" />
       </button>
-      <Dropdown
-        isOpen={isOpen}
-        onClose={close}
-        anchorRef={anchorRef}
-        anchorSide="top"
-        anchorAlign="start"
-        style={{ width: MENU_WIDTH_PX }}
-      >
-        <div className="flex max-h-100 flex-col">
-          <div className="border-border/60 border-b px-1.5 pb-1.5 pt-0.5">
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder="Search models&hellip;"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value)
-                setHighlight(0)
-              }}
-              onKeyDown={onSearchKeyDown}
-              leftIcon={Search}
-              size="sm"
-            />
+      {hasNativeChrome() ? (
+        <NativeModelPicker
+          open={isOpen}
+          providers={catalogueProviders}
+          provider={provider}
+          model={model}
+          effort={effort}
+          onSelectionChange={onSelectionChange}
+          onClose={close}
+        />
+      ) : (
+        <Dropdown
+          isOpen={isOpen}
+          onClose={close}
+          anchorRef={anchorRef}
+          anchorSide="top"
+          anchorAlign="start"
+          style={{ width: MENU_WIDTH_PX }}
+        >
+          <div className="flex max-h-100 flex-col">
+            <div className="border-border/60 border-b px-1.5 pb-1.5 pt-0.5">
+              <Input
+                ref={searchRef}
+                type="text"
+                placeholder="Search models&hellip;"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  setHighlight(0)
+                }}
+                onKeyDown={onSearchKeyDown}
+                leftIcon={Search}
+                size="sm"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-1">
+              <ModelSections
+                sections={sections}
+                query={query}
+                highlight={highlight}
+                onHighlight={setHighlight}
+                onPick={pickModel}
+              />
+            </div>
+            <EffortSlider levels={levels} effort={effort} onPick={pickEffort} />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            <ModelSections
-              sections={sections}
-              query={query}
-              highlight={highlight}
-              onHighlight={setHighlight}
-              onPick={pickModel}
-            />
-          </div>
-          <EffortSlider levels={levels} effort={effort} onPick={pickEffort} />
-        </div>
-      </Dropdown>
+        </Dropdown>
+      )}
     </>
   )
 }

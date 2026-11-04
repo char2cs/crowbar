@@ -13,7 +13,7 @@ export interface DropHandlers {
   /** The rows a drag starting on `rowId` carries, in tree order (the caller's selection);
    *  a release over a row also resolves its live target through it. */
   subjectsFor: (rowId: string) => SidebarRow[]
-  /** `targetInRecents`: the row released over lives in a `RecentsBand`, where spec §8.1
+  /** `targetInRecents`: the row released over is a Recents tab (`view-row.tsx`), where spec §8.1
    *  gives the same geometry another meaning than over a tree row. */
   onDrop: (
     subjects: SidebarRow[],

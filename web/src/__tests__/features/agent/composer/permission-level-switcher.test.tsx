@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { toast } from '@/features/window/stores/toast-store'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const { setChatPermissionLevelFn } = vi.hoisted(() => ({ setChatPermissionLevelFn: vi.fn() }))
 
@@ -69,6 +73,26 @@ describe('PermissionLevelSwitcher', () => {
   })
 
   // The composer remounts it between prompts of one chat; it keeps only what it confirmed.
+  it('names the remote host a pick could not reach, instead of blaming the daemon', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    setChatPermissionLevelFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    const user = userEvent.setup()
+    draw()
+
+    await pickLevel(user, 'trusted')
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledExactlyOnceWith(
+        'Couldn’t reach Studio Mac',
+        'Check that it is online in Settings → Hosts.',
+      ),
+    )
+    toastError.mockRestore()
+    destroyHostRuntime('h1')
+    resetHostWorld()
+  })
+
   it('remembers its own last confirmed pick across a remount of the same chat, keyed per chat', async () => {
     const user = userEvent.setup()
     const first = draw('persist-1')

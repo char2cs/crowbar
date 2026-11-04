@@ -1,6 +1,5 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
-import { bindActiveWorkspaceId } from '@/lib/workspace-scope'
 
 const registry = new Map<string, WorkspaceStore>()
 
@@ -19,9 +18,8 @@ export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib
 /**
  * THE active workspace (C4) — one id, written by exactly one owner:
  * `WorkspaceHost`, in the same layout effect that mounts the stores, so every
- * reader (scoped URLs, the active store, jump navigation) agrees within a
- * commit. The scope module reads it through the binding below rather than
- * keeping a copy of its own.
+ * reader (the active store, jump navigation) agrees within a commit. Nothing
+ * that builds a scoped URL reads it: those name their workspace.
  */
 export function setActiveWorkspaceId(wsId: string | null): void {
   if (_activeWorkspaceId === wsId) return
@@ -36,8 +34,6 @@ export function subscribeActiveWorkspaceId(listener: () => void): () => void {
   activeWorkspaceListeners.add(listener)
   return () => activeWorkspaceListeners.delete(listener)
 }
-
-bindActiveWorkspaceId(() => _activeWorkspaceId)
 
 /** Test-only: make `store` (registered under its own workspace id) the
  *  active one, or clear the active id — what the host does for a real mount. */

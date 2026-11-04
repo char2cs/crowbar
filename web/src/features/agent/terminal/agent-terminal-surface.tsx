@@ -1,8 +1,10 @@
+import { createPortal } from 'react-dom'
 import type { CSSProperties, MouseEvent, Ref } from 'react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
+import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
@@ -25,6 +27,8 @@ export interface AgentTerminalSurfaceProps {
   wsId: string
   /** The CLI session is owned by the chat, not the worktree sibling chats share. */
   chatId: string
+  /** The pane this chat lives in. */
+  paneId: string
   attachment: TerminalAttachment
   presentation: ChatPresentation
   splitting: boolean
@@ -34,7 +38,6 @@ export interface AgentTerminalSurfaceProps {
   basis: number
   isActivePane: boolean
   isVisible: boolean
-  title: string
   /** Right inset so the strip ends on the character grid's last column. */
   gridSlack: number
   providers: AgentProvider[]
@@ -59,6 +62,7 @@ export interface AgentTerminalSurfaceProps {
 export function AgentTerminalSurface({
   wsId,
   chatId,
+  paneId,
   attachment,
   presentation,
   splitting,
@@ -66,7 +70,6 @@ export function AgentTerminalSurface({
   basis,
   isActivePane,
   isVisible,
-  title,
   gridSlack,
   providers,
   activeProviderId,
@@ -82,6 +85,28 @@ export function AgentTerminalSurface({
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
+  const headerSlot = useChatHeaderSlotElement()
+  // EXACTLY ONE view switcher exists on a pane. In split the chat's provider
+  // bar is on screen and carries it; on the terminal surface it is here.
+  const controls = (
+    <>
+      {presentation === 'terminal' && provider?.hasTerminal !== false && (
+        <ViewSwitcher
+          presentation={presentation}
+          splitEnabled={splitEnabled && provider?.hotswap === true}
+          handoverBlocked={!provider?.hotswap && working}
+          onSelect={onSelectPresentation}
+        />
+      )}
+      <ProviderSwitchDropdown
+        providers={providers}
+        currentProviderId={activeProviderId}
+        onSwitch={onSwitchProvider}
+        disabled={switchDisabled}
+        compact={Boolean(headerSlot)}
+      />
+    </>
+  )
   return (
     <div
       ref={ref}
@@ -108,6 +133,7 @@ export function AgentTerminalSurface({
           sessionId={attachment.sessionId}
           workspaceId={wsId}
           chatId={chatId}
+          paneId={paneId}
           isActive={
             isActivePane && isVisible && (presentation === 'terminal' || (splitting && focused))
           }
@@ -149,31 +175,19 @@ export function AgentTerminalSurface({
         </div>
       )}
 
-      {/* Not drawn on the chat surface, whose underbar already says this. `min-w-0`
-          lets a long title truncate instead of shoving the switcher off the grid. */}
-      {presentation !== 'chat' && (
-        <div
-          className="flex items-center justify-between gap-3 py-2"
-          style={{ paddingRight: gridSlack }}
-        >
-          <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
-          {/* One per pane: in split the chat's provider bar carries it. */}
-          {presentation === 'terminal' && provider?.hasTerminal !== false && (
-            <ViewSwitcher
-              presentation={presentation}
-              splitEnabled={splitEnabled && provider?.hotswap === true}
-              handoverBlocked={!provider?.hotswap && working}
-              onSelect={onSelectPresentation}
-            />
-          )}
-          <ProviderSwitchDropdown
-            providers={providers}
-            currentProviderId={activeProviderId}
-            onSwitch={onSwitchProvider}
-            disabled={switchDisabled}
-          />
-        </div>
-      )}
+      {/* Not drawn on the chat surface, whose underbar already says this. In the
+          pane's header row when it has one, so the terminal keeps the height. */}
+      {presentation !== 'chat' &&
+        (headerSlot ? (
+          createPortal(controls, headerSlot)
+        ) : (
+          <div
+            className="flex items-center justify-end gap-3 py-2"
+            style={{ paddingRight: gridSlack }}
+          >
+            {controls}
+          </div>
+        ))}
     </div>
   )
 }

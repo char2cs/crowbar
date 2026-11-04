@@ -1,47 +1,87 @@
-import { lazy, Suspense } from 'react'
+import { FilePlusIcon, GitPullRequest, GlobeIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
+import { usePaneCanReviewBranch } from '@/features/panes/hooks/use-pane-can-review-branch'
+import { usePaneNewTabActions } from '@/features/tabs/hooks/use-pane-new-tab-actions'
+import { IS_MOBILE } from '@/utils/platform'
 
-// Lazy so the BAKED POINT CLOUD stays off the startup path. ascii-crowbar pulls
-// in ascii-crowbar-cloud.ts, a single 180,000-character base64 literal, and a
-// static import from here would land it in the entry shell chunk — paid by
-// every cold start for a decoration only ever drawn on an empty pane. Same
-// treatment editor-pane.tsx gives Plate.
-//
-// The fallback is `null` and that is correct, not lazy shorthand: this is a
-// pointer-events-none, aria-hidden backdrop positioned `absolute inset-0`, so
-// it occupies no layout and its late arrival shifts nothing on the surface.
-const AsciiCrowbar = lazy(() => import('@/features/panes/components/ascii-crowbar'))
+// The phone fills a whole screen with this view: a 1.6x logo over touch-sized (44pt) rows.
+const VARIANTS = {
+  desktop: {
+    action: 'justify-start text-muted-foreground',
+    size: 'sm',
+    logo: 'pointer-events-none h-auto w-[clamp(96px,14cqmin,148px)] text-muted-foreground',
+    logoWidth: undefined,
+  },
+  phone: {
+    action: 'min-h-11 justify-start text-muted-foreground',
+    size: 'xl',
+    logo: 'pointer-events-none h-auto text-muted-foreground',
+    logoWidth: 154,
+  },
+} as const
 
 /**
- * The surface a pane shows when its editor view holds no active buffer. Under
- * the New Tab rules a pane always holds at least a chat or a buffer, so this
- * should be unreachable — kept, pointed at the same component every stranded
- * pane renders, so a bug that ever does leave one bare shows something
- * instead of a blank rectangle with no way out.
+ * What an editor area shows while it holds no tab, and what a New Tab page
+ * (`replaceTabId`, which a choice replaces) shows: the Crowbar logo (the one
+ * onboarding uses) and, once the pane's workspace is resolved, its actions.
  *
- * Deliberately inert past the ambient backdrop: the wordmark, centred, over a
- * slowly tumbling ASCII-art crowbar, and nothing else. This used to offer New
- * Terminal / New File / Review the Branch / a chat history list — real
- * actions, each of which silently minted a brand-new, redundant chat for a
- * pane that merely hadn't been told its workspace's REAL owning chat yet
- * (`ensurePaneChatThenOpen` in pane-command-actions.ts). A pane with nothing
- * open must never be a screen a user can act from, so this offers nothing to
- * click at all — not the terminal/file/review actions, not the chat history,
- * not a "New Chat" quick-start. The tumbling backdrop is decoration only
- * (`pointer-events-none`, `aria-hidden`), so it does not reopen that hole.
+ * The actions need `wsId` because `ensurePaneChatThenOpen` mints a redundant
+ * chat for a pane that has not been told its workspace's owning chat yet;
+ * until then only the logo is drawn.
  */
-export function NewTabView({ paneId }: { paneId: string }) {
+export function NewTabView({
+  paneId,
+  wsId,
+  replaceTabId,
+}: {
+  paneId: string
+  wsId: string | null
+  replaceTabId?: string
+}) {
+  const { onNewTerminal, onNewBrowser, onNewFile, onReviewBranch } = usePaneNewTabActions(
+    wsId,
+    paneId,
+    replaceTabId,
+  )
+  const canReview = usePaneCanReviewBranch(paneId)
+  const v = VARIANTS[IS_MOBILE ? 'phone' : 'desktop']
   return (
-    <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
-      {/* Seeded by paneId so two empty panes on screen at once don't tumble in
-          lockstep. */}
-      <Suspense fallback={null}>
-        <AsciiCrowbar seed={paneId} />
-      </Suspense>
-      <CrowbarWordmark
-        aria-hidden="true"
-        className="pointer-events-none relative h-auto w-[clamp(96px,14cqmin,148px)] text-muted-foreground"
-      />
+    // Focusable so a click on the blank area puts focus in the editor area,
+    // where ⌘N opens a New Tab (use-pane-keyboard.ts).
+    <div
+      tabIndex={-1}
+      data-variant={IS_MOBILE ? 'phone' : undefined}
+      className="relative flex h-full w-full flex-col items-center justify-center gap-6 overflow-hidden outline-none data-[variant=phone]:gap-8"
+    >
+      <CrowbarWordmark aria-hidden="true" width={v.logoWidth} className={v.logo} />
+      {wsId && (
+        <div className="flex flex-col items-stretch gap-0.5 in-data-[variant=phone]:gap-1">
+          <Button variant="ghost" size={v.size} className={v.action} onClick={onNewTerminal}>
+            <TerminalWindowIcon />
+            New Terminal
+          </Button>
+          {/* The phone has no browser pane and no file editor yet. */}
+          {!IS_MOBILE && (
+            <>
+              <Button variant="ghost" size={v.size} className={v.action} onClick={onNewBrowser}>
+                <GlobeIcon />
+                New Browser
+              </Button>
+              <Button variant="ghost" size={v.size} className={v.action} onClick={onNewFile}>
+                <FilePlusIcon />
+                New File
+              </Button>
+            </>
+          )}
+          {canReview && (
+            <Button variant="ghost" size={v.size} className={v.action} onClick={onReviewBranch}>
+              <GitPullRequest />
+              Review Branch
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

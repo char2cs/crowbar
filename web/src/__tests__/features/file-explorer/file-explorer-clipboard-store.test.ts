@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => 'ws-1',
-}))
 vi.mock('@/features/files/lib/file-tree-api', () => ({
   copyFileNode: vi.fn(),
   renameFileNode: vi.fn(),
@@ -29,9 +26,9 @@ beforeEach(async () => {
 // no error: the user was shown a completed move that never happened.
 describe('file clipboard paste', () => {
   it('copies each staged entry into the target directory', async () => {
-    await actions().copy([{ path: 'src/a.ts', is_dir: false }])
+    await actions().copy([{ path: 'src/a.ts', is_dir: false }], 'ws-1')
 
-    const results = await actions().paste('dest')
+    const results = await actions().paste('dest', 'ws-1')
 
     expect(mockCopy).toHaveBeenCalledWith('ws-1', 'src/a.ts', 'dest/a.ts')
     expect(results).toEqual([
@@ -45,40 +42,43 @@ describe('file clipboard paste', () => {
   })
 
   it('keeps a copy clipboard staged so it can be pasted again', async () => {
-    await actions().copy([{ path: 'src/a.ts', is_dir: false }])
-    await actions().paste('dest')
+    await actions().copy([{ path: 'src/a.ts', is_dir: false }], 'ws-1')
+    await actions().paste('dest', 'ws-1')
     expect(useFileClipboardStore.getState().clipboard?.operation).toBe('copy')
   })
 
   it('moves a cut entry with the atomic rename verb, not copy+delete', async () => {
-    await actions().cut([{ path: 'src/a.ts', is_dir: false }])
+    await actions().cut([{ path: 'src/a.ts', is_dir: false }], 'ws-1')
 
-    await actions().paste('dest')
+    await actions().paste('dest', 'ws-1')
 
     expect(mockRename).toHaveBeenCalledWith('ws-1', 'src/a.ts', 'dest/a.ts')
     expect(mockCopy).not.toHaveBeenCalled()
   })
 
   it('consumes a cut entry once its move lands', async () => {
-    await actions().cut([{ path: 'src/a.ts', is_dir: false }])
-    await actions().paste('dest')
+    await actions().cut([{ path: 'src/a.ts', is_dir: false }], 'ws-1')
+    await actions().paste('dest', 'ws-1')
     expect(useFileClipboardStore.getState().clipboard).toBeNull()
   })
 
   it('pastes into the workspace root when the target directory is empty', async () => {
-    await actions().copy([{ path: 'src/a.ts', is_dir: false }])
-    await actions().paste('')
+    await actions().copy([{ path: 'src/a.ts', is_dir: false }], 'ws-1')
+    await actions().paste('', 'ws-1')
     expect(mockCopy).toHaveBeenCalledWith('ws-1', 'src/a.ts', 'a.ts')
   })
 
   it('reports a rejected entry as failed and leaves it staged for a retry', async () => {
     mockRename.mockRejectedValueOnce(new Error('409 destination exists'))
-    await actions().cut([
-      { path: 'src/a.ts', is_dir: false },
-      { path: 'src/b.ts', is_dir: false },
-    ])
+    await actions().cut(
+      [
+        { path: 'src/a.ts', is_dir: false },
+        { path: 'src/b.ts', is_dir: false },
+      ],
+      'ws-1',
+    )
 
-    const results = await actions().paste('dest')
+    const results = await actions().paste('dest', 'ws-1')
 
     expect(results.map((r) => r.success)).toEqual([false, true])
     expect(useFileClipboardStore.getState().clipboard?.entries).toEqual([
@@ -87,9 +87,39 @@ describe('file clipboard paste', () => {
   })
 
   it('does nothing with an empty clipboard', async () => {
-    const results = await actions().paste('dest')
+    const results = await actions().paste('dest', 'ws-1')
     expect(results).toEqual([])
     expect(mockCopy).not.toHaveBeenCalled()
     expect(mockRename).not.toHaveBeenCalled()
   })
+
+  it('pastes into the workspace it is given and refuses to guess one', async () => {
+    await actions().copy([{ path: 'a.ts', is_dir: false }], 'ws-b')
+
+    await actions().paste('dest', 'ws-b')
+    await expect(actions().paste('dest', null)).rejects.toThrow(/no workspace/)
+
+    expect(mockCopy).toHaveBeenCalledExactlyOnceWith('ws-b', 'a.ts', 'dest/a.ts')
+  })
+
+  // The staged paths are relative to the workspace they came from: applied to another
+  // (another host, even) they would move or copy that workspace's own files.
+  it.each(['cut', 'copy'] as const)(
+    'refuses to %s-paste into another workspace, sends nothing and keeps the clipboard',
+    async (operation) => {
+      await actions()[operation]([{ path: 'src/config.ts', is_dir: false }], 'w-remote')
+      const staged = useFileClipboardStore.getState().clipboard
+
+      await expect(actions().paste('lib', 'w-local')).rejects.toThrow(
+        'Copied from another workspace — paste there, or copy again here',
+      )
+
+      expect(mockRename).not.toHaveBeenCalled()
+      expect(mockCopy).not.toHaveBeenCalled()
+      expect(useFileClipboardStore.getState().clipboard).toBe(staged)
+      await actions().paste('lib', 'w-remote')
+      const verb = operation === 'cut' ? mockRename : mockCopy
+      expect(verb).toHaveBeenCalledExactlyOnceWith('w-remote', 'src/config.ts', 'lib/config.ts')
+    },
+  )
 })

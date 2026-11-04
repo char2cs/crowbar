@@ -1,5 +1,5 @@
 import { Tab } from '@/components/ui/tabs'
-import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
+import { useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
 import { useChatField, useChatWorking } from '@/features/agent/hooks/use-chat-entity'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -33,6 +33,7 @@ export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
     <Tab
       data-testid="chat-tab-item"
       data-role="chat-tab"
+      data-sidebar-surface="chats"
       role="tab"
       aria-selected={isActive}
       onClick={onSelect}
@@ -46,7 +47,7 @@ export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
         data-title-pending={title === null ? 'true' : undefined}
         className="max-w-[160px] truncate"
       >
-        {title ?? CHAT_TITLE_PENDING_LABEL}
+        {title}
       </span>
     </Tab>
   )

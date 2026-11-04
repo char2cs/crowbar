@@ -2,8 +2,9 @@ import type { ReactNode, RefObject } from 'react'
 import { cn } from '@/lib/utils'
 import { EdgeDissolve } from '@/components/ui/edge-dissolve'
 import { IS_MAC } from '@/utils/platform'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
-const ROW_HEIGHT_PX = IS_MAC ? 44 : 34
+const ROW_HEIGHT_PX = CHROME_ROW_HEIGHT_PX
 // How far past its own height the glass extends downward, giving scrolled
 // text room to ramp from sharp to fully blurred rather than switching over
 // too few pixels to read as a gradient. The composer's own dissolve zone
@@ -87,7 +88,6 @@ export function PaneTopRow({
         'flex shrink-0 items-center gap-1.5 px-2 py-1',
         overlay ? 'absolute inset-x-0 top-0 z-10' : 'relative overflow-hidden',
         !isChatBlur && 'bg-pane-background',
-        IS_MAC ? 'h-[44px]' : 'h-[34px]',
         // Traffic-light inset: only the row that actually sits under the
         // macOS window controls (window top-left) reserves the space — a
         // row elsewhere at the left edge (a vertical split's lower pane, or
@@ -95,6 +95,7 @@ export function PaneTopRow({
         IS_MAC && !isBottomPane && isAtLeftEdge && isAtTopEdge && 'pl-[88px]',
         className,
       )}
+      style={{ height: CHROME_ROW_HEIGHT_PX }}
       data-tauri-drag-region
     >
       {isChatBlur && (

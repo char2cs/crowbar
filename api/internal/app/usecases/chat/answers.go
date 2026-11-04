@@ -53,6 +53,15 @@ type AnswerUsecase interface {
 		content []byte,
 	) error
 
+	// AnswerTerminalWait types the descriptor-declared reply answerID into the
+	// terminal prompt chatID's CLI is parked on: problem.ErrConflict when the
+	// prompt has gone, problem.ErrInvalidArgument for an unknown answer.
+	AnswerTerminalWait(
+		ctx context.Context,
+		chatID string,
+		answerID string,
+	) error
+
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see
 	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
@@ -238,4 +247,10 @@ func (u *Usecase) agentForChat(
 		return nil, fmt.Errorf("agent: answer choice: descriptor: %w", err)
 	}
 	return agent, nil
+}
+
+// AnswerTerminalWait types the reply into the chat's terminal prompt; the sweep
+// clears the wait once the prompt leaves the screen.
+func (u *Usecase) AnswerTerminalWait(ctx context.Context, chatID, answerID string) error {
+	return u.runners.AnswerTerminalWait(ctx, chatID, answerID)
 }

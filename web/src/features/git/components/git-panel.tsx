@@ -1,9 +1,15 @@
-import { useState } from 'react'
-import { GitPullRequest, GitBranch, ClockCounterClockwise, CaretRight } from '@phosphor-icons/react'
+import { useMemo } from 'react'
+import { GitBranch } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/utils/cn'
+import { SELECTED_PILL } from '@/components/ui/selected-pill'
+import { cn } from '@/lib/utils'
+import { useShownSidebarTab } from '@/components/layout/sidebar-panel-tabs'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
 import { selectWorkspace, useSelect } from '@/core/entities/select'
+import { useReviewViewedById } from '@/features/git/lib/review-viewed'
+import { useReviewThreads } from '@/features/git/hooks/use-review-threads'
+import { openThreadCountsByPath } from '@/features/git/lib/review-thread-counts'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import {
   hasRepoWorkspace,
@@ -12,17 +18,9 @@ import {
 import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { ChangedFilesTree } from './changed-files-tree'
-import { BranchSection } from './branch-section'
-import { GitHistoryList } from './git-history-list'
+import { ReviewMergeBox } from './review-merge-box'
 
 export function GitPanel() {
-  // History (the commit log) has no place in spec 6.3's flat commit-box →
-  // review-row → changed-list shape — it isn't described there at all, and it
-  // isn't redundant with anything else in the app (branch review shows the
-  // current diff, not the log). It's real, load-bearing, virtualized/infinite-
-  // scroll functionality, so it stays — folded below the three required
-  // sections behind a disclosure rather than a competing top-level tab.
-  const [historyOpen, setHistoryOpen] = useState(false)
   // Scoped to the focused workspace context, never the route: a split can focus
   // a branch chat while the route names project home. Null for non-repo scopes.
   const wsId = useFocusedWorkspaceContextStore((s) => (hasRepoWorkspace(s) ? s.workspaceId : null))
@@ -30,24 +28,18 @@ export function GitPanel() {
   // Narrow selectors: pull only the fields we need from each store.
   const gitStatus = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatus)
 
-  // Active workspace metadata from sidebar store (canMergeLocally, parentBranch, status).
+  // Active workspace metadata from the entity store (branch, parentBranch).
   const activeWs = useSelect((s) => (wsId ? (selectWorkspace(s, wsId) ?? null) : null))
 
   // Changed-files tree source: the full branch-vs-parent diff only while the
   // Branch Review pane is open, otherwise the cheap working-tree status (P2b).
   const { files } = useSidebarChangedFiles(wsId)
 
-  // Open the unified branch-review tab and scroll to the clicked file.
-  //
-  // By PATH. This used to resolve the file's INDEX against a whole-diff cache
-  // in the store and pass a composite `path:index` key — and when the review
-  // surface stopped loading that cache (it reads the files summary and fetches
-  // patches per file now), the lookup returned nothing and every click in this
-  // tree silently opened the tab at the top. The surface addresses files by
-  // path, so ask for one.
+  // By PATH, because the review surface addresses files by path.
   const handleFileOpen = (filePath: string) => {
     if (!wsId) return
-    openBranchReviewForWorkspace(wsId)
+    const id = openBranchReviewForWorkspace(wsId)
+    if (id) windowPaneStore.getState().bufferActions.setBranchReviewView(id, 'files')
     getWorkspaceStore(wsId)?.getState().revealBranchReviewFile(filePath)
   }
 
@@ -55,18 +47,24 @@ export function GitPanel() {
   const branch = activeWs?.branch ?? gitStatus?.branch ?? ''
   const parentBranch = activeWs?.parentBranch
 
-  // Single source of truth for "how many files changed" — the review row's
-  // count and the "Changed — n files" heading below both read this, not two
-  // separately-computed definitions of "changed".
-  const changedCount = files.length
-  const changedLabel = `${changedCount} file${changedCount !== 1 ? 's' : ''}`
+  // The panel is mounted on every sidebar mode; the viewed map is read only
+  // once the tree is on screen with files to mark.
+  const shown = useShownSidebarTab()
+  const { viewed, setFilesViewed } = useReviewViewedById(
+    wsId ?? '',
+    shown === 'git' && files.length > 0,
+  )
+  const threads = useReviewThreads(wsId ?? '')
+  const openThreadCounts = useMemo(() => openThreadCountsByPath(threads), [threads])
 
-  // Scrolls as a whole: the branch card grows with a failed verb's reason and
-  // must not be clipped by the carousel card's height.
+  const changedLabel = `${files.length} file${files.length !== 1 ? 's' : ''}`
+
+  // Scrolls as a whole: the merge box grows with its reason and must not be
+  // clipped by the carousel card's height.
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {wsId && branch && (
-        <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]">
+        <div className={cn('mx-1.5 my-0.5 text-foreground', SELECTED_PILL)}>
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
             <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>
@@ -77,17 +75,10 @@ export function GitPanel() {
               </>
             )}
           </div>
-          <BranchSection
-            wsId={wsId}
-            parentBranch={parentBranch}
-            canMergeLocally={activeWs?.canMergeLocally ?? false}
-            status={activeWs?.status ?? 'new'}
-            ahead={gitStatus?.ahead ?? 0}
-            behind={gitStatus?.behind ?? 0}
-            files={gitStatus?.files ?? []}
-          />
         </div>
       )}
+
+      {wsId && activeWs && <ReviewMergeBox wsId={wsId} />}
 
       {/* No workspace to show git for at all (project home, or the route/pane
           hasn't resolved one yet) — never fall through to the sections below,
@@ -95,8 +86,8 @@ export function GitPanel() {
           fallback: a workspace-scoped git store with no wsId to key its
           "which workspace is this?" question against just keeps whatever
           OTHER workspace's status/branch/changed-files it last fetched,
-          cross-chat and cross-project. "Git has no meaning without a repo"
-          (sidebar-carousel.tsx) — so it shows nothing instead of stale data. */}
+          cross-chat and cross-project. Git has no meaning without a repo,
+          so it shows nothing instead of stale data. */}
       {!wsId && (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
           No repository open
@@ -105,49 +96,22 @@ export function GitPanel() {
 
       {wsId && (
         <>
-          {/* Spec 6.3 #2 — "Review this branch", carrying the changed-file
-              count, opens the branch review in the editor view. */}
-          <button
-            type="button"
-            className="mx-1.5 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-accent"
-            onClick={() => openBranchReviewForWorkspace(wsId)}
-          >
-            <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-left">Review this branch</span>
-            <span className="shrink-0 text-muted-foreground">{changedLabel}</span>
-          </button>
-
           {/* Spec 6.3 #3 — "Changed — n files", then the changed list. */}
           <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">
             Changed — {changedLabel}
           </div>
           <ScrollArea className="min-h-24 flex-1">
-            <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
+            <ChangedFilesTree
+              files={files}
+              repoPath={repoPath}
+              onFileOpen={handleFileOpen}
+              viewed={viewed}
+              onSetViewed={setFilesViewed}
+              openThreadCounts={openThreadCounts}
+            />
           </ScrollArea>
         </>
       )}
-
-      {/* History (the commit log) below the required three sections, folded —
-          see the note above. */}
-      <div className="shrink-0 border-t border-border">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-accent"
-          onClick={() => setHistoryOpen((open) => !open)}
-          aria-expanded={historyOpen}
-        >
-          <CaretRight
-            className={cn('size-3 shrink-0 transition-transform', historyOpen && 'rotate-90')}
-          />
-          <ClockCounterClockwise className="size-3.5 shrink-0" />
-          <span className="flex-1 text-left">History</span>
-        </button>
-        {historyOpen && (
-          <div className="flex h-64 flex-col overflow-hidden border-t border-border">
-            <GitHistoryList wsId={wsId} />
-          </div>
-        )}
-      </div>
     </div>
   )
 }

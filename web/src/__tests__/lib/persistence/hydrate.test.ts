@@ -528,17 +528,25 @@ describe('hydrateSidebar', () => {
     treeUiStore.setState(treeUiStore.getInitialState(), true)
   })
 
+  // A mode an older build wrote ('workspaces'), or none, must not name a missing panel.
+  it.each([
+    ['files', 'files'],
+    ['workspaces', 'chats'],
+    [undefined, 'chats'],
+  ])('replays the persisted sidebar mode %s as %s', async (activeTab, mode) => {
+    treeUiStore.setState({ activeTab: 'git' })
+    await saveSidebarUI({ collapsedChatRows: [], activeTab })
+    await hydrateSidebar()
+    expect(treeUiStore.getState().activeTab).toBe(mode)
+  })
+
   it('does nothing when IDB is empty', async () => {
     await hydrateSidebar()
     expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 
-  // REGRESSION (restyle v2): the previous build's tree collapsed every repo
-  // but the active one and persisted that set; the restyled tree folds via
-  // `collapsedChatRows` and never writes it, yet the sync engine still gated
-  // a repo's chats/folders on it. Over an existing profile those repos drew
-  // header + branch rows and never loaded a thread. The retired key replays
-  // as "every repo open", the product default.
+  // The retired key a previous build persisted replays as "every repo open", the
+  // product default: gating on it left repos that never loaded a thread.
   it('ignores the retired collapsedRepos key a previous build persisted', async () => {
     await saveSidebarUI({
       collapsedRepos: ['crowbar', 'quiver-core'],

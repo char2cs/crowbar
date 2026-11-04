@@ -1,5 +1,6 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { apiFetch } from '@/lib/api/fetch'
+import { repoBase } from '@/lib/project-url'
 import { operationHeaders } from '@/core/entities/run-operation'
 import { chatBase } from '@/features/agent/api/agent-chat-reads'
 
@@ -78,7 +79,7 @@ export async function createChat(
  * (2026-09-09) — omitted (server-generated name) unless the caller has one.
  * The reply names the new chat and the workspace it owns.
  */
-export function createChatWithOwnWorktree(
+export async function createChatWithOwnWorktree(
   id: string,
   opId: string,
   projectId: string,
@@ -87,9 +88,7 @@ export function createChatWithOwnWorktree(
   parentId = '',
   branch = '',
 ): Promise<{ id: string; workspaceId: string }> {
-  const p = encodeURIComponent(projectId)
-  const r = encodeURIComponent(repoId)
-  return apiFetch<{ id: string; workspaceId: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
+  return apiFetch<{ id: string; workspaceId: string }>(`${repoBase(projectId, repoId)}/chats`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...operationHeaders(opId) },
     body: JSON.stringify({

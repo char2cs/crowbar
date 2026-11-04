@@ -11,6 +11,8 @@ interface InlineRenameInputProps {
    *  create-only affordance: what an unlabeled, empty row would otherwise
    *  give no hint it even wants (see `CREATE_ROW_PLACEHOLDER`'s own doc). */
   placeholder?: string
+  /** Replaces the row-label text style (size, weight, family). */
+  className?: string
   onConfirm: (value: string) => void
   onCancel: () => void
 }
@@ -27,6 +29,7 @@ export function InlineRenameInput({
   defaultValue,
   mono,
   placeholder,
+  className,
   onConfirm,
   onCancel,
 }: InlineRenameInputProps) {
@@ -40,7 +43,7 @@ export function InlineRenameInput({
     input.select()
     // The editor does not always mount where the gesture happened: a rename
     // started from a Recents row draws on that row's TREE copy instead
-    // (`inlineRenameDisabled`, recents-band.tsx), and the context menu can
+    // (`inlineRenameDisabled`, view-row.tsx), and the context menu can
     // rename a row the shared scroller has scrolled away from. focus() alone
     // leaves the caret in an input that is off-screen.
     input.scrollIntoView({ block: 'nearest' })
@@ -80,6 +83,7 @@ export function InlineRenameInput({
       className={cn(
         'min-w-0 flex-1 truncate bg-transparent text-left text-[13px] font-medium outline-none',
         mono && 'font-mono',
+        className,
       )}
     />
   )

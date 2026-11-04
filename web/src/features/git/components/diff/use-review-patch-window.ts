@@ -33,6 +33,8 @@ interface ReviewPatchWindowOptions {
   items: CodeViewItem<ReviewThread>[]
   paths: string[]
   lineCounts: Record<string, number>
+  /** Paths marked viewed: collapsed to a header, never fetched, evicted if held. */
+  viewedPaths: ReadonlySet<string>
   signature: string
   annotationsByPath: ReadonlyMap<string, ReviewAnnotation[]>
   surfaceRef?: Ref<ReviewCodeViewHandle>
@@ -52,6 +54,7 @@ export function useReviewPatchWindow({
   items,
   paths,
   lineCounts,
+  viewedPaths,
   signature,
   annotationsByPath,
   surfaceRef,
@@ -66,11 +69,13 @@ export function useReviewPatchWindow({
   const placeholdersRef = useRef(placeholders)
   const pathsRef = useRef(paths)
   const lineCountsRef = useRef(lineCounts)
+  const viewedRef = useRef(viewedPaths)
   const activeRef = useRef(isActivePane)
   const annotationsRef = useRef(annotationsByPath)
   placeholdersRef.current = placeholders
   pathsRef.current = paths
   lineCountsRef.current = lineCounts
+  viewedRef.current = viewedPaths
   activeRef.current = isActivePane
   annotationsRef.current = annotationsByPath
 
@@ -91,6 +96,7 @@ export function useReviewPatchWindow({
       type: 'diff',
       fileDiff,
       annotations: annotationsRef.current.get(path),
+      collapsed: viewedRef.current.has(path),
       version: ++versionRef.current,
     })
   }, [])
@@ -134,6 +140,9 @@ export function useReviewPatchWindow({
     // (see `revealThread`): re-planning against the OLD scroll position would
     // evict the very file that is being navigated to.
     async (path: string, maxLines?: number, replan = true) => {
+      // The one choke point: reveal, expand and retry all land here, and a
+      // viewed file is never fetched on their behalf.
+      if (viewedRef.current.has(path)) return
       const token = ++tokenRef.current
       heldRef.current.set(path, { token, state: 'loading' })
       try {
@@ -141,6 +150,11 @@ export function useReviewPatchWindow({
         // The path may have scrolled out of the window while the request was in
         // flight; the eviction that dropped it already replaced the item.
         if (heldRef.current.get(path)?.token !== token) return
+        // Marked viewed while the request was in flight: drop the result.
+        if (viewedRef.current.has(path)) {
+          evictPath(path)
+          return
+        }
 
         const fileDiff = parseSingleFilePatch(patch, patchCacheKey(wsId, commit, path, patch))
         if (fileDiff == null) {
@@ -163,7 +177,7 @@ export function useReviewPatchWindow({
         if (replan) runWindowRef.current()
       }
     },
-    [publishItem, setPatchState, wsId, commit],
+    [evictPath, publishItem, setPatchState, wsId, commit],
   )
 
   const runWindow = useCallback(() => {
@@ -178,6 +192,7 @@ export function useReviewPatchWindow({
       materialized: [...heldRef.current.keys()],
       paths: pathList,
       lineCounts: lineCountsRef.current,
+      viewed: viewedRef.current,
     })
     for (const path of plan.evict) evictPath(path)
     for (const path of plan.fetch) void materialize(path)
@@ -204,6 +219,16 @@ export function useReviewPatchWindow({
   )
 
   /**
+   * A reveal of a viewed file lands on its collapsed header and fetches
+   * nothing; only unchecking "Viewed" opens it again.
+   */
+  const scrollToViewedHeader = useCallback((path: string): boolean => {
+    if (!viewedRef.current.has(path)) return false
+    handleRef.current?.scrollTo({ type: 'item', id: path, align: 'start' })
+    return true
+  }, [])
+
+  /**
    * Scroll to a thread, materialising its file first.
    *
    * The order is the whole point. A file the window has not loaded is a
@@ -214,6 +239,7 @@ export function useReviewPatchWindow({
   const revealThread = useCallback(
     async (thread: ReviewThread) => {
       const path = thread.filePath
+      if (scrollToViewedHeader(path)) return
       if (heldRef.current.get(path)?.state !== 'ready') {
         setPatchState(path, 'loading')
         await materialize(path, undefined, false)
@@ -231,13 +257,14 @@ export function useReviewPatchWindow({
         align: 'center',
       })
     },
-    [materialize, setPatchState],
+    [materialize, scrollToViewedHeader, setPatchState],
   )
 
   /** The same materialise → flush → scroll dance, addressed by line rather
    *  than by thread, for callers outside this component (find-in-diff). */
   const revealLine = useCallback(
     async (path: string, lineNumber: number, side: 'old' | 'new') => {
+      if (scrollToViewedHeader(path)) return
       if (heldRef.current.get(path)?.state !== 'ready') {
         setPatchState(path, 'loading')
         await materialize(path, undefined, false)
@@ -251,11 +278,12 @@ export function useReviewPatchWindow({
         align: 'center',
       })
     },
-    [materialize, setPatchState],
+    [materialize, scrollToViewedHeader, setPatchState],
   )
 
   const revealFile = useCallback(
     async (path: string) => {
+      if (scrollToViewedHeader(path)) return
       // Materialise first: a placeholder's reserved height is an ESTIMATE, so
       // scrolling to it and then letting the real patch resize it would leave
       // the reader somewhere near the file rather than at it.
@@ -266,7 +294,7 @@ export function useReviewPatchWindow({
       handleRef.current?.getInstance()?.render(true)
       handleRef.current?.scrollTo({ type: 'item', id: path, align: 'start' })
     },
-    [materialize, setPatchState],
+    [materialize, scrollToViewedHeader, setPatchState],
   )
 
   useImperativeHandle(
@@ -329,10 +357,29 @@ export function useReviewPatchWindow({
         type: 'diff',
         fileDiff: current.fileDiff,
         annotations: next,
+        collapsed: current.collapsed,
         version: ++versionRef.current,
       })
     }
   }, [annotationsByPath])
+
+  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff,
+  // so the header's ± counts survive, and only the paths whose flag moved are
+  // touched.
+  const collapsedRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const handle = handleRef.current
+    const previous = collapsedRef.current
+    collapsedRef.current = viewedPaths
+    if (handle == null) return
+    for (const path of [...previous, ...viewedPaths]) {
+      const collapsed = viewedPaths.has(path)
+      if (previous.has(path) === collapsed) continue
+      const current = handle.getItem(path)
+      if (current == null || current.type !== 'diff') continue
+      handle.updateItem({ ...current, collapsed, version: ++versionRef.current })
+    }
+  }, [viewedPaths])
 
   // The band is re-planned whenever the layout it depends on can have moved:
   // on mount, when the file list changes, and on every scroll.

@@ -54,12 +54,16 @@ function reorderRecentsEntries(
   if (!targetViewId) return
 
   const moved = new Set<string>()
+  const subjectSet = new Set(subjectChatIds)
   for (const chatId of subjectChatIds) {
     const state = windowPaneStore.getState()
     const paneId = chatPaneIndex(state.panes).get(chatId)
     const sourceViewId = paneId ? state.panes[paneId]?.viewId : null
     if (!paneId || !sourceViewId || moved.has(sourceViewId)) continue
-    if (viewChatIds(state, sourceViewId).length > 1) {
+    // A drag carrying every chat of a view moves the view; a partial one
+    // pulls its chats out of the group first.
+    const viewChats = viewChatIds(state, sourceViewId)
+    if (viewChats.length > 1 && !viewChats.every((id) => subjectSet.has(id))) {
       state.paneActions.detachPane(paneId)
     } else if (sourceViewId === targetViewId) {
       continue
@@ -79,7 +83,7 @@ function reorderRecentsEntries(
  * placement.
  *
  * A Recents row is ALWAYS a chat — the band renders nothing else — but its
- * `kind` is not always `'chat'`: `recents-band.tsx` spreads `chatIconIndex`'s
+ * `kind` is not always `'chat'`: `view-row.tsx` spreads `chatIconIndex`'s
  * fields onto the row so a chat that owns a workspace draws the tree's real
  * branch/lock/PR glyph, and `kind: 'branch'` rides along with them. Filtering
  * on `kind === 'chat'` here therefore dropped every such row on the floor,
@@ -154,8 +158,7 @@ function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
 
 /**
  * A row dropped onto a pane — spec §8.1/§8.2. Every drop here ADDS; nothing
- * this reaches for can remove a pane or evict a chat that is already showing
- * (the dwell-to-remove gesture this replaced is gone — Task 22).
+ * this reaches for can remove a pane or evict a chat that is already showing.
  */
 export function performSidebarPaneDrop(
   subjects: SidebarRow[],

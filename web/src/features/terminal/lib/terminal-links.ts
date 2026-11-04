@@ -1,12 +1,16 @@
-// Links in terminal output: URLs open in the browser, path-like tokens (as printed
+// Links in terminal output: URLs offer the link menu, path-like tokens (as printed
 // by compilers, test runners, git, ...) open in Crowbar's editor. One tokenizer
 // reads the logical line, so a soft-wrapped link is one link on every row.
 import type { IBuffer, IBufferCell, IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
 import { revealInEditor } from '@/features/editor/lib/reveal'
-import { openExternalUrl } from '@/lib/external-open'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { workspaceRef, type DocumentTarget } from '@/lib/api/documents'
+import { resolvedHostOf } from '@/lib/host-resolve'
 import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
+import { IS_MAC } from '@/utils/platform'
 import { useTerminalStore } from '../stores/terminal-store'
+import { showTerminalUrlMenu, type TerminalView } from './terminal-url-menu'
 
 /** `start`/`end` index the logical line's text; `end` is exclusive. */
 type LinkToken =
@@ -169,15 +173,21 @@ export interface TerminalLinksOptions {
   getRoot: () => string | undefined
   /** Opens the resolved absolute path in Crowbar's editor. */
   openFile: (absolutePath: string, line?: number) => void
-  /** Opens a URL outside Crowbar. */
-  openUrl: (uri: string) => void
+  /** Called when a URL link is activated, with the pointer position. */
+  onUrl: (url: string, position: { x: number; y: number }) => void
   /** Called when a clicked candidate cannot be resolved to an absolute path. */
   onUnresolved?: (candidateText: string) => void
 }
 
-function activate(token: LinkToken, options: TerminalLinksOptions): void {
+/** Cmd on macOS, Ctrl elsewhere: a plain click selects text, it never opens a link. */
+function isPrimaryModifier(event: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return IS_MAC ? event.metaKey : event.ctrlKey
+}
+
+function activate(token: LinkToken, event: MouseEvent, options: TerminalLinksOptions): void {
+  if (!isPrimaryModifier(event)) return
   if (token.kind === 'url') {
-    options.openUrl(token.text)
+    options.onUrl(token.text, { x: event.clientX, y: event.clientY })
     return
   }
   const resolved = resolveFileLinkPath(token.path, options.getRoot())
@@ -185,13 +195,45 @@ function activate(token: LinkToken, options: TerminalLinksOptions): void {
   else options.onUnresolved?.(token.text)
 }
 
+/** The hovered link's underline and pointer follow the modifier, wherever the pointer is. */
+function trackModifier(element: HTMLElement | undefined) {
+  let held = false
+  let hovered: ILink | null = null
+  const set = (next: boolean) => {
+    held = next
+    if (!hovered?.decorations) return
+    hovered.decorations.underline = next
+    hovered.decorations.pointerCursor = next
+  }
+  const onModifierEvent = (event: KeyboardEvent | MouseEvent) => set(isPrimaryModifier(event))
+  const onBlur = () => set(false)
+  const events = ['keydown', 'keyup', 'mousemove'] as const
+  for (const type of events) element?.addEventListener(type, onModifierEvent)
+  window.addEventListener('blur', onBlur)
+  return {
+    decorations: () => ({ underline: held, pointerCursor: held }),
+    hover: (link: ILink, event: MouseEvent) => {
+      hovered = link
+      set(isPrimaryModifier(event))
+    },
+    leave: (link: ILink) => {
+      if (hovered === link) hovered = null
+    },
+    dispose: () => {
+      for (const type of events) element?.removeEventListener(type, onModifierEvent)
+      window.removeEventListener('blur', onBlur)
+    },
+  }
+}
+
 // Registers the terminal's one link provider. It is owned by the terminal
 // instance and is disposed with it.
 export function registerTerminalLinks(
-  terminal: Pick<Terminal, 'buffer' | 'registerLinkProvider'>,
+  terminal: Pick<Terminal, 'buffer' | 'registerLinkProvider' | 'element'>,
   options: TerminalLinksOptions,
 ): IDisposable {
-  return terminal.registerLinkProvider({
+  const modifier = trackModifier(terminal.element)
+  const provider = terminal.registerLinkProvider({
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
       const line = readLogicalLine(terminal.buffer.active, bufferLineNumber - 1)
       if (!line) {
@@ -202,35 +244,71 @@ export function registerTerminalLinks(
       for (const token of tokenizeLinks(line.text)) {
         const range = rangeOf(line.cells, token)
         if (range.start.y > bufferLineNumber || range.end.y < bufferLineNumber) continue
-        links.push({ text: token.text, range, activate: () => activate(token, options) })
+        const link: ILink = {
+          text: token.text,
+          range,
+          decorations: modifier.decorations(),
+          activate: (event) => activate(token, event, options),
+          hover: (event) => modifier.hover(link, event),
+          leave: () => modifier.leave(link),
+        }
+        links.push(link)
       }
       callback(links.length > 0 ? links : undefined)
     },
   })
+  return {
+    dispose() {
+      provider.dispose()
+      modifier.dispose()
+    },
+  }
+}
+
+/** `absolutePath` relative to `root`, or null when it lies outside it. */
+function relativeTo(absolutePath: string, root: string | undefined): string | null {
+  if (!root) return null
+  const prefix = root.endsWith('/') ? root : `${root}/`
+  return absolutePath.startsWith(prefix) ? absolutePath.slice(prefix.length) || null : null
+}
+
+// A path inside the terminal's worktree opens as that workspace's document, so on its
+// host; any other path is a file of this machine, which a remote terminal never names.
+function documentFor(absolutePath: string, workspaceId: string | undefined): DocumentTarget | null {
+  if (!workspaceId) return { absolutePath }
+  const rel = relativeTo(absolutePath, workspaceRootPath(workspaceId))
+  if (rel) return workspaceRef(workspaceId, rel)
+  return resolvedHostOf({ wsId: workspaceId }) === LOCAL_HOST.id ? { absolutePath } : null
 }
 
 /**
- * Links open in Crowbar. A relative path resolves against the session cwd, else
- * the terminal's own workspace root; a terminal of no workspace opens absolute paths only.
+ * Links open in the terminal's own view, never the active one. A relative path resolves
+ * against the session cwd, else that workspace's root; a terminal of no workspace opens
+ * absolute paths only.
  */
 export function terminalLinksFor(
   getSessionId: () => string,
-  getWorkspaceId: () => string | undefined,
+  getView: () => Partial<TerminalView>,
 ): TerminalLinksOptions {
   return {
     getRoot: () => {
       const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
       if (cwd?.startsWith('/')) return cwd
-      const workspaceId = getWorkspaceId()
+      const { workspaceId } = getView()
       return workspaceId ? workspaceRootPath(workspaceId) : undefined
     },
     openFile: (absolutePath, line) => {
+      const doc = documentFor(absolutePath, getView().workspaceId)
+      if (!doc) {
+        toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
+        return
+      }
       const position = line ? { line: line - 1, character: 0 } : undefined
-      void revealInEditor({ doc: { absolutePath }, position })
+      void revealInEditor({ doc, position })
     },
-    // No confirmation step: a click goes straight to the default browser.
-    openUrl: (uri) => {
-      openExternalUrl(uri).catch((error) => console.error('Failed to open link:', error))
+    onUrl: (url, position) => {
+      const { workspaceId, paneId } = getView()
+      if (workspaceId) void showTerminalUrlMenu(url, position, { workspaceId, paneId })
     },
     onUnresolved: (candidateText) => {
       toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)

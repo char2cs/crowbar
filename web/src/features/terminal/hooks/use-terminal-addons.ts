@@ -23,37 +23,3 @@ export function createTerminalAddons(terminal: Terminal): TerminalAddons {
 
   return { fitAddon, searchAddon, serializeAddon }
 }
-
-export function injectLinkStyles(sessionId: string, containerId: string): void {
-  const styleId = `terminal-link-style-${sessionId}`
-  if (document.getElementById(styleId)) return
-
-  const style = document.createElement('style')
-  style.id = styleId
-  const accentColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--color-accent')
-    .trim()
-
-  style.textContent = `
-    #${containerId} .xterm-screen a,
-    #${containerId} .xterm-link,
-    #${containerId} [style*="text-decoration"] {
-      color: ${accentColor} !important;
-      text-decoration: underline !important;
-      cursor: pointer !important;
-    }
-    #${containerId} .xterm-screen a:hover,
-    #${containerId} .xterm-link:hover {
-      opacity: 0.8 !important;
-    }
-  `
-  document.head.appendChild(style)
-}
-
-export function removeLinkStyles(sessionId: string): void {
-  const styleId = `terminal-link-style-${sessionId}`
-  const style = document.getElementById(styleId)
-  if (style) {
-    style.remove()
-  }
-}

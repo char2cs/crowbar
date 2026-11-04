@@ -33,6 +33,17 @@ func TestAllowed(t *testing.T) {
 	}
 }
 
+// TestRegression_Allowed_DNSNameShapedLikeLoopbackIsRefused proves a site on a
+// name that merely starts with "127." is not mistaken for a loopback dev server:
+// its owner points it anywhere, so its pages must not drive the daemon.
+func TestRegression_Allowed_DNSNameShapedLikeLoopbackIsRefused(t *testing.T) {
+	for _, o := range []string{"http://127.evil.com", "https://127.0.0.1.evil.com:5173"} {
+		if Allowed(o, "127.0.0.1:3737") {
+			t.Fatalf("Allowed(%q) = true, want false: a DNS name is never loopback", o)
+		}
+	}
+}
+
 // TestAllowed_EnvAllowlist proves the CROWBAR_ALLOWED_ORIGINS safety valve adds
 // exact-match production origins without a code change.
 func TestAllowed_EnvAllowlist(t *testing.T) {

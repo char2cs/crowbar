@@ -19,12 +19,19 @@ vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
 
 import { resolveChatRow, resolveRow } from '@/components/layout/open-actions'
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
+import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { handleTrash } from '@/components/layout/trash-actions'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -51,9 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  resetEntities()
-  treeUiStore.setState({ draft: null })
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
 const ANY = expect.any(String)
@@ -133,14 +138,14 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     )
   })
 
-  it('its thread "+" runs in the WORKSPACE, not in the row id', () => {
+  it('its thread "+" runs in the WORKSPACE, not in the row id', async () => {
     seedRepos([lockedRepo()])
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('develop-row', 'thread', vi.fn())
+    await createThread('develop-row', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(
       ANY,
@@ -167,5 +172,37 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     expect(handleTrash('ws-open')).toBe(true)
     expect(treeUiStore.getState().removals).toHaveLength(1)
     expect(deleteChat).not.toHaveBeenCalled()
+  })
+})
+
+// A provider list belongs to a daemon: forking a remote workspace starts its first
+// chat with a provider THAT host offers, never one only the local daemon has.
+describe('forking on an install that has paired a remote host', () => {
+  it('starts the fork with a provider its own host offers', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    seedRepos([
+      repo({
+        id: 'r-remote',
+        projectId: 'p-remote',
+        workspaces: [{ id: 'ws-remote', branch: 'main', age: '', order: 0 }],
+      }),
+    ])
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+      remote: { 'host-1': [{ id: 'codex-remote', enabled: true }] as never },
+    })
+
+    await handleCreate('ws-remote', 'workspace', vi.fn())
+    confirmArmedBranchName()
+
+    expect(createChatWithOwnWorktree.mock.calls[0]?.slice(2, 5)).toEqual([
+      'p-remote',
+      'r-remote',
+      'codex-remote',
+    ])
+    resetHostWorld()
   })
 })

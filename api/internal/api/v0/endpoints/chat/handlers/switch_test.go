@@ -139,21 +139,21 @@ func TestStop_Success(
 	assert.Equal(t, "chat-1", uc.stopCalls[0])
 }
 
-// TestClose_Success proves Close calls CloseChat (not StopChat) for the path id
+// TestKill_Success proves Kill calls KillChat (not StopChat) for the path id
 // and responds 204.
-func TestClose_Success(
+func TestKill_Success(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/close", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/kill", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
-	h.Close(ctx)
+	h.Kill(ctx)
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, []string{"chat-1"}, uc.closeCalls)
+	assert.Equal(t, []string{"chat-1"}, uc.killCalls)
 	assert.Empty(t, uc.stopCalls)
 }
 

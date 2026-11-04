@@ -23,6 +23,7 @@ const presetChatLandingPresentation = vi
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
@@ -35,6 +36,13 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { enabledProvider } from '@/components/layout/thread-create'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -61,14 +69,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  resetEntities()
-  treeUiStore.setState({ draft: null })
   resetOperations()
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  // A create needs a provider, read from the global store: there is no workspace yet to scope by.
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
 const ANY = expect.any(String)
@@ -96,7 +99,7 @@ describe('a refused thread create', () => {
       Promise.reject(new ApiError('parent ws-a not found', 404, 'not_found')),
     )
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     await vi.waitFor(() =>
       expect(opRows()).toMatchObject([
@@ -121,8 +124,25 @@ describe('starting a thread on an empty folder', () => {
   })
 })
 
+// Settings → Providers sets up only this computer: a remote host's providers are its own.
+describe('starting a thread on a remote host with no provider enabled', () => {
+  afterEach(() => resetHostWorld())
+
+  it('names the host, and says its providers are enabled on it', () => {
+    pairRemoteHost('h1', 'homelab')
+    loadProjects(projectOn('p-remote', 'h1'))
+    useAgentProvidersStore.setState({ remote: { h1: [{ id: 'codex', enabled: false }] as never } })
+
+    expect(enabledProvider('p-remote')).toBeNull()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'No agent provider is enabled on homelab',
+      'Enable one on homelab itself: Settings → Providers sets up only this computer.',
+    )
+  })
+})
+
 describe('starting a thread on a real workspace', () => {
-  it('creates a chat with the first enabled provider', () => {
+  it('creates a chat with the first enabled provider', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     // The GLOBAL provider list — providers are machine-level, and a
     // per-workspace copy only exists once that workspace has been mounted.
@@ -131,7 +151,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(
       ANY,
@@ -143,11 +163,8 @@ describe('starting a thread on a real workspace', () => {
     )
   })
 
-  // THE BUG: "can't start chats directly on a CLI, it always obligates me to
-  // use the native chat" — no creation entry point could land a single new
-  // chat on Terminal without flipping chatIsDefaultPresentation globally. An
-  // optional 4th `presentation` arg is the fix: handleCreate presets the
-  // landed chat's surface before opening it, same seam an in-pane pick uses.
+  // One new chat can land on Terminal without flipping the global default: handleCreate presets
+  // its surface before opening it, the seam an in-pane pick uses.
   it('presets the new chat onto Terminal when asked for one', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
@@ -155,7 +172,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn(), 'terminal')
+    await createThread('ws-a', vi.fn(), 'terminal')
     await Promise.resolve()
 
     await vi.waitFor(() =>
@@ -173,7 +190,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     await Promise.resolve()
 
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
@@ -188,7 +205,7 @@ describe('starting a thread on a real workspace', () => {
     })
     setActiveWorkspaceId('ws-a')
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     const chatId = mintedChatId()
     expect(opRows()).toMatchObject([{ id: chatId, kind: 'chat', parentId: 'ws-a', working: true }])
 
@@ -216,11 +233,7 @@ describe('starting a thread on a real workspace', () => {
     expect(opRows()).toEqual([])
   })
 
-  // Live-reported: "that new chat entity should be focused... it's just
-  // adding the row" — a freshly started thread updated the sidebar tree but
-  // never became the thing on screen, unlike `handleCreateHomeThread`'s own,
-  // already-correct "opens the moment it exists" contract for a project-home
-  // thread. This pins the repo-scoped path now matching it.
+  // A started thread becomes the thing on screen, as a project-home thread already does.
   it('opens the new thread into a pane immediately when its workspace is already active', async () => {
     resetWindowPaneStoreForTests()
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
@@ -231,7 +244,7 @@ describe('starting a thread on a real workspace', () => {
     setActiveWorkspaceId('ws-a')
     const navigate = vi.fn()
 
-    handleCreate('ws-a', 'thread', navigate)
+    await createThread('ws-a', navigate)
     await Promise.resolve()
 
     await vi.waitFor(() =>
@@ -240,18 +253,8 @@ describe('starting a thread on a real workspace', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
-  // Live-reported: "Creating a thread works, but the autoopen just go
-  // straight into that thread, to then come back to the latest chat I had
-  // opened." Root cause: the pane store's `activeProjectId` starts null every
-  // load and is set for the first time by ide-shell.tsx's route-driven
-  // effect calling `setActiveProject` — which can commit AFTER a thread
-  // created in that gap has already opened its own brand-new view (this
-  // handler's `addPane` path, reached because the active pane already holds
-  // a chat). `setActiveProject`'s bootstrap used to trust a persisted
-  // `activeViewByProject` pointer unconditionally and swap the just-opened
-  // thread back out for whatever chat that pointer named. See
-  // `pane-slice.project-scope.test.ts`'s §8 case for the underlying
-  // store-level mechanism this pins end-to-end through the real create flow.
+  // The project bootstrap can commit after a thread opened its own view; it must not swap that
+  // thread out for a persisted pointer (pane-slice.project-scope.test.ts §8, end to end here).
   it('a thread opened while an existing chat occupies the pane survives a delayed project bootstrap', async () => {
     resetWindowPaneStoreForTests()
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
@@ -272,7 +275,7 @@ describe('starting a thread on a real workspace', () => {
     }))
     const navigate = vi.fn()
 
-    handleCreate('ws-a', 'thread', navigate)
+    await createThread('ws-a', navigate)
     await Promise.resolve()
 
     await vi.waitFor(() =>
@@ -307,7 +310,7 @@ describe('starting a thread on a real workspace', () => {
     setActiveWorkspaceId('ws-other')
     const navigate = vi.fn(() => Promise.resolve())
 
-    handleCreate('ws-a', 'thread', navigate)
+    await createThread('ws-a', navigate)
     await Promise.resolve()
     await Promise.resolve()
 

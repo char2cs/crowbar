@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ApiError } from '@/lib/errors/api-error'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
   answerChoiceFn: vi.fn(),
@@ -256,6 +259,22 @@ describe('ComposerChoice failures', () => {
       expect(screen.getByTestId('agent-choice-error')).toHaveTextContent('network blip'),
     )
     expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+  })
+
+  it('names the remote host an answer could not reach', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    answerChoiceFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    draw()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent(
+        'Couldn’t reach Studio Mac',
+      ),
+    )
+    destroyHostRuntime('h1')
+    resetHostWorld()
   })
 })
 

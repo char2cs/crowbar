@@ -103,7 +103,6 @@ export function FileExplorerTreeRows({
     // scrollable container; applying it unconditionally locked the sticky
     // ancestor below the viewport's real top and sheared off the row under it.
     '--file-tree-header-height': `${searchBarOpen ? FILE_TREE_HEADER_HEIGHT : 0}px`,
-    '--file-tree-sticky-row-height': `${densityConfig.rowHeight}px`,
     '--file-tree-sticky-stack-height': `${stickyAncestors.length * densityConfig.rowHeight}px`,
   } as React.CSSProperties
 
@@ -115,7 +114,7 @@ export function FileExplorerTreeRows({
           style={stickyAncestorsStyle}
           containerInset={FILE_TREE_CONTAINER_INSET}
           indentSize={indentSize}
-          rowClassName={densityConfig.rowClassName}
+          rowHeight={densityConfig.rowHeight}
           getGitStatusDecoration={item.getGitStatusDecoration}
         />
       ) : null}
@@ -133,7 +132,7 @@ export function FileExplorerTreeRows({
             previousDepth={visibleRows[vi.index - 1]?.depth ?? 0}
             nextDepth={visibleRows[vi.index + 1]?.depth ?? 0}
             indentSize={indentSize}
-            density={fileTreeDensity}
+            rowHeight={densityConfig.rowHeight}
             isExpanded={row.isExpanded}
             isActive={highlightedPath === row.file.path}
             rowId={getFileTreeRowId(row.file.path)}

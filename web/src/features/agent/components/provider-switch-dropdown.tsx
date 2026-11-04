@@ -4,8 +4,9 @@ import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
-// Shared by trigger and menu. The menu takes it as an inline style because
-// Dropdown's applyLockedWidth overwrites a class-set width but leaves style alone.
+// The terminal strip's trigger and menu share this width; a pane header uses a compact
+// trigger. The menu takes it as an inline style because Dropdown's applyLockedWidth
+// overwrites a class-set width but leaves style alone.
 const SWITCHER_WIDTH_PX = 180
 // Must equal SWITCHER_WIDTH_PX; Tailwind only generates literal class names.
 const SWITCHER_WIDTH_CLASS = 'w-[180px]'
@@ -15,6 +16,8 @@ export interface ProviderSwitchDropdownProps {
   currentProviderId: string
   onSwitch: (providerId: string) => void
   disabled?: boolean
+  /** Use a content-sized trigger when the control sits in a pane header. */
+  compact?: boolean
 }
 
 export function ProviderSwitchDropdown({
@@ -22,6 +25,7 @@ export function ProviderSwitchDropdown({
   currentProviderId,
   onSwitch,
   disabled = false,
+  compact = false,
 }: ProviderSwitchDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -48,7 +52,8 @@ export function ProviderSwitchDropdown({
   return (
     <>
       {/* -mr-[9px] (8px padding + 1px border) puts the ghost trigger's caret on the
-          terminal's last column; justify-between because buttonVariants centres. */}
+          terminal's last column; justify-between because buttonVariants centres. A
+          pane header's compact trigger is content-sized instead. */}
       <button
         ref={anchorRef}
         type="button"
@@ -56,7 +61,9 @@ export function ProviderSwitchDropdown({
         title={disabled ? 'Wait for prompt delivery before switching providers' : undefined}
         onClick={() => setIsOpen((open) => !open)}
         className={dropdownTriggerClassName(
-          `-mr-[9px] h-7 ${SWITCHER_WIDTH_CLASS} shrink-0 justify-between text-foreground`,
+          compact
+            ? 'h-7 w-fit max-w-40 shrink-0 justify-between px-1.5 text-foreground'
+            : `-mr-[9px] h-7 ${SWITCHER_WIDTH_CLASS} shrink-0 justify-between text-foreground`,
           'ghost',
         )}
       >

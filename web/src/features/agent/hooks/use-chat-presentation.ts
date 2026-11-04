@@ -5,6 +5,7 @@ import {
   type ChatPresentation,
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
+import { IS_MOBILE } from '@/utils/platform'
 
 export const SPLIT_MIN_HALF_PX = 340
 export const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
@@ -97,8 +98,9 @@ export function useChatPresentation(
   )
   const splitEnabled = useSplitPresentationEnabled()
   // Derived, not corrected, so disabling split cannot strand a chat on a
-  // surface whose button just disappeared.
-  const presentation: ChatPresentation = chosen === 'split' && !splitEnabled ? 'chat' : chosen
+  // surface whose button just disappeared. The phone has no TUI surface.
+  const presentation: ChatPresentation =
+    IS_MOBILE || (chosen === 'split' && !splitEnabled) ? 'chat' : chosen
   const splitting = presentation === 'split'
 
   // Offered when Crowbar moved the user to the terminal and cannot move them

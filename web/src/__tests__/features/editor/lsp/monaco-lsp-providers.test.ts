@@ -3,7 +3,7 @@
  * them into one Monaco command that has the daemon execute them and applies
  * the edits the server made while they ran.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as Monaco from 'monaco-editor'
 
 const monaco = vi.hoisted(() => ({
@@ -69,6 +69,9 @@ import {
   refusal,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 registerLspProviders()
 
@@ -204,5 +207,21 @@ describe('LSP commands', () => {
     request.mockRejectedValue(migratingRefusal())
     await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
     await vi.waitFor(() => expectMigratingShown(toasts))
+  })
+})
+
+// A command a remote host failed names that host under the command's own title.
+describe('a failed LSP command on a remote host', () => {
+  afterEach(() => {
+    destroyHostRuntime('h1')
+    resetHostWorld()
+  })
+
+  it('is reported naming the host', async () => {
+    const toasts = watchToasts()
+    pairRemoteHost('h1', 'Studio Mac')
+    request.mockReset().mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
+    await vi.waitFor(() => expectReported(toasts, 'Command failed', 'Couldn’t reach Studio Mac'))
   })
 })

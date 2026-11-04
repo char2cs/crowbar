@@ -1,5 +1,7 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { openHomeChat, type NavigateFn } from './open-actions'
+import { newDraftChatId } from '@/features/agent/lib/draft-chat'
+import { finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startThread } from './thread-create'
 
 // Creates in a project's home: it rides no repo, so its rows live in
@@ -11,8 +13,8 @@ export function startHomeRowThread(
   homeWorkspaceId: string,
   parentId: string,
   presentation?: LandingChatPresentation,
-): void {
-  void startThread({
+): Promise<void> {
+  return startThread({
     inFlightKey: `thread:${parentId}`,
     projectId,
     workspaceId: homeWorkspaceId,
@@ -22,9 +24,9 @@ export function startHomeRowThread(
 }
 
 /**
- * The sidebar header's "start a thread on the project's home workspace"
- * button — NOT reachable through `handleCreate` above, which resolves its
- * `parentId` against the repo-scoped sidebar store (`resolveRow`) and has no
+ * The tree foot's "New thread" on the project's home workspace — NOT
+ * reachable through `handleCreate`, which resolves its `parentId` against
+ * the repo rows (`resolveRow`) and has no
  * notion of project home at all (home-workspace-resolver.ts: "home is a
  * project-level concept, not a repo workspace" — it never appears in
  * `repos`). Creates directly against the resolved home workspace id, then
@@ -39,15 +41,18 @@ export function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,
   navigate: NavigateFn,
-  /** Same as `handleCreate`'s own optional 4th arg. */
-  presentation?: LandingChatPresentation,
 ): Promise<void> {
+  return openHomeChat(projectId, homeWorkspaceId, newDraftChatId(), navigate)
+}
+
+/** Creates the chat a project-home draft was waiting to become, with its first prompt. */
+export function promoteHomeDraft(draft: DraftSpec, prompt: DraftPrompt): Promise<void> {
+  const { projectId, workspaceId } = draft
   return startThread({
-    inFlightKey: `thread:home:${projectId}`,
+    inFlightKey: `draft:${draft.draftId}`,
     projectId,
-    workspaceId: homeWorkspaceId,
+    workspaceId,
     parentId: '',
-    presentation,
-    onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
+    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt),
   })
 }

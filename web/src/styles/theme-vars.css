@@ -64,6 +64,7 @@
   --color-code-foreground: var(--code-foreground);
   --color-code-highlight: var(--code-highlight);
   --color-brand: var(--brand);
+  --color-brand-ground: var(--brand-ground);
   --color-chrome-bg: var(--chrome-bg);
   --color-pane-chrome-bg: var(--pane-chrome-bg);
   --color-git-added: var(--git-added);

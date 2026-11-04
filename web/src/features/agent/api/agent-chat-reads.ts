@@ -131,6 +131,15 @@ type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stopping'
  *  something wrong. */
 export interface AgentTerminalWait {
   kind: string
+  /** One-tap replies the provider's descriptor declares for this prompt. Absent
+   *  or empty means the terminal is the only way past it. */
+  answers?: AgentTerminalAnswer[]
+}
+
+export interface AgentTerminalAnswer {
+  id: string
+  /** The button text, from the descriptor. */
+  label: string
 }
 
 /** Crowbar's names for the prompts it recognises specifically. Anything else —
@@ -239,7 +248,9 @@ export function mapChat(c: AgentChat): AgentChat {
     // this chat), so it stays undefined rather than becoming a falsy object that
     // every reader would then have to interrogate. `kind` inside it IS grounded,
     // because an identified prompt and an unidentified one are both real answers.
-    terminalWait: c.terminalWait ? { kind: c.terminalWait.kind ?? '' } : undefined,
+    terminalWait: c.terminalWait
+      ? { kind: c.terminalWait.kind ?? '', answers: c.terminalWait.answers }
+      : undefined,
   }
 }
 

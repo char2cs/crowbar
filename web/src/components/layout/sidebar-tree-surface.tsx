@@ -1,10 +1,9 @@
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { lazy, memo, Suspense, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { useTreeInput } from '@/features/workspace/tree/input'
-import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import { handleOpen as openSidebarRow } from './open-actions'
 import { handleTrash, handleTrashProject as trashProject } from './trash-actions'
 import { handleCreate as createSidebarRow } from './create-actions'
@@ -16,11 +15,15 @@ import { selectProjectsSynced, selectRepos, useSelect } from '@/core/entities/se
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
-import { CreateSpacePanel } from './create-space-panel'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 const NO_ROWS: SidebarRow[] = []
+
+// Shown only while the `+` mark is open: its host pairing and folder picker stay out of boot.
+const CreateSpacePanel = lazy(() =>
+  import('./create-space-panel').then((m) => ({ default: m.CreateSpacePanel })),
+)
 
 interface SidebarTreeSurfaceProps {
   projects: Project[]
@@ -74,12 +77,9 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     [repos, navigate],
   )
   const createRow = useCallback(
-    (parentId: string, kind: 'workspace' | 'thread') => createSidebarRow(parentId, kind, navigate),
+    (parentId: string, kind: 'workspace' | 'thread') =>
+      void createSidebarRow(parentId, kind, navigate),
     [navigate],
-  )
-  const focusRecentEntry = useCallback(
-    (viewId: string) => focusRecent(viewId, repos, navigate),
-    [repos, navigate],
   )
   // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the
   // drag-to-trash gesture already calls, just reachable without a drag now.
@@ -95,7 +95,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     },
     [allRows],
   )
-  // Spec §9's project-level trash, reached from the space header's overflow.
+  // Spec §9's project-level trash, reached from the tree foot's More… menu.
   // Says so rather than doing nothing when the tray refuses to hold the
   // project (a project id no loaded project claims) — the same posture the
   // row trash's own confirm takes.
@@ -103,19 +103,20 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     if (trashProject(projectId)) return
     toast.error("Can't delete this space — it may already be gone")
   }, [])
-  // The right-click menu listens on an ancestor of every project's panel DOM
-  // (via native `contextmenu` bubbling), not on any one panel — a single
-  // listener here catches a right-click in ANY project's rows.
-  const treeRef = useRef<HTMLDivElement>(null)
+  // The right-click menu and double-click rename listen on the document body,
+  // not on this tree: the view-tab strip draws the same rows outside it.
+  const chromeRef = useRef<HTMLElement | null>(document.body)
   // Before the projects scope's snapshot no row is known yet, so none is drawn.
   const synced = useSelect(selectProjectsSynced)
   if (!synced) return <SidebarSkeleton />
 
   return (
-    <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ErrorBoundary>
         {creatingSpace ? (
-          <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
+          <Suspense fallback={null}>
+            <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
+          </Suspense>
         ) : (
           <SpaceScroller
             projects={projects}
@@ -125,16 +126,13 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             onOpen={openRow}
             onTrash={onTrash}
             onCreate={createRow}
-            onFocusRecent={focusRecentEntry}
-            onCloseRecent={closeRecent}
-            onCloseChatRecent={closeRecentChat}
             onDrop={performSidebarDrop}
             onPaneDrop={performSidebarPaneDrop}
             onTrashProject={handleTrashProject}
           />
         )}
       </ErrorBoundary>
-      <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />
+      <SidebarTreeChrome treeRef={chromeRef} rows={allRows} repos={repos} />
     </div>
   )
 })

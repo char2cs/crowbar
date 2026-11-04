@@ -2,21 +2,25 @@
 package api
 
 import (
+	"net/http"
 	"net/http/pprof"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// mountDebug exposes /debug/pprof/* so a live-but-wedged daemon can be
-// diagnosed from outside: the desktop watchdog captures
-// /debug/pprof/goroutine?debug=2 into the daemon log before it kills and
-// respawns an unresponsive daemon. The daemon serves a private unix socket
-// only, so this surface is reachable exclusively by local processes that can
-// already open that socket.
+// mountDebug exposes /debug/pprof/* for diagnosing a wedged daemon (the
+// desktop watchdog captures goroutine?debug=2 before a respawn). It is a local
+// operator tool, never a paired client's, so any request over TLS is refused.
 func mountDebug(
 	router *gin.Engine,
 ) {
 	handler := func(c *gin.Context) {
+		if c.Request.TLS != nil {
+			libs.WriteErr(c, http.StatusForbidden, "pprof is only served over the local socket")
+			return
+		}
 		switch c.Param("rest") {
 		case "/cmdline":
 			pprof.Cmdline(c.Writer, c.Request)

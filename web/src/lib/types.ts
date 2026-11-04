@@ -33,6 +33,9 @@ export interface Project {
   /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
    *  one when the other is set, so both are never live at once. */
   avatarEmoji?: string
+  /** The daemon this project lives on ('local' or a paired host's id). Stamped
+   *  by whoever read it off that host — the wire DTO never carries it. */
+  hostId: string
 }
 
 export interface Prerequisites {

@@ -5,6 +5,7 @@ import { useZoomKeyboard } from '@/features/keymaps/hooks/use-zoom-keyboard'
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   IS_MAC: false,
+  APPLE_KEYBOARD: false,
 }))
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({

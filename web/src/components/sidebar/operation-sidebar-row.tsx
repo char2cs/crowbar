@@ -5,13 +5,18 @@ import {
   CREATE_ROW_PLACEHOLDER,
   ROW_BASE,
   ROW_GLYPH_BOX,
-  ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { cancelCreateDraft, confirmCreateDraft } from '@/components/layout/create-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { RowGlyph } from '@/components/sidebar/sidebar-row-glyph'
+import {
+  rowBoxStyle,
+  rowGlyphStyle,
+  rowIndent,
+  useRowMetrics,
+} from '@/components/sidebar/lib/row-metrics'
 import { dismissOperation } from '@/core/entities/run-operation'
 import { report } from '@/lib/errors/report'
 
@@ -38,16 +43,21 @@ export function OperationSidebarRow({ row, depth }: { row: SidebarRowType; depth
   const operation = row.operation
   const isFailed = operation?.state === 'failed'
   const reason = operation?.problem?.message
+  const metrics = useRowMetrics()
   return (
-    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
       <div
         className={cn(
           ROW_BASE,
           'border-transparent',
           !row.draft && 'pointer-events-none opacity-60',
         )}
+        style={rowBoxStyle(metrics)}
       >
-        <span className={ROW_GLYPH_BOX}>
+        <span
+          className={cn(ROW_GLYPH_BOX, metrics && '[&_svg]:size-full')}
+          style={rowGlyphStyle(metrics)}
+        >
           {isFailed ? (
             <span
               aria-hidden="true"

@@ -19,6 +19,8 @@ function AlertDialogBackdrop({
         className,
       )}
       data-slot="alert-dialog-backdrop"
+      // Base UI skips the backdrop of a nested dialog; every modal here dims what is behind it.
+      forceRender
       {...props}
     />
   )

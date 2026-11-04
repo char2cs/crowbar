@@ -5,6 +5,10 @@ import { report } from '@/lib/errors/report'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useEditorHost } from '@/features/editor/host/use-editor-host'
 import {
+  loadEditorSurface,
+  loadMarkdownEditorPane,
+} from '@/features/panes/lib/editor-surface-loader'
+import {
   isEditorContent,
   type DocumentUnavailable,
   type EditorContent,
@@ -18,7 +22,7 @@ import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-
 // Lazy so Monaco (3.5 MB, half of all boot JS) loads when an editor pane first
 // renders, not at app boot.
 const EditorSurface = lazy(() =>
-  import('@/features/editor/components/editor-surface').then((m) => ({
+  loadEditorSurface().then((m) => ({
     default: m.EditorSurface,
   })),
 )
@@ -26,7 +30,7 @@ const EditorSurface = lazy(() =>
 // Lazy so Plate (and its dependency graph) stays out of the base pane chunk —
 // only buffers that actually route to the rich surface pull it in.
 const MarkdownEditorPane = lazy(() =>
-  import('@/features/editor/markdown/plate/markdown-editor-pane').then((m) => ({
+  loadMarkdownEditorPane().then((m) => ({
     default: m.MarkdownEditorPane,
   })),
 )

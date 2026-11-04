@@ -13,21 +13,21 @@ describe('useSpaceSwitcherKeyboard', () => {
     vi.clearAllMocks()
   })
 
-  it('Cmd+1 selects index 0', () => {
+  it('Cmd+Shift+1 selects index 0', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(3, onSelect))
 
-    const event = dispatchKeydown({ key: '1', metaKey: true })
+    const event = dispatchKeydown({ code: 'Digit1', metaKey: true, shiftKey: true })
 
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(0)
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('Ctrl+3 selects index 2', () => {
+  it('Ctrl+Shift+3 selects index 2', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(3, onSelect))
 
-    dispatchKeydown({ key: '3', ctrlKey: true })
+    dispatchKeydown({ code: 'Digit3', ctrlKey: true, shiftKey: true })
 
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(2)
   })
@@ -36,7 +36,7 @@ describe('useSpaceSwitcherKeyboard', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(4, onSelect))
 
-    dispatchKeydown({ key: '9', metaKey: true })
+    dispatchKeydown({ code: 'Digit9', metaKey: true, shiftKey: true })
 
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(3)
   })
@@ -45,7 +45,7 @@ describe('useSpaceSwitcherKeyboard', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(2, onSelect))
 
-    const event = dispatchKeydown({ key: '5', metaKey: true })
+    const event = dispatchKeydown({ code: 'Digit5', metaKey: true, shiftKey: true })
 
     expect(onSelect).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
@@ -55,17 +55,19 @@ describe('useSpaceSwitcherKeyboard', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(3, onSelect))
 
-    dispatchKeydown({ key: '1' })
+    dispatchKeydown({ code: 'Digit1', shiftKey: true })
 
     expect(onSelect).not.toHaveBeenCalled()
   })
 
-  it('does nothing with Shift or Alt held alongside the modifier', () => {
+  it('leaves bare Cmd/Ctrl+digit to the sidebar modes, and ignores Alt', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(3, onSelect))
 
-    dispatchKeydown({ key: '1', metaKey: true, shiftKey: true })
-    dispatchKeydown({ key: '1', metaKey: true, altKey: true })
+    const bare = dispatchKeydown({ key: '1', code: 'Digit1', metaKey: true })
+    dispatchKeydown({ code: 'Digit1', metaKey: true, shiftKey: true, altKey: true })
+
+    expect(bare.defaultPrevented).toBe(false)
 
     expect(onSelect).not.toHaveBeenCalled()
   })
@@ -74,7 +76,7 @@ describe('useSpaceSwitcherKeyboard', () => {
     const onSelect = vi.fn()
     renderHook(() => useSpaceSwitcherKeyboard(0, onSelect))
 
-    dispatchKeydown({ key: '1', metaKey: true })
+    dispatchKeydown({ code: 'Digit1', metaKey: true, shiftKey: true })
 
     expect(onSelect).not.toHaveBeenCalled()
   })
@@ -84,7 +86,7 @@ describe('useSpaceSwitcherKeyboard', () => {
     const { unmount } = renderHook(() => useSpaceSwitcherKeyboard(3, onSelect))
     unmount()
 
-    dispatchKeydown({ key: '1', metaKey: true })
+    dispatchKeydown({ code: 'Digit1', metaKey: true, shiftKey: true })
 
     expect(onSelect).not.toHaveBeenCalled()
   })

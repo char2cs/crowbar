@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aggregateFolders,
   buildGitFolderTree,
   collectNodeFiles,
+  compactFolder,
   createFolderNode,
   normalizePathSegments,
   sortFilesByPath,
@@ -173,5 +175,42 @@ describe('collectNodeFiles', () => {
   it('returns empty array for leaf node with no files', () => {
     const node = createFolderNode('empty', 'empty')
     expect(collectNodeFiles(node)).toEqual([])
+  })
+})
+
+describe('compactFolder', () => {
+  it('folds a chain of single-child folders into one labelled node', () => {
+    const root = buildGitFolderTree([makeFile('a/b/c/x.ts'), makeFile('a/b/c/y.ts')])
+    const { label, node } = compactFolder(root.folders.get('a')!)
+    expect(label).toBe('a/b/c')
+    expect(node.fullPath).toBe('a/b/c')
+  })
+
+  it('stops at a folder that holds files or branches', () => {
+    const withFile = buildGitFolderTree([makeFile('a/f.ts'), makeFile('a/b/x.ts')])
+    expect(compactFolder(withFile.folders.get('a')!).label).toBe('a')
+
+    const branching = buildGitFolderTree([makeFile('a/b/x.ts'), makeFile('a/c/y.ts')])
+    expect(compactFolder(branching.folders.get('a')!).label).toBe('a')
+  })
+})
+
+describe('aggregateFolders', () => {
+  it('counts viewed and total descendants for every folder in one pass', () => {
+    const root = buildGitFolderTree([
+      makeFile('src/a.ts'),
+      makeFile('src/sub/b.ts'),
+      makeFile('src/sub/c.ts'),
+      makeFile('README.md'),
+    ])
+    const seen: string[] = []
+    const agg = aggregateFolders(root, (f) => {
+      seen.push(f.path)
+      return f.path !== 'src/sub/c.ts' && f.path !== 'README.md'
+    })
+    expect(agg.get('src')).toEqual({ total: 3, viewed: 2 })
+    expect(agg.get('src/sub')).toEqual({ total: 2, viewed: 1 })
+    // Each file is asked about exactly once, however deep it sits.
+    expect(seen.sort()).toEqual(['src/a.ts', 'src/sub/b.ts', 'src/sub/c.ts'])
   })
 })

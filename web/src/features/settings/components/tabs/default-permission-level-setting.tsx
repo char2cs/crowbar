@@ -25,11 +25,17 @@ import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
  * `ProvidersSettings`'s own `commit()`.
  */
 export function DefaultPermissionLevelSetting() {
+  const { level, change } = useDefaultPermissionLevel()
+  return <PermissionLevelRow level={level} onChange={change} />
+}
+
+/** The local daemon's default permission level, or `hostId`'s, and the one way to change it. */
+export function useDefaultPermissionLevel(hostId?: string) {
   const [level, setLevel] = useState<PermissionLevel>('guarded')
 
   useEffect(() => {
     let cancelled = false
-    void getDefaultPermissionLevel()
+    void (hostId === undefined ? getDefaultPermissionLevel() : getDefaultPermissionLevel(hostId))
       .then((resolved) => {
         if (!cancelled) setLevel(resolved)
       })
@@ -43,7 +49,7 @@ export function DefaultPermissionLevelSetting() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [hostId])
 
   // Scoped to THIS component's own sequence of writes — not
   // agent-providers-store's generation counter, which arbitrates several call
@@ -53,13 +59,17 @@ export function DefaultPermissionLevelSetting() {
   // for the first pick would rewind the second, already-successful one.
   const writeGeneration = useRef(0)
 
-  const handleChange = useCallback(
+  const change = useCallback(
     (value: PermissionLevel | null) => {
       if (!value) return
       const previous = level
       const generation = ++writeGeneration.current
       setLevel(value)
-      void updateDefaultPermissionLevel(value).catch(() => {
+      const write =
+        hostId === undefined
+          ? updateDefaultPermissionLevel(value)
+          : updateDefaultPermissionLevel(value, hostId)
+      void write.catch(() => {
         if (writeGeneration.current !== generation) return // superseded by a later pick
         setLevel(previous)
         toast.error(
@@ -68,15 +78,25 @@ export function DefaultPermissionLevelSetting() {
         )
       })
     },
-    [level],
+    [level, hostId],
   )
 
+  return { level, change }
+}
+
+export function PermissionLevelRow({
+  level,
+  onChange,
+}: {
+  level: PermissionLevel
+  onChange: (value: PermissionLevel | null) => void
+}) {
   return (
     <SettingRow
       label="Default permission level"
       description="How much of a new chat's tool-call approval is answered automatically."
     >
-      <Select value={level} onValueChange={handleChange}>
+      <Select items={PERMISSION_LEVEL_OPTIONS} value={level} onValueChange={onChange}>
         <SelectTrigger
           data-testid="default-permission-level-trigger"
           size="sm"

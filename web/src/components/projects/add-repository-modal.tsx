@@ -9,11 +9,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { openNativeDialog as openDialog } from '@/lib/native-dialog'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
+import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { fetchRepos, fetchWorkspaces, postRepo } from '@/lib/api'
-import { useProjectStore } from '@/core/entities/active-project'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { placeEntities } from '@/core/entities/entity-store'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { operationsState, type Operation } from '@/core/entities/operations'
@@ -23,15 +24,8 @@ import { UserFacingError } from '@/lib/errors/user-facing-error'
 interface AddRepositoryModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /**
-   * Which project the repo lands in. Required wherever the caller is not the
-   * active project: the sidebar now shows a row per project, and each of those
-   * rows offers this modal — reading the active project here would silently
-   * import into whichever project happened to be open instead of the one whose
-   * row was clicked. Omitted, it keeps the old behaviour for the callers that
-   * genuinely mean "the current project".
-   */
-  projectId?: string
+  /** The project the repo lands in — the row's own, never whichever one is open. */
+  projectId: string
 }
 
 // A failed branch fails the add as `partial`, but the repo was added: that add
@@ -76,26 +70,25 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
   const trimmedPath = path.trim()
   const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
 
-  async function handleBrowse() {
-    const selected = await openDialog({ directory: true, multiple: false })
-    if (typeof selected === 'string') {
-      setPath(selected)
-      if (!name) {
-        setName(
-          selected
-            .replace(/[\\/]+$/, '')
-            .split(/[\\/]/)
-            .pop() ?? '',
-        )
-      }
+  function handlePicked(selected: string) {
+    setPath(selected)
+    if (!name) {
+      setName(
+        selected
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .pop() ?? '',
+      )
     }
   }
+  // The folder is picked on the daemon the repo is imported by: the project's own host.
+  const folderHost = useResolvedHost({ projectId })
+  const folderPicker = useDaemonFolderPicker(folderHost, handlePicked)
 
   async function handleAdd() {
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      const activeProjectId = projectId || useProjectStore.getState().activeProjectId
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
@@ -106,14 +99,14 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       const op = runOperation(
         {
           kind: 'repo.create',
-          subject: { kind: 'project', id: activeProjectId },
-          projectId: activeProjectId,
+          subject: { kind: 'project', id: projectId },
+          projectId,
           label: `Add ${repoName}`,
         },
-        (opId) => postRepo(activeProjectId, repoName, trimmedPath, opId),
+        (opId) => postRepo(projectId, repoName, trimmedPath, opId),
       )
       const repoId = addedRepoId(await settledOrPartial(op.id))
-      const { repo, home } = await readRepoHome(activeProjectId, repoId)
+      const { repo, home } = await readRepoHome(projectId, repoId)
 
       // The /ide guard reads the entity store; the read's answer lands there before the
       // navigate, so it never bounces back to /.
@@ -126,11 +119,11 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       if (home) {
         void navigate({
           to: '/ide/$projectId/$repoId/$wsId',
-          params: { projectId: activeProjectId, repoId: repo.id, wsId: home.id },
+          params: { projectId, repoId: repo.id, wsId: home.id },
         })
       }
     } catch (err) {
-      report(err, { action: 'Failed to add repository' })
+      if (!toastHostFailure(err)) report(err, { action: 'Failed to add repository' })
     } finally {
       setLoading(false)
     }
@@ -157,10 +150,17 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
                 className="font-mono text-[12px]"
               />
               {isTauri() && (
-                <Button variant="outline" size="icon" onClick={handleBrowse} title="Browse…">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={folderPicker.pick}
+                  disabled={folderHost === null}
+                  title="Browse…"
+                >
                   <FolderOpen className="size-4" />
                 </Button>
               )}
+              {folderPicker.picker}
             </div>
             {trimmedPath !== '' && !pathLooksAbsolute && (
               <p className="text-[12px] text-destructive">

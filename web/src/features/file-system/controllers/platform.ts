@@ -16,7 +16,8 @@ import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 // dead. Do not reintroduce a reader that fabricates a success value — if the
 // operation cannot be performed, throw.
 //
-// Every operation names its workspace: the active one may not own the file.
+// Every operation names its workspace: the active one may not own the file
+// (another worktree, or on a paired install another host).
 
 /** One directory level, as the file explorer and breadcrumb consume it. */
 export interface DirectoryEntry {

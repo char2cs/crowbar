@@ -1,5 +1,6 @@
 import { ApiError } from '@/lib/errors/api-error'
 import { report } from '@/lib/errors/report'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { toastManager } from '@/lib/toast-manager'
 import {
   retractPrompt,
@@ -78,11 +79,11 @@ function mintRequestId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
+// A remote host's failure reads in the host's words, not the proxy's status.
 function failureOf(error: unknown): SendFailure {
-  if (error instanceof ApiError) {
-    return { status: error.status, code: error.problem.code, message: error.problem.message }
-  }
-  return { message: error instanceof Error ? error.message : String(error) }
+  const message = actionErrorMessage(error, String(error))
+  if (error instanceof ApiError) return { status: error.status, code: error.problem.code, message }
+  return { message }
 }
 
 /** Sends the head when the rows say the chat can take it; never on a clock. */

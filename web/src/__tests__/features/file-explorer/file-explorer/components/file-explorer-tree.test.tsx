@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { stubLayout } from '@/__tests__/__mocks__/stub-layout'
 import { FileExplorerTree } from '@/features/file-explorer/file-explorer/components/file-explorer-tree'
 import type { FileEntry } from '@/features/file-system/types/app'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 vi.mock('@/features/file-system/controllers/platform', () => ({
   readDirectory: vi.fn(async () => []),
@@ -109,5 +110,46 @@ describe('FileExplorerTree context menu', () => {
     fireEvent.click(await screen.findByText('New File'))
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
     expect(screen.getByRole('textbox')).toHaveFocus()
+  })
+})
+
+describe('FileExplorerTree virtualisation', () => {
+  // jsdom has no layout: give elements a sidebar-sized rect so the virtualiser has a window.
+  const originalRect = HTMLElement.prototype.getBoundingClientRect
+  beforeEach(() => {
+    const rect = { top: 0, left: 0, right: 280, bottom: 400, width: 280, height: 400, x: 0, y: 0 }
+    HTMLElement.prototype.getBoundingClientRect = () => ({ ...rect, toJSON: () => rect }) as DOMRect
+  })
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = originalRect
+  })
+
+  it('lays rows out on the 26px pitch the rows themselves render at', () => {
+    const many: FileEntry[] = Array.from({ length: 300 }, (_, i) => ({
+      name: `f${String(i).padStart(3, '0')}.ts`,
+      path: `f${String(i).padStart(3, '0')}.ts`,
+    }))
+    const { container } = render(
+      <FileExplorerTree
+        workspaceId="ws-virtual"
+        files={many}
+        isLoading={false}
+        rootFolderPath="/repos/r1"
+        onFileSelect={vi.fn()}
+        onFileOpen={vi.fn()}
+        onCreateNewFileInDirectory={vi.fn()}
+      />,
+    )
+    const rows = screen.getAllByRole('treeitem')
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.length).toBeLessThan(many.length)
+    for (const row of rows) expect(row.style.height).toBe(`${SIDEBAR_FILE_ROW_HEIGHT}px`)
+
+    const body = container.querySelector('#file-tree-results') as HTMLElement
+    const spacers = [body.firstElementChild, body.lastElementChild] as HTMLElement[]
+    const spacerHeight = spacers.reduce((sum, el) => sum + Number.parseFloat(el.style.height), 0)
+    expect(spacerHeight + rows.length * SIDEBAR_FILE_ROW_HEIGHT).toBe(
+      many.length * SIDEBAR_FILE_ROW_HEIGHT,
+    )
   })
 })

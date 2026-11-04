@@ -1,5 +1,6 @@
 import { ChatCircle } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 
 /** Why a file's header is showing something other than its diff. */
 export type PatchState = 'truncated' | 'loading' | 'failed'
@@ -32,6 +33,24 @@ export function FileThreadCount({
       <ChatCircle />
       {count}
     </Button>
+  )
+}
+
+/** The per-file "Viewed" checkbox: a viewed file collapses to its header. */
+export function ViewedToggle({
+  path,
+  viewed,
+  onToggle,
+}: {
+  path: string
+  viewed: boolean
+  onToggle: (path: string, viewed: boolean) => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-1.5 ui-text-xs text-muted-foreground">
+      <Checkbox checked={viewed} onChange={(next: boolean) => onToggle(path, next)} />
+      Viewed
+    </label>
   )
 }
 

@@ -1,5 +1,7 @@
 import { create } from 'zustand'
+import type { ApiError } from '@/lib/errors/api-error'
 import type { Problem } from '@/lib/errors/problem'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
 // Backend connection state derived from the wsManager's channels:
@@ -17,17 +19,39 @@ export interface Migrating {
 }
 
 interface ConnectionState {
+  /** The local daemon's channels only. */
   status: ConnectionStatus
   migrating: Migrating | null
+  /** Connected, but some local channel is closed and retrying. */
+  degraded: boolean
+  /** Times every local channel was lost and the daemon came back; the first connect is not one. */
+  reconnects: number
+  /** The same derivation per remote host, from that host's own channels: whether what the
+   *  app shows of it is kept live — not whether it is up, which its status says. */
+  hostStreams: Record<string, ConnectionStatus>
+  /** Why a remote host's stream last failed to open, by endpoint. Cleared when
+   *  that stream opens or is torn down. */
+  failures: Record<string, ApiError>
 }
 
-// Per-endpoint open/closed flags live outside the store so the store holds
-// only what components render — they subscribe with narrow selectors.
-const channelStates = new Map<string, boolean>()
+// Per-endpoint open/closed flags live outside the store so the store holds a
+// few primitives — components subscribe with a narrow selector on each.
+const channelStates = new Map<string, { hostId: string; open: boolean }>()
 
-function anyOpen(): boolean {
-  for (const open of channelStates.values()) {
-    if (open) return true
+function deriveStatus(hostId: string): ConnectionStatus {
+  let seen = false
+  for (const channel of channelStates.values()) {
+    if (channel.hostId !== hostId) continue
+    if (channel.open) return 'connected'
+    seen = true
+  }
+  return seen ? 'disconnected' : 'idle'
+}
+
+function deriveDegraded(status: ConnectionStatus): boolean {
+  if (status !== 'connected') return false
+  for (const channel of channelStates.values()) {
+    if (channel.hostId === LOCAL_HOST.id && !channel.open) return true
   }
   return false
 }
@@ -35,29 +59,70 @@ function anyOpen(): boolean {
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
   migrating: null,
+  degraded: false,
+  reconnects: 0,
+  hostStreams: {},
+  failures: {},
 }))
 
 function publish(migrating: Migrating | null): void {
-  const open = anyOpen()
-  const next = open ? null : migrating
-  let status: ConnectionStatus = 'idle'
-  if (open) status = 'connected'
-  else if (next) status = 'migrating'
-  else if (channelStates.size > 0) status = 'disconnected'
-  const current = useConnectionStore.getState()
-  if (current.status !== status || current.migrating !== next) {
-    useConnectionStore.setState({ status, migrating: next })
+  const prev = useConnectionStore.getState()
+  const local = deriveStatus(LOCAL_HOST.id)
+  // A migrating report stands only while no local socket is open.
+  const nextMigrating = local === 'connected' ? null : migrating
+  const status: ConnectionStatus = nextMigrating ? 'migrating' : local
+  const degraded = deriveDegraded(status)
+  const hostStreams: Record<string, ConnectionStatus> = {}
+  for (const { hostId } of channelStates.values()) {
+    if (hostId !== LOCAL_HOST.id) hostStreams[hostId] = deriveStatus(hostId)
   }
+  const sameHosts =
+    Object.keys(hostStreams).length === Object.keys(prev.hostStreams).length &&
+    Object.entries(hostStreams).every(([hostId, next]) => prev.hostStreams[hostId] === next)
+  if (
+    prev.status === status &&
+    prev.migrating === nextMigrating &&
+    prev.degraded === degraded &&
+    sameHosts
+  ) {
+    return
+  }
+  const recovered = prev.status === 'disconnected' && status === 'connected'
+  useConnectionStore.setState({
+    status,
+    migrating: nextMigrating,
+    degraded,
+    reconnects: recovered ? prev.reconnects + 1 : prev.reconnects,
+    hostStreams,
+  })
 }
 
-/** Called by the wsManager when a channel's socket opens or closes. */
-export function reportChannelState(endpoint: string, open: boolean): void {
-  channelStates.set(endpoint, open)
+function setFailure(endpoint: string, failure: ApiError | undefined): void {
+  const { failures } = useConnectionStore.getState()
+  if (failures[endpoint] === failure) return
+  const next = { ...failures }
+  if (failure) next[endpoint] = failure
+  else delete next[endpoint]
+  useConnectionStore.setState({ failures: next })
+}
+
+/** Called by the wsManager when a channel's socket opens or closes. Only the
+ *  local daemon's channels speak for `status`: a remote host going up or down
+ *  must neither hide nor cause a local outage, so its own lands in `hostStreams`. */
+export function reportChannelState(endpoint: string, open: boolean, hostId: string): void {
+  if (open) setFailure(endpoint, undefined)
+  channelStates.set(endpoint, { hostId, open })
   publish(useConnectionStore.getState().migrating)
+}
+
+/** Called by the wsManager when a remote host refused a channel's open. */
+export function reportChannelFailure(endpoint: string, failure: ApiError): void {
+  setFailure(endpoint, failure)
 }
 
 /** Called by the wsManager when a channel is torn down (last subscriber left). */
 export function reportChannelGone(endpoint: string): void {
+  setFailure(endpoint, undefined)
   channelStates.delete(endpoint)
   publish(useConnectionStore.getState().migrating)
 }
@@ -79,5 +144,12 @@ export function reportDaemonRefusal(problem: Problem): boolean {
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()
-  useConnectionStore.setState({ status: 'idle', migrating: null })
+  useConnectionStore.setState({
+    status: 'idle',
+    migrating: null,
+    degraded: false,
+    reconnects: 0,
+    hostStreams: {},
+    failures: {},
+  })
 }

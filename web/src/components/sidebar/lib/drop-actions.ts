@@ -1,4 +1,5 @@
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import {
@@ -90,7 +91,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
 /**
  * Commit a row-to-row drop — reorder/reparent a workspace or folder, place a
  * chat within its own workspace's chat tree, or — when the drop TARGET lives
- * in a Recents band (`targetInRecents`, threaded from `use-sidebar-drag.ts`'s
+ * in a Recents tab (`targetInRecents`, threaded from `use-sidebar-drag.ts`'s
  * hit test) — open into that view or reorder the band itself
  * (`performRecentsDrop`, spec §8.1). `SIDEBAR_DROP_POLICY` has already
  * refused every other subject/target/mode combination, so this only ever has
@@ -132,6 +133,6 @@ export async function performSidebarDrop(
       toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
       return
     }
-    report(err, { action: 'Move' })
+    if (!toastHostFailure(err)) report(err, { action: 'Move' })
   }
 }

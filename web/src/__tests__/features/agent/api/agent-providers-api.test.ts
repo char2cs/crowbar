@@ -154,9 +154,31 @@ describe('agent-providers-api', () => {
           ],
         }),
       }),
+      undefined,
+      undefined,
     )
     expect(out.map((p) => p.id)).toEqual(['codex', 'claude'])
     expect(out[1].enabled).toBe(false)
+  })
+
+  it('listGlobalProviders reads the local daemon’s list, or the named host’s own', async () => {
+    apiFetch.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+
+    await api.listGlobalProviders()
+    await api.listGlobalProviders('host-1')
+
+    expect(apiFetch.mock.calls[0]).toEqual([
+      '/v0/settings/chat/providers',
+      undefined,
+      undefined,
+      undefined,
+    ])
+    expect(apiFetch.mock.calls[1]).toEqual([
+      '/v0/settings/chat/providers',
+      undefined,
+      undefined,
+      'host-1',
+    ])
   })
 
   it('updateProviderPreferences returns [] when the backend responds with no body', async () => {

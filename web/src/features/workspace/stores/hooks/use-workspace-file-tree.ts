@@ -10,6 +10,7 @@ import {
 import { workspaceRef } from '@/lib/api/documents'
 import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
+import { useHostResolved } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 
@@ -46,10 +47,12 @@ function reconcileDocuments(wsId: string): void {
  * The workspace's files: scope is held alongside the first read; a snapshot
  * landing during that read re-lists after it, so no change in between is lost.
  * It stays held while the workspace is retained: switching back never refetches.
- * Waits on `chatScopeReady`: non-home file routes are chat-scoped.
+ * Waits on `chatScopeReady` (non-home file routes are chat-scoped) and on the
+ * workspace's host being known.
  */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
   const store = useWorkspaceStore()
+  const addressable = useHostResolved({ wsId }) && chatScopeReady
   const status = useStore(store, (s) => s.fileTreeStatus)
   const files = useStore(store, (s) => s.files)
   const expandedPaths = useFileTreeStore(
@@ -58,7 +61,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
   const loadingDirs = useRef<Set<string>>(new Set())
   // How many snapshots of files: have landed: a read that saw one land meanwhile re-lists after.
   const syncs = useRef(0)
-  const wanted = chatScopeReady && (active || status !== 'idle')
+  const wanted = addressable && (active || status !== 'idle')
 
   // Holds the scope and applies its file changes. Every synced after the tree
   // is loaded may follow missed writes, so it re-reads the tree and open buffers.
@@ -100,7 +103,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
 
   // The first read never waits on the stream, which may be down.
   useEffect(() => {
-    if (!active || !chatScopeReady) return
+    if (!active || !addressable) return
     const { fileTreeStatus, fileTreeActions } = store.getState()
     if (fileTreeStatus === 'loading' || fileTreeStatus === 'ready') return
     fileTreeActions.setFileTreeStatus('loading')
@@ -118,14 +121,14 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
         report(err, { action: 'Load the file tree' })
       },
     )
-  }, [store, wsId, active, chatScopeReady])
+  }, [store, wsId, active, addressable])
 
   // Lazily fetch a directory's children the first time it is expanded, and
   // re-check on every `files` change: an expanded folder whose children were
   // dropped by a root re-list must refetch even though `expandedPaths` is the
   // same reference.
   useEffect(() => {
-    if (!chatScopeReady) return
+    if (!addressable) return
     for (const path of expandedPaths) {
       const node = findNode(files, path)
       if (!node?.isDir || node.children !== undefined) continue
@@ -139,5 +142,5 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
         .catch((err: unknown) => report(err, { action: 'Load the folder' }))
         .finally(() => loadingDirs.current.delete(path))
     }
-  }, [store, wsId, expandedPaths, files, chatScopeReady])
+  }, [store, wsId, expandedPaths, files, addressable])
 }

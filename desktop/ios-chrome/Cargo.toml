@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-crowbar-chrome"
+version = "0.1.0"
+description = "Native SwiftUI Liquid Glass chrome drawn over the iOS webview"
+edition = "2021"
+rust-version = "1.85"
+links = "tauri-plugin-crowbar-chrome"
+
+[dependencies]
+tauri = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

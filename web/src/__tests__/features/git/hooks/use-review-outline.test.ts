@@ -16,6 +16,12 @@ import {
   recordWorkspaceScope,
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function outlineFile(path: string): FileOutline {
   return { path, hunks: [], isPartial: false, isBinary: false }
@@ -142,5 +148,36 @@ describe('useReviewOutline', () => {
       expect(mocks.getReviewOutline).toHaveBeenCalledWith({ wsId: 'ws-race', commit: undefined })
       expect(result.current.outline).toEqual([outlineFile('src/a.ts')])
     })
+  })
+})
+
+// The sidebar can draw a workspace from its cache before the project list says
+// whose host it is; a failed fetch there is swallowed and would never be retried.
+describe('useReviewOutline on an install that has paired a remote host', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.getReviewOutline.mockResolvedValue([outlineFile('src/a.ts')])
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-remote',
+    })
+  })
+  afterEach(() => resetHostWorld())
+
+  it('asks nothing until the project list names the host, then fetches', async () => {
+    const { result } = renderHook(() => useReviewOutline('ws-remote'))
+    await act(async () => {})
+    expect(mocks.getReviewOutline).not.toHaveBeenCalled()
+    expect(result.current.loaded).toBe(false)
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1')))
+
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    expect(mocks.getReviewOutline).toHaveBeenCalledWith({ wsId: 'ws-remote', commit: undefined })
   })
 })

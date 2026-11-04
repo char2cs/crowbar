@@ -8,12 +8,10 @@ import globals from 'globals'
 // Files over the 600-line cap when the cap landed (2026-09-24). This list is
 // the backlog: split a file, then delete its entry. Never add to it.
 const MAX_LINES_BASELINE = [
-  'src/__tests__/components/layout/sidebar-carousel.test.tsx',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
   'src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts',
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
-  'src/__tests__/components/sidebar/space-header.test.tsx',
   'src/__tests__/components/sidebar/space-scroller.test.tsx',
   'src/__tests__/features/agent/components/agent-chat-pane.test.tsx',
   'src/__tests__/features/agent/composer/composer-choice.test.tsx',
@@ -48,6 +46,69 @@ export const BASELINES = [
     files: UNDESCRIBED_DIRECTIVE_BASELINE,
   },
   { rule: 'vitest/expect-expect', files: NO_ASSERTION_BASELINE },
+]
+
+// Entity-addressed API paths are built by lib/project-url.ts and lib/workspace-scope-url.ts, which
+// qualify them with the entity's host. Catches whole paths, `+`/template pieces and `/v0` fragments;
+// a path routed through a constant is beyond syntax. `\x2f` is `/`: esquery regexes cannot hold one.
+const ENTITY = '(projects|chats|workspaces)'
+const V0_TAIL = `\\x2fv0(\\x2f(${ENTITY}\\x2f?)?)?$`
+const ENTITY_API_SELECTORS = [
+  `Literal[value=/\\x2fv0\\x2f${ENTITY}\\x2f/]`,
+  `TemplateElement[value.raw=/\\x2fv0\\x2f${ENTITY}\\x2f/]`,
+  `BinaryExpression[operator='+'] > Literal[value=/${V0_TAIL}/]`,
+  `BinaryExpression[operator='+'] > TemplateLiteral > TemplateElement[value.raw=/${V0_TAIL}/]`,
+  `TemplateElement[tail=false][value.raw=/${V0_TAIL}/]`,
+  `TemplateElement[value.raw=/^${ENTITY}\\x2f/]`,
+  'Literal[value=/^\\x2f?v0\\x2f?$/]',
+]
+const ENTITY_API_PATH_MESSAGE =
+  'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
+  'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
+
+// A swallowed failure is invisible: return a fallback or report() it.
+const SWALLOWED_FAILURE_RULES = [
+  {
+    selector: 'CatchClause > BlockStatement[body.length=0]',
+    message: 'An empty catch hides a failure: return the fallback, or report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='BlockStatement'][body.body.length=0]",
+    message: '.catch(() => {}) hides a failure: report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > FunctionExpression.arguments[body.body.length=0]",
+    message: '.catch(function () {}) hides a failure: report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='then'][arguments.length=2] > :matches(ArrowFunctionExpression, FunctionExpression).arguments:last-child[body.type='BlockStatement'][body.body.length=0]",
+    message: '.then(onDone, () => {}) hides a failure: report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal']",
+    message: '.catch(() => null/false/…) hides a failure: handle it or report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.operator='void'][body.argument.type='Literal']",
+    message: '.catch(() => void 0) hides a failure: handle it or report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Identifier'][body.name='undefined']",
+    message: '.catch(() => undefined) hides a failure: handle it or report() it.',
+  },
+  {
+    // A thrown value's own text skips report(): a migrating refusal becomes a toast.
+    // A heuristic: it misses `${err}`, a message a helper returns, other names.
+    selector:
+      "CallExpression[callee.object.name=/^(toast|toastManager)$/] :matches(ConditionalExpression[test.operator='instanceof'][test.right.name='Error'], MemberExpression[object.name=/^(e|err|error)$/][property.name='message'], CallExpression[callee.name='String'][arguments.0.name=/^(e|err|error)$/])",
+    message: "A toast of a thrown value's text skips report(): report(err, { action }) it.",
+  },
 ]
 
 const TAURI_IMPORTS = {
@@ -114,54 +175,21 @@ export default tseslint.config(
     },
   },
   {
-    // A swallowed failure is invisible: return a fallback or report() it.
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/__tests__/**'],
     rules: {
       'no-restricted-syntax': [
         'error',
-        {
-          selector: 'CatchClause > BlockStatement[body.length=0]',
-          message: 'An empty catch hides a failure: return the fallback, or report() it.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='BlockStatement'][body.body.length=0]",
-          message: '.catch(() => {}) hides a failure: report() it.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='catch'] > FunctionExpression.arguments[body.body.length=0]",
-          message: '.catch(function () {}) hides a failure: report() it.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='then'][arguments.length=2] > :matches(ArrowFunctionExpression, FunctionExpression).arguments:last-child[body.type='BlockStatement'][body.body.length=0]",
-          message: '.then(onDone, () => {}) hides a failure: report() it.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal']",
-          message: '.catch(() => null/false/…) hides a failure: handle it or report() it.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.operator='void'][body.argument.type='Literal']",
-          message: '.catch(() => void 0) hides a failure: handle it or report() it.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Identifier'][body.name='undefined']",
-          message: '.catch(() => undefined) hides a failure: handle it or report() it.',
-        },
-        {
-          // A thrown value's own text skips report(): a migrating refusal becomes a toast.
-          // A heuristic: it misses `${err}`, a message a helper returns, other names.
-          selector:
-            "CallExpression[callee.object.name=/^(toast|toastManager)$/] :matches(ConditionalExpression[test.operator='instanceof'][test.right.name='Error'], MemberExpression[object.name=/^(e|err|error)$/][property.name='message'], CallExpression[callee.name='String'][arguments.0.name=/^(e|err|error)$/])",
-          message: "A toast of a thrown value's text skips report(): report(err, { action }) it.",
-        },
+        ...SWALLOWED_FAILURE_RULES,
+        ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
       ],
+    },
+  },
+  {
+    // The URL builders spell the paths every other module must not.
+    files: ['src/lib/host-path.ts', 'src/lib/project-url.ts', 'src/lib/workspace-scope-url.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...SWALLOWED_FAILURE_RULES],
     },
   },
   {
@@ -192,6 +220,8 @@ export default tseslint.config(
       'src/lib/ws/tauri-transport.ts',
       'src/lib/native-dialog.ts',
       'src/lib/external-open.ts',
+      'src/lib/browser-bridge.ts',
+      'src/lib/native-chrome.ts',
     ],
     rules: {
       'no-restricted-imports': 'off',

@@ -49,6 +49,18 @@ export function toDataUrl(mime: string, bytes: string): string {
     : `data:${mime};base64,${btoa(bytes)}`
 }
 
+/** The text `toDataUrl` encoded into `url`, or null for binary or any other URL. */
+export function textFromDataUrl(url: string): string | null {
+  const header = /^data:([^;,]+);charset=utf-8,/.exec(url)
+  if (!header?.[1] || !TEXT_MIME.test(header[1])) return null
+  // `url` is untrusted input: a malformed `%` escape must not throw.
+  try {
+    return decodeURIComponent(url.slice(header[0].length))
+  } catch {
+    return null
+  }
+}
+
 /**
  * Resolve a possibly-relative reference against a file's directory into a
  * workspace-relative path. `/foo` is workspace-root-relative; `foo`, `./foo`

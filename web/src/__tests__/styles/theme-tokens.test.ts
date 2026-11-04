@@ -125,3 +125,22 @@ describe('theme.css syntax tokens', () => {
     }
   })
 })
+
+describe('theme.css destructive fill', () => {
+  // A destructive button draws white on it in light and --destructive-foreground in dark.
+  it('carries its button text at WCAG AA in both themes', () => {
+    const light = contrast(
+      '#ffffff',
+      cssColorToHex(lightValue('--destructive') as string) as string,
+    )
+    const dark = contrast(
+      cssColorToHex(darkValue('--destructive-foreground') as string) as string,
+      cssColorToHex(darkValue('--destructive') as string) as string,
+    )
+
+    expect(light, `light white on --destructive ${light.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(
+      4.5,
+    )
+    expect(dark, `dark ink on --destructive ${dark.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(4.5)
+  })
+})

@@ -170,7 +170,13 @@ function UserRowBody({
       data-first-turn={firstTurn ? 'true' : undefined}
     >
       {state ? (
-        <div className={firstTurn ? 'frozen firstq' : cn('queued', multi && 'multi', bad && 'bad')}>
+        <div
+          className={
+            firstTurn
+              ? 'frozen firstq'
+              : cn('queued', multi && 'multi', bad && 'bad', state !== 'queued' && !bad && 'sent')
+          }
+        >
           <MarkdownMessageStatic variant="chat" className={firstTurn ? undefined : 'txt'}>
             {text}
           </MarkdownMessageStatic>

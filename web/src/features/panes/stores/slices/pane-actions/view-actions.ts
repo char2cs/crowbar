@@ -41,7 +41,7 @@ type ViewActions = Pick<
 export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
   const release = (members: readonly ViewMember[]) => {
     for (const { chatId, workspaceId } of members) {
-      void releaseClosedChat(chatId, workspaceId, () => get().panes)
+      releaseClosedChat(chatId, workspaceId, () => get().panes)
     }
   }
 

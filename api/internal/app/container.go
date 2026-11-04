@@ -13,6 +13,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/browserbridge"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -43,6 +44,8 @@ type Container struct {
 	// resources are what a held scope runs; Close stops what is still running.
 	resources   *resources.Set
 	crowbarHome string
+	// Browser carries browser tool calls to the desktop app's tabs.
+	Browser *browserbridge.Bridge
 
 	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
 	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
@@ -107,9 +110,11 @@ func New(
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.Home().Root()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
+	browser := browserbridge.New()
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, late.reviewThread(),
 		usecases.WithChatSnapshots(chatSnapshots),
+		usecases.WithBrowserBridge(browser),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
@@ -124,6 +129,7 @@ func New(
 		Usecases:       ucs,
 		Operations:     ops,
 		RepoPlacements: repoPlacements,
+		Browser:        browser,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,

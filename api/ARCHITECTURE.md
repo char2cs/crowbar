@@ -50,7 +50,9 @@ Process-level plumbing with no domain knowledge:
 - `bootgate` — the HTTP gate that answers health and refuses everything else
   until the real API is opened.
 - `metadata` (name, version), `paths/worktreepath`, `config`, `gateway` (the
-  socket or `tcp://` listener, at the address `home` names), `ipc` (the socket
+  socket at the address `home` names, or `tcp://` — plaintext on loopback for
+  dev; a non-loopback bind terminates TLS and also binds the unix socket so
+  `crowbar pair` works on the daemon's own host), `ipc` (the socket
   client the in-PTY callbacks use), `terminal` (the PTY session engine — spawn,
   resize, screen model, reap), `shellenv`/`binpath` (login-shell PATH and CLI
   lookup for a GUI-launched daemon), `selfinstall` (copies the binary to
@@ -122,8 +124,9 @@ the usecases they call.
   singleton — all before the adapter closes the DBs.
 
 ### `api/`
-- `container.go`: gin with logger, timing, recovery, CORS (`middleware/`, origins
-  in `origin/`), body limit; mounts `/v0`, debug routes, and the static bundle
+- `container.go`: gin with a pre-auth read deadline (TLS requests, lifted by the
+  `/v0` bearer guard), logger, timing, recovery, CORS (`middleware/`, origins in
+  `origin/`), body limit; mounts `/v0`, debug routes, and the static bundle
   (`static.go`: SPA fallback, precompressed `.gz` siblings, immutable `/assets/*`).
 - `v0/router.go`: the route table. Hierarchy
   `/v0/projects/:projectId/repos/:repoId/...` with guards that reject ids from

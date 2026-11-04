@@ -281,3 +281,14 @@ func TestAgentChatDTOFrom_TheReportedLaunchOutranksTheRequestedOne(t *testing.T)
 	assert.Equal(t, "claude-opus-4", got.LaunchModel)
 	assert.Equal(t, "low", got.LaunchEffort, "an unreported half falls back to the launch")
 }
+
+// Keys are provider data that never leave the daemon: only id and label reach a client.
+func TestTerminalWaitDTOFrom_AnswersExposeIDAndLabelOnly(t *testing.T) {
+	got := dto.TerminalWaitDTOFrom(domain.AgentTerminalWait{
+		Waiting: true,
+		Answers: []domain.AgentTerminalAnswer{{ID: "accept", Label: "Trust workspace", Keys: "\r"}},
+	})
+
+	require.NotNil(t, got)
+	assert.Equal(t, []dto.AgentTerminalAnswerDTO{{ID: "accept", Label: "Trust workspace"}}, got.Answers)
+}

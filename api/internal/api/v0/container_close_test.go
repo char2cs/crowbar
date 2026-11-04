@@ -15,7 +15,7 @@ import (
 func TestAppClose_IdempotentAndEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	v0.New(tc.app, tc.eng)
+	v0.New(tc.app, tc.eng, "")
 
 	require.NotPanics(t, tc.app.Close) // no live resources: no-op
 	assert.NotPanics(t, tc.app.Close)  // second call is safe

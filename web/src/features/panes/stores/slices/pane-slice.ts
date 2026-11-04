@@ -58,6 +58,8 @@ export interface PaneActions {
   /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */
   retargetPane(paneId: string, chatId: string, runnerId: string | null): void
   setPaneRunner(paneId: string, runnerId: string | null): void
+  /** Row: where the chat a draft thread becomes is placed ('' is the panel root). */
+  tagDraftThread(chatId: string, parentId: string): void
   /** Row: the daemon's answer for restored members saved without a workspace —
    *  `placed` fills it in, `gone` chats leave (their unsaved buffers stay). */
   placeRestoredMembers(placed: ReadonlyMap<string, string>, gone: ReadonlySet<string>): void
@@ -68,6 +70,9 @@ export interface PaneActions {
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
   activateChatInPane(paneId: string): void
+  /** Show `tabId` in `paneId` without taking focus: select it and open the
+   *  editor half if it was toggled off. For tabs something else drives. */
+  revealEditorTab(paneId: string, tabId: string): void
   addEditorTabToPane(paneId: string, tab: EditorTabBase): void
   removeEditorTabFromPane(paneId: string, tabId: string): void
   moveEditorTabToPane(tabId: string, fromPaneId: string, toPaneId: string): void

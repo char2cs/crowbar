@@ -10,6 +10,7 @@ import { EditorSettings } from '@/features/settings/components/tabs/editor-setti
 import { FileTreeSettings } from '@/features/settings/components/tabs/file-tree-settings'
 import { GitSettings } from '@/features/settings/components/tabs/git-settings'
 import { ProvidersSettings } from '@/features/settings/components/tabs/providers-settings'
+import { BrowserSettings } from '@/features/settings/components/tabs/browser-settings'
 import { TerminalSettings } from '@/features/settings/components/tabs/terminal-settings'
 import type { SettingsTab } from '@/features/window/stores/ui-state-store'
 
@@ -19,6 +20,7 @@ import type { SettingsTab } from '@/features/window/stores/ui-state-store'
 // for a new tab forces that tab into this map instead of escaping the guard.
 const TAB_COMPONENTS: Partial<Record<SettingsTab, () => React.ReactNode>> = {
   appearance: AppearanceSettings,
+  browser: BrowserSettings,
   editor: EditorSettings,
   'file-explorer': FileTreeSettings,
   git: GitSettings,

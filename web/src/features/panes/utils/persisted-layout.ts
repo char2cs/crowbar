@@ -9,6 +9,32 @@ import { documentRefOf, documentUri } from '@/features/editor/documents/document
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
+/** A native webview id; Rust names the webview `browser-<id>`. */
+const WEBVIEW_ID = /^[A-Za-z0-9_-]+$/
+
+function isRestorable(buffer: PaneContent): boolean {
+  if (!PANE_CONTENT_TYPES.has(buffer.type)) return false
+  return buffer.type !== 'browser' || (WEBVIEW_ID.test(buffer.id) && typeof buffer.url === 'string')
+}
+
+/** Strips what belongs to this session alone: a live webview's in-flight load, and a failed
+ *  read's reason (the boot restore reads the file again). */
+function withoutTransient(buffer: PaneContent): PaneContent {
+  if (buffer.type === 'editor' && buffer.unavailable) {
+    const { unavailable: _reason, ...kept } = buffer
+    return kept
+  }
+  if (buffer.type !== 'browser' || !('loading' in buffer)) return buffer
+  const rest = { ...buffer }
+  delete rest.loading
+  return rest
+}
+
+/** The buffers as they are written to the saved layout. */
+export function toPersistedBuffers(buffers: PaneContent[]): PaneContent[] {
+  return buffers.map(withoutTransient)
+}
+
 interface PersistablePane {
   editorTabIds: string[]
   activeEditorTabId: string | null
@@ -44,7 +70,7 @@ export function validateLoadedBuffers<P extends PersistablePane, T extends Snaps
   snapshot: T,
   { adoptInto, keepUnlisted = false }: Adoption,
 ): T {
-  const known = snapshot.buffers.filter((b) => PANE_CONTENT_TYPES.has(b.type))
+  const known = snapshot.buffers.flatMap((b) => (isRestorable(b) ? [withoutTransient(b)] : []))
   const knownIds = new Set(known.map((b) => b.id))
   const panes = {} as Record<string, P>
   const listed = new Set<string>()

@@ -1,6 +1,9 @@
 import { TerminalIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-chat-reads'
+import {
+  TERMINAL_WAIT_TRUST,
+  type AgentTerminalAnswer,
+} from '@/features/agent/api/agent-chat-reads'
 
 interface AgentTerminalWaitBannerProps {
   /** Crowbar's own name for the prompt, or '' when it knows only that one is up. */
@@ -8,15 +11,20 @@ interface AgentTerminalWaitBannerProps {
   /** The provider's display name, or '' when it is not known yet. */
   providerLabel: string
   onOpenTerminal: () => void
+  /** The prompt's declared one-tap replies, when it has any. */
+  answers?: AgentTerminalAnswer[]
+  onAnswer?: (answerId: string) => void
 }
 
-/** The CLI is blocked on a prompt with no hook channel (trust, login), so this
- *  points at the terminal instead of offering to answer. Pane-level because the
- *  composer is unreachable before the first turn; one line so its height is fixed. */
+/** The CLI is blocked on a prompt with no hook channel (trust, login): it offers the
+ *  descriptor's declared replies, else points at the terminal. Pane-level because the
+ *  composer is unreachable before the first turn; one line except on touch, which wraps. */
 export function AgentTerminalWaitBanner({
   kind,
   providerLabel,
   onOpenTerminal,
+  answers,
+  onAnswer,
 }: AgentTerminalWaitBannerProps) {
   const who = providerLabel || 'The agent'
   const what =
@@ -26,17 +34,24 @@ export function AgentTerminalWaitBanner({
 
   return (
     <div
-      className="flex h-[38px] items-center gap-3 rounded-full border border-warning/40 bg-warning/10 px-3.5 text-sm"
+      className="flex h-[38px] items-center gap-3 rounded-full pointer-coarse:h-auto pointer-coarse:min-h-[38px] pointer-coarse:flex-wrap pointer-coarse:justify-end pointer-coarse:gap-y-2 pointer-coarse:rounded-[22px] pointer-coarse:py-2.5 border border-warning/40 bg-warning/10 px-3.5 text-sm"
       role="alert"
       data-testid="agent-terminal-wait"
       data-wait-kind={kind}
     >
-      <p className="min-w-0 truncate text-warning-foreground">
+      <p className="min-w-0 truncate text-warning-foreground pointer-coarse:flex-[1_1_14rem] pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
         {what} <span className="text-muted-foreground">Crowbar can’t answer this one.</span>
       </p>
-      <Button className="ml-auto shrink-0" size="xs" variant="secondary" onClick={onOpenTerminal}>
-        <TerminalIcon /> Open Terminal
-      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {answers?.map((answer) => (
+          <Button key={answer.id} size="xs" onClick={() => onAnswer?.(answer.id)}>
+            {answer.label}
+          </Button>
+        ))}
+        <Button size="xs" variant="secondary" onClick={onOpenTerminal}>
+          <TerminalIcon /> Open Terminal
+        </Button>
+      </div>
     </div>
   )
 }

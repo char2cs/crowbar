@@ -12,6 +12,18 @@ type TerminalPromptSpec struct {
 	Kind string `yaml:"kind"`
 
 	Needle string `yaml:"needle"`
+
+	// Answers are the replies a client may offer for this modal, each the
+	// keystrokes the CLI expects on its PTY.
+	Answers []TerminalPromptAnswerSpec `yaml:"answers"`
+}
+
+type TerminalPromptAnswerSpec struct {
+	ID string `yaml:"id"`
+
+	Label string `yaml:"label"`
+
+	Keys string `yaml:"keys"`
 }
 
 const (

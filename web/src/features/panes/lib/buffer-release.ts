@@ -16,6 +16,8 @@ import { getEditorHost } from '@/features/editor/host/editor-host'
 // rich/source preference synchronously.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { report } from '@/lib/errors/report'
+import { browserApi } from '@/lib/browser-bridge'
+import { unregisterWebview } from '@/features/browser/lib/webview-registry'
 
 /** The slice of window-pane state buffer ownership reads and writes. */
 export interface BufferOwnershipState {
@@ -69,8 +71,8 @@ export function releaseDocumentOf(buf: PaneContent): void {
 /**
  * Free everything a released buffer held outside the store: a terminal's PTY
  * (terminals never enter the reopen history, so the shell dies here or it
- * leaks), an editor's document (its model, undo history and draft), git-blame
- * data and the markdown view preference.
+ * leaks), a browser tab's native webview, an editor's document (its model,
+ * undo history and draft), git-blame data and the markdown view preference.
  */
 export function disposeBuffers(released: readonly PaneContent[]): void {
   for (const buf of released) {
@@ -81,6 +83,13 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
       )
     }
     releaseDocumentOf(buf)
+    // A tab that was never shown has no webview to close.
+    const webview = buf.type === 'browser' ? unregisterWebview(buf.id) : undefined
+    if (webview) {
+      void webview
+        .then(() => browserApi.close(buf.id))
+        .catch((err: unknown) => report(err, { action: 'Close the browser tab' }))
+    }
     if (isEditorContent(buf) && buf.path) {
       clearDraft(documentUri(documentRefOf(buf)))
       const { path: filePath, workspaceId } = buf

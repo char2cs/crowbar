@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useStore } from 'zustand'
 import type { ReactNode } from 'react'
 import { Plus } from '@phosphor-icons/react'
 import type {
@@ -11,19 +10,9 @@ import type {
   SelectedLineRange,
 } from '@pierre/diffs'
 import { Button } from '@/components/ui/button'
-import { entityStore } from '@/core/entities/entity-store'
-import { selectReviewThreads } from '@/core/entities/select'
-import {
-  deleteMessage,
-  deleteThread,
-  editMessage,
-  mapThread,
-  openThread,
-  replyToThread,
-  setThreadResolved,
-} from '@/features/git/api/review-api'
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
-import { resolveIdentity, useCurrentIdentity } from '@/features/git/hooks/use-current-identity'
+import { useReviewThreadActions } from '@/features/git/hooks/use-review-thread-actions'
+import { useReviewThreads } from '@/features/git/hooks/use-review-threads'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 
@@ -86,12 +75,18 @@ export function annotationToThread(annotation: ReviewAnnotation): ReviewThread {
   return annotation.metadata
 }
 
+/** A Conversation-only comment: it belongs to the branch, not to a line. */
+export function isGeneralThread(thread: ReviewThread): boolean {
+  return thread.filePath === ''
+}
+
 /** Annotations for every file that has any, ordered by line within each file. */
 export function groupAnnotationsByPath(
   threads: readonly ReviewThread[],
 ): Map<string, ReviewAnnotation[]> {
   const byPath = new Map<string, ReviewThread[]>()
   for (const thread of threads) {
+    if (isGeneralThread(thread)) continue
     const list = byPath.get(thread.filePath)
     if (list == null) byPath.set(thread.filePath, [thread])
     else list.push(thread)
@@ -112,7 +107,10 @@ export function groupAnnotationsByPath(
  */
 export function countThreadsByPath(threads: readonly ReviewThread[]): Record<string, number> {
   const counts: Record<string, number> = {}
-  for (const thread of threads) counts[thread.filePath] = (counts[thread.filePath] ?? 0) + 1
+  for (const thread of threads) {
+    if (isGeneralThread(thread)) continue
+    counts[thread.filePath] = (counts[thread.filePath] ?? 0) + 1
+  }
   return counts
 }
 
@@ -142,11 +140,20 @@ export interface ReviewAnnotationLayer {
 }
 
 export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotationLayer {
-  const dtos = useStore(entityStore, (s) => selectReviewThreads(s, wsId))
-  const threads = useMemo(() => dtos.map(mapThread), [dtos])
-  const identity = useCurrentIdentity(wsId)
+  const threads = useReviewThreads(wsId)
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [error, setError] = useState<{ threadId?: string; msg: string } | null>(null)
+  const {
+    identity,
+    error,
+    clearError,
+    postThread,
+    reply: handleReply,
+    resolve: handleResolve,
+    reopen: handleReopen,
+    edit: handleEditMessage,
+    removeMessage: handleDeleteMessage,
+    removeThread: handleDeleteThread,
+  } = useReviewThreadActions(wsId)
 
   const threadAnnotations = useMemo(() => groupAnnotationsByPath(threads), [threads])
   const threadCounts = useMemo(() => countThreadsByPath(threads), [threads])
@@ -164,61 +171,48 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
     [threadAnnotations],
   )
 
-  // Always stamp the real provider login. The identity hook returns null until
-  // its fetch resolves, so eagerly await it here — posting before it loaded used
-  // to store an empty author (the "U / You" bug).
-  const resolveAuthor = useCallback(async () => {
-    const id = identity ?? (await resolveIdentity(wsId))
-    return id?.login || id?.displayName || undefined
-  }, [identity, wsId])
-
-  const startDraft = useCallback((path: string, range: SelectedLineRange) => {
-    setError(null)
-    // A thread has ONE side, so a selection dragged across both halves is
-    // anchored to the side it started on and collapsed to that line.
-    const side = range.side ?? 'additions'
-    const crossesSides = range.endSide != null && range.endSide !== side
-    const startLine = crossesSides ? range.start : Math.min(range.start, range.end)
-    const endLine = crossesSides ? range.start : Math.max(range.start, range.end)
-    setDraft({
-      id: DRAFT_THREAD_ID,
-      filePath: path,
-      // The comment hangs off the LAST line of the range, as it does on GitHub.
-      lineNumber: endLine,
-      startLine,
-      endLine,
-      side: toThreadSide(side),
-      messages: [],
-      isResolved: false,
-    })
-  }, [])
+  const startDraft = useCallback(
+    (path: string, range: SelectedLineRange) => {
+      clearError()
+      // A thread has ONE side, so a selection dragged across both halves is
+      // anchored to the side it started on and collapsed to that line.
+      const side = range.side ?? 'additions'
+      const crossesSides = range.endSide != null && range.endSide !== side
+      const startLine = crossesSides ? range.start : Math.min(range.start, range.end)
+      const endLine = crossesSides ? range.start : Math.max(range.start, range.end)
+      setDraft({
+        id: DRAFT_THREAD_ID,
+        filePath: path,
+        // The comment hangs off the LAST line of the range, as it does on GitHub.
+        lineNumber: endLine,
+        startLine,
+        endLine,
+        side: toThreadSide(side),
+        messages: [],
+        isResolved: false,
+      })
+    },
+    [clearError],
+  )
 
   const cancelDraft = useCallback(() => setDraft(null), [])
 
   const submitDraft = useCallback(
     async (body: string) => {
       if (draft == null) return
-      setError(null)
-      try {
-        const author = await resolveAuthor()
-        await openThread(wsId, {
-          filePath: draft.filePath,
-          line: draft.lineNumber,
-          startLine: draft.startLine,
-          endLine: draft.endLine,
-          side: draft.side,
-          author,
-          isAgent: false,
-          body,
-        })
-        setDraft(null)
-      } catch {
-        // The draft survives on purpose: dropping it would throw away the text
-        // the user just wrote because of a failure they cannot see.
-        setError({ msg: 'Failed to post comment' })
-      }
+      const posted = await postThread({
+        filePath: draft.filePath,
+        line: draft.lineNumber,
+        startLine: draft.startLine,
+        endLine: draft.endLine,
+        side: draft.side,
+        body,
+      })
+      // A failed post keeps the draft: dropping it would throw away the text
+      // the user just wrote because of a failure they cannot see.
+      if (posted) setDraft(null)
     },
-    [draft, resolveAuthor, wsId],
+    [draft, postThread],
   )
 
   const onSelectedLinesChange = useCallback(
@@ -230,66 +224,6 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
       startDraft(selection.id, selection.range)
     },
     [startDraft],
-  )
-
-  const handleReply = useCallback(
-    async (threadId: string, body: string) => {
-      setError(null)
-      try {
-        const author = await resolveAuthor()
-        await replyToThread(wsId, threadId, { author, isAgent: false, body })
-      } catch {
-        setError({ threadId, msg: 'Failed to post reply' })
-      }
-    },
-    [resolveAuthor, wsId],
-  )
-  const handleResolve = useCallback(
-    async (threadId: string) => {
-      await setThreadResolved(wsId, threadId, true)
-    },
-    [wsId],
-  )
-  const handleReopen = useCallback(
-    async (threadId: string) => {
-      await setThreadResolved(wsId, threadId, false)
-    },
-    [wsId],
-  )
-  const handleEditMessage = useCallback(
-    async (threadId: string, messageId: string, body: string) => {
-      setError(null)
-      try {
-        await editMessage(wsId, threadId, messageId, body)
-      } catch (err) {
-        setError({ threadId, msg: 'Failed to edit comment' })
-        // Re-throw so the inline editor stays open and the user keeps their text.
-        throw err
-      }
-    },
-    [wsId],
-  )
-  const handleDeleteMessage = useCallback(
-    async (threadId: string, messageId: string) => {
-      setError(null)
-      try {
-        await deleteMessage(wsId, threadId, messageId)
-      } catch {
-        setError({ threadId, msg: 'Failed to delete comment' })
-      }
-    },
-    [wsId],
-  )
-  const handleDeleteThread = useCallback(
-    async (threadId: string) => {
-      setError(null)
-      try {
-        await deleteThread(wsId, threadId)
-      } catch {
-        setError({ threadId, msg: 'Failed to delete thread' })
-      }
-    },
-    [wsId],
   )
 
   const renderAnnotation = useCallback(

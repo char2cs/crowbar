@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 // Force a deterministic platform so chord formatting/matching is stable in CI.
-vi.mock('@/utils/platform', () => ({ IS_MAC: false }))
+vi.mock('@/utils/platform', () => ({ IS_MAC: false, IS_MOBILE: false, APPLE_KEYBOARD: false }))
 
 import {
   parseChord,

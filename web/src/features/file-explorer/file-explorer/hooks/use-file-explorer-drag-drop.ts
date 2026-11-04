@@ -10,6 +10,7 @@ import {
   startFileDrag,
 } from '@/features/panes/stores/drag-store'
 import { openDocument } from '@/features/editor/documents/open-document'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { workspaceRef } from '@/lib/api/documents'
 import { getDirName, getPathSeparator, joinPath } from '@/utils/path-helpers'
 
@@ -250,7 +251,7 @@ export function useFileExplorerDragDrop(
           onFileMove?.(sourcePath, newPath)
         } catch (error) {
           console.error('Failed to move file:', error)
-          const message = error instanceof Error ? error.message : String(error)
+          const message = actionErrorMessage(error, String(error))
           onMoveError?.(`Failed to move ${sourceName}: ${message}`)
         }
       }

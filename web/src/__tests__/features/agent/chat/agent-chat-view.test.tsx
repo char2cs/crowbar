@@ -14,6 +14,18 @@ import { applyFeedFrame, chatStore, failFeed } from '@/features/agent/stores/cha
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { entityStore } from '@/core/entities/entity-store'
+import { provider } from '@/__tests__/__fixtures__/agent-chat'
+
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
 
 // jsdom measures 0×0, and a zero-height viewport windows down to no rows.
 const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800, x: 0, y: 0 }
@@ -37,6 +49,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  platform.mobile = false
   HTMLElement.prototype.getBoundingClientRect = originalRect
   vi.restoreAllMocks()
 })
@@ -479,5 +492,72 @@ describe('AgentChatView type-to-focus', () => {
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     keys('h', 'e', 'l', 'l')
     await waitFor(() => expect(markdown()).toBe('hell'))
+  })
+})
+
+describe('AgentChatView on a phone', () => {
+  beforeEach(() => {
+    platform.mobile = true
+  })
+
+  it('draws the empty document with the phone composer’s metrics', () => {
+    seedFeed('c1', [])
+    draw('c1')
+
+    const bar = screen.getByTestId('agent-empty-document').querySelector('.dochandle')
+    expect(bar).toHaveAttribute('data-touch')
+    expect(bar!.querySelector('.grp .selpos')).not.toBeNull()
+  })
+
+  it('treats Return as a newline: only the send button sends', async () => {
+    vi.spyOn(commands, 'submitAgentPrompt').mockResolvedValue({
+      runnerId: 'r1',
+      terminalSessionId: 'pty1',
+    })
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+    await type('hello')
+
+    await press('Enter')
+    expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('hello')
+  })
+})
+
+// One chat, one name for the model: the blank handle and the underbar are the same
+// control, and a live runner's raw launch id must not replace the reported name.
+describe('AgentChatView model name', () => {
+  const selectable: AgentProvider[] = [
+    provider('codex', 'Codex', { modelSelect: true, models: ['gpt-5'] }),
+  ]
+
+  it('names the launch model on the blank document handle too', () => {
+    seedFeed('c1', [])
+    draw('c1', { providers: selectable, launchModel: 'gpt-5.6-luna' })
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort Default',
+    )
+  })
+
+  it('keeps the reported display name when a live runner reports its raw launch id', () => {
+    const report: AgentTelemetry = {
+      observedAt: '2026-09-23T00:00:00Z',
+      source: 'callback',
+      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
+    }
+    entityStore.setState((s) => ({
+      byKind: { ...s.byKind, telemetry: { ...s.byKind.telemetry, c1: { v: 1, data: report } } },
+    }))
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1', { providers: selectable, launchModel: 'claude-sonnet-4-5' })
+
+    const picker = screen.getByTestId('agent-selection-picker')
+    expect(picker).toHaveTextContent('Claude Sonnet 4.5')
+    expect(picker).toHaveAccessibleName(
+      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
+    )
   })
 })

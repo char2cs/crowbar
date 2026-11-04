@@ -83,3 +83,12 @@ describe('fieldRightPadding', () => {
     expect(fieldRightPadding(4, 2, 28, 3)).toBe(4 + 28 + 3 + 28)
   })
 })
+
+// The phone's capsule: desktop's 20px line, 11px padding, 32pt circles (hit-slop makes them 44).
+describe('the phone capsule', () => {
+  // composer.css's touch `.field` padding-right and `.handle` right inset.
+  it('insets its 32pt circles by 5px and reserves 71px for them', () => {
+    expect(sendInset(32, 20, 11)).toBe(5)
+    expect(fieldRightPadding(5, 2, 32)).toBe(71)
+  })
+})

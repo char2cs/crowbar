@@ -13,6 +13,8 @@ import { breadcrumbSegmentPath, loadDirectoryEntries } from './breadcrumb-direct
 import { PathBreadcrumb } from './path-breadcrumb'
 
 interface FilePathBreadcrumbProps {
+  /** The workspace the buffer belongs to: every listing and navigation acts on it. */
+  workspaceId: string
   filePath: string
   /** The shown file's own workspace: segments list and open there. Null for a
    *  host document, whose segments are plain text. */
@@ -30,6 +32,7 @@ async function handleNavigate(workspaceId: string, path: string) {
 }
 
 export function FilePathBreadcrumb({
+  workspaceId,
   filePath,
   workspaceId,
   interactive: interactiveProp = true,

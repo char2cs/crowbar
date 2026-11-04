@@ -40,13 +40,15 @@ export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextMo
     monacoEditor.setModelMarkers(model, LSP_MARKER_OWNER, diagnostics.map(toMonacoMarker))
   })
 
+  // The model owns the text: the client reads it whenever it sends it.
+  const read = () => (model.isDisposed() ? null : model.getValue())
   let opened = false
   let pending: IdleTaskHandle | null = null
   const open = () => {
     pending = scheduleIdleTask(() => {
       pending = null
       opened = true
-      void client.documentOpen(workspaceId, path, model.getValue(), language)
+      void client.documentOpen(workspaceId, path, read, language)
     })
   }
   const close = () => {
@@ -58,8 +60,7 @@ export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextMo
   open()
 
   const changes = model.onDidChangeContent(() => {
-    if (!opened) return
-    client.scheduleChange(workspaceId, path, () => (model.isDisposed() ? null : model.getValue()))
+    if (opened) client.scheduleChange(workspaceId, path, read)
   })
   const stopFollowingLanguage = windowPaneStore.subscribe((state) => {
     const picked = pickedLanguage(state, ref)

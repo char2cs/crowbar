@@ -1,7 +1,7 @@
 import { act, render } from '@testing-library/react'
 import { createElement } from 'react'
 import { vi } from 'vitest'
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { AgentChatPaneGate } from '@/features/agent/components/agent-chat-pane-gate'
 import * as dropdown from '@/features/agent/components/provider-switch-dropdown'
 import * as keymap from '@/features/keymaps/hooks/use-effective-keymap'
 import * as reconnect from '@/features/terminal/lib/terminal-reconnect-map'
@@ -31,7 +31,7 @@ export function chatPane(store: WorkspaceStore, props: PaneProps = {}) {
   return createElement(
     WorkspaceStoreContext.Provider,
     { value: store },
-    createElement(AgentChatPane, {
+    createElement(AgentChatPaneGate, {
       chatId: 'c1',
       runnerId: 'r1',
       wsId: 'w1',

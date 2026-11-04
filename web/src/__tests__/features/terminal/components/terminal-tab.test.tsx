@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { terminalKill } from '@/lib/crowbar-bridge'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -13,11 +13,25 @@ import {
 
 // jsdom can't run xterm/WebGL — stand in for it, same as agent-chat-pane's
 // own suite. The stand-in keeps its props so a test can fire the exit frame.
-const xterm = vi.hoisted(() => ({ props: {} as { onTerminalExit?: (id: string) => void } }))
+const xterm = vi.hoisted(() => ({
+  props: {} as {
+    onTerminalExit?: (id: string) => void
+    ref?: { current: { send: (data: string) => void } | null }
+  },
+  send: vi.fn(),
+}))
 vi.mock('@/features/terminal/components/terminal', () => ({
   XtermTerminal: (props: typeof xterm.props) => {
     xterm.props = props
+    if (props.ref) props.ref.current = { send: xterm.send }
     return createElement('div', { 'data-testid': 'xterm' })
+  },
+}))
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
   },
 }))
 vi.mock('@/lib/crowbar-bridge', () => ({ terminalKill: vi.fn(async () => {}) }))
@@ -51,6 +65,27 @@ function renderTab(paneId: string | undefined, bufferId: string) {
     ),
   )
 }
+
+// A phone keyboard has no Esc, Tab, Ctrl or arrows: the phone draws them under the terminal.
+describe('TerminalTab — the phone key bar', () => {
+  afterEach(() => {
+    platform.mobile = false
+  })
+
+  it('draws no key bar on the desktop', () => {
+    seedTerminalBuffer(ROOT_PANE_ID, 'buf-term-1')
+    renderTab(ROOT_PANE_ID, 'buf-term-1')
+    expect(screen.queryByRole('button', { name: 'Escape' })).not.toBeInTheDocument()
+  })
+
+  it('sends its keys to this terminal on the phone', () => {
+    platform.mobile = true
+    seedTerminalBuffer(ROOT_PANE_ID, 'buf-term-1')
+    renderTab(ROOT_PANE_ID, 'buf-term-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Escape' }))
+    expect(xterm.send).toHaveBeenCalledWith('\x1b')
+  })
+})
 
 // I8 (Task 26 fix round 1): handleActivate called paneActions.addBufferToPane/
 // .activatePaneBuffer, neither of which has existed on PaneActions since Task

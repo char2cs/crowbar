@@ -95,19 +95,33 @@ export function createSurfaceFor(
 
 // The body is the complete ordered list (index = priority); preferences are
 // machine-level, and the response is the resolved list so no second fetch is needed.
+// Given `hostId`, that remote host's daemon's set instead of the local one's.
 export async function updateProviderPreferences(
   prefs: ProviderPreference[],
+  hostId?: string,
 ): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>(`/v0/settings/chat/providers`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ providers: prefs }),
-  })
+  const raw = await apiFetch<AgentProvider[]>(
+    `/v0/settings/chat/providers`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providers: prefs }),
+    },
+    undefined,
+    hostId,
+  )
   return (raw ?? []).map(mapProvider)
 }
 
-export async function listGlobalProviders(): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>('/v0/settings/chat/providers')
+/** The providers the local daemon — or, given `hostId`, that remote host's daemon — offers.
+ *  Providers belong to a daemon, so this route needs no workspace to be addressed. */
+export async function listGlobalProviders(hostId?: string): Promise<AgentProvider[]> {
+  const raw = await apiFetch<AgentProvider[]>(
+    '/v0/settings/chat/providers',
+    undefined,
+    undefined,
+    hostId,
+  )
   return (raw ?? []).map(mapProvider)
 }
 
@@ -162,18 +176,30 @@ export async function uploadDescriptor(file: File): Promise<DescriptorReport> {
   })
 }
 
-export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
-  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
+/** The default permission level of the local daemon, or of `hostId`'s. */
+export async function getDefaultPermissionLevel(hostId?: string): Promise<PermissionLevel> {
+  const res = await apiFetch<{ level: PermissionLevel }>(
+    `/v0/settings/chat/permission-level`,
+    undefined,
+    undefined,
+    hostId,
+  )
   return res.level
 }
 
 export async function updateDefaultPermissionLevel(
   level: PermissionLevel,
+  hostId?: string,
 ): Promise<PermissionLevel> {
-  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ level }),
-  })
+  const res = await apiFetch<{ level: PermissionLevel }>(
+    `/v0/settings/chat/permission-level`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    },
+    undefined,
+    hostId,
+  )
   return res.level
 }

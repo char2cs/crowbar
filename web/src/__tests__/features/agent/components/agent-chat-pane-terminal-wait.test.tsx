@@ -1,3 +1,5 @@
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
 import { createElement } from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,7 +16,7 @@ const { slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
 // rather than depend on whatever navigator.userAgent the test happens to run
 // on (jsdom's UA bakes in the CI runner's own host platform, which is Linux
 // on GitHub Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
 import { chatPane, renderChatPane, stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
 stubPaneChrome()
@@ -108,6 +110,10 @@ const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 beforeEach(() => {
   resetChatPresentationMemoryForTests()
   resetChatStore()
+  // The wait banner is about a chat that is on the Chat surface.
+  useSettingsStore.setState({
+    settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: true },
+  })
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
   switchToTerminalFn.mockResolvedValue('term-session-1')
@@ -342,7 +348,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     // 44px header (IS_MAC forced true above) plus the pane's own original
     // 8px breathing room.
     const section = document.querySelector('.agent-chat.chat') as HTMLElement
-    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
   })
 
   it('keeps its original offset with no overlay header above (default)', async () => {

@@ -55,3 +55,47 @@ export const collectNodeFiles = (node: GitFolderNode): GitFile[] => [
   ...node.files,
   ...Array.from(node.folders.values()).flatMap((child) => collectNodeFiles(child)),
 ]
+
+/**
+ * Follow a folder down through single-child, file-less levels (`a` > `b` > `c`)
+ * so the chain renders as one row. `node` is the deepest folder: its path is
+ * the chain's identity.
+ */
+export const compactFolder = (start: GitFolderNode): { label: string; node: GitFolderNode } => {
+  const names = [start.name]
+  let node = start
+  while (node.files.length === 0 && node.folders.size === 1) {
+    node = node.folders.values().next().value!
+    names.push(node.name)
+  }
+  return { label: names.join('/'), node }
+}
+
+export interface FolderAggregate {
+  total: number
+  viewed: number
+}
+
+/**
+ * Descendant file and viewed counts for every folder below `root`, keyed by
+ * `fullPath`. One post-order walk asks `isViewed` once per file.
+ */
+export const aggregateFolders = (
+  root: GitFolderNode,
+  isViewed: (file: GitFile) => boolean,
+): Map<string, FolderAggregate> => {
+  const out = new Map<string, FolderAggregate>()
+  const walk = (node: GitFolderNode): FolderAggregate => {
+    const agg = { total: node.files.length, viewed: 0 }
+    for (const file of node.files) if (isViewed(file)) agg.viewed++
+    for (const child of node.folders.values()) {
+      const sub = walk(child)
+      agg.total += sub.total
+      agg.viewed += sub.viewed
+    }
+    out.set(node.fullPath, agg)
+    return agg
+  }
+  for (const child of root.folders.values()) walk(child)
+  return out
+}

@@ -1,16 +1,18 @@
 import { fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement, StrictMode } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { openDocument, exists } = vi.hoisted(() => ({
+const { openDocument, exists, openExternalUrl } = vi.hoisted(() => ({
   openDocument: vi.fn(async () => null),
   exists: vi.fn(async (_ws: string, _path: string) => true),
+  openExternalUrl: vi.fn(async (_url: string) => {}),
 }))
 vi.mock('@/features/editor/documents/open-document', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/editor/documents/open-document')>()),
   openDocument,
 }))
 vi.mock('@/features/file-system/controllers/platform', () => ({ exists }))
+vi.mock('@/lib/external-open', () => ({ openExternalUrl }))
 
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { replaceDocumentText } from '@/features/editor/documents/document-text'
@@ -31,6 +33,14 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { toast } from '@/features/window/stores/toast-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join(
   '\n',
@@ -241,5 +251,63 @@ describe('MarkdownPreview text', () => {
     const prose = view.container.querySelector('.agent-prose') as HTMLElement
     expect(prose.textContent).toContain('wrapped here')
     expect(getComputedStyle(prose).whiteSpace).not.toBe('pre-wrap')
+  })
+})
+
+// A README on a remote host that says "open http://localhost:3000" means that host's port.
+describe('MarkdownPreview links to a loopback address', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetHostWorld()
+    __resetWorkspaceScopesForTest()
+    vi.spyOn(toast, 'info').mockReturnValue('')
+    pairRemoteHost('h1', 'Build box')
+    loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w-local' })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetHostWorld()
+  })
+
+  function clickLinkIn(wsId: string, url: string) {
+    resetWindowPaneStoreForTests()
+    const ref = workspaceRef(wsId, 'README.md')
+    const source = makeSource(ref, `[the app](${url})\n`)
+    const preview = makePreview(ref.path, ref)
+    windowPaneStore.setState((s) => {
+      s.buffers = [source, preview]
+      s.panes[ROOT_PANE_ID] = {
+        ...s.panes[ROOT_PANE_ID],
+        editorTabIds: [source.id, preview.id],
+        activeEditorTabId: preview.id,
+      }
+      return s
+    })
+    const view = renderPreview(createWorkspaceStore(wsId), preview.id)
+    fireEvent.click(view.container.querySelector('a') as HTMLAnchorElement)
+  }
+
+  it('from a remote workspace names its host and opens nothing here', async () => {
+    clickLinkIn('w-remote', 'http://localhost:3000/')
+
+    await waitFor(() => expect(toast.info).toHaveBeenCalledOnce())
+    expect(vi.mocked(toast.info).mock.calls[0][0]).toMatch(/^This link is on Build box, not/)
+    expect(openExternalUrl).not.toHaveBeenCalled()
+  })
+
+  it('from a Local workspace opens here', async () => {
+    clickLinkIn('w-local', 'http://localhost:3000/')
+
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('http://localhost:3000/'))
+    expect(toast.info).not.toHaveBeenCalled()
+  })
+
+  it('is not why a public address from a remote workspace stays shut', async () => {
+    clickLinkIn('w-remote', 'https://example.com/docs')
+
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('https://example.com/docs'))
+    expect(toast.info).not.toHaveBeenCalled()
   })
 })

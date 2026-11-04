@@ -167,6 +167,20 @@ export async function compactChat(wsId: string, id: string): Promise<void> {
 // stopChat is the chat's Stop button: it interrupts the running turn in place
 // where the provider allows it and otherwise ends the CLI, leaving the chat
 // DORMANT and resumable — the counterpart of resumeChat. This is NOT deleteChat.
+/** Type the descriptor-declared reply into the prompt a chat's CLI is parked on.
+ *  The wait itself clears when the daemon next sees the prompt gone; a 409 means it already has. */
+export async function answerTerminalWait(
+  wsId: string,
+  chatId: string,
+  answerId: string,
+): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/terminal-wait/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answerId }),
+  })
+}
+
 // A chat whose CLI is already gone is a backend no-op.
 export async function stopChat(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/stop`, {
@@ -174,12 +188,11 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// closeChat ends the chat's live vendor CLI because no view displays the chat
-// any more, mid-turn included — unlike stopChat, which interrupts a turn in
-// place and may leave the CLI running. The chat entry stays, dormant and
-// resumable.
-export async function closeChat(wsId: string, id: string): Promise<void> {
-  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/close`, {
+// killChat force-ends the chat's live vendor CLI, mid-turn included — unlike
+// stopChat, which interrupts a turn in place. Closing a view only detaches; the
+// chat entry stays, dormant and resumable.
+export async function killChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/kill`, {
     method: 'POST',
   })
 }

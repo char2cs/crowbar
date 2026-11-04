@@ -58,23 +58,33 @@ func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 		if err := json.Unmarshal(req.Params, &p); err != nil || p.Name == "" {
 			return marshal(NewError(req.ID, CodeInvalidParams, "params must carry a tool name")), true
 		}
-		text, err := s.tools.Call(ctx, p.Name, p.Arguments)
+		text, images, err := s.call(ctx, p)
 		if err != nil {
 			// A tool failure is data the model should read and act on, so it rides
 			// back as a successful result carrying isError — not as a JSON-RPC
 			// error, which clients treat as a transport fault.
 			return marshal(s.result(req.ID, callToolResult{
-				Content: []textContent{{Type: "text", Text: err.Error()}},
+				Content: []any{textContent{Type: "text", Text: err.Error()}},
 				IsError: true,
 			})), true
 		}
-		return marshal(s.result(req.ID, callToolResult{
-			Content: []textContent{{Type: "text", Text: text}},
-		})), true
+		content := []any{textContent{Type: "text", Text: text}}
+		for _, img := range images {
+			content = append(content, imageContent{Type: "image", Data: img.Data, MIMEType: img.MIMEType})
+		}
+		return marshal(s.result(req.ID, callToolResult{Content: content})), true
 
 	default:
 		return marshal(NewError(req.ID, CodeMethodNotFound, "unsupported method "+req.Method)), true
 	}
+}
+
+func (s *Server) call(ctx context.Context, p callToolParams) (string, []Image, error) {
+	if rich, ok := s.tools.(ImageToolSet); ok {
+		return rich.CallWithImages(ctx, p.Name, p.Arguments)
+	}
+	text, err := s.tools.Call(ctx, p.Name, p.Arguments)
+	return text, nil, err
 }
 
 func (s *Server) result(id json.RawMessage, v any) Response {

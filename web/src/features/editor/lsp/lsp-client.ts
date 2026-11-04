@@ -5,10 +5,11 @@
 // buffer's own — never by whichever workspace is active.
 
 import { apiFetch } from '@/lib/api/fetch'
-import { holdScope, onSignal } from '@/core/stream/stream'
+import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { getOwningChatId } from '@/lib/workspace-scope'
 
 // One action for every sync verb, so a dead server shows one toast, not one per edit.
 const reportSync = (err: unknown) =>
@@ -47,9 +48,19 @@ const CHANGE_DEBOUNCE_MS = 400
 type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[]) => void
 type OpenedListener = (wsId: string, filePath: string) => void
 
-/** The LSP route base for `wsId`, or null while it has none (home, no chat). */
+/** A document's text as its model has it now; null once the model is gone. */
+type ReadText = () => string | null
+
+interface OpenDocument {
+  /** One didOpen for the first holder, didClose with the last. */
+  refs: number
+  languageId: string
+  read: ReadText
+}
+
+/** The LSP route base for `wsId`, or null while it has none (home, no chat, host not resolved). */
 function lspBase(wsId: string): string | null {
-  if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
+  if (isHomeWorkspace(wsId) || !getOwningChatId(wsId) || !isHostResolved({ wsId })) return null
   return lspBaseForWorkspace(wsId)
 }
 
@@ -65,22 +76,19 @@ function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown
 /**
  * One workspace's LSP state. It exists while it holds an open document or a
  * diagnostics handler; it holds the owning chat's lsp: scope while it exists and
- * that chat is known (the scope registry is the owner of that fact).
+ * that chat and the workspace's host are known (the scope registry and host
+ * resolution own those). The daemon releases the servers, and so their documents,
+ * whenever the scope is let go — a drop or a resync included.
  */
 class WorkspaceSession {
   readonly handlers = new Set<DiagnosticsHandler>()
-  /** Open refcount per path: one didOpen for the first holder, didClose with the last. */
-  readonly openRefs = new Map<string, number>()
-  /** Opens not sent yet because the owning chat is not known yet. */
-  readonly deferred = new Map<string, { content: string; languageId: string }>()
-  readonly pendingChanges = new Map<
-    string,
-    { read: () => string | null; timer: ReturnType<typeof setTimeout> }
-  >()
+  readonly documents = new Map<string, OpenDocument>()
+  /** Debounced didChange timers per path. */
+  readonly pendingChanges = new Map<string, ReturnType<typeof setTimeout>>()
   private lastByFile = new Map<string, LspDiagnostic[]>()
-  /** The chat whose lsp: scope is held, and its release. */
-  private socket: { chatId: string; close: () => void } | null = null
-  private readonly stopWatchingScope: () => void
+  /** The route base whose lsp: scope is held, and its release. */
+  private hold: { base: string; close: () => void } | null = null
+  private readonly stopWatching: () => void
 
   constructor(
     readonly wsId: string,
@@ -91,16 +99,17 @@ class WorkspaceSession {
       text: string,
     ) => void,
   ) {
-    this.stopWatchingScope = subscribeToWorkspaceScope(wsId, () => this.followScope())
+    this.stopWatching = subscribeHostResolution(wsId, () => this.followScope())
     this.followScope()
   }
 
+  /** The route base while its scope is held, else null. */
   base(): string | null {
-    return lspBase(this.wsId)
+    return this.hold?.base ?? null
   }
 
   isIdle(): boolean {
-    return this.handlers.size === 0 && this.openRefs.size === 0
+    return this.handlers.size === 0 && this.documents.size === 0
   }
 
   addHandler(handler: DiagnosticsHandler): void {
@@ -109,54 +118,69 @@ class WorkspaceSession {
   }
 
   cancelChange(filePath: string): void {
-    const pending = this.pendingChanges.get(filePath)
-    if (!pending) return
-    clearTimeout(pending.timer)
+    clearTimeout(this.pendingChanges.get(filePath))
     this.pendingChanges.delete(filePath)
   }
 
   dispose(): void {
-    this.stopWatchingScope()
-    this.closeSocket()
+    this.stopWatching()
+    this.releaseScope()
     for (const filePath of [...this.pendingChanges.keys()]) this.cancelChange(filePath)
   }
 
-  // The owning chat arriving holds its scope and sends deferred opens; it going
-  // away (the workspace was deleted) lets the scope go for good.
+  // The route base arriving (owning chat recorded, host resolved) or changing holds
+  // its chat's scope; it going away (workspace deleted, host revoked) lets it go.
   private followScope(): void {
-    const chatId = this.base() ? getOwningChatId(this.wsId) : null
-    if (chatId === (this.socket?.chatId ?? null)) return
-    this.closeSocket()
-    if (!chatId) return
-    const base = this.base()!
-    const scope = `lsp:${chatId}`
+    const base = lspBase(this.wsId)
+    if (base === (this.hold?.base ?? null)) return
+    this.releaseScope()
+    if (!base) return
+    const scope = `lsp:${getOwningChatId(this.wsId)}`
+    const hold = { base, close: () => {} }
     const stopSignals = onSignal<DiagnosticsEvent>(scope, 'diagnostics', (event) =>
       this.dispatch(event),
     )
-    const release = holdScope(scope)
-    this.socket = {
-      chatId,
-      close: () => {
-        release()
-        stopSignals()
+    // The first synced finds what went out as it was held; any later one (after a drop,
+    // a resync or a failed snapshot) follows the daemon letting the scope go.
+    let firstSync = true
+    const stopWatch = watchScope(scope, {
+      synced: () => {
+        if (!firstSync) this.openDocuments(base)
+        firstSync = false
       },
+      failed: () => {
+        firstSync = false
+      },
+    })
+    const release = holdScope(scope)
+    hold.close = () => {
+      release()
+      stopWatch()
+      stopSignals()
     }
-    const opens = [...this.deferred]
-    this.deferred.clear()
-    for (const [path, { content, languageId }] of opens)
-      this.sendOpen(base, path, languageId, content)
+    this.hold = hold
+    this.openDocuments(base)
   }
 
-  private closeSocket(): void {
-    if (!this.socket) return
-    this.socket.close()
-    this.socket = null
+  // A new hold, or the daemon's servers gone with the edits sent meanwhile: every
+  // document goes with the text it has now.
+  private openDocuments(base: string): void {
+    for (const [path, { languageId, read }] of this.documents) {
+      const text = read()
+      if (text !== null) this.sendOpen(base, path, languageId, text)
+    }
+  }
+
+  private releaseScope(): void {
+    if (!this.hold) return
+    this.hold.close()
+    this.hold = null
     // Markers from a server that is gone would never be cleared otherwise.
     this.publish(new Map([...this.lastByFile.keys()].map((path) => [path, []])))
   }
 
   private dispatch(event: DiagnosticsEvent): void {
-    if (!event?.diagnostics) return
+    if (!event.diagnostics) return
     const byFile = new Map<string, LspDiagnostic[]>()
     for (const diag of event.diagnostics) {
       const list = byFile.get(diag.filePath) ?? []
@@ -262,49 +286,51 @@ class LspClientImpl {
   async reopen(wsId: string, filePath: string, content: string, languageId: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const base = session?.base()
-    if (!session?.openRefs.has(filePath) || !base) return
+    if (!session?.documents.has(filePath) || !base) return
     await this.postOpen(wsId, base, filePath, languageId, content)
   }
 
+  /** Open `filePath` for LSP; `read` is asked for its text each time it is (re)sent. */
   async documentOpen(
     wsId: string,
     filePath: string,
-    content: string,
+    read: ReadText,
     languageId: string,
   ): Promise<void> {
     const session = this.session(wsId)
-    const refs = session.openRefs.get(filePath) ?? 0
-    session.openRefs.set(filePath, refs + 1)
-    if (refs > 0) return
-    const base = session.base()
-    if (!base) {
-      session.deferred.set(filePath, { content, languageId })
+    const open = session.documents.get(filePath)
+    if (open) {
+      open.refs++
       return
     }
-    await this.postOpen(wsId, base, filePath, languageId, content).catch(reportSync)
+    session.documents.set(filePath, { refs: 1, languageId, read })
+    // No scope yet (owning chat or host unknown): its hold sends it.
+    const base = session.base()
+    const text = read()
+    if (!base || text === null) return
+    await this.postOpen(wsId, base, filePath, languageId, text).catch(reportSync)
   }
 
   async documentSave(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const base = session?.base()
-    if (!session?.openRefs.has(filePath) || session.deferred.has(filePath) || !base) return
+    if (!session?.documents.has(filePath) || !base) return
     await post(`${base}/didSave`, { path: filePath }).catch(reportSync)
   }
 
   async documentClose(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
-    const refs = session?.openRefs.get(filePath) ?? 0
-    if (!session || refs === 0) return
-    if (refs > 1) {
-      session.openRefs.set(filePath, refs - 1)
+    const open = session?.documents.get(filePath)
+    if (!session || !open) return
+    if (open.refs > 1) {
+      open.refs--
       return
     }
-    session.openRefs.delete(filePath)
+    session.documents.delete(filePath)
     session.cancelChange(filePath)
-    const neverSent = session.deferred.delete(filePath)
     const base = session.base()
     this.releaseIfIdle(session)
-    if (neverSent || !base) return
+    if (!base) return
     await post(`${base}/didClose`, { path: filePath }).catch(reportSync)
   }
 
@@ -313,14 +339,16 @@ class LspClientImpl {
    * the change is actually sent, so a burst of edits costs one read + POST;
    * it returns null when the text is gone (model disposed) and nothing is sent.
    */
-  scheduleChange(wsId: string, filePath: string, read: () => string | null): void {
+  scheduleChange(wsId: string, filePath: string, read: ReadText): void {
     const session = this.sessions.get(wsId)
-    if (!session?.openRefs.has(filePath)) return
+    const open = session?.documents.get(filePath)
+    if (!session || !open) return
+    open.read = read
     session.cancelChange(filePath)
-    session.pendingChanges.set(filePath, {
-      read,
-      timer: setTimeout(() => void this.flushChange(wsId, filePath), CHANGE_DEBOUNCE_MS),
-    })
+    session.pendingChanges.set(
+      filePath,
+      setTimeout(() => void this.flushChange(wsId, filePath), CHANGE_DEBOUNCE_MS),
+    )
   }
 
   /**
@@ -330,18 +358,13 @@ class LspClientImpl {
    */
   async flushChange(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
-    const pending = session?.pendingChanges.get(filePath)
-    if (!session || !pending) return
+    const open = session?.documents.get(filePath)
+    if (!session || !open || !session.pendingChanges.has(filePath)) return
     session.cancelChange(filePath)
-    const text = pending.read()
-    if (text === null) return
-    const deferred = session.deferred.get(filePath)
-    if (deferred) {
-      deferred.content = text
-      return
-    }
+    // Before the scope is held the edit waits in the model: the hold's didOpen carries it.
     const base = session.base()
-    if (!base) return
+    const text = open.read()
+    if (!base || text === null) return
     await post(`${base}/didChange`, { path: filePath, text }).catch(reportSync)
   }
 

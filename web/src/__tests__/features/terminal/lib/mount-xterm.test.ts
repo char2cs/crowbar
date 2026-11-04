@@ -12,7 +12,7 @@ function mount() {
   const mounted = mountXterm(
     container,
     {},
-    { write, links: { getRoot: () => '/repo', openFile: vi.fn(), openUrl: vi.fn() } },
+    { write, links: { getRoot: () => '/repo', openFile: vi.fn(), onUrl: vi.fn() } },
   )
   return { container, write, mounted }
 }

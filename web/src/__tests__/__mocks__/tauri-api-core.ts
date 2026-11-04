@@ -3,3 +3,8 @@
 export async function invoke(_cmd: string, _args?: Record<string, unknown>): Promise<void> {
   // no-op in tests
 }
+
+// The asset-protocol URL the webview loads a picked file from, shaped as on macOS.
+export function convertFileSrc(filePath: string, protocol = 'asset'): string {
+  return `${protocol}://localhost/${encodeURIComponent(filePath)}`
+}

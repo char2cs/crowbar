@@ -17,6 +17,7 @@ export const defaultSettings: Settings = {
   // General
   autoSave: false,
   sidebarPosition: 'left',
+  sidebarFollowsFocus: false,
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   fontSize: DEFAULT_CODE_FONT_SIZE,
@@ -39,12 +40,17 @@ export const defaultSettings: Settings = {
   terminalCursorStyle: 'block',
   terminalCursorBlink: true,
   terminalCursorWidth: 2,
+  // Browser
+  browserHomepage: '',
+  browserSearchEngine: 'duckduckgo',
+  browserCustomSearchUrl: '',
+  browserZoom: 100,
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
   // Agents
-  chatIsDefaultPresentation: true,
+  chatIsDefaultPresentation: false,
   chatSplitPresentationEnabled: false,
   // Theme
   theme: 'crowbar',
@@ -67,7 +73,7 @@ export const defaultSettings: Settings = {
     breadcrumbs: true,
   },
   // Advanced
-  showFpsOverlay: false,
+  showBuildReadout: true,
   buildBadgeOverride: 'auto',
   // Other
   maxOpenTabs: 100,

@@ -58,8 +58,13 @@ func writeThread(
 	if t.IsResolved() {
 		state = "resolved"
 	}
-	fmt.Fprintf(b, "%s  %s:%d-%d  %s  %s  %d\n",
-		t.ID, t.FilePath, t.StartLine, t.EndLine, t.Side, state, len(t.Messages))
+	where, side := fmt.Sprintf("%s:%d-%d", t.FilePath, t.StartLine, t.EndLine), string(t.Side)
+	if t.FilePath == "" {
+		// A general comment has no diff location, so coordinates would read as a
+		// real ":0-0" anchor.
+		where, side = "general comment", "-"
+	}
+	fmt.Fprintf(b, "%s  %s  %s  %s  %d\n", t.ID, where, side, state, len(t.Messages))
 	// The anchor row above always reports the thread's TRUE message count,
 	// which is what makes the elision below checkable: a model can see that
 	// the count and the rendered rows disagree, and the note says why.

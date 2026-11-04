@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
+import { act, render, waitFor } from '@testing-library/react'
 import { useWorkspaceEffects } from '@/features/workspace/stores/hooks/use-workspace-effects'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import {
@@ -9,6 +9,12 @@ import {
 } from '@/features/workspace/stores/workspace-store'
 import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
 import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { fetchFileTree, fetchGitData } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
@@ -160,4 +166,20 @@ describe('useWorkspaceEffects across a workspace switch', () => {
     expect(fetchFileTree).toHaveBeenCalledWith('ws-race')
     await waitFor(() => expect(held()).toContain('git:ws-race'))
   })
+})
+
+// A paired install cold-boots before the project list names a workspace's host.
+it('holds no scope of a workspace until the project list says whose it is', async () => {
+  resetHostWorld()
+  pairRemoteHost('host-1')
+  onTestFinished(resetHostWorld)
+  setWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'ws-R', owningChatId: 'chat-R' })
+  const remote = createWorkspaceStore('ws-R')
+  render(<Feeds store={remote} active />)
+  expect(held()).toEqual([])
+  expect(fetchFileTree).not.toHaveBeenCalled()
+
+  act(() => loadProjects(projectOn('p-remote', 'host-1')))
+
+  await waitFor(() => expect(held().sort()).toEqual(['files:ws-R', 'git:ws-R', 'ws:ws-R']))
 })

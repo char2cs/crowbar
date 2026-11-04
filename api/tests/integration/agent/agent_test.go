@@ -136,7 +136,7 @@ func newHarness(t *testing.T) *harness {
 	// restores it rather than reading it after the fact.
 	mcp := newMCPBarrier()
 	router.Use(mcp.middleware())
-	apiContainer := v0.New(appContainer, eng)
+	apiContainer := v0.New(appContainer, eng, "")
 	apiContainer.Register(router.Group("/v0"))
 
 	ln, err := transports.NewSocket("unix://")

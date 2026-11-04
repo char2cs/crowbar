@@ -22,7 +22,7 @@ func newRootCmd() *cobra.Command {
 		Use:   "crowbar",
 		Short: "Crowbar — self-improving agentic development platform",
 	}
-	root.AddCommand(newServeCmd(), newVersionCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd(), newPathsCmd(), newMigrateCmd())
+	root.AddCommand(newServeCmd(), newVersionCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd(), newPathsCmd(), newMigrateCmd(), newPairCmd())
 	return root
 }
 
@@ -35,7 +35,9 @@ func newServeCmd() *cobra.Command {
 			return runServe(host)
 		},
 	}
-	cmd.Flags().StringVar(&host, "host", "unix://", "listen address (unix:// or tcp://127.0.0.1:3737; non-loopback TCP exposes the unauthenticated API to the network)")
+	cmd.Flags().StringVar(&host, "host", "unix://", "listen address: unix://; tcp://127.0.0.1:3737 is local development only — "+
+		"plaintext and unauthenticated, never reverse-proxy or port-forward it; a non-loopback tcp:// address terminates TLS, "+
+		"requires paired clients, and also binds the local socket that crowbar pair dials")
 	return cmd
 }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import {
   createFileTreeHandlers,
   refreshDirectory,
@@ -13,6 +13,9 @@ import {
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 import { ApiError } from '@/lib/errors/api-error'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 /** What report() shows for a client bug. */
 const UNEXPLAINED = 'Something went wrong — details are in the log'
@@ -37,28 +40,40 @@ beforeEach(() => {
   copyFileNode.mockResolvedValue(undefined)
 })
 
+afterEach(() => {
+  destroyHostRuntime('h1')
+  resetHostWorld()
+})
+
+const hostFailure = () => (
+  pairRemoteHost('h1', 'Studio Mac'),
+  proxyMarkerError('host-unreachable', 'h1')
+)
+
 describe('revealInFolder', () => {
   // The tab menu passes workspace-relative buffer paths, the explorer absolute
   // ones, and virtual buffers must never reach the OS.
   it('reveals absolute paths as-is and relative ones under the worktree root', () => {
-    revealInFolder('/abs/path/file.ts')
+    revealInFolder('ws-a', '/abs/path/file.ts')
     expect(revealItemInFinder).toHaveBeenCalledWith('/abs/path/file.ts')
 
-    revealInFolder('api/main.go')
+    revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).toHaveBeenCalledWith('/disk/worktree/api/main.go')
+    // ...resolved against the workspace the menu belongs to, not the one in view.
+    expect(resolveWorkspaceRootPath).toHaveBeenCalledExactlyOnceWith('ws-a')
   })
 
   it('does not reveal a virtual buffer or an unresolvable root', () => {
-    revealInFolder('remote://x/y.ts')
+    revealInFolder('ws-a', 'remote://x/y.ts')
     resolveWorkspaceRootPath.mockReturnValueOnce(undefined)
-    revealInFolder('api/main.go')
+    revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).not.toHaveBeenCalled()
   })
 
   it('surfaces a failure as an error toast', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     revealItemInFinder.mockRejectedValueOnce(new Error('finder exploded'))
-    revealInFolder('/abs/file.ts')
+    revealInFolder('ws-a', '/abs/file.ts')
     await vi.waitFor(() =>
       expect(toastAdd).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -85,13 +100,16 @@ describe('createFileTreeHandlers', () => {
     expect(copyFileNode).toHaveBeenCalledWith('ws-test', 'img.png', 'img copy 2.png')
   })
 
-  it('surfaces a duplicate failure as an error toast', async () => {
-    copyFileNode.mockRejectedValueOnce(new ApiError('workspace locked', 500))
+  it.each([
+    ['in its own words', () => new ApiError('workspace locked', 500), 'workspace locked'],
+    ['naming the remote host that failed it', hostFailure, 'Couldn’t reach Studio Mac'],
+  ])('surfaces a duplicate failure %s', async (_, failure, description) => {
+    copyFileNode.mockRejectedValueOnce(failure())
     await createFileTreeHandlers('ws-test', createWorkspaceStore('ws-test')).handleDuplicatePath(
       'a.txt',
     )
     expect(toastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Duplicate failed', description: 'workspace locked' }),
+      expect.objectContaining({ title: 'Duplicate failed', description }),
     )
   })
 

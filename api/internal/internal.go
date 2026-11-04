@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -27,6 +27,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
+	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -34,10 +35,13 @@ import (
 // the moment it binds, and the session holding the home. A migrated home adds
 // the stack over its stores; a halted one has none, and its gate says why.
 type Container struct {
-	home     home.Home
-	listener net.Listener
-	server   *http.Server
-	gate     *bootgate.Gate
+	home home.Home
+	// listeners are every bind of the host; the first is the one callbacks dial.
+	listeners []net.Listener
+	// fingerprint is the TLS identity a pairing code carries; "" on a local bind.
+	fingerprint string
+	server      *http.Server
+	gate        *bootgate.Gate
 	// serveErr carries each Serve's result: the gate's, and the hook server's
 	// once Run starts it.
 	serveErr chan error
@@ -104,15 +108,24 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("internal: home: %w", err)
 	}
-	listener, err := gateway.New(host, h.Socket())
+	identity, fingerprint, err := serverIdentity(host, h)
+	if err != nil {
+		return nil, err
+	}
+	listeners, err := gateway.New(host, h.Socket(), identity)
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
-	c := &Container{home: h, listener: listener, serveErr: make(chan error, 2)}
+	c := &Container{
+		home: h, listeners: listeners, fingerprint: fingerprint,
+		serveErr: make(chan error, len(listeners)+1),
+	}
 	report := &bootReport{}
 	c.gate = bootgate.New(metadata.GetVersion(), report.report, middleware.CORSHandler)
-	c.server = &http.Server{Handler: c.gate, ReadHeaderTimeout: 30 * time.Second}
-	c.serve(func() error { return c.server.Serve(listener) })
+	c.server = newHTTPServer(c.gate, idleConnTimeout)
+	for _, ln := range listeners {
+		c.serve(func() error { return c.server.Serve(ln) })
+	}
 
 	c.session, err = migrations.Begin(ctx, h, migrate.Options{Version: metadata.GetVersion(), Log: cfg.migrateLog})
 	if err != nil {
@@ -127,6 +140,41 @@ func New(
 		warnHaltedBoot(err)
 	}
 	return c, nil
+}
+
+// serverIdentity loads the TLS identity, and its fingerprint, for a
+// network-exposed bind only: a unix-socket or loopback daemon serves no TLS,
+// so a broken identity directory must not keep it from booting.
+func serverIdentity(
+	host string,
+	h home.Home,
+) (*tlsid.Identity, string, error) {
+	if !gateway.Exposed(host) {
+		return nil, "", nil
+	}
+	identity, err := tlsid.Load(filepath.Join(h.Root(), "tls"))
+	if err != nil {
+		return nil, "", fmt.Errorf("internal: tls identity: %w", err)
+	}
+	return identity, identity.Fingerprint, nil
+}
+
+// idleConnTimeout closes a keep-alive connection left idle between requests,
+// so an unauthenticated peer cannot pin a descriptor per connection forever.
+const idleConnTimeout = 2 * time.Minute
+
+// preAuthReadTimeout bounds the reads of a TLS request until its bearer is
+// verified: the mid-request counterpart of idleConnTimeout.
+const preAuthReadTimeout = 10 * time.Second
+
+// newHTTPServer leaves ReadTimeout and WriteTimeout unset: a hijacked WebSocket
+// or a long streaming response must outlive any fixed deadline. An anonymous
+// request's reads are bounded per request instead (preAuthReadTimeout).
+func newHTTPServer(
+	handler http.Handler,
+	idleTimeout time.Duration,
+) *http.Server {
+	return &http.Server{Handler: handler, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: idleTimeout}
 }
 
 // warnHaltedBoot logs a halted boot's error when it carries more than the halt,
@@ -169,7 +217,7 @@ func (c *Container) boot(
 	if err := c.session.RunPreOpen(ctx, migrations.PreOpenImpls()); err != nil {
 		return fmt.Errorf("internal: migrate: %w", err)
 	}
-	s, err := openStack(ctx, c.home, cfg, addressOf(c.listener), c.session, staticFS)
+	s, err := openStack(ctx, c.home, cfg, c.Address(), c.fingerprint, c.session, staticFS)
 	if err != nil {
 		return err
 	}
@@ -186,11 +234,12 @@ func openStack(
 	h home.Home,
 	cfg rootOpts,
 	address string,
+	fingerprint string,
 	post migrate.PostOpenRunner,
 	staticFS fs.FS,
 ) (*stack, error) {
 	s := &stack{}
-	if err := s.open(ctx, h, cfg, address, post, staticFS); err != nil {
+	if err := s.open(ctx, h, cfg, address, fingerprint, post, staticFS); err != nil {
 		//nolint:contextcheck // the Close methods take no ctx: a failed boot's teardown runs even after ctx is done.
 		return nil, errors.Join(err, s.close())
 	}
@@ -202,6 +251,7 @@ func (s *stack) open(
 	h home.Home,
 	cfg rootOpts,
 	address string,
+	fingerprint string,
 	post migrate.PostOpenRunner,
 	staticFS fs.FS,
 ) error {
@@ -218,7 +268,7 @@ func (s *stack) open(
 	if err != nil {
 		return fmt.Errorf("internal: app: %w", err)
 	}
-	s.api, err = crowbarapi.New(s.app, s.engines, staticFS, v0.WithLogs(cfg.logs))
+	s.api, err = crowbarapi.New(s.app, s.engines, staticFS, fingerprint, preAuthReadTimeout, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return fmt.Errorf("internal: api: %w", err)
 	}
@@ -288,25 +338,20 @@ func (c *Container) release() error {
 }
 
 // addressOf is the address listener is bound to, as a callback's --host:
-// unix://<path>, or tcp://<host:port> with the port the bind chose. A wildcard
-// host is not dialable everywhere, so it is named as loopback, which it serves.
+// unix://<path>, or tcp://<host:port> with the port the bind chose. Only a
+// loopback TCP bind is ever first: an exposed one binds the home's socket first.
 func addressOf(
 	listener net.Listener,
 ) string {
-	switch addr := listener.Addr().(type) {
-	case *net.UnixAddr:
+	if addr, ok := listener.Addr().(*net.UnixAddr); ok {
 		return "unix://" + addr.Name
-	case *net.TCPAddr:
-		if addr.IP.IsUnspecified() {
-			return "tcp://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(addr.Port))
-		}
 	}
 	return "tcp://" + listener.Addr().String()
 }
 
-// Address is the address the daemon bound.
+// Address is the address callbacks dial: the home's socket whenever it is bound.
 func (c *Container) Address() string {
-	return addressOf(c.listener)
+	return addressOf(c.listeners[0])
 }
 
 // Home is the Crowbar home the daemon holds.

@@ -3,12 +3,7 @@ import type { WindowPaneState } from '../window-pane-store.types'
 import type {
   PaneContent,
   OpenEditorTabSpec,
-  EditorContent,
-  BranchReviewContent,
-  CommitDiffContent,
-  TerminalContent,
-  MarkdownPreviewContent,
-  HtmlPreviewContent,
+  BranchReviewView,
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
@@ -16,11 +11,14 @@ import { isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
 import { placeTab } from './pane-actions/editor-tab-actions'
+import { findOpenBuffer, ownerOf, specWorkspaceId } from './find-open-buffer'
+import { newBuffer } from './new-buffer'
 import { useSettingsStore } from '@/features/settings/store'
-import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
 import type { DocumentRef } from '@/lib/api/documents'
 import { nanoid } from 'nanoid'
 import { report } from '@/lib/errors/report'
+import { browserTabName } from '@/features/browser/lib/browser-tab-name'
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -29,54 +27,14 @@ import { report } from '@/lib/errors/report'
 // more, only the always-live terminal type stays exempt from auto-eviction.
 const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['terminal'])
 
-const ownerOf = (ref: DocumentRef) => (ref.authority === 'workspace' ? ref.workspaceId : '')
-
-/** The workspace a spec names; never the active one, so an open lands where its caller meant. */
-function specWorkspaceId(spec: OpenEditorTabSpec): string {
-  switch (spec.type) {
-    case 'editor':
-      return ownerOf(spec.doc)
-    case 'markdownPreview':
-    case 'htmlPreview':
-      return ownerOf(spec.source)
-    case 'terminal':
-      return spec.workspaceId
-    default:
-      return spec.wsId
-  }
-}
-
-function findOpen(buffers: PaneContent[], spec: OpenEditorTabSpec): PaneContent | undefined {
-  switch (spec.type) {
-    case 'editor':
-      return buffers.find((b) => isEditorContent(b) && sameDocument(documentRefOf(b), spec.doc))
-    case 'markdownPreview':
-    case 'htmlPreview':
-      return buffers.find(
-        (b) =>
-          (b.type === 'markdownPreview' || b.type === 'htmlPreview') &&
-          b.type === spec.type &&
-          sameDocument(b.source, spec.source),
-      )
-    case 'branchReview':
-      return buffers.find((b) => b.type === 'branchReview' && b.wsId === spec.wsId)
-    case 'commitDiff':
-      return buffers.find(
-        (b) => b.type === 'commitDiff' && b.wsId === spec.wsId && b.sha === spec.sha,
-      )
-    default:
-      return spec.sessionId
-        ? buffers.find((b) => b.type === 'terminal' && b.sessionId === spec.sessionId)
-        : undefined
-  }
-}
-
 // ── Actions ──────────────────────────────────────────────────────────
 
 interface OpenContentOptions {
   /** The pane the tab lands in (C8). Defaults to the focused pane; focus is
    *  never a precondition. */
   paneId?: string
+  /** A tab in that pane this one takes the place of: a New Tab page's choice. */
+  replaceTabId?: string
 }
 
 export interface BufferActions {
@@ -85,6 +43,8 @@ export interface BufferActions {
   renameBuffer(id: string, name: string): void
   /** An untitled buffer saved as `doc` becomes that document's tab. */
   rebindEditorBuffer(id: string, doc: DocumentRef, name: string): void
+  setBranchReviewView(id: string, view: BranchReviewView): void
+  setBrowserLocation(id: string, patch: { url?: string; title?: string; loading?: boolean }): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -148,7 +108,22 @@ export const createBufferSlice: StateCreator<
       openContent(spec, opts = {}) {
         const paneId = opts.paneId ?? get().activePaneId
         const workspaceId = specWorkspaceId(spec)
-        const existing = findOpen(get().buffers, spec)
+        const existing = findOpenBuffer(
+          get().buffers,
+          spec,
+          get().panes[paneId]?.editorTabIds ?? [],
+        )
+
+        // A terminal is never seated in a second pane; see below.
+        if (existing && opts.replaceTabId && existing.type !== 'terminal') {
+          let released: PaneContent[] = []
+          set((state) => {
+            placeTab(state, paneId, existing.id, false, opts.replaceTabId)
+            released = releaseUnreferencedBuffers(state)
+          })
+          disposeBuffers(released)
+          return existing.id
+        }
 
         if (existing) {
           // A terminal buffer IS a live view onto ONE PTY. Opening it again must
@@ -213,86 +188,21 @@ export const createBufferSlice: StateCreator<
 
         const id = nanoid()
 
-        // Build the new buffer object
-        let buf: PaneContent
-
-        if (spec.type === 'editor') {
-          const isPreview = spec.isPreview ?? false
-          buf = {
-            id,
-            type: 'editor',
-            authority: spec.doc.authority,
-            path: spec.doc.path,
-            name: spec.name,
-            isDirty: false,
-            isVirtual: spec.isVirtual ?? false,
-            language: spec.language,
-            isPinned: false,
-            isPreview,
-            workspaceId,
-          } satisfies EditorContent
-        } else if (spec.type === 'branchReview') {
-          buf = {
-            id,
-            type: 'branchReview',
-            wsId: spec.wsId,
-            name: spec.name,
-            path: `branch-review://${spec.wsId}`,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies BranchReviewContent
-        } else if (spec.type === 'commitDiff') {
-          buf = {
-            id,
-            type: 'commitDiff',
-            wsId: spec.wsId,
-            sha: spec.sha,
-            name: spec.name,
-            // One tab per commit per workspace: reopening the same commit
-            // focuses the tab that is already there rather than stacking another.
-            path: `commit-diff://${spec.wsId}/${spec.sha}`,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies CommitDiffContent
-        } else if (spec.type === 'terminal') {
-          const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
-          const sessionId = spec.sessionId ?? `terminal-tab-${Date.now()}`
-          buf = {
-            id,
-            type: 'terminal',
-            sessionId,
-            path: spec.path ?? `terminal://${sessionId}`,
-            name: spec.name ?? `Terminal ${terminalCount + 1}`,
-            initialCommand: spec.command,
-            workingDirectory: spec.workingDirectory,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies TerminalContent
-        } else {
-          buf = {
-            id,
-            type: spec.type,
-            path: `${spec.source.path}:preview`,
-            name: spec.name,
-            content: spec.content,
-            source: spec.source,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies MarkdownPreviewContent | HtmlPreviewContent
-        }
+        const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
+        const buf = newBuffer(spec, id, workspaceId, terminalCount)
 
         // Created and seated in one write: a buffer never exists without a
         // pane listing it (invariant C2). No pane, no buffer.
         let placed = false
+        let released: PaneContent[] = []
         set((state) => {
           state.buffers.push(buf)
-          placed = placeTab(state, paneId, id, spec.type === 'editor' && !!spec.isPreview)
+          const preview = spec.type === 'editor' && !!spec.isPreview
+          placed = placeTab(state, paneId, id, preview, opts.replaceTabId)
           if (!placed) state.buffers.pop()
+          else if (opts.replaceTabId) released = releaseUnreferencedBuffers(state)
         })
+        disposeBuffers(released)
         if (!placed) return ''
 
         return id
@@ -332,6 +242,29 @@ export const createBufferSlice: StateCreator<
           buf.workspaceId = ownerOf(doc)
           buf.name = name
           buf.isVirtual = false
+        })
+      },
+
+      setBranchReviewView(id, view) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (buf?.type === 'branchReview') buf.view = view
+        })
+      },
+
+      // The webview is the source of truth for where it is; this stores what it
+      // reports so the tab strip and a re-mounted pane agree with it.
+      setBrowserLocation(id, patch) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (!buf || buf.type !== 'browser') return
+          if (patch.url !== undefined && patch.url !== buf.url) {
+            buf.url = patch.url
+            buf.title = undefined
+          }
+          if (patch.title !== undefined) buf.title = patch.title
+          if (patch.loading !== undefined) buf.loading = patch.loading
+          buf.name = browserTabName(buf.title, buf.url)
         })
       },
 

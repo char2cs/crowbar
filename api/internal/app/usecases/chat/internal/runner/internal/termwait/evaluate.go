@@ -76,7 +76,7 @@ func (d *detector) readScreen(
 
 	next := screenCache{session: runner.TerminalSession, gen: gen, text: text}
 	if prompt, ok := d.deps.Prompts.MatchTerminalPrompt(ctx, runner.ProviderID, text); ok {
-		next.matched = domain.AgentTerminalWait{Waiting: true, Kind: prompt.Kind}
+		next.matched = domain.AgentTerminalWait{Waiting: true, Kind: prompt.Kind, Answers: waitAnswers(prompt)}
 	}
 	if d.deps.Notices != nil {
 		if notice, ok := d.deps.Notices.MatchTerminalNotice(ctx, runner.ProviderID, text); ok {
@@ -84,4 +84,12 @@ func (d *detector) readScreen(
 		}
 	}
 	return next
+}
+
+func waitAnswers(prompt agents.TerminalPrompt) []domain.AgentTerminalAnswer {
+	var out []domain.AgentTerminalAnswer
+	for _, a := range prompt.Answers {
+		out = append(out, domain.AgentTerminalAnswer{ID: a.ID, Label: a.Label, Keys: a.Keys})
+	}
+	return out
 }

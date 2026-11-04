@@ -3,11 +3,11 @@ module github.com/char2cs/crowbar/api
 go 1.26.2
 
 require (
-	github.com/bmatcuk/doublestar/v4 v4.10.3
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/char2cs/asynx v1.1.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260622092850-f39628c8a989
 	github.com/charmbracelet/x/ansi v0.11.9
-	github.com/charmbracelet/x/vt v0.0.0-20260629091435-9c70f75e26a4
+	github.com/charmbracelet/x/vt v0.1.0
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gin-gonic/gin v1.12.0

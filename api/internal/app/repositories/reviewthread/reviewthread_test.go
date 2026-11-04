@@ -138,7 +138,7 @@ func TestReviewThread_OpenReplyList(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0)
 	_, err := repo.Open(ctx, reviewthread.OpenInput{
-		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "b.go", Body: "first",
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "b.go", LineNumber: 1, Body: "first",
 	}, now)
 	require.NoError(t, err)
 
@@ -166,7 +166,7 @@ func TestReviewThread_AttributionSurvivesTheEventLog(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0)
 	_, err := repo.Open(ctx, reviewthread.OpenInput{
-		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "b.go", Body: "finding",
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "b.go", LineNumber: 1, Body: "finding",
 		Author: "claude", IsAgent: true, ProviderID: "claude", ChatID: "chat-1",
 	}, now)
 	require.NoError(t, err)
@@ -310,7 +310,7 @@ func TestReviewThread_ConcurrentRepliesAllCommitInTurn(t *testing.T) {
 func TestReviewThread_StoreProjectionPersists(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	_, err := repo.Open(ctx, reviewthread.OpenInput{
-		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go",
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", LineNumber: 1,
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
 
@@ -358,7 +358,7 @@ func TestReviewThread_ListLazyRebuild(t *testing.T) {
 func TestReviewThread_HubBroadcastsBareAggregate(t *testing.T) {
 	ctx, repo, _, cap := newRepoWithDeps(t)
 	opened, err := repo.Open(ctx, reviewthread.OpenInput{
-		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", Body: "first",
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", LineNumber: 1, Body: "first",
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
 

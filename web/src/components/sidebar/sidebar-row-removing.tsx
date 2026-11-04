@@ -4,12 +4,18 @@ import {
   ROW_BASE,
   ROW_GLYPH_BOX,
   ROW_INACTIVE,
-  ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
   ROW_SUB_ACTION,
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { RowGlyph } from '@/components/sidebar/sidebar-row-glyph'
+import {
+  rowBoxStyle,
+  rowGlyphStyle,
+  rowHitStyle,
+  rowIndent,
+  useRowMetrics,
+} from '@/components/sidebar/lib/row-metrics'
 
 /** Whole seconds left on a deadline, never below zero — same formula
  *  `removal-tray.tsx` draws its own figures from. */
@@ -31,12 +37,20 @@ export function RemovingSidebarRow({
   depth: number
   removal: NonNullable<SidebarRowType['removal']>
 }) {
+  const metrics = useRowMetrics()
   return (
-    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
       {/* A held row keeps its id so its children and the context menu still
           resolve it; the drag attributes stay off, it is no drop target. */}
-      <div data-sidebar-row-id={row.id} className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
-        <span className={ROW_GLYPH_BOX}>
+      <div
+        data-sidebar-row-id={row.id}
+        className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}
+        style={rowBoxStyle(metrics)}
+      >
+        <span
+          className={cn(ROW_GLYPH_BOX, metrics && '[&_svg]:size-full')}
+          style={rowGlyphStyle(metrics)}
+        >
           <RowGlyph row={row} large={false} expanded={false} />
         </span>
         <span
@@ -63,7 +77,8 @@ export function RemovingSidebarRow({
         </span>
         <button
           type="button"
-          className={ROW_SUB_ACTION}
+          className={cn(ROW_SUB_ACTION, metrics && 'items-center justify-center')}
+          style={rowHitStyle(metrics)}
           aria-label={`Keep ${row.label}`}
           title="Keep"
           onClick={(e) => {

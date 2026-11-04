@@ -103,6 +103,16 @@ func agentConversationDTOFrom(c ledger.Conversation) *AgentConversationDTO {
 // new kind never makes an older client say something wrong.
 type AgentTerminalWaitDTO struct {
 	Kind string `json:"kind,omitempty"`
+
+	// Answers are one-tap replies the provider's descriptor declares for this
+	// prompt; empty means the terminal is the only way past it.
+	Answers []AgentTerminalAnswerDTO `json:"answers,omitempty"`
+}
+
+// AgentTerminalAnswerDTO is one such reply; the keys that type it stay in the daemon.
+type AgentTerminalAnswerDTO struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // AgentChatDTO is the wire shape of a Crowbar-owned agentic chat: the workspace it
@@ -286,7 +296,11 @@ func TerminalWaitDTOFrom(
 	if !w.Waiting {
 		return nil
 	}
-	return &AgentTerminalWaitDTO{Kind: w.Kind}
+	out := &AgentTerminalWaitDTO{Kind: w.Kind}
+	for _, a := range w.Answers {
+		out.Answers = append(out.Answers, AgentTerminalAnswerDTO{ID: a.ID, Label: a.Label})
+	}
+	return out
 }
 
 // PromptSubmissionDTO is the wire shape of domain.AgentPromptSubmission — see

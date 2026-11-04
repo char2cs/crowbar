@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { ReactNode, Ref, RefObject } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { IS_MOBILE } from '@/utils/platform'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 
@@ -56,11 +57,11 @@ export interface AgentEmptyDocumentProps {
   controls: ReactNode
   /** The composer's attach control, beside the send button. */
   attach: ReactNode
-  working: boolean
-  canStop: boolean
+  working?: boolean
+  canStop?: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
-  onStop: () => void
+  onStop?: () => void
   /** `.doc`'s own extra top padding (`--agent-header-clearance`), which the
    *  empty fallback position must add itself. Defaults to 0. */
   headerClearancePx?: number
@@ -82,8 +83,8 @@ export function AgentEmptyDocument({
   onSubmit,
   controls,
   attach,
-  working,
-  canStop,
+  working = false,
+  canStop = false,
   sending,
   onStop,
   headerClearancePx = 0,
@@ -133,7 +134,7 @@ export function AgentEmptyDocument({
   const idle = !stopping && !sendingVisual && empty
 
   return (
-    <div ref={handleRef} className="dochandle">
+    <div ref={handleRef} className="dochandle" data-touch={IS_MOBILE || undefined}>
       <div className="inner">
         {banner ? (
           <div className="banner">{banner}</div>

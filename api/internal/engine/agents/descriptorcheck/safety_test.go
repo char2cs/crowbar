@@ -72,3 +72,17 @@ func TestValidate_AVersionRangeNothingCanPassIsAnError(t *testing.T) {
 	}
 	assert.True(t, descriptorcheck.Validate(complete("protocol_version: { min: \"0.150\", max: \"0.156.1\" }\n")).OK())
 }
+
+// An icon that is not plain SVG is reported where it is, as a warning: the
+// daemon drops it at load and the provider still runs, without an icon.
+func TestValidate_AnUnsafeIconIsAWarningAtTheIcon(t *testing.T) {
+	doc := complete(`icon: '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'` + "\n")
+	rep := descriptorcheck.Validate(doc)
+	f := findingFor(t, rep, "icon.unsafe")
+	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
+	assert.Equal(t, "icon", f.Path)
+	assert.Equal(t, lineOf(t, doc, "icon:"), f.Line)
+	assert.Contains(t, f.Message, "onload")
+	assert.NotEmpty(t, f.Hint)
+	assert.True(t, rep.OK(), "an unsafe icon never blocks its provider: %+v", rep.Findings)
+}

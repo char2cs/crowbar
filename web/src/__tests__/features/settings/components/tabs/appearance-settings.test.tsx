@@ -8,9 +8,8 @@
  * The guarantee is upheld at the store's normalisation seam (a read-time
  * fallback, never a migration), so this drives the REAL `updateSetting` path.
  *
- * The menu items live in a portal that is only mounted while the popup is open,
- * so base-ui's Select.Value has no label to resolve and renders the raw value —
- * which is exactly the string this asserts against the registry.
+ * The trigger shows the chosen option's label, so it is mapped back to the theme
+ * id it names before being checked against the registry.
  */
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,7 +20,8 @@ import { themeRegistry } from '@/extensions/themes/theme-registry'
 
 function colorThemeTriggerValue(): string {
   const trigger = document.querySelectorAll('[data-slot="select-trigger"]')[0]
-  return trigger?.textContent?.trim() ?? ''
+  const label = trigger?.textContent?.trim() ?? ''
+  return themeRegistry.getAllThemes().find((theme) => theme.name === label)?.id ?? label
 }
 
 describe('AppearanceSettings color theme picker', () => {

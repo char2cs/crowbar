@@ -1,7 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Columns, FileDashed, MagnifyingGlass, Rows } from '@phosphor-icons/react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Button } from '@/components/ui/button'
+import { Toggle, ToggleGroup } from '@/components/ui/toggle-group'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
 import { useReviewOutline } from '@/features/git/hooks/use-review-outline'
@@ -15,6 +17,13 @@ const ReviewCodeViewLazy = lazy(() =>
 const ReviewSearchBarLazy = lazy(() =>
   import('./diff/review-search-bar').then((m) => ({ default: m.ReviewSearchBar })),
 )
+
+export interface LineRequest {
+  path: string
+  lineNumber: number
+  side: 'old' | 'new'
+  nonce: number
+}
 
 interface ReviewDiffTabProps {
   onRetry: () => void
@@ -30,13 +39,17 @@ interface ReviewDiffTabProps {
    * opened for (same shape of bug as terminal-tab.tsx's `workspaceId` prop).
    */
   wsId: string
-  /** Branch-review header data (branch name + base) for the shared diff header. */
-  branchHeader?: { title: string; baseBranch?: string }
+  /** Heading for a surface the Branch Review shell does not wrap (a commit tab). */
+  title?: string
+  /** A thread's line to scroll to; the nonce makes asking for the same line twice work. */
+  lineRequest?: LineRequest
   isActivePane?: boolean
   /** Scopes the whole surface to ONE commit instead of the workspace's branch. */
   commit?: string
   /** Shown when the scoped diff has no files. Defaults to the branch wording. */
   emptyMessage?: string
+  /** Renders the view toggle and find button here (a tab row) instead of in a toolbar row of its own. */
+  toolbarHost?: HTMLElement | null
 }
 
 function CenteredState({ children }: { children: React.ReactNode }) {
@@ -68,10 +81,12 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 export function ReviewDiffTab({
   onRetry,
   wsId,
-  branchHeader,
+  title,
+  lineRequest,
   isActivePane,
   commit,
   emptyMessage,
+  toolbarHost,
 }: ReviewDiffTabProps) {
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
   const { outline } = useReviewOutline(wsId, commit)
@@ -119,6 +134,15 @@ export function ReviewDiffTab({
     surface.revealFile(revealPath)
   }, [surface, revealNonce, revealPath, commit])
 
+  // Same wait-for-the-handle rule as the file reveal above: the Conversation's
+  // "Jump to line" mounts this surface and asks in the same breath.
+  const consumedLineNonce = useRef(0)
+  useEffect(() => {
+    if (!surface || !lineRequest || consumedLineNonce.current === lineRequest.nonce) return
+    consumedLineNonce.current = lineRequest.nonce
+    surface.revealLine(lineRequest.path, lineRequest.lineNumber, lineRequest.side)
+  }, [surface, lineRequest])
+
   // The summary gates first paint, not the outline. The file list is renderable
   // without geometry — heights are estimated from ± counts until the outline
   // lands — so blocking on it would hold the pane for no visual gain.
@@ -148,6 +172,36 @@ export function ReviewDiffTab({
     )
   }
 
+  const controls = (
+    <div className="flex shrink-0 items-center gap-1">
+      <ToggleGroup
+        value={[diffStyle]}
+        onValueChange={(next) => {
+          const mode = next[0]
+          if (mode === 'split' || mode === 'unified') updateSetting('diffViewMode', mode)
+        }}
+        aria-label="Diff layout"
+      >
+        <Toggle value="split" aria-label="Side-by-side diff" title="Side-by-side">
+          <Columns />
+        </Toggle>
+        <Toggle value="unified" aria-label="Inline diff" title="Inline">
+          <Rows />
+        </Toggle>
+      </ToggleGroup>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => setSearchOpen((v) => !v)}
+        aria-label="Find in diff"
+        aria-pressed={searchOpen}
+        title="Find in diff"
+      >
+        <MagnifyingGlass />
+      </Button>
+    </div>
+  )
+
   return (
     <div
       className="flex h-full min-h-0 flex-col bg-background"
@@ -158,52 +212,19 @@ export function ReviewDiffTab({
         }
       }}
     >
-      <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
-        <span className="ui-text-sm min-w-0 truncate font-medium">
-          {branchHeader?.title ?? 'Branch Review'}
-        </span>
-        {branchHeader?.baseBranch && (
-          <span className="ui-text-sm shrink-0 text-muted-foreground">
-            → {branchHeader.baseBranch}
-          </span>
-        )}
-        <span className="ui-text-sm ml-auto shrink-0 text-muted-foreground">
-          {files.length} changed {files.length === 1 ? 'file' : 'files'}
-        </span>
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5">
-          <Button
-            variant={diffStyle === 'split' ? 'secondary' : 'ghost'}
-            size="icon-sm"
-            onClick={() => updateSetting('diffViewMode', 'split')}
-            aria-label="Side-by-side diff"
-            aria-pressed={diffStyle === 'split'}
-            title="Side-by-side"
-          >
-            <Columns />
-          </Button>
-          <Button
-            variant={diffStyle === 'unified' ? 'secondary' : 'ghost'}
-            size="icon-sm"
-            onClick={() => updateSetting('diffViewMode', 'unified')}
-            aria-label="Inline diff"
-            aria-pressed={diffStyle === 'unified'}
-            title="Inline"
-          >
-            <Rows />
-          </Button>
+      {toolbarHost !== undefined ? (
+        toolbarHost && createPortal(controls, toolbarHost)
+      ) : (
+        <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
+          {title && <span className="ui-text-sm min-w-0 truncate font-medium">{title}</span>}
+          {commit && (
+            <span className="ui-text-sm shrink-0 text-muted-foreground">
+              {files.length} changed {files.length === 1 ? 'file' : 'files'}
+            </span>
+          )}
+          <div className="ml-auto">{controls}</div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          onClick={() => setSearchOpen((v) => !v)}
-          aria-label="Find in diff"
-          aria-pressed={searchOpen}
-          title="Find in diff"
-        >
-          <MagnifyingGlass />
-        </Button>
-      </div>
+      )}
 
       {searchOpen && (
         <Suspense fallback={null}>

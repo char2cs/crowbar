@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const { readDocument, openNativeDialog, desktop } = vi.hoisted(() => ({
   readDocument: vi.fn(),
@@ -44,6 +44,15 @@ import {
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { toast } from '@/features/window/stores/toast-store'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = host('/tmp/s5/notes.md')
@@ -185,6 +194,24 @@ describe('openDocument', () => {
 
     expect(toastError).toHaveBeenCalledWith(title, message)
     expect(editors()).toEqual([])
+  })
+
+  it('names the remote host a file could not be read from', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    loadProjects(projectOn('p1', 'h1'))
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a', owningChatId: 'chat-a' })
+    onTestFinished(() => {
+      destroyHostRuntime('h1')
+      resetHostWorld()
+    })
+    readDocument.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+
+    expect(await openDocument(A)).toBeNull()
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      'Check that it is online in Settings → Hosts.',
+    )
   })
 
   it('a host document holds one watch however many opens race for it, and only while open', async () => {

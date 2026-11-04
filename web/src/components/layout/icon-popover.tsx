@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { RepoAvatarImg } from './repo-avatar'
 import { apiFetch } from '@/lib/api/fetch'
 import { toast } from '@/features/window/stores/toast-store'
+import { putIconFile } from './icon-upload'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
 import { report } from '@/lib/errors/report'
@@ -34,7 +35,8 @@ export type StagedIcon =
 interface IconPopoverProps {
   /**
    * The entity's REST base — `/v0/projects/<id>` or
-   * `/v0/projects/<id>/repos/<id>`. Every mutation below hangs off it, which is
+   * `/v0/projects/<id>/repos/<id>`, qualified with the entity's host (projectBase/repoBase,
+   * lib/project-url). Every mutation below hangs off it, which is
    * the whole reason one component can serve both: the daemon exposes the same
    * four routes under each. Unused when `onStage` is provided.
    */
@@ -72,25 +74,15 @@ interface IconPopoverProps {
    * avatar fetch needs a real repo origin, which nothing has before it exists.
    */
   onStage?: (change: StagedIcon) => void
-  /**
-   * A pure observer — this stays uncontrolled (no `open` prop passed below),
-   * so this callback never has to be wired back in. `space-header.tsx`'s own
-   * caller uses it to hold its hover-driven mark/chevron swap off while this
-   * popover is open: a caller whose trigger's own visible mark can change
-   * out from under a still-open popover (a hover state fluctuating while the
-   * popover stays open) needs to know when to suspend that, or the trigger
-   * flickers between its two faces for as long as the popover stays open.
-   */
-  onOpenChange?: (open: boolean) => void
 }
 
 /**
- * The editable icon shared by the sidebar's two header rows.
+ * The editable icon shared by a repo's header row and the project switcher.
  *
  * Clicking the mark — and only the mark, the click is stopped from bubbling to
  * the row — opens the editor; hovering it reveals a pencil saying it is
  * editable. It edits the ICON only: renaming stays on the name's double-click,
- * on both row types.
+ * on both.
  *
  * Three states, in precedence order: an emoji, an uploaded image, or the
  * entity's own default. That order is the daemon's (see the icons package), not
@@ -107,7 +99,6 @@ export function IconPopover({
   trigger: triggerOverride,
   github = false,
   onStage,
-  onOpenChange,
 }: IconPopoverProps) {
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
@@ -140,10 +131,9 @@ export function IconPopover({
     }
   }
 
-  // Upload entry point. On the desktop the WKWebView crowbar:// transport cannot
-  // carry a multipart/binary body, so we use the native file dialog to get an
-  // absolute path and let the daemon read the file (PUT JSON {path}). In a real
-  // browser there is no filesystem path, so fall back to the hidden <input>.
+  // Upload entry point. On the desktop the native file dialog picks an image on this
+  // computer (putIconFile sends it to the entity's own host); a real browser has no
+  // filesystem path, so it falls back to the hidden <input>.
   async function handleUpload() {
     if (!isTauri()) {
       fileRef.current?.click()
@@ -158,15 +148,7 @@ export function IconPopover({
       onStage({ kind: 'path', path: selected, previewUrl: convertFileSrc(selected) })
       return
     }
-    await mutate(
-      () =>
-        apiFetch(`${base}/icon`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: selected }),
-        }),
-      'Failed to set icon',
-    )
+    await mutate(() => putIconFile(`${base}/icon`, selected), 'Failed to set icon')
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -248,14 +230,11 @@ export function IconPopover({
   )
 
   return (
-    <Popover onOpenChange={onOpenChange}>
+    <Popover>
       <PopoverTrigger
         aria-label={`Edit ${name} icon`}
-        // `align-middle`: callers that toggle this trigger's visibility by
-        // wrapping it in a bare `<span>` (space-header.tsx's chevron/icon
-        // swap, kept mounted rather than ternary'd to avoid closing the
-        // popover mid-hover) make that span this button's inline formatting
-        // context. An `inline-flex` box with no `vertical-align` set defaults
+        // `align-middle`: a caller wrapping this trigger in a bare `<span>`
+        // makes that span this button's inline formatting context. An `inline-flex` box with no `vertical-align` set defaults
         // to `baseline` there, sitting a few px above the row's true center
         // even though the button centers ITS OWN children correctly — caught
         // live as an uploaded project/repo icon sitting visibly high next to

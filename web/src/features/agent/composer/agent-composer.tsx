@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
@@ -31,6 +32,7 @@ import {
   type AgentEmptyDocumentHandle,
 } from '@/features/agent/chat/agent-empty-document'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
+import { IS_MOBILE } from '@/utils/platform'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
@@ -258,6 +260,7 @@ export function AgentComposer(props: AgentComposerProps) {
           chatId={props.chatId}
           providerLabel={props.providerLabel}
           permissionLevels={props.permissionLevels}
+          terminalWait={props.terminalWait}
           onOpenTerminal={props.onOpenTerminal}
         />
       )}
@@ -270,6 +273,7 @@ export function AgentComposer(props: AgentComposerProps) {
           !document && isMultiline(fieldHeight) && 'multi',
           dropTarget && 'drop-target',
         )}
+        data-touch={IS_MOBILE || undefined}
         onDragOver={handlePillDragOver}
         onDragLeave={handlePillDragLeave}
         onDrop={handlePillDrop}
@@ -344,11 +348,13 @@ interface ComposerOccupantProps {
   chatId: string
   providerLabel: string
   permissionLevels?: PermissionLevel[]
+  terminalWait?: AgentTerminalWait
   onOpenTerminal: () => void
 }
 
 /** What holds the bar when it is not an input: the question, or why not. */
 function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
+  const answerTerminalWait = useAnswerTerminalWait(props.wsId, props.chatId)
   switch (state.kind) {
     case 'signpost':
       return (
@@ -356,6 +362,8 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
           reason={state.reason}
           message={state.message}
           onOpenTerminal={props.onOpenTerminal}
+          answers={props.terminalWait?.answers}
+          onAnswer={answerTerminalWait}
         />
       )
     case 'choices':

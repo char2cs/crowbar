@@ -353,7 +353,7 @@ func (configurableListGetUsecase) StopChat(
 	return nil
 }
 
-func (configurableListGetUsecase) CloseChat(
+func (configurableListGetUsecase) KillChat(
 	_ context.Context,
 	_ string,
 ) error {
@@ -1006,6 +1006,10 @@ func TestRename_PostsTitleAndSource(
 	assert.Equal(t, "c-1", uc.renameCalls[0].chatID)
 	assert.Equal(t, "My Title", uc.renameCalls[0].title)
 	assert.Equal(t, "agent", uc.renameCalls[0].source)
+}
+
+func (configurableListGetUsecase) AnswerTerminalWait(context.Context, string, string) error {
+	return nil
 }
 
 func (configurableListGetUsecase) AnswerChoice(

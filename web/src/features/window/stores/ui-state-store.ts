@@ -14,10 +14,13 @@ export type SettingsTab =
   | 'editor'
   | 'appearance'
   | 'terminal'
+  | 'browser'
   | 'git'
   | 'file-explorer'
   | 'providers'
   | 'keybindings'
+  | 'hosts'
+  | 'active-sessions'
   | 'developer'
 
 export type BottomPaneTab = 'terminal' | 'buffers'

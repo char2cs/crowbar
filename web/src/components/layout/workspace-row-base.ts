@@ -18,10 +18,14 @@
 // containing block. With it: 1/199 frames over 16.7ms, max 18ms, same
 // numbers as reserving the buttons' space outright — but without that
 // approach's already-documented cost (permanently truncating the label).
-export const ROW_BASE =
+// The capsule every sidebar row shares, minus its pitch: ROW_BASE adds the
+// chat tree's 36px, SidebarFileRow the file lists' denser one.
+export const ROW_SHAPE =
   'flex cursor-pointer select-none items-center gap-1.5 rounded-lg border contain-layout ' +
-  'h-9 px-1.5 mx-1.5 my-0.5 text-[13px] font-medium outline-none [touch-action:pan-x_pan-y] ' +
+  'px-1.5 text-[13px] font-medium outline-none [touch-action:pan-x_pan-y] ' +
   'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background'
+
+export const ROW_BASE = `${ROW_SHAPE} h-9 mx-1.5 my-0.5`
 
 // Shared selected/idle row variants so every sidebar row (workspaces, the repo
 // header) renders an identical active state — a raised, inset-lit surface when
@@ -62,7 +66,7 @@ export const ROW_ACTIVE =
   'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 
 // Plain flat tokens, deliberately with NO CossUI top-highlight — that glossy
-// treatment (ROW_ACTIVE above, and recents-band.tsx's own group-hover
+// treatment (ROW_ACTIVE above, and view-row.tsx's own group-hover
 // treatment) is reserved for a row that IS the showing/selected surface, or a
 // grouped Recents SET being hovered as one unit. An ordinary tree row and its
 // own plain hover, and a merely has-a-view tree row, are neither of those —
@@ -80,7 +84,7 @@ export const ROW_INACTIVE = 'border-transparent text-foreground hover:bg-sidebar
 
 // A row that HAS a view (open, somewhere) but is not the one on screen right
 // now — the tree's own version of the middle state Recents itself marks with
-// `hasView`'s greyed label (recents-band.tsx draws no SET shell ground for
+// `hasView`'s greyed label (view-row.tsx draws no SET shell ground for
 // this state either — that file's own doc on why a dormant/parked SET
 // matches a solo one, with no fill of its own). The tree never draws
 // ROW_ACTIVE (sidebar-row.tsx's own doc: that surface "moved to Recents"), so

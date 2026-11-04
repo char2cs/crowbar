@@ -25,14 +25,22 @@ func Match(d *spec.Descriptor, screen string) (models.TerminalPrompt, bool) {
 			continue
 		}
 		if p.Kind != "" {
-			return models.TerminalPrompt{Kind: p.Kind, Needle: p.Needle}, true
+			return models.TerminalPrompt{Kind: p.Kind, Needle: p.Needle, Answers: answers(p)}, true
 		}
 		if !found {
-			generic = models.TerminalPrompt{Needle: p.Needle}
+			generic = models.TerminalPrompt{Needle: p.Needle, Answers: answers(p)}
 			found = true
 		}
 	}
 	return generic, found
+}
+
+func answers(p spec.TerminalPromptSpec) []models.TerminalPromptAnswer {
+	var out []models.TerminalPromptAnswer
+	for _, a := range p.Answers {
+		out = append(out, models.TerminalPromptAnswer{ID: a.ID, Label: a.Label, Keys: a.Keys})
+	}
+	return out
 }
 
 func Declared(d *spec.Descriptor) bool {

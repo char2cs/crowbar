@@ -10,9 +10,11 @@ import (
 	systemhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers"
 )
 
-// Register mounts GET /system/prerequisites and the /system/perf pair. The
-// prerequisites handler resolves the user's login-shell PATH once at startup
+// Register mounts GET /system/prerequisites, GET /system/browse, and the /system/perf pair.
+// The prerequisites handler resolves the user's login-shell PATH once at startup
 // (5 s timeout) so it is never resolved on—or cancelled by—a request context.
+//
+// /system/browse serves a remote file-picker UI in the client with directory listings.
 //
 // /system/perf is the read/arm seam for the daemon's timing ring: a capture run
 // POSTs to arm it, drives a scenario, and GETs the samples back. It mounts here
@@ -24,6 +26,8 @@ func Register(rg *gin.RouterGroup) {
 
 	h := systemhandlers.NewHandler(ctx)
 	rg.GET("/system/prerequisites", h.Prerequisites)
+
+	rg.GET("/system/browse", systemhandlers.Browse)
 
 	p := systemhandlers.NewPerfHandler()
 	rg.GET("/system/perf", p.Get)

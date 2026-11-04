@@ -12,7 +12,14 @@ const REMOVAL_DRAIN_MS = 8000
 const NO_IDS: ReadonlySet<string> = new Set<string>()
 const NO_REMOVALS: readonly RemovalEntry[] = []
 
-export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'
+export type SidebarTab = 'chats' | 'files' | 'git'
+
+const SIDEBAR_TABS: readonly SidebarTab[] = ['chats', 'files', 'git']
+
+/** A persisted mode, or Chats for anything this build has no panel for. */
+export function parseSidebarTab(value: unknown): SidebarTab {
+  return SIDEBAR_TABS.find((tab) => tab === value) ?? 'chats'
+}
 
 /** One row on its way out, worked out before anything is hidden. */
 export interface RemovalDraft {
@@ -75,7 +82,7 @@ interface TreeUiState {
    *  from `removals`: a sent entry leaves the tray before its tombstones arrive. */
   hiddenIds: ReadonlySet<string>
   draft: CreateDraft | null
-  /** The sidebar carousel's panel; the carousel defaults to Files. */
+  /** The mode the user chose; what shows also depends on availability (sidebar-panel-tabs.ts). */
   activeTab: SidebarTab
 }
 
@@ -85,7 +92,7 @@ interface TreeUiActions {
   /** Fold a row away, or open it again; the fold is persisted. */
   toggleChatRow: (rowId: string) => void
   /** Hold rows: hide them and put a row in the tray for each. */
-  hold: (drafts: readonly RemovalDraft[]) => void
+  hold: (drafts: readonly RemovalDraft[], drainMs?: number) => void
   /** The user kept it: drop the tray row and show its rows again. */
   cancel: (entryId: string) => void
   /** The removal has been sent: drop the tray row, keep its rows hidden. */
@@ -115,6 +122,11 @@ function renamingRoleFor(rowId: string): 'tree' | 'recents' {
   return tree ? 'tree' : 'recents'
 }
 
+// Folds and mode share one record, so every write carries both.
+function persist(collapsed: ReadonlySet<string>, activeTab: SidebarTab): void {
+  void saveSidebarUI({ collapsedChatRows: [...collapsed], activeTab })
+}
+
 function withIds(set: ReadonlySet<string>, ids: readonly string[]): Set<string> {
   const next = new Set(set)
   for (const id of ids) next.add(id)
@@ -128,7 +140,7 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
   removals: NO_REMOVALS,
   hiddenIds: NO_IDS,
   draft: null,
-  activeTab: 'files',
+  activeTab: 'chats',
 
   startRenaming: (rowId) => set({ renaming: rowId, renamingRole: renamingRoleFor(rowId) }),
   stopRenaming: () => set({ renaming: null, renamingRole: null }),
@@ -137,11 +149,11 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
     set((s) => {
       const next = new Set(s.collapsed)
       if (!next.delete(rowId)) next.add(rowId)
-      void saveSidebarUI({ collapsedChatRows: [...next] })
+      persist(next, s.activeTab)
       return { collapsed: next }
     }),
 
-  hold: (drafts) =>
+  hold: (drafts, drainMs = REMOVAL_DRAIN_MS) =>
     set((s) => {
       if (drafts.length === 0) return s
       const now = Date.now()
@@ -149,8 +161,7 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
         ...draft,
         entryId: crypto.randomUUID(),
         // A repo or a project waits on Cancel / Remove; everything else drains.
-        deadlineAt:
-          draft.kind === 'repo' || draft.kind === 'project' ? null : now + REMOVAL_DRAIN_MS,
+        deadlineAt: draft.kind === 'repo' || draft.kind === 'project' ? null : now + drainMs,
       }))
       return {
         removals: [...s.removals, ...held],
@@ -200,11 +211,16 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
       if (!s.collapsed.has(draft.parentId)) return { draft }
       const collapsed = new Set(s.collapsed)
       collapsed.delete(draft.parentId)
-      void saveSidebarUI({ collapsedChatRows: [...collapsed] })
+      persist(collapsed, s.activeTab)
       return { draft, collapsed }
     }),
   cancelDraft: () => set({ draft: null }),
-  setActiveTab: (activeTab) => set({ activeTab }),
+  setActiveTab: (activeTab) =>
+    set((s) => {
+      if (s.activeTab === activeTab) return s
+      persist(s.collapsed, activeTab)
+      return { activeTab }
+    }),
 }))
 
 export function useTreeUi<T>(selector: (s: TreeUi) => T): T {

@@ -7,11 +7,12 @@ import { getLinkAttributes } from '@platejs/link'
 import { PlateElement } from 'platejs/react'
 
 import { cn } from '@/lib/utils'
-import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
+import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 import { inlineSuggestionVariants } from '@/lib/suggestion'
 
 export function LinkElement(props: PlateElementProps<TLinkElement>) {
   const linkAttributes = getLinkAttributes(props.editor, props.element)
+  const linkWorkspace = useLinkWorkspace()
   return (
     <PlateElement
       {...props}
@@ -26,7 +27,7 @@ export function LinkElement(props: PlateElementProps<TLinkElement>) {
         // A bare <a> click navigates the whole WKWebView; route external URLs
         // to the OS browser and cancel the in-app navigation instead.
         onClick: (e) => {
-          handleMarkdownAnchorClick(e, linkAttributes.href)
+          handleMarkdownAnchorClick(e, linkAttributes.href, linkWorkspace)
         },
         onMouseOver: (e) => {
           e.stopPropagation()

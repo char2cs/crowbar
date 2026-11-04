@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { useSettingsStore } from '@/features/settings/store'
 import { IS_MAC } from '@/utils/platform'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 interface NavStackProps {
   children: ReactNode
@@ -47,8 +48,8 @@ export function NavStack({ children }: NavStackProps) {
               data-tauri-drag-region
               className={cn(
                 'flex w-full flex-shrink-0 items-center gap-2 border-b border-border px-3',
-                IS_MAC ? 'h-[44px]' : 'h-[34px]',
               )}
+              style={{ height: CHROME_ROW_HEIGHT_PX }}
             >
               {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
               <Button

@@ -1,7 +1,13 @@
 import { useCallback, useMemo, useRef } from 'react'
-import type { CodeViewItem, CodeViewOptions, FileDiffMetadata } from '@pierre/diffs'
+import type {
+  CodeViewItem,
+  CodeViewOptions,
+  FileDiffLoadedFiles,
+  FileDiffMetadata,
+} from '@pierre/diffs'
 import { WorkerPoolContextProvider } from '@pierre/diffs/react'
 import HighlightWorker from '@pierre/diffs/worker/worker.js?worker'
+import { getReviewFileSides } from '@/features/git/api/review-window-api'
 import type { FileOutline } from '@/features/git/api/review-window-api'
 import { MAX_MATERIALIZED_LINES } from '@/features/git/lib/patch-window'
 import {
@@ -9,12 +15,13 @@ import {
   partitionReviewFiles,
   signatureOf,
 } from '@/features/git/lib/review-placeholder'
+import { isFileViewed, useReviewViewed } from '@/features/git/lib/review-viewed'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import type { GitDiff } from '@/features/git/types/git-types'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { cn } from '@/utils/cn'
 import { ReviewBinaryFiles } from './review-binary-files'
-import { FileThreadCount, PatchStateNotice } from './review-patch-header'
+import { FileThreadCount, PatchStateNotice, ViewedToggle } from './review-patch-header'
 import { useReviewAnnotations } from './use-review-annotations'
 import type { ReviewAnnotation } from './use-review-annotations'
 import { useReviewPatchWindow } from './use-review-patch-window'
@@ -72,6 +79,19 @@ export const REVIEW_TOKENIZE_MAX_LENGTH = MAX_MATERIALIZED_LINES
  * to refuse. Two is enough to keep highlighting off the thread that scrolls.
  */
 const HIGHLIGHT_POOL_SIZE = 2
+
+/** Raised header tone, opaque so the sticky header never shows code through it.
+ *  Inset shadow, not a border: the virtualizer's header height must not change. */
+const FILE_CARD_CSS = `[data-diffs-header] {
+  background-color: color-mix(in srgb, var(--background) 94%, var(--foreground));
+  box-shadow: inset 0 -1px 0 var(--border);
+}`
+
+/** Space between file cards; the virtualizer adds it to its own layout. */
+const FILE_CARD_GAP = 12
+
+/** Unchanged lines one click on a separator reveals, as GitHub does. */
+const EXPANSION_LINE_COUNT = 20
 
 // ── The surface ─────────────────────────────────────────────────────
 
@@ -204,6 +224,15 @@ function ReviewCodeViewSurface({
   const entries = useMemo(() => partitionReviewFiles(files, outline), [files, outline])
   const binaries = useMemo(() => entries.filter((e) => e.kind !== 'diff'), [entries])
 
+  const { viewed, setFilesViewed } = useReviewViewed()
+  const viewedPaths = useMemo(() => {
+    const set = new Set<string>()
+    for (const entry of entries) {
+      if (entry.kind === 'diff' && isFileViewed(viewed, entry.file)) set.add(entry.path)
+    }
+    return set
+  }, [entries, viewed])
+
   const placeholders = useMemo(() => {
     const map = new Map<string, FileDiffMetadata>()
     for (const entry of entries) {
@@ -212,6 +241,15 @@ function ReviewCodeViewSurface({
     }
     return map
   }, [entries])
+
+  const filesByPath = useMemo(() => new Map(entries.map((e) => [e.path, e.file])), [entries])
+  const toggleViewed = useCallback(
+    (path: string, next: boolean) => {
+      const file = filesByPath.get(path)
+      if (file != null) setFilesViewed([file], next)
+    },
+    [filesByPath, setFilesViewed],
+  )
 
   const annotations = useReviewAnnotations({ wsId })
   const { annotationsByPath, threadCounts, threadsFor } = annotations
@@ -223,11 +261,12 @@ function ReviewCodeViewSurface({
         type: 'diff',
         fileDiff,
         annotations: annotationsByPath.get(path),
+        collapsed: viewedPaths.has(path),
         version: 0,
       })),
     // `initialItems` is seeded once, so this only decides which threads exist at
     // MOUNT; useReviewPatchWindow republishes every later change.
-    [annotationsByPath, placeholders],
+    [annotationsByPath, placeholders, viewedPaths],
   )
   const paths = useMemo(() => items.map((item) => item.id), [items])
   const signature = useMemo(() => signatureOf(paths), [paths])
@@ -258,6 +297,7 @@ function ReviewCodeViewSurface({
       items,
       paths,
       lineCounts,
+      viewedPaths,
       signature,
       annotationsByPath,
       surfaceRef,
@@ -275,6 +315,22 @@ function ReviewCodeViewSurface({
   // room to hold an offset and it would be clamped away.
   usePreservedScroll(scrollerRef, scrollKey, items.length > 0)
 
+  // The renderer calls this only when the reader expands a separator, so a file's
+  // full text is fetched on demand and never for the window at large.
+  const loadDiffFiles = useCallback(
+    async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
+      const sides = await getReviewFileSides({ wsId, commit }, fileDiff.name, fileDiff.prevName)
+      if (sides.old == null || sides.new == null) {
+        throw new Error(`cannot reveal unchanged lines of ${fileDiff.name}: a side is missing`)
+      }
+      return {
+        oldFile: { name: fileDiff.prevName ?? fileDiff.name, contents: sides.old },
+        newFile: { name: fileDiff.name, contents: sides.new },
+      }
+    },
+    [wsId, commit],
+  )
+
   const options = useMemo<CodeViewOptions<ReviewThread, undefined>>(
     () => ({
       stickyHeaders: true,
@@ -285,8 +341,12 @@ function ReviewCodeViewSurface({
       enableLineSelection: true,
       enableGutterUtility: true,
       diffStyle,
+      unsafeCSS: FILE_CARD_CSS,
+      layout: { paddingTop: FILE_CARD_GAP, paddingBottom: FILE_CARD_GAP, gap: FILE_CARD_GAP },
+      loadDiffFiles,
+      expansionLineCount: EXPANSION_LINE_COUNT,
     }),
-    [diffStyle],
+    [diffStyle, loadDiffFiles],
   )
 
   return (
@@ -303,7 +363,7 @@ function ReviewCodeViewSurface({
         options={options}
         onScroll={runWindow}
         onSelectedLinesChange={annotations.onSelectedLinesChange}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto px-3"
         // Annotations and header metadata are portalled into LIGHT dom, so
         // Tailwind and the app's CSS-var tokens apply to both.
         //
@@ -318,9 +378,13 @@ function ReviewCodeViewSurface({
         renderHeaderMetadata={(item) => {
           const count = threadCounts[item.id] ?? 0
           const state = patchStates[item.id]
-          if (count === 0 && state == null) return null
           return (
             <span className="flex items-center gap-2">
+              <ViewedToggle
+                path={item.id}
+                viewed={viewedPaths.has(item.id)}
+                onToggle={toggleViewed}
+              />
               <FileThreadCount path={item.id} count={count} onReveal={revealFirstThread} />
               <PatchStateNotice
                 path={item.id}

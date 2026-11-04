@@ -11,14 +11,29 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { listProvidersFn } = vi.hoisted(() => ({ listProvidersFn: vi.fn() }))
+const { listProvidersFn, listGlobalProvidersFn } = vi.hoisted(() => ({
+  listProvidersFn: vi.fn(),
+  listGlobalProvidersFn: vi.fn(),
+}))
 
 vi.mock('@/features/agent/api/agent-providers-api', () => ({
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
+  listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
 }))
 
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import {
+  providersOf,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const provider = (id: string, enabled = true): AgentProvider => ({
   id,
@@ -49,11 +64,13 @@ const state = () => useAgentProvidersStore.getState()
 
 beforeEach(() => {
   listProvidersFn.mockReset()
-  useAgentProvidersStore.setState({ status: 'idle', providers: [] })
+  listGlobalProvidersFn.mockReset()
+  useAgentProvidersStore.setState({ status: 'idle', providers: [], remote: {} })
 })
 
 afterEach(() => {
-  useAgentProvidersStore.setState({ status: 'idle', providers: [] })
+  useAgentProvidersStore.setState({ status: 'idle', providers: [], remote: {} })
+  resetHostWorld()
 })
 
 describe('agent providers store', () => {
@@ -165,7 +182,7 @@ describe('agent providers store', () => {
     expect(state().providers.map((p) => p.id)).toEqual(['codex'])
   })
 
-  it('setProviders writes a list resolved elsewhere (a workspace seed, a preferences PUT)', () => {
+  it('setProviders writes a list resolved elsewhere (a preferences PUT)', () => {
     state().setProviders([provider('claude')])
 
     expect(state().status).toBe('ready')
@@ -185,5 +202,98 @@ describe('agent providers store', () => {
 
     expect(state().status).toBe('ready')
     expect(state().providers.map((p) => p.id)).toEqual(['claude'])
+  })
+})
+
+// Providers belong to a daemon. The fields above are the LOCAL daemon's — what
+// Settings edits — and a remote daemon's list lives beside them, by host.
+describe('agent providers store across hosts', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w-local' })
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+  })
+
+  it('load reads a local workspace’s daemon into the local list', async () => {
+    listProvidersFn.mockResolvedValueOnce([provider('claude')])
+
+    await state().load('w-local')
+
+    expect(state().providers.map((p) => p.id)).toEqual(['claude'])
+  })
+
+  it('load reads a remote workspace’s list from its own host and leaves the local list alone', async () => {
+    state().setProviders([provider('claude')])
+    listGlobalProvidersFn.mockResolvedValueOnce([provider('codex')])
+
+    await state().load('w-remote')
+
+    expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith('host-1')
+    expect(providersOf(state(), 'host-1').map((p) => p.id)).toEqual(['codex'])
+    expect(state().providers.map((p) => p.id)).toEqual(['claude'])
+  })
+
+  it('load asks nothing while the workspace’s host is unknown', async () => {
+    await state().load('w-unrecorded')
+
+    expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(listGlobalProvidersFn).not.toHaveBeenCalled()
+  })
+
+  it('loadLocal reads the local daemon through the global route', async () => {
+    listGlobalProvidersFn.mockResolvedValueOnce([provider('claude')])
+
+    await state().loadLocal()
+
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith()
+    expect(state().providers.map((p) => p.id)).toEqual(['claude'])
+  })
+
+  it('loadHost reads that host’s own daemon and leaves the local list alone', async () => {
+    state().setProviders([provider('claude')])
+    listGlobalProvidersFn.mockResolvedValueOnce([provider('codex')])
+
+    await state().loadHost('host-1')
+
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith('host-1')
+    expect(providersOf(state(), 'host-1').map((p) => p.id)).toEqual(['codex'])
+    expect(providersOf(state(), 'local').map((p) => p.id)).toEqual(['claude'])
+    expect(state().status).toBe('ready')
+  })
+
+  it('loadHost leaves a host with no answer unlisted', async () => {
+    listGlobalProvidersFn.mockRejectedValueOnce(new Error('unreachable'))
+
+    await expect(state().loadHost('host-1')).resolves.toBeNull()
+
+    expect(state().remote['host-1']).toBeUndefined()
+    expect(providersOf(state(), 'host-1')).toEqual([])
+  })
+
+  it('forgets a removed host’s list, and a late answer from it does not bring it back', async () => {
+    const answer = deferred<AgentProvider[]>()
+    listGlobalProvidersFn.mockReturnValueOnce(answer.promise)
+    state().setHostProviders('host-1', [provider('codex')])
+    const late = state().loadHost('host-1')
+
+    useHostConfigStore.getState().removeHost('host-1')
+    expect(state().remote['host-1']).toBeUndefined()
+
+    answer.resolve([provider('claude')])
+    await late
+    expect(state().remote['host-1']).toBeUndefined()
+  })
+
+  it('setHostProviders files a remote list by host, and the local host’s as the local list', () => {
+    state().setHostProviders('host-1', [provider('codex')])
+    state().setHostProviders('local', [provider('claude')])
+
+    expect(providersOf(state(), 'host-1').map((p) => p.id)).toEqual(['codex'])
+    expect(state().providers.map((p) => p.id)).toEqual(['claude'])
+    expect(state().remote.local).toBeUndefined()
   })
 })

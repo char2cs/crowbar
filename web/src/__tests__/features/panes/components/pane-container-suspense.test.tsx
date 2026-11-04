@@ -41,7 +41,7 @@ const { diffResource } = vi.hoisted(() => {
 // pane-container.tsx lazy-loads `./commit-diff-pane` (relative import). Vitest/Vite
 // mocks key off the resolved absolute module id, so mocking the SAME file via
 // its '@/...' alias here intercepts it — the pattern already relied on by
-// branch-section.test.tsx and agent-chat-pane.test.tsx for sibling relative
+// agent-chat-pane.test.tsx for sibling relative
 // imports. The mocked module resolves immediately; suspension is instead
 // driven by `diffResource.read()` inside the component body below, so the
 // test controls exactly when the lazy pane stops suspending.

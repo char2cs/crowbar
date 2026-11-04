@@ -141,6 +141,7 @@ export const FontSelector = ({
 
   return (
     <Select
+      items={fontOptions}
       value={resolvedValue}
       onValueChange={(val) => {
         if (val) handleFontChange(val)

@@ -1,5 +1,6 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { vi, expect, test, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { vi, expect, test, beforeEach, describe, afterEach } from 'vitest'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -22,6 +23,15 @@ import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/opera
 import { operationsState, type Operation, type OperationItem } from '@/core/entities/operations'
 import { toastManager } from '@/lib/toast-manager'
 import { useProjectStore } from '@/core/entities/active-project'
+import * as fetchApi from '@/lib/api/fetch'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import type { Problem } from '@/lib/errors/problem'
 import {
   expectMigratingShown,
@@ -99,7 +109,7 @@ async function startAdd(onOpenChange: (open: boolean) => void = () => {}): Promi
   render(
     <>
       <OperationsWatcher />
-      <AddRepositoryModal open={true} onOpenChange={onOpenChange} />
+      <AddRepositoryModal open={true} onOpenChange={onOpenChange} projectId="proj-1" />
     </>,
   )
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
@@ -124,24 +134,26 @@ beforeEach(async () => {
     workspaceDTO({ id: 'ws-dev', branch: 'dev' }),
     home,
   ])
-  useProjectStore.setState({ activeProjectId: 'proj-1' })
+  // The project in view is another one: the modal adds to the project it was opened for.
+  useProjectStore.setState({ activeProjectId: 'proj-other' })
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   seedRepos([])
   resetOperations()
 })
 
 test('Add button is disabled when the path is empty', () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   expect(addButton()).toBeDisabled()
 })
 
 test('Add stays disabled for a relative path and shows a hint', () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: 'my-repo' } })
   expect(addButton()).toBeDisabled()
   expect(screen.getByText(/absolute path/i)).toBeInTheDocument()
 })
 
-test('posts the repo under the active project with the folder-name fallback', async () => {
+test('posts the repo under its own project with the folder-name fallback', async () => {
   const opId = await startAdd()
   expect(vi.mocked(api.postRepo)).toHaveBeenCalledWith('proj-1', 'my-repo', '/tmp/my-repo', opId)
   expect(operationsState().ops[opId]).toMatchObject({
@@ -257,4 +269,89 @@ test('an add refused while the daemon migrates shows the migrating state, not a 
   await startAdd()
 
   await waitFor(() => expectMigratingShown(toasts))
+})
+
+// The repo folder lives on the project's own daemon: Local's comes from the OS dialog as it
+// always did, a remote project's from its host's filesystem — and an unknown host's from neither.
+describe('the repository folder', () => {
+  const invoke = vi.fn()
+  const nativeDialogCalls = () => invoke.mock.calls.filter(([cmd]) => cmd === 'plugin:dialog|open')
+  const browseButton = () => screen.getByRole('button', { name: 'Browse…' })
+  const listed: Record<string, string[]> = { '/': ['srv'], '/srv': ['app'], '/srv/app': [] }
+  const apiFetch = vi.spyOn(fetchApi, 'apiFetch')
+
+  beforeEach(() => {
+    resetHostWorld()
+    invoke.mockReset()
+    invoke.mockImplementation((cmd: string) =>
+      cmd === 'plugin:dialog|open'
+        ? Promise.resolve('/Users/me/code/app')
+        : Promise.reject(new Error(`unexpected ${cmd}`)),
+    )
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke }
+    loadProjects(projectOn('proj-1', 'local'))
+    apiFetch.mockReset()
+    apiFetch.mockImplementation((url: string) => {
+      const path = new URL(url, 'http://x').searchParams.get('path')
+      const base = path === '/' ? '' : path
+      const entries = (listed[path ?? ''] ?? []).map((n) => ({
+        name: n,
+        path: `${base}/${n}`,
+        isDir: true,
+      }))
+      return Promise.resolve(entries as never)
+    })
+  })
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    resetHostWorld()
+  })
+
+  test("a local project's folder comes from the OS dialog, and no host is browsed", async () => {
+    render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
+
+    fireEvent.click(browseButton())
+
+    await waitFor(() => expect(pathInput()).toHaveValue('/Users/me/code/app'))
+    expect(nativeDialogCalls()).toEqual([
+      ['plugin:dialog|open', { options: { directory: true, multiple: false } }, undefined],
+    ])
+    expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  test("a remote project's folder is browsed on its own host, never through the OS dialog", async () => {
+    pairRemoteHost('host-2')
+    getOrCreateHostRuntime('host-2').getState().setStatus('up')
+    loadProjects(projectOn('proj-2', 'host-2'))
+    const user = userEvent.setup()
+    render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-2" />)
+
+    await user.click(browseButton())
+    const picker = await screen.findByRole('dialog', { name: /choose a folder/i })
+    expect(within(picker).getByText("Browsing host-2's filesystem")).toBeInTheDocument()
+    await user.click(await within(picker).findByRole('treeitem', { name: 'srv' }))
+    await user.click(await within(picker).findByRole('treeitem', { name: 'app' }))
+    await user.click(within(picker).getByRole('button', { name: /^select/i }))
+
+    await waitFor(() => expect(pathInput()).toHaveValue('/srv/app'))
+    expect(screen.getByLabelText(/repository name/i)).toHaveValue('app')
+    expect(nativeDialogCalls()).toEqual([])
+    const hosts = apiFetch.mock.calls.map((call) => call[3])
+    expect(new Set(hosts)).toEqual(new Set(['host-2']))
+  })
+
+  test('a project whose host is not resolved browses nothing — not Local, not a guess', () => {
+    pairRemoteHost('host-2')
+    loadProjects(projectOn('proj-2', 'host-2'))
+    render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-unknown" />)
+
+    expect(browseButton()).toBeDisabled()
+    fireEvent.click(browseButton())
+
+    expect(nativeDialogCalls()).toEqual([])
+    expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
 })

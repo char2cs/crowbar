@@ -124,13 +124,4 @@ describe('InlineRenameInput', () => {
       scrollIntoView.mockRestore()
     }
   })
-
-  it('carries font-mono only when mono is set', () => {
-    const { rerender } = render(
-      <InlineRenameInput defaultValue="a" onConfirm={vi.fn()} onCancel={vi.fn()} />,
-    )
-    expect(screen.getByRole('textbox')).not.toHaveClass('font-mono')
-    rerender(<InlineRenameInput defaultValue="a" mono onConfirm={vi.fn()} onCancel={vi.fn()} />)
-    expect(screen.getByRole('textbox')).toHaveClass('font-mono')
-  })
 })

@@ -2,7 +2,7 @@ import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 
 /** The daemon's closed code enum (`domain/problem`), same spelling, plus the
- *  desktop proxy's own `daemon_unavailable`. */
+ *  desktop proxy's own `daemon_unavailable`, `host_unreachable` and `host_identity_changed`. */
 export type ProblemCode =
   | 'invalid_argument'
   | 'forbidden'
@@ -49,6 +49,8 @@ export type ProblemCode =
   | 'interrupted'
   | 'partial'
   | 'daemon_unavailable'
+  | 'host_unreachable'
+  | 'host_identity_changed'
 
 /** A failure as the client reads it: the daemon's code and message. */
 export interface Problem {

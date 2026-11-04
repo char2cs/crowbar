@@ -182,9 +182,9 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	assert.Empty(t, stopsRecorded(t, rs), "closing an idle chat interrupts nothing")
 }
 
-// Closing a view ends the chat's session, even mid-turn on a provider that
-// could interrupt in place: nothing on screen would watch the CLI.
-func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
+// A force-kill ends the chat's session, even mid-turn on a provider that
+// could interrupt in place: only Stop interrupts in place.
+func TestRegression_KillChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
 	asked := make(chan struct{})
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
@@ -198,16 +198,16 @@ func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrup
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, nil))
 
-	require.NoError(t, rs.CloseChat(t.Context(), "chat-1"))
+	require.NoError(t, rs.KillChat(t.Context(), "chat-1"))
 
-	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a closed chat's runner must be retired, not interrupted in place")
+	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a killed chat's runner must be retired, not interrupted in place")
 	assert.Equal(t, []string{"chat-1"}, stopsRecorded(t, rs), "the turn it cut short still gets its Stopped divider")
 	assert.False(t, chatState(t, rs.ledger).Busy())
 }
 
-// A close whose HTTP request is abandoned (the app quit, the socket dropped)
-// must still retire the runner: nothing else knows the view is gone.
-func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
+// A kill whose HTTP request is abandoned (the app quit, the socket dropped)
+// must still retire the runner: nothing re-sends it.
+func TestRegression_KillChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		attached: newAttachRegistry(),
@@ -221,8 +221,8 @@ func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
-	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned close request must not leave the runner live")
+	require.NoError(t, rs.KillChat(ctx, "chat-1"))
+	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned kill request must not leave the runner live")
 }
 
 // quittingTerm is a PTY that takes its quit signal and exits later, on its own.
@@ -298,4 +298,31 @@ func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 	}
 	assert.Equal(t, ledger.KindMarker, kinds[len(kinds)-1], "the divider is the last row")
 	assert.Contains(t, kinds[:len(kinds)-1], ledger.KindAssistantText, "the hook's row precedes it")
+}
+
+// A Stop that retires the runner records its end once, as "stopped": an
+// intermediate "displaced" exit painted a second, different banner first.
+func TestRegression_StopChatRecordsOnlyTheStoppedReason(t *testing.T) {
+	rs := retiring(t, &Runners{
+		apiConns: newAPIConnRegistry(),
+		attached: newAttachRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{},
+		chatLock: newTestLock(), parks: newParks(),
+		turns: noopTurns{},
+		term:  &fakeTermForAttach{},
+	})
+	runnerStarted(t, rs, false)
+
+	require.NoError(t, rs.StopChat(t.Context(), "chat-1"))
+
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	var reasons []string
+	for _, r := range rows {
+		if exit, err := ledger.DecodeBody[ledger.RunnerExited](r); err == nil && r.Kind == ledger.KindRunnerExited {
+			reasons = append(reasons, exit.Reason)
+		}
+	}
+	assert.Equal(t, []string{domain.AgentExitStopped}, reasons)
 }

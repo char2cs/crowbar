@@ -11,7 +11,7 @@ import type { PanePosition } from '@/features/panes/types/pane'
 // are written against the macOS value, so force it regardless of whatever OS
 // the test happens to run on (jsdom's UA bakes in the CI runner's own host
 // platform, which is Linux on GitHub Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }
@@ -218,7 +218,7 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
   it('single pane: header-icon inset above (atTop), flush against the (open) sidebar and the window', () => {
     const s = buildPaneContentStyle(full, sidebar, false)
     expect(s.marginLeft).toBe('0') // chrome side — sits flush against the sidebar, no gap
-    expect(s.marginTop).toBe('8px') // atTop — matches the header row's icon inset (macOS: (44-28)/2)
+    expect(s.marginTop).toBe('7px') // atTop — matches the header row's icon inset (macOS: (42-28)/2)
     expect(s.marginRight).toBe('0') // window edge — gives it up
     expect(s.marginBottom).toBe('0') // window edge — gives it up
   })

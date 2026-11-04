@@ -1,5 +1,7 @@
 import { RepoAvatarImg } from './repo-avatar'
 import { IconPopover } from './icon-popover'
+import { useHostResolved } from '@/lib/host-resolve'
+import { repoBase } from '@/lib/project-url'
 import { cn } from '@/lib/utils'
 
 /** What a repo carries for its mark. `avatarURL` holds BOTH custom shapes: an
@@ -115,10 +117,13 @@ interface EditableRepoIconProps {
  * exactly when RepoIconMark's own default (the letter tile) kicks in anyway.
  */
 export function EditableRepoIcon({ repo, projectId, repoId, size }: EditableRepoIconProps) {
+  const hostResolved = useHostResolved({ projectId })
+  // Nothing to edit against until the project's host is known.
+  if (!hostResolved) return <RepoIconMark repo={repo} size={size} />
   const isEmoji = repo.avatarURL?.startsWith(EMOJI_PREFIX)
   return (
     <IconPopover
-      base={`/v0/projects/${projectId}/repos/${repoId}`}
+      base={repoBase(projectId, repoId)}
       name={repo.name}
       emoji={isEmoji ? repo.avatarURL!.slice(EMOJI_PREFIX.length) : undefined}
       iconUrl={isEmoji ? undefined : repo.avatarURL}

@@ -18,13 +18,14 @@ import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
 import { putDrafts } from '@/features/editor/documents/draft-store'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { loadSidebarUI } from './sidebar-ui'
-import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { parseSidebarTab, treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 
 /**
  * One-time, window-level hydration of pane/buffer layout — awaited at boot
  * BEFORE `renderApp()`: a surface that mounts first and has its layout
  * replaced a frame later crashes. Local reads only; a restored member the
- * cache could not place is answered by `placeRestoredChatMembers` afterwards.
+ * cache could not place is answered by `placeRestoredPanesOnceSynced` afterwards.
  */
 export async function hydrateWindowPaneLayout(): Promise<void> {
   const stored = await loadWindowPaneLayout()
@@ -42,6 +43,10 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
   )
   if (panes[adoptInto].editorTabIds.some((id) => !before.has(id))) {
     panes[adoptInto] = { ...panes[adoptInto], editorOpen: true }
+  }
+  // A draft never outlives its window: left unplaced, the daemon's "no such chat" drops it.
+  for (const [id, pane] of Object.entries(panes)) {
+    if (isDraftChatId(pane.chatId)) panes[id] = { ...pane, workspaceId: null }
   }
   windowPaneStore.setState({
     ...restored,
@@ -142,5 +147,6 @@ export async function hydrateSidebar(): Promise<void> {
     // Absent on a record written before the Chats panel was collapsible —
     // replays as "nothing folded", the product default (see schemas.ts).
     collapsed: new Set(sidebarUI.collapsedChatRows ?? []),
+    activeTab: parseSidebarTab(sidebarUI.activeTab),
   })
 }

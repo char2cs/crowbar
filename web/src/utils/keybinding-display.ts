@@ -1,4 +1,4 @@
-import { IS_MAC, normalizeKey } from '@/utils/platform'
+import { APPLE_KEYBOARD, normalizeKey } from '@/utils/platform'
 
 const MODIFIER_KEYS = ['ctrl', 'cmd', 'alt', 'shift', 'meta']
 const SPECIAL_KEYS: Record<string, string> = {
@@ -78,12 +78,12 @@ function parseKeybinding(binding: string): ParsedKeybinding {
 }
 
 function formatModifier(modifier: string) {
-  if (modifier === 'cmd' && IS_MAC) return '⌘'
+  if (modifier === 'cmd' && APPLE_KEYBOARD) return '⌘'
   if (modifier === 'cmd') return 'Ctrl'
   if (modifier === 'ctrl') return 'Ctrl'
-  if (modifier === 'alt') return IS_MAC ? '⌥' : 'Alt'
-  if (modifier === 'shift') return IS_MAC ? '⇧' : 'Shift'
-  if (modifier === 'meta') return IS_MAC ? '⌘' : 'Meta'
+  if (modifier === 'alt') return APPLE_KEYBOARD ? '⌥' : 'Alt'
+  if (modifier === 'shift') return APPLE_KEYBOARD ? '⇧' : 'Shift'
+  if (modifier === 'meta') return APPLE_KEYBOARD ? '⌘' : 'Meta'
   return modifier
 }
 

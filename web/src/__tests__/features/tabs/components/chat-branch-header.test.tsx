@@ -1,15 +1,20 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
-import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
+import type { Project } from '@/lib/types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
-import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import {
+  resetEntities,
+  seedHomeTree,
+  seedProjects,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/components/sidebar/lib/row-actions', () => ({
   performRenameChat: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +50,7 @@ function makeRepo(workspaces: Workspace[], chats?: Chat[]): Repo {
   return {
     id: 'repo-1',
     projectId: 'proj-1',
+    name: 'crowbar',
     localPath: '',
     defaultBranch: 'main',
     defaultWorkspaceId: 'w1',
@@ -129,12 +135,27 @@ describe('ChatBranchHeader', () => {
   // header's `?.title || UNTITLED_CHAT_LABEL` made "this store has not got the
   // record" indistinguishable from "this chat has no name". A gap must look
   // like a gap.
-  it('shows the pending mark, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
+  it('shows no title, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
     renderHeaderWithoutChatRecord()
     const title = screen.getByTestId('chat-branch-header-title')
     expect(title).toHaveAttribute('data-title-pending', 'true')
-    expect(title).toHaveTextContent(CHAT_TITLE_PENDING_LABEL)
+    expect(title).toBeEmptyDOMElement()
+    expect(screen.getByTestId('chat-branch-header')).not.toHaveTextContent('—')
     expect(screen.queryByText(UNTITLED_CHAT_LABEL)).not.toBeInTheDocument()
+  })
+
+  it('draws no branch mark and no dash for a draft with no workspace yet', () => {
+    const store = createWorkspaceStore('w1')
+    seedRepos([])
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(ChatBranchHeader, { chatId: 'draft', wsId: null }),
+      ),
+    )
+    expect(screen.queryByTestId('chat-branch-header-glyph')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-branch-header')).not.toHaveTextContent('—')
   })
 
   it('offers no rename for a chat the store has no record of — there is no title to edit', () => {
@@ -150,10 +171,65 @@ describe('ChatBranchHeader', () => {
     expect(screen.getByText('-2')).toBeInTheDocument()
   })
 
+  it('shows the counts after the route with no dash between them', () => {
+    renderHeader()
+    const line = screen.getByTestId('chat-branch-header-route').parentElement!
+    expect(line.textContent).toBe('crowbar/feature/pricing-rounding +34 -2')
+  })
+
+  it('routes the workspace as repo / parent / branch on one line, branch last', () => {
+    renderHeader({
+      repos: [makeRepo([makeWorkspace({ parentId: 'w0', parentBranch: 'develop' })])],
+    })
+    const route = screen.getByTestId('chat-branch-header-route')
+    expect(route).toHaveTextContent(/^crowbar\/develop\/feature\/pricing-rounding$/)
+    expect(route.lastElementChild).toHaveTextContent(/^feature\/pricing-rounding$/)
+    expect(route).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
+  })
+
+  it('shows the repo icon in the left column, outside the title and route lines', () => {
+    renderHeader()
+    const repoIcon = screen.getByTestId('chat-branch-header-repo-icon')
+    const title = screen.getByTestId('chat-branch-header-title')
+    const route = screen.getByTestId('chat-branch-header-route')
+    expect(repoIcon.parentElement).toBe(screen.getByTestId('chat-branch-header'))
+    expect(repoIcon.nextElementSibling).toContainElement(title)
+    expect(repoIcon).not.toContainElement(route)
+    expect(route).not.toContainElement(repoIcon)
+  })
+
+  it('leads the route line with the chat glyph and leaves the title line bare', () => {
+    renderHeader()
+    const glyph = screen.getByTestId('chat-branch-header-glyph')
+    const route = screen.getByTestId('chat-branch-header-route')
+    expect(glyph.nextElementSibling).toBe(route)
+    expect(glyph.parentElement).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
+    expect(screen.getByTestId('chat-branch-header-title').querySelector('svg')).toBeNull()
+    expect(route.querySelector('svg')).toBeNull()
+    expect(route).toHaveTextContent(/^crowbar\/feature\/pricing-rounding$/)
+  })
+
+  it('omits the parent segment for a branch with no parent', () => {
+    renderHeader()
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
+      /^crowbar\/feature\/pricing-rounding$/,
+    )
+  })
+
+  it('omits a parent segment that names the branch itself', () => {
+    renderHeader({
+      repos: [makeRepo([makeWorkspace({ parentBranch: 'feature/pricing-rounding' })])],
+    })
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
+      /^crowbar\/feature\/pricing-rounding$/,
+    )
+  })
+
   it('renders only the title when the workspace has no branch to show', () => {
     renderHeader({ wsId: null })
     expect(screen.getByText('Seeding test')).toBeInTheDocument()
     expect(screen.queryByText('feature/pricing-rounding')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chat-branch-header-route')).not.toBeInTheDocument()
   })
 
   it('shows a working spinner in place of the branch glyph while the chat is working', () => {
@@ -243,6 +319,43 @@ describe('ChatBranchHeader', () => {
     renderHeader()
     fireEvent.doubleClick(screen.getByTestId('chat-branch-header'))
     expect(screen.getByDisplayValue('Seeding test')).toBeInTheDocument()
+  })
+
+  describe('a chat created directly under a project', () => {
+    function seedHomeChat(
+      projects: unknown[] = [{ id: 'proj-1', name: 'Crowbar Seed', path: '/p' }],
+    ) {
+      seedHomeTree('proj-1', { chats: [makeSidebarChat({ repoId: '' })] })
+      seedProjects(projects as Project[])
+    }
+    afterEach(resetEntities)
+
+    it('shows the project icon on the left and the project name as the path', () => {
+      renderHeader({ wsId: null, repos: [] })
+      act(() => seedHomeChat())
+      const header = screen.getByTestId('chat-branch-header')
+      const icon = screen.getByTestId('chat-branch-header-project-icon')
+      expect(icon.parentElement).toBe(header)
+      const route = screen.getByTestId('chat-branch-header-route')
+      expect(route).toHaveTextContent(/^Crowbar Seed$/)
+      expect(route.previousElementSibling).toBe(screen.getByTestId('chat-branch-header-glyph'))
+    })
+
+    it('keeps the plain fallback until the project resolves', () => {
+      renderHeader({ wsId: null, repos: [] })
+      act(() => seedHomeChat([]))
+      expect(screen.queryByTestId('chat-branch-header-project-icon')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('chat-branch-header-route')).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps the route line and repo icon in place while the title is edited', () => {
+    renderHeader()
+    fireEvent.doubleClick(screen.getByTestId('chat-branch-header'))
+    const input = screen.getByDisplayValue('Seeding test')
+    expect(screen.getByTestId('chat-branch-header-route')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-branch-header-repo-icon')).toBeInTheDocument()
+    expect(input.parentElement).toContainElement(screen.getByTestId('chat-branch-header-route'))
   })
 
   it('confirming a changed name renames the chat', async () => {

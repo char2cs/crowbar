@@ -5,7 +5,7 @@ import { createSelectors } from '@/utils/zustand-selectors'
 import type { DocumentRef } from '@/lib/api/documents'
 import { sameDocument } from '@/features/editor/documents/document-ref'
 
-export interface JumpListEntry {
+interface JumpListEntry {
   bufferId: string
   /** The whole document, so an entry resolves the same from any workspace. */
   doc: DocumentRef

@@ -87,7 +87,7 @@ func newHarnessAt(
 	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
-	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{})
+	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, "", time.Minute)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer.Handler())

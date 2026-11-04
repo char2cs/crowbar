@@ -31,11 +31,18 @@ class MockWebSocket {
 vi.stubGlobal('WebSocket', MockWebSocket)
 
 const { createWSManager } = await import('@/lib/ws/manager')
-const { useConnectionStore, resetConnectionState, reportChannelState, reportDaemonRefusal } =
-  await import('@/lib/ws/connection-store')
+const {
+  useConnectionStore,
+  resetConnectionState,
+  reportChannelState,
+  reportChannelGone,
+  reportDaemonRefusal,
+} = await import('@/lib/ws/connection-store')
 const { useDaemonHaltStore } = await import('@/features/window/stores/daemon-halt-store')
 
 const status = () => useConnectionStore.getState().status
+const reconnects = () => useConnectionStore.getState().reconnects
+const degraded = () => useConnectionStore.getState().degraded
 
 beforeEach(() => {
   MockWebSocket.instances = []
@@ -114,7 +121,7 @@ describe('connection store', () => {
   })
 
   it('a daemon_migrating refusal is a state, not a drop', () => {
-    reportChannelState('/a', false)
+    reportChannelState('/a', false, 'local')
     reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
 
     expect(status()).toBe('migrating')
@@ -122,7 +129,7 @@ describe('connection store', () => {
   })
 
   it('a daemon_halted refusal halts the daemon-halt store with its reason', () => {
-    reportChannelState('/a', false)
+    reportChannelState('/a', false, 'local')
     reportDaemonRefusal({ code: 'daemon_halted', message: 'layout 9 is newer' })
 
     expect(useDaemonHaltStore.getState().message).toBe('layout 9 is newer')
@@ -130,21 +137,92 @@ describe('connection store', () => {
   })
 
   it('an open socket clears the migrating state', () => {
-    reportChannelState('/a', false)
+    reportChannelState('/a', false, 'local')
     reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
-    reportChannelState('/a', true)
+    reportChannelState('/a', true, 'local')
 
     expect(status()).toBe('connected')
     expect(useConnectionStore.getState().migrating).toBeNull()
-    reportChannelState('/a', false)
+    reportChannelState('/a', false, 'local')
     expect(status()).toBe('disconnected')
   })
 
   it('a refusal while a socket is open does not change the status', () => {
-    reportChannelState('/a', true)
+    reportChannelState('/a', true, 'local')
     reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
 
     expect(status()).toBe('connected')
     expect(useConnectionStore.getState().migrating).toBeNull()
+  })
+
+  it('counts a reconnect only when the backend comes back after being lost', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      expect(reconnects()).toBe(0) // the first connect is not a reconnect
+
+      MockWebSocket.instances[0].simulateClose()
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[1].simulateOpen()
+      expect(reconnects()).toBe(1)
+
+      MockWebSocket.instances[1].simulateClose()
+      vi.advanceTimersByTime(2000)
+      MockWebSocket.instances[2].simulateOpen()
+      expect(reconnects()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a channel dropping while another stays open is degraded, not a lost backend', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      mgr.subscribe('/v0/ws/files', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      MockWebSocket.instances[1].simulateOpen()
+      expect(degraded()).toBe(false)
+
+      MockWebSocket.instances[0].simulateClose()
+      expect(degraded()).toBe(true)
+      expect(status()).toBe('connected')
+
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[2].simulateOpen()
+      expect(degraded()).toBe(false)
+      expect(reconnects()).toBe(0) // the backend was never lost
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// Whether a remote host's live streams are open: not whether the host is up (its status
+// says that), but whether what the app shows of it is being kept current.
+describe('live streams per remote host', () => {
+  const remoteStatus = (hostId: string) => useConnectionStore.getState().hostStreams[hostId]
+
+  it('tracks a remote host’s channels apart from the local backend', () => {
+    reportChannelState('crowbar://h1/v0/projects', true, 'h1')
+    expect(remoteStatus('h1')).toBe('connected')
+    expect(status()).toBe('idle')
+
+    reportChannelState('crowbar://h1/v0/projects', false, 'h1')
+    expect(remoteStatus('h1')).toBe('disconnected')
+    expect(status()).toBe('idle')
+
+    reportChannelGone('crowbar://h1/v0/projects')
+    expect(remoteStatus('h1')).toBeUndefined()
+  })
+
+  it('keeps one host’s channels from speaking for another’s', () => {
+    reportChannelState('crowbar://h1/v0/projects', true, 'h1')
+    reportChannelState('crowbar://h2/v0/projects', false, 'h2')
+    expect(remoteStatus('h1')).toBe('connected')
+    expect(remoteStatus('h2')).toBe('disconnected')
   })
 })
