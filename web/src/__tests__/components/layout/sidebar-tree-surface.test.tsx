@@ -56,6 +56,9 @@ import {
 } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
+// Collection has no test timeout: transform the lazy CreateSpacePanel chunk here.
+await import('@/components/layout/create-space-panel')
+
 const projectA: Project = {
   id: 'p1',
   name: 'proj-a',
@@ -228,6 +231,22 @@ describe('SidebarTreeSurface', () => {
 // inside its scroll-snap track — so the touchpad swipe between real spaces
 // can never land on it by accident.
 describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpacePanel', () => {
+  // The panel is a lazy chunk, transformed at collection above: settle its
+  // Suspense in act rather than polling for it on the real scheduler's throttle.
+  const renderCreating = async (onCancelCreateSpace = vi.fn()) => {
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        creatingSpace
+        onCreateSpace={vi.fn()}
+        onCancelCreateSpace={onCancelCreateSpace}
+      />,
+    )
+    await act(async () => {})
+  }
+
   it('renders SpaceScroller when not creating a space', () => {
     render(
       <SidebarTreeSurface
@@ -241,33 +260,15 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
   })
 
   it('renders CreateSpacePanel instead of SpaceScroller while creating a space', async () => {
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        creatingSpace
-        onCreateSpace={vi.fn()}
-        onCancelCreateSpace={vi.fn()}
-      />,
-    )
-    expect(await screen.findByTestId('create-space-panel')).toBeInTheDocument()
+    await renderCreating()
+    expect(screen.getByTestId('create-space-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
   })
 
   it('Cancel calls onCancelCreateSpace', async () => {
     const onCancelCreateSpace = vi.fn()
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        creatingSpace
-        onCreateSpace={vi.fn()}
-        onCancelCreateSpace={onCancelCreateSpace}
-      />,
-    )
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await renderCreating(onCancelCreateSpace)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancelCreateSpace).toHaveBeenCalledOnce()
   })
 })
