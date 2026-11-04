@@ -321,13 +321,7 @@ func (s *AgentChatPlacements) Forget(
 		return s.ForgetErr
 	}
 	s.Forgotten = append(s.Forgotten, id)
-	kept := s.Rows[:0]
-	for _, c := range s.Rows {
-		if c.ID != id {
-			kept = append(kept, c)
-		}
-	}
-	s.Rows = kept
+	s.Rows = without(s.Rows, id, func(c domain.Chat) string { return c.ID })
 	return nil
 }
 

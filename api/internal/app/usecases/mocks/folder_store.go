@@ -29,13 +29,7 @@ func (s *FolderStore) Save(
 	if s.SaveErr != nil {
 		return s.SaveErr
 	}
-	for i := range s.Saved {
-		if s.Saved[i].ID == item.ID {
-			s.Saved[i] = item
-			return nil
-		}
-	}
-	s.Saved = append(s.Saved, item)
+	s.Saved = upsert(s.Saved, item, func(f tree.Folder) string { return f.ID })
 	return nil
 }
 
@@ -47,13 +41,7 @@ func (s *FolderStore) Delete(
 		return s.DeleteErr
 	}
 	s.Deleted = append(s.Deleted, id)
-	kept := s.Saved[:0]
-	for _, f := range s.Saved {
-		if f.ID != id {
-			kept = append(kept, f)
-		}
-	}
-	s.Saved = kept
+	s.Saved = without(s.Saved, id, func(f tree.Folder) string { return f.ID })
 	return nil
 }
 

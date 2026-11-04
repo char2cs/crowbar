@@ -62,13 +62,7 @@ func (s *RepositoryStore) Delete(
 ) error {
 	// Remove the row so Saved reflects the net persisted state (a rollback after a
 	// Save leaves no row), matching the real store.
-	kept := s.Saved[:0]
-	for _, r := range s.Saved {
-		if r.ID != id {
-			kept = append(kept, r)
-		}
-	}
-	s.Saved = kept
+	s.Saved = without(s.Saved, id, func(r domain.Repository) string { return r.ID })
 	return nil
 }
 

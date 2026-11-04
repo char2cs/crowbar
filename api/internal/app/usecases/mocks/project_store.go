@@ -32,13 +32,7 @@ func (s *ProjectStore) Save(
 	if s.SaveErr != nil {
 		return s.SaveErr
 	}
-	for i := range s.Saved {
-		if s.Saved[i].ID == item.ID {
-			s.Saved[i] = item
-			return nil
-		}
-	}
-	s.Saved = append(s.Saved, item)
+	s.Saved = upsert(s.Saved, item, func(p domain.Project) string { return p.ID })
 	return nil
 }
 
@@ -49,13 +43,7 @@ func (s *ProjectStore) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	kept := s.Saved[:0]
-	for _, p := range s.Saved {
-		if p.ID != id {
-			kept = append(kept, p)
-		}
-	}
-	s.Saved = kept
+	s.Saved = without(s.Saved, id, func(p domain.Project) string { return p.ID })
 	return nil
 }
 

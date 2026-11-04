@@ -169,12 +169,6 @@ func (s *NodePlacements) Forget(
 		return s.ForgetErr
 	}
 	s.Forgotten = append(s.Forgotten, id)
-	kept := s.Rows[:0]
-	for _, n := range s.Rows {
-		if n.ID != id {
-			kept = append(kept, n)
-		}
-	}
-	s.Rows = kept
+	s.Rows = without(s.Rows, id, func(n tree.Node) string { return n.ID })
 	return nil
 }
