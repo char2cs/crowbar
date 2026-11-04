@@ -28,3 +28,8 @@ type FolderEntityDTO struct {
 	Order     int       `json:"order"`
 	CreatedAt time.Time `json:"createdAt"`
 }
+
+// PresenceDTO is how many connections view a chat, the client's own among them.
+type PresenceDTO struct {
+	Viewers int `json:"viewers"`
+}

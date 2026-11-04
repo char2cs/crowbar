@@ -272,7 +272,7 @@ func (h *Hub) subLocked(ctx context.Context, c *connection, scope stream.Scope, 
 	if !h.attachLocked(ctx, c, name, src, scope.Key, since) {
 		return false
 	}
-	if !c.push(stream.Synced(name), false) {
+	if !h.syncedLocked(c, name) {
 		h.snapshotFailedLocked(ctx, c, name, nil)
 		return false
 	}
@@ -345,7 +345,11 @@ func (h *Hub) registerLocked(c *connection, scope stream.Scope) {
 	if h.scopes[name] == nil {
 		h.scopes[name] = map[*connection]struct{}{}
 	}
+	if _, held := h.scopes[name][c]; held {
+		return
+	}
 	h.scopes[name][c] = struct{}{}
+	h.presenceLocked(scope)
 }
 
 // acquire holds what scope's kind runs for c, once per scope. Only c's own
@@ -405,7 +409,8 @@ func refuse(c *connection, scope string, err error) {
 }
 
 func (h *Hub) releaseLocked(c *connection, name string) {
-	if _, holding := c.scopes[name]; !holding {
+	scope, holding := c.scopes[name]
+	if !holding {
 		return
 	}
 	delete(c.scopes, name)
@@ -418,6 +423,7 @@ func (h *Hub) releaseLocked(c *connection, name string) {
 	if len(h.scopes[name]) == 0 {
 		delete(h.scopes, name)
 	}
+	h.presenceLocked(scope)
 }
 
 func (h *Hub) drop(c *connection, code int, reason string) {

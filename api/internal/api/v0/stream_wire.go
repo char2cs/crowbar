@@ -36,6 +36,12 @@ func EncodeEntity(kind stream.EntityKind, v any) (json.RawMessage, error) {
 		return encodeAs[dto.ChatEntityDTO](kind, v)
 	case stream.KindFolder:
 		return encodeAs[dto.FolderEntityDTO](kind, v)
+	case stream.KindPresence:
+		p, ok := v.(appstream.Presence)
+		if !ok {
+			return nil, fmt.Errorf("v0: encode %s: got %T", kind, v)
+		}
+		return encodeAs[dto.PresenceDTO](kind, dto.PresenceDTO{Viewers: p.Viewers})
 	case stream.KindTelemetry:
 		report, ok := v.(agents.Telemetry)
 		if !ok {

@@ -21,5 +21,7 @@
   { "t": "synced", "scope": "chat:c1", "seq": 3 },
   { "t": "delta", "scope": "chat:c1", "delta": { "id": "m1", "turnId": "t1", "stream": "answer", "n": 1, "text": "he" } },
   { "t": "closed", "scope": "chat:c1", "reason": "resync", "seq": 2 },
-  { "t": "closed", "scope": "chat:c1", "reason": "deleted" }
+  { "t": "closed", "scope": "chat:c1", "reason": "deleted" },
+  { "t": "entity", "scope": "projects", "kind": "presence", "id": "c1", "v": 10, "data": { "viewers": 2 } },
+  { "t": "entity", "scope": "projects", "kind": "presence", "id": "c1", "v": 11, "gone": true }
 ]

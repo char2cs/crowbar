@@ -36,6 +36,8 @@ func TestFrame_EveryTypeMarshalsAsTheGoldenFile(t *testing.T) {
 		{T: stream.FrameDelta, Scope: "chat:c1", Delta: &ledger.FeedDelta{ID: "m1", TurnID: "t1", Stream: "answer", N: 1, Text: "he"}},
 		{T: stream.FrameClosed, Scope: "chat:c1", Reason: stream.ReasonResync, Seq: 2},
 		stream.Closed("chat:c1", stream.ReasonDeleted, nil),
+		{T: stream.FrameEntity, Scope: "projects", Kind: string(stream.KindPresence), ID: "c1", V: 10, Data: json.RawMessage(`{"viewers":2}`)},
+		{T: stream.FrameEntity, Scope: "projects", Kind: string(stream.KindPresence), ID: "c1", V: 11, Gone: true},
 	}
 	got, err := json.MarshalIndent(frames, "", "  ")
 	require.NoError(t, err)

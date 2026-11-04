@@ -191,5 +191,5 @@ func (h *Hub) emitReadLocked(c *connection, name string, read *pendingRead, fram
 			return false
 		}
 	}
-	return c.push(stream.Synced(name, unread...), false)
+	return h.syncedLocked(c, name, unread...)
 }

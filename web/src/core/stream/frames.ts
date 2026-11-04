@@ -11,6 +11,7 @@ type EntityKind =
   | 'operation'
   | 'review_thread'
   | 'telemetry'
+  | 'presence'
 
 export type Frame =
   | { t: 'ready'; epoch: string }
@@ -64,6 +65,7 @@ const KINDS = new Set<string>([
   'operation',
   'review_thread',
   'telemetry',
+  'presence',
 ])
 const REASONS = new Set<string>(['resync', 'deleted', 'refused'])
 

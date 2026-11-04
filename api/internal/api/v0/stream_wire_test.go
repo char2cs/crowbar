@@ -86,3 +86,11 @@ func TestEncodeEntity_TelemetryIsItsReportDTO(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, string(want), string(got))
 }
+
+// A chat's presence goes out as its viewer count.
+func TestEncodeEntity_APresenceIsItsViewerCount(t *testing.T) {
+	got, err := EncodeEntity(stream.KindPresence, appstream.Presence{Viewers: 2})
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"viewers":2}`, string(got))
+}

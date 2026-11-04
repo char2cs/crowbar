@@ -405,3 +405,36 @@ func lastRowOf(f *sidebarFeed, kind, id string) int {
 	}
 	return last
 }
+
+// Holding a chat's scope is viewing it: the projects scope counts each
+// connection that holds it, and says gone once none does.
+func TestStream_HoldingAChatIsViewingIt(t *testing.T) {
+	h := newHarness(t)
+	_, chatID, _ := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	scope := "chat:" + chatID
+	watcher := dialStream(t, h)
+	watcher.Next(t, isReady)
+	watcher.Hold(t, "projects")
+	presence := func() int {
+		f := watcher.Next(t, func(f stream.Frame) bool { return f.Kind == string(stream.KindPresence) && f.ID == chatID })
+		if f.Gone {
+			return 0
+		}
+		var p struct{ Viewers int }
+		require.NoError(t, json.Unmarshal(f.Data, &p))
+		return p.Viewers
+	}
+
+	a, b := dialStream(t, h), dialStream(t, h)
+	a.Next(t, isReady)
+	b.Next(t, isReady)
+	a.Hold(t, scope)
+	assert.Equal(t, 1, presence())
+	b.Hold(t, scope)
+	assert.Equal(t, 2, presence())
+
+	a.Unsub(t, scope)
+	assert.Equal(t, 1, presence())
+	b.Unsub(t, scope)
+	assert.Equal(t, 0, presence(), "the last viewer's leave is gone")
+}

@@ -25,6 +25,8 @@ const (
 	KindFolder     EntityKind = "folder"
 	// KindTelemetry is a chat's newest usage report, on its chat scope.
 	KindTelemetry EntityKind = "telemetry"
+	// KindPresence is how many connections hold a chat's scope, on the projects scope.
+	KindPresence EntityKind = "presence"
 )
 
 // Frame types, the value of Frame.T.

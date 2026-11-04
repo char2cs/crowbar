@@ -37,6 +37,8 @@ const golden = [
   },
   { t: 'closed', scope: 'chat:c1', reason: 'resync', seq: 2 },
   { t: 'closed', scope: 'chat:c1', reason: 'deleted' },
+  { t: 'entity', scope: 'projects', kind: 'presence', id: 'c1', v: 10, data: { viewers: 2 } },
+  { t: 'entity', scope: 'projects', kind: 'presence', id: 'c1', v: 11, gone: true },
 ]
 
 describe('decodeFrame', () => {

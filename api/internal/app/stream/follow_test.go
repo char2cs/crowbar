@@ -199,6 +199,8 @@ func TestHub_ALedgerCloseEndsItsHoldOnly(t *testing.T) {
 	conn.sub(t, "projects")
 
 	src.follow(t) <- stream.Closed("", stream.ReasonDeleted, nil)
+	left := conn.next(t)
+	assert.Equal(t, stream.Frame{T: stream.FrameEntity, Scope: "projects", Kind: "presence", ID: "c1", V: left.V, Gone: true}, left, "the closed hold no longer views c1")
 	assert.Equal(t, stream.Closed("chat:c1", stream.ReasonDeleted, nil), conn.next(t))
 	src.ended(t)
 	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)

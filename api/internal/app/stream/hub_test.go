@@ -101,6 +101,7 @@ func TestHub_AnEntityFrameReachesOnlyConnectionsHoldingItsScope(t *testing.T) {
 	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)
 	hub.Entity(chatC1, stream.KindOperation, "op2", "y", 0)
 
+	assert.Equal(t, "presence", projects.next(t).Kind, "the chat holder views c1")
 	assert.Equal(t, "op1", projects.next(t).ID)
 	assert.Equal(t, "op2", chat.next(t).ID, "the projects frame never reached the chat holder")
 }
