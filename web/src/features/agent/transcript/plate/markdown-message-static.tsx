@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { Value } from 'platejs'
 import { createStaticEditor, PlateStatic } from 'platejs/static'
 
@@ -7,6 +7,7 @@ import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-compos
 import { CHAT_PROSE_STYLE } from '@/features/agent/transcript/plate/chat-prose-style'
 import { StreamingFenceContext } from '@/features/agent/transcript/plate/streaming-fence'
 import { openDiagramFence } from '@/features/agent/transcript/plate/streaming-markdown-parse'
+import { onGrammarReady, readyLanguageIds } from '@/features/editor/lib/shiki-grammars'
 import { cn } from '@/lib/utils'
 
 interface MarkdownMessageStaticProps {
@@ -49,7 +50,10 @@ export function MarkdownMessageStatic({
   variant = 'document',
   className,
 }: MarkdownMessageStaticProps) {
-  const value = useMemo(() => parsedValue(children), [children])
+  // Code is decorated as it renders; a grammar that lands later needs fresh nodes to decorate.
+  const grammarsReady = useSyncExternalStore(onGrammarReady, () => readyLanguageIds().length)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- grammarsReady: a new copy per landed grammar, so its blocks decorate again
+  const value = useMemo(() => parsedValue(children), [children, grammarsReady])
   // remark parses an unclosed fence as code running to EOF; it renders as code.
   const openFence = useMemo(
     () => (diagrams ? openDiagramFence(children, 0) : null),

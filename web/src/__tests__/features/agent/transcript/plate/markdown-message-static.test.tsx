@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
@@ -33,6 +33,14 @@ describe('MarkdownMessageStatic', () => {
     expect(document.querySelector('pre')).not.toBeNull()
     expect(document.querySelector('pre')?.textContent).toContain('func main')
   })
+
+  it('colours a fenced code block by its language once the grammar has loaded', async () => {
+    render(<MarkdownMessageStatic>{'```go\nfunc main() {}\n```'}</MarkdownMessageStatic>)
+    await vi.waitFor(
+      () => expect(document.querySelector('pre .hljs-keyword')?.textContent).toBe('func'),
+      { timeout: 10_000 },
+    )
+  }, 30_000)
 
   it('renders an inline code span inline, not as a block', () => {
     render(<MarkdownMessageStatic>{'run `make dev` first'}</MarkdownMessageStatic>)

@@ -10,6 +10,8 @@ import {
   useEditorRef,
 } from 'platejs/react'
 import { cn } from '@/lib/utils'
+import { CODE_SYNTAX_THEME } from '@/components/ui/code-syntax-theme'
+import { useRedecorateWhenGrammarReady } from '@/components/editor/plugins/use-redecorate-when-grammar-ready'
 import {
   AttachmentControls,
   AttachmentDropLine,
@@ -69,7 +71,12 @@ function removeExcalidrawAttachment(editor: PlateEditor, element: TCodeBlockElem
 
 function codeBodyOf(props: PlateElementProps<TCodeBlockElement>): ReactNode {
   return (
-    <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-xs leading-relaxed [tab-size:2]">
+    <pre
+      className={cn(
+        'overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-xs leading-relaxed [tab-size:2]',
+        CODE_SYNTAX_THEME,
+      )}
+    >
       <code>{props.children}</code>
     </pre>
   )
@@ -196,6 +203,7 @@ function DraggableAttachmentBlock({
 /** Chat's code block for the interactive editor. An attachment fence renders its
  *  preview over the still-mounted raw block, so Slate's node-DOM mapping holds. */
 export function ChatCodeBlockElement(props: PlateElementProps<TCodeBlockElement>) {
+  useRedecorateWhenGrammarReady(props.editor, props.element)
   const diagram = useDiagramTarget(props)
   if (diagram) return <DiagramElement {...props} diagram={diagram} />
   const { codeBody, preview } = resolveCodeBlockPreview(props)

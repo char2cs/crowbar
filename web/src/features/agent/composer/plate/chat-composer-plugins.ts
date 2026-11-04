@@ -1,6 +1,6 @@
 import { MarkdownPlugin } from '@platejs/markdown'
-import { CodeBlockRules } from '@platejs/code-block'
-import { CodeBlockPlugin, CodeLinePlugin } from '@platejs/code-block/react'
+import { type CodeBlockConfig, CodeBlockRules } from '@platejs/code-block'
+import { CodeBlockPlugin, CodeLinePlugin, CodeSyntaxPlugin } from '@platejs/code-block/react'
 import remarkGfm from 'remark-gfm'
 
 import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
@@ -29,6 +29,9 @@ import { calloutMarkdownRules } from '@/features/editor/markdown/plate/markdown-
 import { htmlMarkdownRules } from '@/features/editor/markdown/plate/markdown-html-rules'
 import { underlineMarkdownRules } from '@/features/editor/markdown/plate/markdown-underline-rules'
 import { ChatFreshTextPlugin } from '@/features/agent/transcript/plate/chat-fresh-text-plugin'
+import { shikiLowlight } from '@/components/editor/plugins/shiki-lowlight'
+import { CodeSyntaxLeaf } from '@/components/ui/code-block-node'
+import { CodeSyntaxLeafStatic } from '@/components/ui/code-syntax-leaf-static'
 import {
   CommentCodeLineElement,
   CommentTableCellElement,
@@ -54,6 +57,8 @@ import { ChatParagraphElement } from '@/features/agent/composer/plate/attachment
 // instance resolves the node config differently at render time.
 const CHAT_CODE_BLOCK_CONFIG = {
   inputRules: [CodeBlockRules.markdown({ on: 'match' })],
+  // The editor's shiki grammars: Plate types the option as a lowlight instance.
+  options: { lowlight: shikiLowlight as unknown as CodeBlockConfig['options']['lowlight'] },
   shortcuts: { toggle: { keys: 'mod+alt+8' } },
 }
 
@@ -86,6 +91,7 @@ export const chatComposerPlugins = [
   TableCellHeaderPlugin.withComponent(CommentTableCellHeaderElement),
   ChatCodeBlockPlugin,
   CodeLinePlugin.withComponent(CommentCodeLineElement),
+  CodeSyntaxPlugin.withComponent(CodeSyntaxLeaf),
   // After BasicNodesKit so it replaces its paragraph (a later entry with the same key
   // wins), making every paragraph a drop target.
   ParagraphPlugin.withComponent(ChatParagraphElement),
@@ -106,6 +112,7 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
   [LinkPlugin.key]: ChatLinkKitStatic[0],
   [CalloutPlugin.key]: CalloutKitStatic[0],
   [CodeBlockPlugin.key]: ChatCodeBlockPluginStatic,
+  [CodeSyntaxPlugin.key]: CodeSyntaxPlugin.withComponent(CodeSyntaxLeafStatic),
   [ParagraphPlugin.key]: ParagraphPlugin.withComponent(ParagraphElement),
   [MarkdownImageKit[0].key]: MarkdownImageKit[0].configure({
     node: { component: ChatMarkdownImageElementStatic },

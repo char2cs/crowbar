@@ -43,6 +43,15 @@ describe('MarkdownMessage', () => {
     expect(document.querySelector('pre')).not.toBeNull()
   })
 
+  it('colours a streamed code block by its language once the grammar has loaded', async () => {
+    const { rerender } = render(<MarkdownMessage>{'```python\ndef ma'}</MarkdownMessage>)
+    rerender(<MarkdownMessage>{'```python\ndef main():\n    pass\n```\n\nDone.'}</MarkdownMessage>)
+    await waitFor(
+      () => expect(document.querySelector('pre .hljs-keyword')?.textContent).toBe('def'),
+      { timeout: 10_000 },
+    )
+  }, 30_000)
+
   // REGRESSION, from the engine this replaced: react-markdown v9 dropped its
   // `inline` prop and every inline code span silently became a <pre> block.
   it('renders an inline code span inline, not as a block', () => {
@@ -308,7 +317,7 @@ describe('MarkdownMessage diagram fences', () => {
     }
     render(<Draft />)
     expect(document.querySelector('.chat-diagram-block')).toBeNull()
-    expect(screen.getByText('graph TD').closest('pre')).not.toBeNull()
+    expect(document.querySelector('pre')?.textContent).toContain('graph TD')
   })
 
   it('shows a skeleton for an open excalidraw fence and never parses its partial scene', () => {

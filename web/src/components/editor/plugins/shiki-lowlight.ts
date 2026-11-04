@@ -73,30 +73,64 @@ export function classesForScopes(scopes: readonly string[]): string[] {
   return []
 }
 
+type HastChild = HastRoot['children'][number]
+
+function lineToHast(line: string, tokens: ReturnType<ShikiGrammar['tokenizeLine']>['tokens']) {
+  const children: HastChild[] = []
+  for (const token of tokens) {
+    const value = line.slice(token.startIndex, token.endIndex)
+    if (!value) continue
+    const className = classesForScopes(token.scopes)
+    children.push(
+      className.length > 0
+        ? {
+            type: 'element',
+            tagName: 'span',
+            properties: { className },
+            children: [{ type: 'text', value }],
+          }
+        : { type: 'text', value },
+    )
+  }
+  return children
+}
+
+interface TokenizedLine {
+  line: string
+  hast: HastChild[]
+  /** The grammar's state after this line, where the next one starts. */
+  stack: StateStack
+}
+
+// A streaming block grows at its end and is re-highlighted on every change: the lines
+// before the first changed one keep their tokens, so each change costs its own lines.
+let lastBlock: { grammar: ShikiGrammar; lines: TokenizedLine[] } | null = null
+
 /** Tokenizes `code` line by line into the hast shape Plate's decorator reads. */
 /** @internal Exported for unit tests. */
 export function tokenizeToHast(grammar: ShikiGrammar, code: string): HastRoot {
-  const children: HastRoot['children'] = []
+  const previous = lastBlock?.grammar === grammar ? lastBlock.lines : []
+  const lines: TokenizedLine[] = []
   let stack: StateStack | null = null
-  code.split('\n').forEach((line, index) => {
-    if (index > 0) children.push({ type: 'text', value: '\n' })
-    const { tokens, ruleStack } = grammar.tokenizeLine(line, stack)
-    stack = ruleStack
-    for (const token of tokens) {
-      const value = line.slice(token.startIndex, token.endIndex)
-      if (!value) continue
-      const className = classesForScopes(token.scopes)
-      children.push(
-        className.length > 0
-          ? {
-              type: 'element',
-              tagName: 'span',
-              properties: { className },
-              children: [{ type: 'text', value }],
-            }
-          : { type: 'text', value },
-      )
+  // Only an unbroken prefix: a line after a changed one may start in another state.
+  let reusing = true
+  for (const [index, line] of code.split('\n').entries()) {
+    const kept = previous[index]
+    reusing &&= kept?.line === line
+    if (reusing && kept) {
+      lines.push(kept)
+      stack = kept.stack
+      continue
     }
+    const { tokens, ruleStack } = grammar.tokenizeLine(line, stack)
+    lines.push({ line, hast: lineToHast(line, tokens), stack: ruleStack })
+    stack = ruleStack
+  }
+  lastBlock = { grammar, lines }
+  const children: HastChild[] = []
+  lines.forEach(({ hast }, index) => {
+    if (index > 0) children.push({ type: 'text', value: '\n' })
+    children.push(...hast)
   })
   return { type: 'root', children }
 }

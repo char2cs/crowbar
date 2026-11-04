@@ -26,13 +26,13 @@ describe('chatComposerPluginsStatic', () => {
   // replaces it — see chat-composer-plugins.ts), and the static derivation
   // swaps BOTH positions, each producing a new (by-reference) plugin object
   // even where the resulting component is the same.
-  it('swaps only link, callout, code_block, paragraph and img; drops the floating toolbar and dnd rather than swapping them', () => {
+  it('swaps only link, callout, code_block, code_syntax, paragraph and img; drops the floating toolbar and dnd rather than swapping them', () => {
     expect(chatComposerPluginsStatic.some((p) => DROPPED_KEYS.has(p.key))).toBe(false)
     const shared = chatComposerPluginsStatic.filter((p) => !DROPPED_KEYS.has(p.key))
     const interactiveWithoutDropped = chatComposerPlugins.filter((p) => !DROPPED_KEYS.has(p.key))
     const changed = shared.filter((plugin, i) => plugin !== interactiveWithoutDropped[i])
     expect(changed.map((p) => p.key).sort()).toEqual(
-      ['a', 'callout', 'code_block', 'img', 'p', 'p'].sort(),
+      ['a', 'callout', 'code_block', 'code_syntax', 'img', 'p', 'p'].sort(),
     )
   })
 })

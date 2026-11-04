@@ -2,21 +2,17 @@
 
 import * as React from 'react'
 
-import {
-  CODE_LINE_TO_DECORATIONS,
-  formatCodeBlock,
-  isLangSupported,
-  setCodeBlockToDecorations,
-} from '@platejs/code-block'
+import { formatCodeBlock, isLangSupported } from '@platejs/code-block'
 import { Command as CommandPrimitive } from 'cmdk'
 import { BracketsCurlyIcon, CheckIcon, CopyIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
-import { type TCodeBlockElement, type TCodeSyntaxLeaf, type TElement, NodeApi } from 'platejs'
+import { type TCodeBlockElement, type TCodeSyntaxLeaf, NodeApi } from 'platejs'
 import { type PlateElementProps, type PlateLeafProps, PlateElement, PlateLeaf } from 'platejs/react'
-import { useEditorRef, useElement, usePlateStore, useReadOnly } from 'platejs/react'
+import { useEditorRef, useElement, useReadOnly } from 'platejs/react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { onGrammarReady, readyLanguageIds } from '@/features/editor/lib/shiki-grammars'
+import { CODE_SYNTAX_THEME } from '@/components/ui/code-syntax-theme'
+import { useRedecorateWhenGrammarReady } from '@/components/editor/plugins/use-redecorate-when-grammar-ready'
 
 // This file is `components/ui` only by shadcn-registry convention — it is
 // already Plate/markdown-specific (it imports `platejs` types and reads
@@ -230,40 +226,11 @@ function getCodeBlockLanguageLabel(lang?: string | null) {
   return codeBlockLanguages.find((language) => language.value === value)?.label ?? value
 }
 
-/** Text but no decorations: the block was decorated before its grammar was ready. */
-function decoratedPlain(element: TCodeBlockElement): boolean {
-  const lines = element.children as TElement[]
-  return (
-    lines.some((line) => NodeApi.string(line) !== '') &&
-    lines.every((line) => !CODE_LINE_TO_DECORATIONS.get(line)?.length)
-  )
-}
-
 export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlockElementProps) {
   const { editor, element } = props
   const isMermaid = element.lang === 'mermaid'
 
-  // Highlighting grammars load on demand (shiki-grammars.ts): this block was
-  // decorated as plain text until its language landed, so re-decorate once it has.
-  // A version bump, not `editor.api.redecorate`: Plate binds that after this effect on mount.
-  const plateStore = usePlateStore()
-  React.useEffect(() => {
-    const lang = element.lang
-    if (!lang) return
-    const redecorate = () => {
-      const path = editor.api.findPath(element)
-      if (!path) return
-      // Filled before the bump: Slate re-queries the lines before their block.
-      setCodeBlockToDecorations(editor, [element, path])
-      plateStore.set('versionDecorate', (plateStore.get('versionDecorate') ?? 0) + 1)
-    }
-    const off = onGrammarReady((ready) => {
-      if (ready === lang) redecorate()
-    })
-    // A grammar that landed between the block's decoration and this subscription told no one.
-    if (readyLanguageIds().includes(lang) && decoratedPlain(element)) redecorate()
-    return off
-  }, [editor, element, plateStore])
+  useRedecorateWhenGrammarReady(editor, element)
 
   const codeBody = (
     <pre className="overflow-x-auto p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
@@ -272,10 +239,7 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
   )
 
   return (
-    <PlateElement
-      className="py-1 **:[.hljs-addition]:bg-[#f0fff4] **:[.hljs-addition]:text-[#22863a] dark:**:[.hljs-addition]:bg-[#3c5743] dark:**:[.hljs-addition]:text-[#ceead5] **:[.hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable]:text-[#005cc5] dark:**:[.hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable]:text-[#6596cf] **:[.hljs-built\\\\_in,.hljs-symbol]:text-[#e36209] dark:**:[.hljs-built\\\\_in,.hljs-symbol]:text-[#c3854e] **:[.hljs-bullet]:text-[#735c0f] **:[.hljs-comment,.hljs-code,.hljs-formula]:text-[#6a737d] dark:**:[.hljs-comment,.hljs-code,.hljs-formula]:text-[#6a737d] **:[.hljs-deletion]:bg-[#ffeef0] **:[.hljs-deletion]:text-[#b31d28] dark:**:[.hljs-deletion]:bg-[#473235] dark:**:[.hljs-deletion]:text-[#e7c7cb] **:[.hljs-emphasis]:italic **:[.hljs-keyword,.hljs-doctag,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language\\\\_]:text-[#d73a49] dark:**:[.hljs-keyword,.hljs-doctag,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language\\\\_]:text-[#ee6960] **:[.hljs-name,.hljs-quote,.hljs-selector-tag,.hljs-selector-pseudo]:text-[#22863a] dark:**:[.hljs-name,.hljs-quote,.hljs-selector-tag,.hljs-selector-pseudo]:text-[#36a84f] **:[.hljs-regexp,.hljs-string,.hljs-meta_.hljs-string]:text-[#032f62] dark:**:[.hljs-regexp,.hljs-string,.hljs-meta_.hljs-string]:text-[#3593ff] **:[.hljs-section]:font-bold **:[.hljs-section]:text-[#005cc5] dark:**:[.hljs-section]:text-[#61a5f2] **:[.hljs-strong]:font-bold **:[.hljs-title,.hljs-title.class\\\\_,.hljs-title.class\\\\_.inherited\\\\_\\\\_,.hljs-title.function\\\\_]:text-[#6f42c1] dark:**:[.hljs-title,.hljs-title.class\\\\_,.hljs-title.class\\\\_.inherited\\\\_\\\\_,.hljs-title.function\\\\_]:text-[#a77bfa]"
-      {...props}
-    >
+    <PlateElement className={cn('py-1', CODE_SYNTAX_THEME)} {...props}>
       <div className="relative rounded-md bg-muted/50">
         {isMermaid ? (
           // The fenced code block stays a plain `code_block` node in the

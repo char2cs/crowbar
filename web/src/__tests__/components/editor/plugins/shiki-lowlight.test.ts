@@ -58,6 +58,30 @@ describe('tokenizeToHast', () => {
       ],
     })
   })
+
+  // A streaming block grows at its end: the lines before it keep their tokens and state.
+  it('resumes a block that grew from its first changed line, with that line’s state', () => {
+    const tokenizeLine = vi.fn((line: string, prev: unknown) => ({
+      tokens: [{ startIndex: 0, endIndex: line.length, scopes: ['source', 'comment'] }],
+      ruleStack: `after ${line} from ${String(prev)}` as never,
+    }))
+    const fresh = tokenizeToHast({ tokenizeLine }, 'a\nb\ncd\ne')
+    tokenizeToHast({ tokenizeLine }, 'x')
+    tokenizeLine.mockClear()
+
+    const grammar = { tokenizeLine }
+    tokenizeToHast(grammar, 'a\nb\nc')
+    tokenizeLine.mockClear()
+    const grown = tokenizeToHast(grammar, 'a\nb\ncd\ne')
+
+    expect(tokenizeLine.mock.calls.map(([line]) => line)).toEqual(['cd', 'e'])
+    expect(tokenizeLine.mock.calls[0]?.[1]).toBe('after b from after a from null')
+    expect(grown).toEqual(fresh)
+
+    tokenizeLine.mockClear()
+    tokenizeToHast(grammar, 'z\nb\ncd\ne')
+    expect(tokenizeLine.mock.calls.map(([line]) => line)).toEqual(['z', 'b', 'cd', 'e'])
+  })
 })
 
 describe('shikiLowlight', () => {
