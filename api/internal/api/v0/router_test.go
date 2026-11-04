@@ -61,7 +61,6 @@ func daemonEngineWith(
 	tc := newApp(t)
 	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, testFingerprint, preAuthReadTimeout, v0.WithLogs(ring))
 	require.NoError(t, err)
-	t.Cleanup(daemon.Close)
 	engine, ok := daemon.Handler().(*gin.Engine)
 	require.True(t, ok, "the api container serves a gin engine")
 	return engine

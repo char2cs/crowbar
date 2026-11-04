@@ -137,13 +137,17 @@ func missing(path string) bool {
 
 // writePEM replaces path atomically (synced temp file, then rename), so a
 // crash or full disk never leaves a truncated PEM under the real name.
-func writePEM(path, blockType string, der []byte, mode os.FileMode) error {
+func writePEM(path, blockType string, der []byte, mode os.FileMode) (err error) {
 	name := filepath.Base(path)
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+name+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("tlsid: write %s: %w", name, err)
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once renamed
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.Remove(tmp.Name()))
+		}
+	}()
 
 	buf := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
 	_, err = tmp.Write(buf)
