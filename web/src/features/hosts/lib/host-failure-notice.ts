@@ -1,9 +1,10 @@
 import { hostFailureKind } from '@/features/hosts/lib/classify-host-failure'
 import { reportHostFailure } from '@/features/hosts/lib/host-failures'
+import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { toast } from '@/features/window/stores/toast-store'
-import { HostNotConfiguredError } from '@/lib/api/errors'
+import { HostNotConfiguredError, streamFailureOf } from '@/lib/api/errors'
 import { ApiError } from '@/lib/errors/api-error'
 import { HostNotResolvedError, type HostUnavailable } from '@/lib/host-path'
 
@@ -42,6 +43,8 @@ function failedRemoteHost(err: unknown): string | undefined {
   return err.hostId
 }
 
+type NoticeKind = NonNullable<ReturnType<typeof hostFailureKind>> | 'unexplained'
+
 // `hostName` is the failing remote host's, undefined once it is no longer paired.
 function describeHostFailure(err: unknown, hostName: string | undefined): HostFailureNotice | null {
   if (err instanceof HostNotResolvedError) return unresolvedHostNotice(err.unavailable)
@@ -49,8 +52,10 @@ function describeHostFailure(err: unknown, hostName: string | undefined): HostFa
   if (!(err instanceof ApiError) || failedRemoteHost(err) === undefined) return null
   const kind = hostFailureKind(err) ?? (carriesOnlyStatus(err) ? 'unexplained' : null)
   if (kind === null) return null
-  const name = hostName
-  if (name === undefined) return HOST_NOT_PAIRED
+  return hostName === undefined ? HOST_NOT_PAIRED : kindNotice(kind, hostName, err.status)
+}
+
+function kindNotice(kind: NoticeKind, name: string, status: number): HostFailureNotice {
   switch (kind) {
     case 'unreachable':
       return {
@@ -70,7 +75,7 @@ function describeHostFailure(err: unknown, hostName: string | undefined): HostFa
       }
     case 'unexplained':
       return {
-        message: `${name} returned an error (${err.status})`,
+        message: `${name} returned an error (${status})`,
         description: 'It, or the connection to it, failed this request. Try again.',
       }
   }
@@ -105,6 +110,17 @@ export function toastUnresolvedHost(unavailable: HostUnavailable | null): void {
 /** Its host's words for a failed action when the host is why, else null. */
 export function hostFailureWords(err: unknown): string | null {
   return hostFailureNotice(err)?.message ?? null
+}
+
+/** Its host's words for a stream to `hostId` that would not open, when the host is why: what
+ *  the open names (not reached, another identity), else a refusal its status records. A 401
+ *  upgrade names no reason of its own. */
+export function streamFailureWords(hostId: string, err: unknown): string | undefined {
+  const named = streamFailureOf(err instanceof Error ? err.cause : err, hostId)
+  if (named) return hostFailureWords(named) ?? undefined
+  if (getHostRuntime(hostId)?.getState().status !== 'needs-repair') return undefined
+  const name = hostNameOf(hostId)
+  return name === undefined ? HOST_NOT_PAIRED.message : kindNotice('refused', name, 401).message
 }
 
 /** Toasts `err` as its host's failure when the host is why, and says whether it did; anything

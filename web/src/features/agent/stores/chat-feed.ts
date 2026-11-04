@@ -16,6 +16,7 @@ import {
   failFeed,
   openFeed,
 } from '@/features/agent/stores/chat-store'
+import { streamFailureWords } from '@/features/hosts/lib/host-failure-notice'
 
 interface Attachment {
   hostId: string
@@ -140,9 +141,9 @@ export function attachFeed(hostId: string, chatId: string): () => void {
       stopWatch()
       letGo()
     }
-    // An unreachable stream keeps retrying, so the feed says so without a reason.
-    streamOpened(hostId).catch(() => {
-      if (attachments.get(chatId) === fresh) failFeed(chatId)
+    // An unreachable stream keeps retrying; the feed says why when its host is the reason.
+    streamOpened(hostId).catch((err: unknown) => {
+      if (attachments.get(chatId) === fresh) failFeed(chatId, streamFailureWords(hostId, err))
     })
   }
   const held = attachment

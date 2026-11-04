@@ -4,6 +4,8 @@ import { chatStore } from '@/features/agent/stores/chat-store'
 import { heldScopes, streamDaemon, streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { wsManager } from '@/lib/ws/manager'
 
 const SCOPE = 'chat:chat-1'
 const feed = (chatId = 'chat-1') => chatStore.getState().feeds[chatId]
@@ -219,7 +221,10 @@ describe('attachFeed', () => {
 describe("a paired host's chat", () => {
   const host1 = streamDaemonFor('host-1')
   const subsOn = () => host1.sent.filter((r) => r.op === 'sub' && r.scope === SCOPE)
-  afterEach(() => resetHostWorld())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetHostWorld()
+  })
 
   it('subs on its host and resumes from its seq when that host reconnects, not when local does', async () => {
     pairRemoteHost('host-1')
@@ -238,5 +243,32 @@ describe("a paired host's chat", () => {
     host1.drop()
     host1.deliver({ t: 'ready', epoch: 'h1' })
     expect(subsOn().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1 })
+  })
+
+  // The stream's open to host-1 fails the way the desktop bridge rejects it, before any sync.
+  const openFails = (cause: string) => {
+    host1.answer = () => []
+    vi.spyOn(wsManager, 'opened').mockRejectedValue(
+      new Error('host-1~/v0/stream: closed before it opened', { cause }),
+    )
+  }
+
+  it('says the host presents another identity when the open names it', async () => {
+    pairRemoteHost('host-1', 'Studio')
+    openFails('host-identity-changed: the pinned certificate does not match')
+    held.push(attachReal('host-1', 'chat-1'))
+    await vi.waitFor(() => expect(feed()?.status).toBe('error'))
+    expect(feed()?.error).toBe(
+      'Studio is presenting a different identity — confirm it before pairing again',
+    )
+  })
+
+  it('says the host must be paired again when its status records the refusal', async () => {
+    pairRemoteHost('host-1', 'Studio')
+    getOrCreateHostRuntime('host-1').getState().setStatus('needs-repair')
+    openFails('ws upgrade: HTTP error: 401 Unauthorized')
+    held.push(attachReal('host-1', 'chat-1'))
+    await vi.waitFor(() => expect(feed()?.status).toBe('error'))
+    expect(feed()?.error).toBe('Studio needs to be paired again')
   })
 })
