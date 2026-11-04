@@ -86,6 +86,8 @@ describe('pairingFailureText', () => {
   const TOO_MANY =
     'Too many attempts — wait a minute, or run crowbar pair on the host for a new code.'
   const UNREACHABLE = `Can’t reach ${at}. Check the address and port, and that the host is running.`
+  const KEYCHAIN_UNDONE = `Your keychain couldn’t save the key for ${at}, so the pairing was undone and the host isn’t left paired with this device. Unlock your keychain or allow Crowbar to use it, then pair again with a new code.`
+  const KEYCHAIN_DANGLING = `Your keychain couldn’t save the key for ${at}, and undoing the pairing on the host didn’t go through. No copy of the key was kept, so nothing can use it, but the host may still list this device. Unlock your keychain or allow Crowbar to use it, then pair again with a new code.`
 
   it.each([
     ['the host refused pairing (401 Unauthorized): pairing code is not valid', WRONG_CODE],
@@ -121,6 +123,14 @@ describe('pairingFailureText', () => {
     [
       'keychain is locked',
       `Couldn’t pair with ${at}. Try again, or run crowbar pair on the host for a new code.`,
+    ],
+    [
+      'the keychain could not keep the token for 1.2.3.4:3737 (keychain is locked); the host revoked it',
+      KEYCHAIN_UNDONE,
+    ],
+    [
+      'the keychain could not keep the token for 1.2.3.4:3737 (User canceled the operation.); revoking it on the host failed: connection closed before message completed',
+      KEYCHAIN_DANGLING,
     ],
   ])('%s', (raw, text) => {
     expect(pairingFailureText(raw, at)).toBe(text)

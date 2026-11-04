@@ -281,6 +281,30 @@ async fn proxy<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let mut channel = open_channel(stream).await?;
+    send(&mut channel, request, body_limit).await
+}
+
+/// One HTTP/1.1 connection, kept alive between requests while the peer allows.
+type Channel = hyper::client::conn::http1::SendRequest<Full<bytes::Bytes>>;
+
+async fn open_channel<S>(stream: S) -> Result<Channel, BoxError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let io = TokioIo::new(stream);
+    let (sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    Ok(sender)
+}
+
+async fn send(
+    channel: &mut Channel,
+    request: http::Request<Vec<u8>>,
+    body_limit: usize,
+) -> Result<http::Response<Vec<u8>>, BoxError> {
     // The custom-scheme URI is `crowbar://<authority>/v0/...`. hyper only needs
     // the path-and-query portion for the request line.
     let path_and_query = request
@@ -289,12 +313,7 @@ where
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_else(|| request.uri().path().to_string());
 
-    let io = TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
-
+    channel.ready().await?;
     let (parts, body) = request.into_parts();
 
     let mut builder = HyperRequest::builder()
@@ -316,7 +335,7 @@ where
 
     let upstream_req = builder.body(Full::<bytes::Bytes>::new(body.into()))?;
 
-    let upstream_resp = sender.send_request(upstream_req).await?;
+    let upstream_resp = channel.send_request(upstream_req).await?;
     let (resp_parts, resp_body) = upstream_resp.into_parts();
     let collected = collect_capped(resp_body, body_limit).await?;
 
