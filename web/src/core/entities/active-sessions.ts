@@ -1,4 +1,5 @@
 import { useStore } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import { entityStore, type EntityState } from '@/core/entities/entity-store'
 import { splitHostKey } from '@/core/stream/host-scope'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
@@ -57,5 +58,5 @@ export function viewersLabel(viewers: number): string {
 }
 
 export function useActiveSessionList(): ActiveSession[] {
-  return useStore(entityStore, selectActiveSessions)
+  return useStore(entityStore, useShallow(selectActiveSessions))
 }
