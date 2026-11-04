@@ -12,15 +12,9 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// MergeResult reports the outcome of a local merge-into-parent (07 §3.1).
-// ConflictsPending is true when a git step reported conflicts: the in-progress
-// merge/rebase is ABORTED (try-then-warn, never a stuck worktree) and the
-// conflict is surfaced as the child's pr-conflicts state — there is NO
-// resumable marker. The user resolves it via "Rebase onto parent" (a resolvable
-// rebase kept in the child's own worktree) and re-runs the merge once clean. In
-// that case ParentTipSha is empty. On a clean merge ParentTipSha holds the
-// parent's post-merge HEAD, to which the kept child's fork point has been
-// advanced.
+// MergeResult is a local merge-into-parent's outcome. On conflict the merge is aborted (never a stuck
+// worktree), the child shows pr-conflicts and ParentTipSha is empty; on success ParentTipSha is the
+// parent's new HEAD, which the child's fork point has advanced to.
 type MergeResult struct {
 	ConflictsPending bool   `json:"conflictsPending"`
 	ParentTipSha     string `json:"parentTipSha"`

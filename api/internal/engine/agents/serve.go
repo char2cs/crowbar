@@ -94,11 +94,8 @@ func expandArgv(argv []string, ctx TemplateCtx) []string {
 	return out
 }
 
-// hasAPIEventOverride reports whether any event declares transport: api even
-// when the runtime default is something else — defensive: neither shipped
-// descriptor relies on this today (an api provider's runtime.transport IS api
-// once merged), but StartAPIConn must not assume Runtime.Transport is the only
-// source of truth.
+// hasAPIEventOverride reports whether any event declares transport: api over a different runtime
+// default, so StartAPIConn does not treat Runtime.Transport as the only source of truth.
 func hasAPIEventOverride(d *spec.Descriptor) bool {
 	for _, e := range d.Events {
 		if e.Transport == "api" {

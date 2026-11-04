@@ -23,17 +23,12 @@ type service struct {
 	// override path keeps an edited override picked up without a restart.
 	descriptors map[string]descriptorCacheEntry
 
-	// discovery is the shared, provider-keyed cache behind a model.discover
-	// OR model.manifest descriptor's Models()/Efforts() — one instance for
-	// every agent this service ever builds, so a refresh triggered by one
-	// List/Get is visible to the next, however many *agent values point at
-	// it.
+	// discovery is shared by every agent this service builds, so a refresh one List/Get triggers is
+	// visible to the next.
 	discovery *modeldiscovery.Cache
 
-	// manifestFetchMu guards manifestFetch, the live getter
-	// SetManifestFetchEnabled installs — read fresh on every manifest
-	// refresh, never latched at construction, so a settings toggle takes
-	// effect on the very next refresh rather than needing a restart.
+	// manifestFetch is read fresh on every manifest refresh, so a settings toggle takes effect on the
+	// next one without a restart.
 	manifestFetchMu sync.RWMutex
 	manifestFetch   func() bool
 }
@@ -42,12 +37,8 @@ type service struct {
 // path it was resolved against changes.
 type descriptorCacheEntry struct {
 	agent Agent
-	// overrideModTime is protocol.OverridePath's mtime as of this resolve, or
-	// the zero Time when no override file existed then (including every
-	// homeDir-less caller). Compared against a fresh Stat on every Get so an
-	// override created, edited, or removed on disk invalidates the entry —
-	// the zero Time changing to a real one, or a real one changing, are both
-	// "this changed" under time.Time.Equal.
+	// overrideModTime is the override file's mtime at resolve (zero when none existed); any change on
+	// a later Stat, creation and removal included, invalidates the entry.
 	overrideModTime time.Time
 }
 
@@ -124,10 +115,8 @@ func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
 	return a, nil
 }
 
-// refreshModelsIfDeclared kicks off a background catalogue refresh for a
-// descriptor that declares model.discover or model.manifest — a no-op (and
-// zero extra cost on every other Get/List call) for one that declares
-// neither.
+// refreshModelsIfDeclared starts a background catalogue refresh for a descriptor declaring
+// model.discover or model.manifest, and costs nothing for one declaring neither.
 func (s *service) refreshModelsIfDeclared(d *spec.Descriptor, homeDir string) {
 	if d.Model == nil {
 		return
@@ -159,10 +148,8 @@ func (s *service) manifestFetchAllowed() bool {
 	return s.manifestFetch()
 }
 
-// overrideModTime is the zero Time for an empty path (no override possible)
-// or one Stat could not reach (none exists, or a permission error — either
-// way, Resolve itself will fail the same Stat too, so there is nothing this
-// cache could get more wrong than Resolve already would).
+// overrideModTime is the zero Time for an empty path or one Stat cannot reach; Resolve would fail
+// that same Stat, so the cache cannot get it more wrong.
 func overrideModTime(path string) time.Time {
 	if path == "" {
 		return time.Time{}

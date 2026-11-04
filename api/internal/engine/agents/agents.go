@@ -34,32 +34,21 @@ type Agents interface {
 
 	RecordInjection(runnerID string, docs ...string)
 
-	// ConsumeInjectedPrefix reports whether text contains a document this
-	// runnerID was handed and, if so, returns text with that document (and
-	// mergeLeadingPositional's own separator) removed — see
-	// registry.ConsumePrefix's own doc for why a bare boolean isn't enough: a
-	// real prompt can ride the SAME positional as the injected document, and
-	// the remainder left after removing it is what the user actually typed.
+	// ConsumeInjectedPrefix reports whether text carries a document runnerID was handed, and returns
+	// text without it: a real prompt can ride the same positional, and the remainder is what the user
+	// typed.
 	ConsumeInjectedPrefix(runnerID, text string) (remainder string, found bool)
 
 	ForgetRunner(runnerID string)
 
-	// SetManifestFetchEnabled installs the live getter a model.manifest:
-	// source's background refresh reads before hitting the network — pulled
-	// fresh on every refresh attempt, never cached across a toggle. A nil
-	// getter (the state before this is ever called — every bare New(), every
-	// test) means DISABLED: only the embedded bundle and disk cache apply, so
-	// a raw Agents never makes a network call as a side effect of resolving
-	// a descriptor. The app layer wires the real, DB-backed getter (whose own
-	// default is enabled) once at boot — see chat.assembly.go.
+	// SetManifestFetchEnabled installs the getter a model.manifest refresh asks before hitting the
+	// network. Until it is called fetching is disabled, so resolving a descriptor never makes a
+	// network call as a side effect.
 	SetManifestFetchEnabled(enabled func() bool)
 
-	// Close stops every background model-discovery refresh this service has
-	// forked and BLOCKS until each has returned, the disk write it may owe
-	// under homeDir included. Cancelling the WithLifecycle context alone does
-	// not do that: a refresh whose probe or fetch has already returned is past
-	// every ctx check left to it, so only this join promises that nothing
-	// writes under a home the caller is about to release. Idempotent.
+	// Close stops every background model-discovery refresh and blocks until each, with any disk write
+	// it owes, has returned: cancelling the lifecycle context cannot stop one past its last ctx check.
+	// Idempotent.
 	Close()
 }
 
@@ -77,10 +66,8 @@ type Agent interface {
 
 	Efforts(model string) []string
 
-	// DefaultModel is whichever model id the provider ITSELF states is its
-	// default (model.discover.default_when) — empty when the source states
-	// nothing at all, or nothing has resolved yet. Never inferred from
-	// Models()'s own order.
+	// DefaultModel is the model the provider itself states is its default, empty when it states none
+	// or nothing has resolved yet; never inferred from Models()'s order.
 	DefaultModel() string
 
 	// PermissionLevels reports which of Crowbar's own guarded/trusted/
@@ -88,19 +75,14 @@ type Agent interface {
 	// must never be offered for this provider — never clamped to one that is.
 	PermissionLevels() []string
 
-	// PermissionVars is level's own named values for a transport that needs
-	// them as request data rather than as an argv flag — see
-	// spec.PermissionLevelSpec's own doc comment. Empty for a level this
-	// provider doesn't declare.
+	// PermissionVars is level's named values for a transport that takes them as request data rather
+	// than an argv flag; empty for an undeclared level.
 	PermissionVars(level string) map[string]string
 
 	SelectionSteps(sel Selection) []InjectStep
 
-	// SelectionAPISteps is SelectionSteps' sibling for the api channel: the
-	// same choice declared onto the `serve` process, for a spawn that forks
-	// no process for SelectionSteps to ride. APIServeArgv already renders
-	// these; this is here so a caller can ask WHICH fields a carrier takes
-	// without launching anything.
+	// SelectionAPISteps is SelectionSteps for the api channel's `serve` process, so a caller can ask
+	// which fields a carrier takes without launching anything.
 	SelectionAPISteps(sel Selection) []InjectStep
 
 	SelectionRestart(launched, desired Selection) bool
@@ -128,11 +110,8 @@ type Agent interface {
 	// SessionPersists is session.persists: "turn_start" (or "") or "turn_end".
 	SessionPersists() string
 
-	// ParseHook turns one raw provider payload into a canonical event, reading
-	// the field map channel selects: the channel-scoped block the delivery
-	// ACTUALLY arrived on (a channel-scoped event's own api:/hooks: block),
-	// never the event's static declared transport — see spec.Channel and
-	// TransportFor's own doc comment for why those are different facts.
+	// ParseHook turns one raw payload into a canonical event, reading the block of the channel the
+	// delivery actually arrived on, never the event's declared transport (see spec.Channel).
 	ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error)
 
 	ParseTelemetry(raw []byte, now time.Time) (Telemetry, error)
@@ -163,10 +142,8 @@ type Agent interface {
 	APIServeArgv(ctx TemplateCtx) ([]string, bool)
 	APIAttachArgv(ctx TemplateCtx) ([]string, bool)
 
-	// TransportFor is spec.Descriptor.TransportFor, exposed narrowly for the same
-	// reason every other capability here is narrow rather than exposing the raw
-	// descriptor: a caller outside this package can only ever reach a provider
-	// through this interface, never through *spec.Descriptor by name.
+	// TransportFor is spec.Descriptor.TransportFor, exposed narrowly: callers outside this package
+	// reach a provider only through this interface, never through *spec.Descriptor.
 	TransportFor(canonical string) string
 
 	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
@@ -178,17 +155,13 @@ type Agent interface {
 	// spec 2.5's surfaces.<name>.channel), "" for an undeclared surface.
 	SurfaceChannel(surface string) string
 
-	// TelemetryChannel is the delivery channel this provider's usage reports
-	// arrive on, and TelemetryOnSurface asks whether a chat on one SURFACE
-	// can receive them at all — the chat-scoped form of the capability, since
-	// a provider-scoped flag cannot tell two chats of the same provider apart.
+	// TelemetryChannel is where usage reports arrive; TelemetryOnSurface asks whether a chat on one
+	// surface can receive them, since a provider-wide flag cannot tell two of its chats apart.
 	TelemetryChannel() string
 	TelemetryOnSurface(surface string) bool
 
-	// SurfaceStartHere is spec.Descriptor.SurfaceStartHere: whether a
-	// brand-new chat may be LAUNCHED directly onto this surface. The same
-	// fact Capabilities.TerminalStartHere reports for the terminal, asked
-	// per surface by the spawn path.
+	// SurfaceStartHere is whether a brand-new chat may launch directly onto surface, the per-surface
+	// form of Capabilities.TerminalStartHere.
 	SurfaceStartHere(surface string) bool
 }
 
@@ -198,10 +171,8 @@ func Expand(s string, ctx TemplateCtx) string {
 
 type agent struct {
 	spec *spec.Descriptor
-	// discovery is nil for an agent built outside this package's own New()
-	// (a handful of white-box tests construct &agent{spec: d} directly);
-	// Models/Efforts fall back to the descriptor's static catalogue then,
-	// same as a descriptor with no discover: block at all.
+	// discovery is nil for an agent built without New; Models/Efforts then read the descriptor's
+	// static catalogue.
 	discovery *modeldiscovery.Cache
 }
 
@@ -248,11 +219,8 @@ func (a *agent) WithTools(enabled bool) Agent {
 	return &agent{spec: &stripped, discovery: a.discovery}
 }
 
-// discoversModels reports whether Models/Efforts/DefaultModel must read the
-// shared discovery cache instead of the descriptor's own static tables —
-// true for EITHER a live probe (model.discover) or a fetched/bundled
-// catalogue (model.manifest); the two are mutually exclusive per descriptor
-// (rules.modelCatalog) so there is never a question of which one to prefer.
+// discoversModels reports whether Models/Efforts/DefaultModel read the shared discovery cache: for a
+// live probe or a manifest catalogue, which a descriptor never declares together.
 func (a *agent) discoversModels() bool {
 	m := a.spec.Model
 	return m != nil && (m.Discover != nil || m.Manifest != nil) && a.discovery != nil

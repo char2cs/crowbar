@@ -1,7 +1,5 @@
-// Package server runs and proxies a single language-server process. It speaks
-// JSON-RPC over stdio, correlates request/response by id, dispatches
-// publishDiagnostics notifications to a callback, and replays didOpen for every
-// tracked URI when the process is respawned (10 §3, §5).
+// Package server runs one language-server process over JSON-RPC on stdio: it correlates responses
+// by id, dispatches diagnostics to a callback, and replays open documents when respawned.
 package server
 
 import (
@@ -73,19 +71,15 @@ type Server interface {
 	OnDiagnostics(
 		fn func(lsp.DiagnosticsEvent),
 	)
-	// OnExit registers the callback invoked once when the underlying process
-	// exits on its own (crash/OOM) — NOT when the server is deliberately Closed
-	// or its transport is swapped by Replay. The manager uses it to evict the
-	// dead pool entry.
+	// OnExit registers the callback run once when the process exits on its own (crash/OOM), never on
+	// Close or a Replay swap, so the manager can evict the dead pool entry.
 	OnExit(
 		fn func(),
 	)
 	// OpenDocs returns the content-free set of currently open document URIs.
 	OpenDocs() *OpenDocs
-	// Replay respawns the underlying process, repeats the initialize
-	// handshake (when Initialize ran before) and re-sends didOpen for every
-	// tracked URI with its latest text. It is the "restart language server"
-	// operation: the pool entry, its refcount and the open documents survive.
+	// Replay respawns the process, repeats a handshake that ran before, and reopens every tracked
+	// document at its latest text; the pool entry, its refcount and the open documents survive.
 	Replay(
 		ctx context.Context,
 	) error
@@ -144,12 +138,9 @@ func newServer(
 	}
 }
 
-// New spawns the language server described by command/args in dir and returns a
-// running Server. The process stdin/stdout become the JSON-RPC transport. Each
-// spawned process is watched by a reaper that reaps it on natural exit and
-// drives the server's OnExit callback so a crashed server is evicted, not left
-// a zombie in the pool (R10). initOptions (nil for none) is sent as the
-// handshake's initializationOptions.
+// New spawns command/args in dir with its stdio as the transport. A reaper drives OnExit on a natural
+// exit so a crashed server is evicted rather than left a zombie in the pool; initOptions (nil for
+// none) is the handshake's initializationOptions.
 func New(
 	ctx context.Context,
 	command string,
@@ -253,10 +244,8 @@ func (s *server) OnExit(
 	s.onExit = fn
 }
 
-// handleProcessExit is invoked by the transport reaper when the process exits
-// on its own. It forwards to the registered OnExit callback. The transport
-// suppresses this on a deliberate Close/Replay, so it fires only on a genuine
-// crash/OOM of the live process.
+// handleProcessExit forwards a crash/OOM of the live process to OnExit; the transport suppresses it
+// on a deliberate Close or Replay.
 func (s *server) handleProcessExit() {
 	s.mu.Lock()
 	fn := s.onExit
