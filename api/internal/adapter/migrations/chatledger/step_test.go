@@ -217,7 +217,9 @@ func TestLandedAsWritten_FailsUnlessTheChatHoldsWhatItWroteAtRest(t *testing.T) 
 // with the chat and why, so an upgrade's skips can be read back.
 func TestApply_LogsWhatItSkippedAndWhy(t *testing.T) {
 	h := testutil.FixtureHome(t)
-	writeLegacy(t, h, chatA(), chatB())
+	a := chatA()
+	a.Interruptions = append(a.Interruptions, LegacyInterruption{ID: "i-9", ChatID: a.ChatID, Kind: "weather", At: at(10, 9, 0)})
+	writeLegacy(t, h, a, chatB())
 	marker, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerStopped})
 	require.NoError(t, err)
 	appendTo(t, h, "chat-b", marker)
@@ -231,7 +233,7 @@ func TestApply_LogsWhatItSkippedAndWhy(t *testing.T) {
 	assert.Equal(t, "chat-b", testutil.Attrs(got[0])["chat_id"].String())
 	assert.Equal(t, "chatledger: skipped records", got[1].Message)
 	assert.Equal(t, "chat-a", testutil.Attrs(got[1])["chat_id"].String())
-	assert.Equal(t, strings.Join(convert(t, chatA(), nobody).Skipped, "; "), testutil.Attrs(got[1])["skipped"].String())
+	assert.Equal(t, `interruption i-9: unknown kind "weather"`, testutil.Attrs(got[1])["skipped"].String())
 }
 
 // A chat whose records do not restate is skipped and named; the boot goes on

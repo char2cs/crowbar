@@ -14,8 +14,9 @@ import (
 )
 
 // Result is one legacy chat as ledger rows: At is the legacy record's time,
-// Seq is 1..n in order. Skipped names each legacy record not converted, and
-// why; LeftOut counts those no other row restates, as the chat's marker does.
+// Seq is 1..n in order. Skipped names each legacy record, or part of one, the
+// chat is left without, and why; LeftOut counts them, as the chat's marker
+// does. A record another row restates is converted, not skipped.
 type Result struct {
 	Rows    []ledger.Row
 	Skipped []string
@@ -106,12 +107,6 @@ func inWords(n int) string {
 	return fmt.Sprintf("%d legacy records", n)
 }
 
-// restatedf names a legacy record another row already restates: nothing of
-// it is lost, so the marker does not count it.
-func (c *conversion) restatedf(format string, args ...any) {
-	c.skipped = append(c.skipped, clip(fmt.Sprintf(format, args...), reasonBytes))
-}
-
 // entry is a row and what orders it among the chat's others.
 type entry struct {
 	row       ledger.Row
@@ -153,7 +148,7 @@ func (c *conversion) emit(rule int, at time.Time, legacySeq int64, kind ledger.K
 // skipf names a legacy record, or part of one, the chat is left without, and
 // counts it in the chat's marker.
 func (c *conversion) skipf(format string, args ...any) {
-	c.restatedf(format, args...)
+	c.skipped = append(c.skipped, clip(fmt.Sprintf(format, args...), reasonBytes))
 	c.leftOut++
 }
 

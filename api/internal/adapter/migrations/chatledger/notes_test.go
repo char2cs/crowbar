@@ -19,7 +19,8 @@ func TestConvertChat_InterruptionsAndChoicesAreNotAnswerable(t *testing.T) {
 	assert.Equal(t, []ledger.Marker{{Kind: ledger.MarkerCompactionStarted}, {Kind: ledger.MarkerCompactionEnded}}, markers)
 	open, _ := fold(res).Compaction()
 	assert.False(t, open)
-	assert.Contains(t, res.Skipped, "interruption i-2: permission, restated by its choice")
+	assert.NotContains(t, res.Skipped, "interruption i-2: permission, restated by its choice",
+		"its choice restates the interruption: nothing of it is left out")
 	asks := bodies[ledger.Ask](t, res, ledger.KindAsk)
 	require.Len(t, asks, 1)
 	assert.Equal(t, ledger.Ask{
@@ -164,7 +165,7 @@ func TestConvertChat_EveryRecordLeftOutIsCounted(t *testing.T) {
 	markers := bodies[ledger.Marker](t, res, ledger.KindMarker)
 	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "6 legacy records could not be converted"}, markers[len(markers)-1])
 	assert.Equal(t, 6, res.LeftOut)
-	assert.Contains(t, res.Skipped, "interruption i-2: permission, restated by its choice", "named, and not counted")
+	assert.Len(t, res.Skipped, res.LeftOut, "each record named is one the marker counts")
 }
 
 func TestAtRest_NamesTheWorkLeftOpen(t *testing.T) {

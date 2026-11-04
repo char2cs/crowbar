@@ -44,7 +44,7 @@ func (c *conversion) interruptions(interruptions []LegacyInterruption) {
 		case in.Kind == kindInferred:
 			// inferEnds made it its turn's end, or named why not.
 		case in.Kind == kindPermission || in.Kind == kindElicitation:
-			c.restatedf("interruption %s: %s, restated by its choice", in.ID, in.Kind)
+			// Its choice restates it as an ask.
 		default:
 			c.skipf("interruption %s: unknown kind %q", in.ID, in.Kind)
 		}

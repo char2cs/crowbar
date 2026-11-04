@@ -99,8 +99,7 @@ func (c *conversion) inferEnds(interruptions []LegacyInterruption) {
 		}
 		g := c.turnOf(in.TurnID, in.At)
 		if g == nil || g.inferred != nil || g.ended() {
-			c.restatedf("interruption %s: inferred, and its turn has an end", in.ID)
-			continue
+			continue // the turn's own end restates it
 		}
 		g.inferred = &interruptions[i]
 	}

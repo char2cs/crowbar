@@ -16,7 +16,7 @@ import (
 
 // converterVersion is raised by a build that converts records an older one
 // refused, so the chats those builds skipped are tried again.
-const converterVersion = 4
+const converterVersion = 5
 
 // importAttempts is how many boots try a chat whose import fails before it is
 // skipped until a newer converter.

@@ -35,13 +35,13 @@ func TestConvertChat_AnInferredInterruptionEndsTheTurnThatRecordedNoEnd(t *testi
 	assert.Equal(t, at(9, 11, 0), ends[1].At)
 }
 
-func TestConvertChat_AnInferredInterruptionOfATurnThatEndedIsSkipped(t *testing.T) {
+func TestConvertChat_AnInferredInterruptionOfATurnThatEndedIsRestatedByThatEnd(t *testing.T) {
 	in := chatB()
 	in.Interruptions[0].TurnID = "msg-b1"
 
 	res := convert(t, in, nobody)
 
-	assert.Contains(t, res.Skipped, "interruption i-b1: inferred, and its turn has an end")
+	assert.Empty(t, res.Skipped, "the turn's own end restates it: nothing is left out")
 	ends := bodies[ledger.TurnEnded](t, res, ledger.KindTurnEnded)
 	assert.Equal(t, ledger.ReasonDaemonRestart, ends[1].Reason, "the turn with no reply still ends")
 }

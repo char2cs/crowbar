@@ -297,6 +297,7 @@ func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T)
 // reader changed, so raise converterVersion and add its line; never edit one.
 var readByVersion = map[int]string{
 	4: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
+	5: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
 }
 
 func TestReadLegacy_AChangedReaderRaisesTheConverterVersion(t *testing.T) {
@@ -360,7 +361,7 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 						require.True(t, shown || len(chat.Unreadable) == 0, "%s: what was left out is shown", damaged)
 						require.GreaterOrEqual(t, res.LeftOut, len(chat.Unreadable), damaged)
 						require.Equal(t, res.LeftOut > 0, shown, "%s: the marker counts every record left out", damaged)
-						require.Equal(t, res.LeftOut, len(res.Skipped)-restated(res.Skipped), "%s: every record named as left out is counted", damaged)
+						require.Len(t, res.Skipped, res.LeftOut, "%s: every record named as left out is counted", damaged)
 					}
 					if chat.ChatID == "chat-b" {
 						require.NoError(t, err, damaged)
@@ -370,17 +371,6 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 			}
 		}
 	}
-}
-
-// restated is how many of skipped name a record restated by another row.
-func restated(skipped []string) int {
-	n := 0
-	for _, s := range skipped {
-		if strings.HasSuffix(s, ", restated by its choice") || strings.HasSuffix(s, "inferred, and its turn has an end") {
-			n++
-		}
-	}
-	return n
 }
 
 func columnsOf(t *testing.T, path, table string) []string {
