@@ -64,9 +64,14 @@ function resolveWorkspaceHost(wsId: string): Resolution {
   return 'hostId' in project ? project : unresolved(project.reason, scope.projectId)
 }
 
-// A chat has no row of its own here: it is placed through the workspace whose
-// recorded scope names it as owner, and so through that workspace's project.
+// A listed chat is placed by its own row's project; one not listed yet, through the
+// workspace whose recorded scope names it as owner.
 function resolveChatHost(chatId: string): Resolution {
+  const chat = entityStore.getState().byKind.chat[chatId]?.data
+  if (chat) {
+    const project = resolveProjectHost(chat.projectId)
+    return 'hostId' in project ? project : unresolved(project.reason, chat.projectId)
+  }
   const wsId = getWorkspaceIdOwnedByChat(chatId)
   if (wsId === null) return absentEntity('no workspace scope records this chat as its owner')
   return resolveWorkspaceHost(wsId)

@@ -24,11 +24,11 @@ import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleTrash, handleTrashRepo } from '@/components/layout/trash-actions'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { readSelect, selectRepos } from '@/core/entities/select'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
+import { runOperation } from '@/core/entities/run-operation'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { retryProvision } from '@/lib/api/workspace'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** The verbs the desktop puts on a row's hover buttons rather than in its menu. */
@@ -134,7 +134,7 @@ export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButt
 /** Whether the branch row `rowId` names a locked workspace. A locked branch is id'd by the chat
  *  that owns its workspace, so the id is translated into the workspace id space first. */
 export function rowIsLocked(rowId: string): boolean {
-  const repos = useSidebarStore.getState().repos
+  const repos = readSelect(selectRepos)
   const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   return repos.some((repo) => repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'))
 }
@@ -183,14 +183,16 @@ export function rowVerbs(
 function retry(row: SidebarRow) {
   const wsId = row.workspaceId
   if (!wsId) return
-  void retryProvision(wsId).catch((err: unknown) => {
-    toast.show({
-      message: `Couldn't set up ${row.branchName || row.label}`,
-      description: actionErrorMessage(err, String(err)),
-      type: 'error',
-      key: `retry-provision-${wsId}`,
-    })
-  })
+  // A failure is the operations watcher's to toast and the row's to explain.
+  runOperation(
+    {
+      kind: 'workspace.retry_provision',
+      subject: { kind: 'workspace', id: wsId },
+      projectId: '',
+      label: `Retry ${row.branchName || row.label}`,
+    },
+    (opId) => retryProvision(wsId, opId),
+  )
 }
 
 // A home row rides no repo, so it needs the home-scoped create; a chat carries no folder anchor

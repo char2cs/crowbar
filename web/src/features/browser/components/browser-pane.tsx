@@ -9,7 +9,7 @@ import { useStore } from 'zustand'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { useBufferActions, useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useBrowserOccluded } from '@/features/browser/hooks/use-browser-occluded'
 import { usePointerPick } from '@/features/browser/hooks/use-pointer-pick'
@@ -74,7 +74,10 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
     event.preventDefault()
     const next = normalizeBrowserUrl(draft ?? url, searchTemplateFor(searchEngine, customSearchUrl))
     if (!next) return
-    if (hasUrl) bestEffort(browserApi.navigate(bufferId, next), 'navigate browser webview')
+    if (hasUrl)
+      void browserApi
+        .navigate(bufferId, next)
+        .catch((err: unknown) => report(err, { action: 'Go to the page' }))
     setBrowserLocation(bufferId, { url: next })
     setDraft(null)
   }
@@ -91,7 +94,11 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           size="icon-sm"
           aria-label="Back"
           disabled={!hasUrl}
-          onClick={() => bestEffort(browserApi.back(bufferId), 'browser back')}
+          onClick={() =>
+            void browserApi
+              .back(bufferId)
+              .catch((err: unknown) => report(err, { action: 'Go back' }))
+          }
         >
           <ArrowLeftIcon />
         </Button>
@@ -101,7 +108,11 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           size="icon-sm"
           aria-label="Forward"
           disabled={!hasUrl}
-          onClick={() => bestEffort(browserApi.forward(bufferId), 'browser forward')}
+          onClick={() =>
+            void browserApi
+              .forward(bufferId)
+              .catch((err: unknown) => report(err, { action: 'Go forward' }))
+          }
         >
           <ArrowRightIcon />
         </Button>
@@ -111,7 +122,11 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           size="icon-sm"
           aria-label="Reload"
           disabled={!hasUrl}
-          onClick={() => bestEffort(browserApi.reload(bufferId), 'browser reload')}
+          onClick={() =>
+            void browserApi
+              .reload(bufferId)
+              .catch((err: unknown) => report(err, { action: 'Reload the page' }))
+          }
         >
           <ArrowClockwiseIcon />
         </Button>

@@ -294,8 +294,12 @@ function freeUntitledRef(workspaceId: string): DocumentRef {
   return workspaceRef(workspaceId, `untitled:Untitled-${n}`)
 }
 
-/** A new, unsaved document in `workspaceId`, opened into `paneId`. */
-export async function openUntitledDocument(workspaceId: string, paneId: string): Promise<string> {
+/** A new, unsaved document in `workspaceId`, opened into `paneId` (over `replaceTabId` if given). */
+export async function openUntitledDocument(
+  workspaceId: string,
+  paneId: string,
+  replaceTabId?: string,
+): Promise<string> {
   const openModel = await documentModelOpener()
   const doc = freeUntitledRef(workspaceId)
   openModel(doc, '')
@@ -303,7 +307,7 @@ export async function openUntitledDocument(workspaceId: string, paneId: string):
     .getState()
     .bufferActions.openContent(
       { type: 'editor', doc, name: 'Untitled', isVirtual: true },
-      { paneId },
+      { paneId, replaceTabId },
     )
   if (!id) getEditorHost()?.documents.release(documentUri(doc))
   return id

@@ -1,19 +1,16 @@
 import { useSyncExternalStore } from 'react'
+import { useStore } from 'zustand'
+import { entityStore, type EntityState } from '@/core/entities/entity-store'
 import {
   getAllActiveWorkspaceIds,
-  getWorkspaceStore,
   subscribeWorkspaceRegistry,
-  subscribeWorkspaceStores,
 } from '@/features/workspace/stores/workspace-store-registry'
 
 const countOpen = () => getAllActiveWorkspaceIds().length
 
-function countWorking(): number {
+function countWorking(s: EntityState): number {
   let n = 0
-  for (const wsId of getAllActiveWorkspaceIds()) {
-    const working = getWorkspaceStore(wsId)?.getState().agentChats.working ?? {}
-    for (const flag of Object.values(working)) if (flag) n++
-  }
+  for (const entry of Object.values(s.byKind.chat)) if (entry.data.working) n++
   return n
 }
 
@@ -22,7 +19,7 @@ export function useOpenWorkspaceCount(): number {
   return useSyncExternalStore(subscribeWorkspaceRegistry, countOpen)
 }
 
-/** Chats mid-turn in the open workspaces; a closed one streams no `working`. */
+/** Chats mid-turn, by the daemon's folded busy flag on each chat entity. */
 export function useWorkingChatCount(): number {
-  return useSyncExternalStore(subscribeWorkspaceStores, countWorking)
+  return useStore(entityStore, countWorking)
 }

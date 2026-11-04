@@ -1,5 +1,5 @@
 import { useLayoutEffect, type RefObject } from 'react'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { browserApi, type BrowserRect } from '@/lib/browser-bridge'
 import { useSettingsStore } from '@/features/settings/store'
@@ -42,14 +42,13 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
       const zoom = useSettingsStore.getState().settings.browserZoom / 100
       created = browserApi.open(bufferId, buffer.url, rectOf(node), zoom)
       registerWebview(bufferId, created)
-      bestEffort(created, 'open browser webview')
+      void created.catch((err: unknown) => report(err, { action: 'Open the page' }))
     }
     const ready = created
     return observeRect(node, () =>
-      bestEffort(
-        ready.then(() => browserApi.setBounds(bufferId, rectOf(node))),
-        'move browser webview',
-      ),
+      ready
+        .then(() => browserApi.setBounds(bufferId, rectOf(node)))
+        .catch((err: unknown) => report(err, { action: 'Resize the page' })),
     )
   }, [bufferId, hasUrl, visible, placeholderRef])
 
@@ -58,12 +57,10 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
   useLayoutEffect(() => {
     const created = webviewCreated(bufferId)
     if (!hasUrl || !created) return
-    bestEffort(
-      created
-        .then(() => browserApi.setVisible(bufferId, visible))
-        .then(() => setWebviewVisible(bufferId, visible)),
-      'toggle browser webview',
-    )
+    void created
+      .then(() => browserApi.setVisible(bufferId, visible))
+      .then(() => setWebviewVisible(bufferId, visible))
+      .catch((err: unknown) => report(err, { action: visible ? 'Show the page' : 'Hide the page' }))
   }, [bufferId, hasUrl, visible])
 
   // A native view outlives its pane's DOM; whoever unmounts must take it off screen.
@@ -72,12 +69,10 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
     return () => {
       const created = webviewCreated(bufferId)
       if (!created) return
-      bestEffort(
-        created
-          .then(() => browserApi.setVisible(bufferId, false))
-          .then(() => setWebviewVisible(bufferId, false)),
-        'hide browser webview',
-      )
+      void created
+        .then(() => browserApi.setVisible(bufferId, false))
+        .then(() => setWebviewVisible(bufferId, false))
+        .catch((err: unknown) => report(err, { action: 'Hide the page' }))
     }
   }, [bufferId, hasUrl])
 }

@@ -120,6 +120,11 @@ function show({ message, description }: HostFailureNotice): void {
   else toast.error(message, description)
 }
 
+/** Its host's words for a failed action when the host is why, else null. */
+export function hostFailureWords(err: unknown): string | null {
+  return hostFailureNotice(err)?.message ?? null
+}
+
 /** Toasts why nothing can be asked of `projectId`'s host yet, or any more. */
 export function toastUnresolvedHost(projectId: string): void {
   show(unresolvedHostNotice(currentFacts(undefined, projectId)))
@@ -155,5 +160,5 @@ export function actionErrorMessage<F extends string | undefined>(
   err: unknown,
   fallback: F,
 ): string | F {
-  return hostFailureNotice(err)?.message ?? (err instanceof Error ? err.message : fallback)
+  return hostFailureWords(err) ?? (err instanceof Error ? err.message : fallback)
 }

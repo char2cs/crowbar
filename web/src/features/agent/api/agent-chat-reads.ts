@@ -1,7 +1,7 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { apiFetch, apiFetchRaw } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
-import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { chatBase as chatRoute, repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // Agentic-chat REST client. A chat is no longer addressed through its
 // workspace (Task 17 rescope, model spec §5.1): a non-home workspace's chats
@@ -275,7 +275,7 @@ export async function readBlob(
   ref: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const url = `/v0/chats/${encodeURIComponent(chatId)}/blobs/${encodeURIComponent(ref)}`
+  const url = `${chatRoute(chatId)}/blobs/${encodeURIComponent(ref)}`
   try {
     return await (await apiFetchRaw(url, { signal })).text()
   } catch (err: unknown) {

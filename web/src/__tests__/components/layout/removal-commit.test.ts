@@ -248,7 +248,11 @@ describe('committing a workspace removal', () => {
 
     expect(treeUiStore.getState().hiddenIds.has('ws-fork')).toBe(false)
     expect(toastError).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ type: 'error', title: 'Couldn’t reach Studio Mac' }),
+      expect.objectContaining({
+        type: 'error',
+        title: "Couldn't remove feature/one",
+        description: 'Couldn’t reach Studio Mac',
+      }),
     )
   })
 

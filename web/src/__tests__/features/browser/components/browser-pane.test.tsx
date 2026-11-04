@@ -9,6 +9,7 @@ import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-v
 import { runAgentOp } from '@/features/browser/lib/agent-ops'
 import { useStore } from 'zustand'
 import { BrowserPane } from '@/features/browser/components/browser-pane'
+import { toastManager } from '@/lib/toast-manager'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
@@ -27,8 +28,10 @@ const api = vi.hoisted(() => ({
   copyText: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/browser-bridge', () => ({ browserApi: api }))
-const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const toasts = vi.hoisted(() => ({ success: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: toasts }))
+
+const toastAdd = vi.spyOn(toastManager, 'add')
 
 class FakeResizeObserver {
   static instances: FakeResizeObserver[] = []
@@ -103,7 +106,7 @@ describe('BrowserPane pick mode', () => {
     api.evaluate.mockReset()
     api.copyText.mockReset().mockResolvedValue(undefined)
     toasts.success.mockClear()
-    toasts.error.mockClear()
+    toastAdd.mockClear()
   })
 
   it('copies the pointer through the native pasteboard when the page finishes a pick', async () => {
@@ -161,7 +164,9 @@ describe('BrowserPane pick mode', () => {
     await user.click(screen.getByRole('button', { name: 'Pick element' }))
 
     await vi.waitFor(() =>
-      expect(toasts.error).toHaveBeenCalledWith('Could not pick', 'pasteboard unavailable'),
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Could not pick', description: 'pasteboard unavailable' }),
+      ),
     )
     expect(toasts.success).not.toHaveBeenCalled()
   })
@@ -189,13 +194,15 @@ describe('BrowserPane pick mode', () => {
   it('reports a failed pick instead of hanging in pick mode', async () => {
     const user = userEvent.setup()
     const id = openBrowser('https://a.test')
-    api.evaluate.mockRejectedValueOnce(new Error('the page went away'))
+    api.evaluate.mockRejectedValueOnce('the page went away')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
 
     await user.click(screen.getByRole('button', { name: 'Pick element' }))
 
     await vi.waitFor(() =>
-      expect(toasts.error).toHaveBeenCalledWith('Could not pick', 'the page went away'),
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Could not pick', description: 'the page went away' }),
+      ),
     )
     expect(screen.getByRole('button', { name: 'Pick element' })).toHaveAttribute(
       'aria-pressed',

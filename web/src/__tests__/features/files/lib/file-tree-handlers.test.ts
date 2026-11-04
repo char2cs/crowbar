@@ -20,10 +20,10 @@ import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-
 /** What report() shows for a client bug. */
 const UNEXPLAINED = 'Something went wrong — details are in the log'
 
-const { copyFileNode, revealItemInFinder, resolveWorkspaceRootPath } = vi.hoisted(() => ({
+const { copyFileNode, revealItemInFinder, workspaceRootPath } = vi.hoisted(() => ({
   copyFileNode: vi.fn(),
   revealItemInFinder: vi.fn().mockResolvedValue(undefined),
-  resolveWorkspaceRootPath: vi.fn((): string | undefined => '/disk/worktree'),
+  workspaceRootPath: vi.fn((): string | undefined => '/disk/worktree'),
 }))
 
 vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
@@ -31,7 +31,7 @@ vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
   return { ...actual, copyFileNode }
 })
 vi.mock('@/lib/crowbar-bridge', () => ({ revealItemInFinder }))
-vi.mock('@/lib/workspace/resolve-root-path', () => ({ resolveWorkspaceRootPath }))
+vi.mock('@/lib/workspace/resolve-root-path', () => ({ workspaceRootPath }))
 
 const toastAdd = vi.spyOn(toastManager, 'add')
 
@@ -60,12 +60,12 @@ describe('revealInFolder', () => {
     revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).toHaveBeenCalledWith('/disk/worktree/api/main.go')
     // ...resolved against the workspace the menu belongs to, not the one in view.
-    expect(resolveWorkspaceRootPath).toHaveBeenCalledExactlyOnceWith('ws-a')
+    expect(workspaceRootPath).toHaveBeenCalledExactlyOnceWith('ws-a')
   })
 
   it('does not reveal a virtual buffer or an unresolvable root', () => {
     revealInFolder('ws-a', 'remote://x/y.ts')
-    resolveWorkspaceRootPath.mockReturnValueOnce(undefined)
+    workspaceRootPath.mockReturnValueOnce(undefined)
     revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).not.toHaveBeenCalled()
   })

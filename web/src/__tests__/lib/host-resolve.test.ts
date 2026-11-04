@@ -10,7 +10,12 @@ import {
   useHostResolved,
   useResolvedHost,
 } from '@/lib/host-resolve'
-import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
+import {
+  chatEntity,
+  putEntities,
+  resetEntities,
+  seedProjects,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -239,6 +244,13 @@ describe('hostIdForChat', () => {
     loadProjects(project('p-local', 'local'))
     ownedBy('ws-1', 'p-local', 'chat-1')
     expect(unresolved(() => hostIdForChat('sibling')).message).toMatch(/no workspace scope records/)
+  })
+
+  it('places a listed chat no scope owns (a sibling) by its own project', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-local', 'local'), project('p-remote', 'host-1'))
+    putEntities('chat', [chatEntity({ id: 'sibling', projectId: 'p-remote' })])
+    expect(hostIdForChat('sibling')).toBe('host-1')
   })
 
   it('is local for an unowned chat only while no remote could exist', () => {

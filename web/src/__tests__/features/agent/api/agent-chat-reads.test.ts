@@ -23,6 +23,7 @@ vi.mock('@/lib/workspace-scope', () => ({
 }))
 
 import * as api from '@/features/agent/api/agent-chat-reads'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 describe('agent-chat-reads: chatBase URL shape', () => {
   beforeEach(() => {
@@ -40,7 +41,13 @@ describe('agent-chat-reads: chatBase URL shape', () => {
 })
 
 describe('agent-chat-reads', () => {
-  beforeEach(() => apiFetch.mockReset())
+  beforeEach(() => {
+    apiFetch.mockReset()
+    resetChatStore()
+    // A listed chat is placed by its own row, whichever workspace owns it.
+    writeChat({ id: 'chat/1' })
+    writeChat({ id: 'c1' })
+  })
 
   // A blob read goes through the shared raw fetch: it retries a transport
   // failure and reports a daemon refusal like every other read.

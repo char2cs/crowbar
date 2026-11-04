@@ -16,7 +16,8 @@ interface Versioned<T> {
 interface EntityData {
   operation: Operation
   review_thread: ThreadDTO
-  project: Project
+  /** Its host is whoever read it, so the wire carries none. */
+  project: Omit<Project, 'hostId'>
   repo: RepoDTO
   workspace: WorkspaceDTO
   chat: ChatEntity

@@ -12,7 +12,7 @@ import { workspaceRef } from '@/lib/api/documents'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
-import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
+import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { report } from '@/lib/errors/report'
 import { joinPath } from '@/utils/path-helpers'
 
@@ -84,7 +84,7 @@ export async function refreshDirectory(
 // (diff:// …) have no disk presence to reveal.
 export function revealInFolder(wsId: string, path: string): void {
   if (path.includes('://')) return
-  const root = path.startsWith('/') ? '' : resolveWorkspaceRootPath(wsId)
+  const root = path.startsWith('/') ? '' : workspaceRootPath(wsId)
   if (root === undefined) return
   const absolute = root ? joinPath(root, path) : path
   revealItemInFinder(absolute).catch((error: unknown) => {
