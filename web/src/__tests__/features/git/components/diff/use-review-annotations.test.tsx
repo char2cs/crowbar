@@ -20,15 +20,11 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
+import { warmDiffHighlighter } from '@/__tests__/__fixtures__/diff-highlighter'
+
+await warmDiffHighlighter()
 
 /**
- * Task C of the windowed Branch Review renderer
- * (docs/superpowers/plans/2026-07-27-diff-perf-phase-3-renderer.md).
- *
- * Review threads stop being Monaco view zones and become `@pierre/diffs` line
- * annotations. Threads come from the entity store's review threads, kept live by
- * the workspace's ws: scope, and every write goes through `review-api.ts`. Only the HOST changed.
- *
  * Two things this file exists to pin down:
  *
  *  - the `old`/`new` ↔ `deletions`/`additions` side map, asserted LITERALLY and
@@ -289,13 +285,16 @@ function shadowText(container: HTMLElement): string {
     .join('\n')
 }
 
+// jsdom has no Worker, so the deep file's ~1.5s of tokenising is main-thread CPU.
+const DEEP_RENDER = { timeout: 20_000 }
+
 /** Block until a CODE marker reaches the DOM — never merely until text exists. */
-async function waitForCode(container: HTMLElement, marker: string): Promise<void> {
+async function waitForCode(container: HTMLElement, marker: string, timeout = 5_000): Promise<void> {
   await waitFor(
     () => {
       expect(shadowText(container), `code rows for ${marker} have not rendered`).toContain(marker)
     },
-    { timeout: 5_000 },
+    { timeout },
   )
 }
 
@@ -630,7 +629,7 @@ describe('ReviewCodeView thread annotations', () => {
     expect(projectedAnnotationSlots(container)).toHaveLength(0)
   })
 
-  it("materialises a thread's file BEFORE scrolling to its line", async () => {
+  it("materialises a thread's file BEFORE scrolling to its line", DEEP_RENDER, async () => {
     // The whole point: `scrollTo({type:"line"})` against a placeholder resolves
     // no line at all and quietly does nothing. Reaching the 1,500th line of a
     // file whose patch had failed proves both halves happened, in order.
@@ -657,7 +656,7 @@ describe('ReviewCodeView thread annotations', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '1 comment' }))
 
-    await waitForCode(container, DEEP_MARKER)
+    await waitForCode(container, DEEP_MARKER, DEEP_RENDER.timeout)
     expect(fetchesOf(DEEP_FILE)).toBeGreaterThan(1)
   })
 })

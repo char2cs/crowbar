@@ -11,10 +11,7 @@ if (typeof window !== 'undefined') {
 
   const polyfilled: Window['__CROWBAR__'] = {
     mode: existing.mode ?? 'local',
-    endpoint:
-      existing.endpoint ??
-      (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ??
-      'http://localhost:7457',
+    endpoint: existing.endpoint ?? import.meta.env.VITE_API_URL ?? 'http://localhost:7457',
     on:
       existing.on ??
       (<T = unknown>(event: string, handler: (payload: T) => void) => {

@@ -269,13 +269,15 @@ func TestGetFiles_StartingCallerCancellationDoesNotAbortSharedWork(t *testing.T)
 	}()
 	<-git.entered
 
+	// The leader must return before the gate opens: with both its ctx and the
+	// result ready, scopeOf's select may pick either, so releasing first races.
 	cancelLeader()
+	require.ErrorIs(t, <-leaderErr, context.Canceled,
+		"a caller must still honour its own cancellation")
 	assert.NoError(t, git.ctxSeen.Err(),
 		"the shared computation must survive the cancellation of the caller that started it")
 
 	close(git.release)
-	require.ErrorIs(t, <-leaderErr, context.Canceled,
-		"a caller must still honour its own cancellation")
 	assert.Equal(t, int64(1), git.invocations.Load())
 }
 
