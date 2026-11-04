@@ -69,7 +69,7 @@
   "web/src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx": 702,
   "web/src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts": 892,
   "web/src/__tests__/features/git/components/diff/review-code-view.test.tsx": 582,
-  "web/src/__tests__/features/git/components/diff/use-review-annotations.test.tsx": 663,
+  "web/src/__tests__/features/git/components/diff/use-review-annotations.test.tsx": 662,
   "web/src/__tests__/features/panes/components/pane-container.test.tsx": 1623,
   "web/src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts": 574,
   "web/src/__tests__/features/settings/components/tabs/providers-settings.test.tsx": 863,
