@@ -19,7 +19,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts',
   'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',
   'src/__tests__/features/panes/components/pane-container.test.tsx',
-  'src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
 ]
 

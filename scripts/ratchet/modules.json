@@ -9,6 +9,10 @@
       "api/internal/app/repositories/container.go",
       "api/internal/app/repositories/agent_working.go",
       "api/internal/app/usecases/container.go",
+      "api/internal/app/usecases/agent_wiring.go",
+      "api/internal/app/usecases/agent_chat_reader.go",
+      "api/internal/app/usecases/agent_workspace_reader.go",
+      "api/internal/app/usecases/workspace_git_status_reader.go",
       "api/internal/engine/container.go"
     ],
     "domain": ["api/internal/domain"],
@@ -70,6 +74,10 @@
     ],
     "app-shell": [
       "web/src/main.tsx",
+      "web/src/app-main.tsx",
+      "web/src/mobile-files-main.tsx",
+      "web/src/mobile-settings-main.tsx",
+      "web/src/mobile-sidebar-main.tsx",
       "web/src/vite-env.d.ts",
       "web/src/routes",
       "web/src/components/oobe",
@@ -77,6 +85,8 @@
       "web/src/components/error-boundary.tsx",
       "web/src/features/keymaps"
     ],
-    "extensions": ["web/src/extensions"]
+    "extensions": ["web/src/extensions"],
+    "browser": ["web/src/features/browser"],
+    "hosts": ["web/src/features/hosts"]
   }
 }
