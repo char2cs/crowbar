@@ -49,6 +49,11 @@ const crowbarLightChrome = declarations(
   /^\[data-theme='crowbar'\]:not\(\.dark\):not\(\[data-platform='ios'\]\)\s*\{/m,
 )
 
+const crowbarLinuxLight = declarations(
+  crowbarCss,
+  /^\[data-theme='crowbar'\]\[data-platform='linux'\]:not\(\.dark\)\s*\{/m,
+)
+
 const crowbarIosSidebarPage = declarations(
   crowbarCss,
   /^\[data-theme='crowbar'\]\[data-platform='ios'\]\[data-chrome-page\]:not\(\.dark\)\s*\{/m,
@@ -78,6 +83,11 @@ describe('crowbar.css theme', () => {
     )
     expect(crowbarLightChrome['--pane-background']).toBeUndefined()
     expect(crowbarControls['--pane-background']).toBeUndefined()
+  })
+
+  it('flattens the light chat pane fill on Linux, which has no vibrancy to show through it', () => {
+    expect(crowbarLinuxLight['--chrome-bg']).toBeDefined()
+    expect(crowbarLinuxLight['--pane-chrome-bg']).toBe('var(--pane-background)')
   })
 
   it('makes the light active pane a 2px brand ring against a recessive inactive edge', () => {

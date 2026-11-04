@@ -68,6 +68,8 @@ export interface AgentTerminalSurfaceProps {
   terminalRef: RefObject<TerminalFocusHandle | null>
   /** Bring the chat's provider back without sending anything. */
   onStartSession: () => void
+  /** The chat's host does not answer: a session cannot be started now. */
+  offline: boolean
   ref?: Ref<HTMLDivElement>
 }
 
@@ -107,6 +109,7 @@ export function AgentTerminalSurface({
   onDeadSpaceMouseDown,
   terminalRef,
   onStartSession,
+  offline,
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
@@ -209,12 +212,15 @@ export function AgentTerminalSurface({
 
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-          <p className="max-w-sm text-center text-muted-foreground text-sm">{attachment.message}</p>
+          <p className="max-w-sm text-center text-muted-foreground text-sm">
+            {offline ? 'Offline — a session can start once the host is back.' : attachment.message}
+          </p>
           <Button
             type="button"
             variant="secondary"
             size="sm"
             data-testid="pane-resume"
+            disabled={offline}
             onClick={onStartSession}
           >
             Start session

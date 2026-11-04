@@ -1,7 +1,13 @@
 import { createStore } from 'zustand'
 import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-api'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
+import { onHostRemoved } from '@/features/hosts/stores/host-config-store'
+import {
+  deleteChatHistoryOfHost,
+  loadChatHistory,
+  saveChatHistory,
+} from '@/lib/persistence/chat-history'
+import { resolvedHostOf } from '@/lib/host-resolve'
 
 const MESSAGE_PAGE_SIZE = 100
 const EMPTY_MESSAGES: AgentChatMessage[] = []
@@ -14,6 +20,8 @@ export interface ChatLedger {
   oldestCursor: number
   hasOlder: boolean
   status: 'loading' | 'loaded' | 'error'
+  /** The host that answered the first page; tags the cached transcript. */
+  hostId: string | null
   error: Error | null
   /** Bumped per initial load so a superseded response is dropped. */
   generation: number
@@ -67,12 +75,21 @@ function withMerged(ledger: ChatLedger, incoming: AgentChatMessage[]): ChatLedge
   }
 }
 
+// An incoming row equal to the one held rewrites nothing worth storing.
+function changesSettled(ledger: ChatLedger, incoming: AgentChatMessage[]): boolean {
+  return incoming.some((item) => {
+    const held = ledger.messages.find((m) => m.turnId === item.turnId)
+    return !held || JSON.stringify(held) !== JSON.stringify(item)
+  })
+}
+
 const blankLedger: ChatLedger = {
   messages: EMPTY_MESSAGES,
   cursor: 0,
   oldestCursor: 0,
   hasOlder: false,
   status: 'loading',
+  hostId: null,
   error: null,
   generation: 0,
   pending: null,
@@ -85,16 +102,20 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
       return ledger ? { ledgers: { ...state.ledgers, [chatId]: { ...ledger, ...change } } } : state
     })
 
-  // IndexedDB keeps the newest page of each chat so a chat reads offline. Persisting
-  // here covers everything that reaches the ledger: only persisted rows do, never
-  // streaming deltas, so each write is a settled message.
+  // IndexedDB keeps the newest page of each chat so a chat reads offline. Only a
+  // ledger that has loaded its first page writes: before that it holds a fragment
+  // that would replace the good cached page.
   const persist = (chatId: string) => {
     const ledger = get().ledgers[chatId]
-    if (!ledger) return
-    void saveChatHistory(chatId, {
-      messages: ledger.messages.slice(-MESSAGE_PAGE_SIZE),
-      hasOlder: ledger.hasOlder || ledger.messages.length > MESSAGE_PAGE_SIZE,
-    })
+    if (ledger?.status !== 'loaded' || ledger.hostId === null) return
+    void saveChatHistory(
+      chatId,
+      {
+        messages: ledger.messages.slice(-MESSAGE_PAGE_SIZE),
+        hasOlder: ledger.hasOlder || ledger.messages.length > MESSAGE_PAGE_SIZE,
+      },
+      ledger.hostId,
+    )
   }
 
   const fetchFirstPage = async (wsId: string, chatId: string, generation: number) => {
@@ -103,9 +124,7 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
     // wins, and one that lands later replaces it.
     const hydrated = loadChatHistory(chatId).then((cached) => {
       const ledger = get().ledgers[chatId]
-      if (!cached || !isCurrent() || ledger.status !== 'loading' || ledger.messages.length > 0) {
-        return
-      }
+      if (!cached || !isCurrent() || ledger.status !== 'loading') return
       patch(chatId, withMerged({ ...ledger, hasOlder: cached.hasOlder }, cached.messages))
     })
     try {
@@ -121,6 +140,7 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
       patch(chatId, {
         ...withMerged(reset, page.items),
         status: 'loaded',
+        hostId: resolvedHostOf({ wsId }),
         error: null,
         pending: null,
       })
@@ -160,7 +180,7 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
       if (older) next = { ...next, oldestCursor: older.oldestCursor, hasOlder: older.hasMore }
       if (next === ledger) return next.messages
       patch(chatId, next)
-      if (!older) persist(chatId)
+      if (!older && changesSettled(ledger, incoming)) persist(chatId)
       return next.messages
     },
     setError: (chatId, error) => {
@@ -174,6 +194,8 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
       }),
   }
 })
+
+onHostRemoved((hostId) => void deleteChatHistoryOfHost(hostId))
 
 // A ledger lives exactly as long as some pane holds its chat: closing a view or
 // deleting a chat drops the pane, which drops the ledger and its pages.

@@ -36,4 +36,22 @@ final class SheetPresenterTests: XCTestCase {
     XCTAssertEqual(plan.update(open: true), .none)
     XCTAssertEqual(plan.finished(), .present)
   }
+
+  // Open with no view controller to present over: the plan waits for one, never loops.
+  func testOpenWithNoRootWaitsForOne() {
+    var plan = SheetPlan()
+    XCTAssertEqual(plan.update(open: true), .present)
+    XCTAssertEqual(plan.noRoot(), .none)
+    XCTAssertEqual(plan.update(open: true), .present)
+    XCTAssertEqual(plan.finished(), .none)
+    XCTAssertEqual(plan.update(open: true), .none)
+  }
+
+  func testClosingWhileWaitingForARootPresentsNothing() {
+    var plan = SheetPlan()
+    XCTAssertEqual(plan.update(open: true), .present)
+    XCTAssertEqual(plan.noRoot(), .none)
+    XCTAssertEqual(plan.update(open: false), .none)
+    XCTAssertEqual(plan.update(open: true), .present)
+  }
 }

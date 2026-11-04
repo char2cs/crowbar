@@ -14,6 +14,7 @@ vi.mock('@/lib/native-chrome', () => ({
   hasNativeChrome: () => true,
   nativeConfirm: chrome.confirm,
   setNativeHostPicker: (p: NativeHostPicker) => chrome.pushed.push(p),
+  setNativeHostsSettings: () => {},
   onNativeChromeIntent: (cb: (intent: NativeChromeIntent) => void) => {
     chrome.listeners.add(cb)
     return () => chrome.listeners.delete(cb)
@@ -21,6 +22,9 @@ vi.mock('@/lib/native-chrome', () => ({
 }))
 
 const { NativeHostPickerFeed } = await import('@/features/hosts/components/native-host-picker-feed')
+
+const { NativeHostsSettingsFeed } =
+  await import('@/features/settings/components/native-hosts-settings-feed')
 
 const host = { id: 'h1', name: 'dockerlab', endpoint: 'https://lab:7777', clientId: 'c1' } as Host
 const last = () => chrome.pushed.at(-1)!
@@ -74,5 +78,18 @@ describe('NativeHostPickerFeed', () => {
     await waitFor(() => expect(last().revoking).toEqual([]))
     expect(useHostConfigStore.getState().hosts).toEqual([host])
     expect(useUIState.getState().isHostPickerOpen).toBe(true)
+  })
+
+  it('asks once when the settings feed is mounted beside it', async () => {
+    render(
+      <>
+        <NativeHostsSettingsFeed shownHost={null} />
+        <NativeHostPickerFeed shownHost={null} />
+      </>,
+    )
+    send({ type: 'revokeHost', id: 'h1' })
+    await waitFor(() => expect(chrome.confirm).toHaveBeenCalled())
+    await waitFor(() => expect(last().revoking).toEqual([]))
+    expect(chrome.confirm).toHaveBeenCalledTimes(1)
   })
 })

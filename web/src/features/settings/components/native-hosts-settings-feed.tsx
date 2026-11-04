@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent } from 'react'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useNativeHostsSnapshot } from '@/features/hosts/hooks/use-native-hosts-snapshot'
 import {
   onNativeChromeIntent,
@@ -19,7 +20,8 @@ export function NativeHostsSettingsFeed({ shownHost }: { shownHost: string | nul
   }, [snapshot])
 
   const onIntent = useEffectEvent((intent: NativeChromeIntent) => {
-    if (intent.type === 'revokeHost') revoke(intent.id)
+    // The picker sheet, when up, owns revoke: one intent must raise one confirm.
+    if (intent.type === 'revokeHost' && !useUIState.getState().isHostPickerOpen) revoke(intent.id)
   })
   useEffect(() => onNativeChromeIntent(onIntent), [])
   return null

@@ -84,8 +84,16 @@ pub async fn browser_open<R: Runtime>(
 }
 
 fn park_view<R: Runtime>(webview: &tauri::Webview<R>, registry: &Parked) -> Result<(), String> {
+    let newly_parked = !registry.is_parked(webview.label());
     registry.park(webview.label());
-    move_away(webview)
+    move_away(webview)?;
+    // An off-window view stays first responder unless it is handed back.
+    if newly_parked {
+        if let Some(main) = webview.app_handle().get_webview("main") {
+            main.set_focus().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn unpark_view<R: Runtime>(

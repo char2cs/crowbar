@@ -108,8 +108,13 @@ export interface CrowbarDB extends DBSchema {
   }
   'workspaces-data': { key: string; value: CachedRecord<unknown> }
   // The newest page of each chat's transcript, keyed by chatId (see chat-history.ts).
-  // fetchedAt is indexed so the cap evicts the least recently written chats.
-  'chat-history': { key: string; value: CachedRecord<unknown>; indexes: { fetchedAt: number } }
+  // fetchedAt is indexed so the cap evicts the least recently written chats; hostId so a
+  // removed host's transcripts can be deleted.
+  'chat-history': {
+    key: string
+    value: CachedRecord<unknown> & { hostId: string }
+    indexes: { fetchedAt: number; hostId: string }
+  }
   'projects-data': { key: string; value: CachedRecord<unknown> }
   // §6 entity cache (v7) — complete DTOs keyed by their own id. WS frames
   // upsert these by id; status:'deleted' tombstones remove them.

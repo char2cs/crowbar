@@ -448,7 +448,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         stripRef.current?.ghostRows() ??
         cloneGhostRows(elements.length > 0 ? elements : [pending.target], subjects.length)
 
-      if (scroller && scrollerBox) {
+      // The strip scrolls itself sideways and takes the wheel; the vertical scroller is for the tree.
+      if (scroller && scrollerBox && !stripRef.current) {
         scrollerXRef.current = { left: scrollerBox.left, right: scrollerBox.right }
         edgeScrollerRef.current = createEdgeScroller(
           scroller,
@@ -460,8 +461,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
               // keeps a viewport-positioned line honest with no scroll
               // listener firing through every ordinary drag.
               const { x, y } = drag.pointer
-              stripRef.current?.move(x, y, ghostRef.current)
-              publish(stripRef.current?.inBand(x, y) ? null : hitTest(x, y, drag.subjects))
+              publish(hitTest(x, y, drag.subjects))
             },
             onRunningChange: (running) => setDropLineTracking(dropLineRef.current, running),
           },
@@ -654,6 +654,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     window.addEventListener('blur', onWindowBlur)
     return () => {
       edgeScrollerRef.current?.stop()
+      stripRef.current?.dispose()
+      stripRef.current = null
       // A teardown mid-drag would otherwise leave the document marked and the
       // selection blocked, with no drag left to end and clear them.
       document.documentElement.removeAttribute('data-row-dragging')

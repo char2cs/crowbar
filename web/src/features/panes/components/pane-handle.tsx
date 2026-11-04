@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { DragGhost } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
+import { FALLBACK_TAB_PX } from '@/components/sidebar/lib/tab-strip-drag'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import { recentsRowOf } from '@/components/sidebar/lib/recents-row-registry'
@@ -92,7 +93,11 @@ function PaneHandleBody({
       {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
       {drag.ghostRows && (
         <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>
-          <ViewTabPreview row={row} width={drag.ghostRows.width} />
+          <ViewTabPreview
+            row={row}
+            // Only a strip supplies a tab's width; without one the rows are the 12px grip's own clone.
+            width={drag.ghostRows.nodes.length === 0 ? drag.ghostRows.width : FALLBACK_TAB_PX}
+          />
         </DragGhost>
       )}
     </div>

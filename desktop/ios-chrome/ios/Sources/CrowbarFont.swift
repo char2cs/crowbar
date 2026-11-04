@@ -13,9 +13,9 @@ enum CrowbarFont {
   static let ui = "CalSansUI-Regular"
   static let heading = "InstrumentSerif-Regular"
 
-  /// Both faces, registered once for the process.
+  /// Both faces, registered once for the process. Each is tried whatever the other did.
   private static let registered: Bool = {
-    (0..<2).allSatisfy { index in
+    (0..<2).map { index in
       var length = 0
       guard let bytes = crowbarChromeFont(index, &length),
         let provider = CGDataProvider(
@@ -23,7 +23,7 @@ enum CrowbarFont {
         let font = CGFont(provider)
       else { return false }
       return CTFontManagerRegisterGraphicsFont(font, nil)
-    }
+    }.allSatisfy { $0 }
   }()
 
   private static let weightAxis = 0x7767_6874  // 'wght'

@@ -35,7 +35,7 @@ describe('wipeEntityCache', () => {
   })
 
   it('clears cached chat transcripts, whose message shape versions with the DTOs', async () => {
-    await saveChatHistory('c', { messages: [], hasOlder: false })
+    await saveChatHistory('c', { messages: [], hasOlder: false }, 'local')
     await wipeEntityCache()
     expect(await loadChatHistory('c')).toBeUndefined()
   })

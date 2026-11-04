@@ -61,20 +61,54 @@ const SERVICE: &str = "crowbar-desktop";
 /// Raw keychain access, split from [`KeychainTokenStore`] so the caching in
 /// front of it can be tested without touching the OS keychain.
 trait Keychain: Send + Sync {
-    fn read(&self, host_id: &str) -> Result<Option<String>, String>;
+    fn read(&self, host_id: &str) -> Result<Option<String>, ReadError>;
     fn write(&self, host_id: &str, token: &str) -> Result<(), String>;
     fn remove(&self, host_id: &str) -> Result<(), String>;
+}
+
+/// A failed keychain read. `denied` means the user refused access, which is
+/// remembered for the session; anything else may succeed on a later read.
+struct ReadError {
+    message: String,
+    denied: bool,
+}
+
+/// Whether a failed read is the user refusing (or an unknown failure, which
+/// must not re-prompt on every call). Only clearly transient classes retry.
+fn is_denial(error: &keyring::Error) -> bool {
+    match error {
+        keyring::Error::NoStorageAccess(_) => false,
+        #[cfg(target_os = "macos")]
+        keyring::Error::PlatformFailure(source) => source
+            .downcast_ref::<security_framework::base::Error>()
+            .is_none_or(|e| !is_transient_status(e.code())),
+        #[cfg(not(target_os = "macos"))]
+        keyring::Error::PlatformFailure(_) => false,
+        _ => true,
+    }
+}
+
+/// OSStatus values meaning the keychain was unavailable, not that access was
+/// refused: errSecInteractionNotAllowed, errSecNotAvailable, errSecReadOnly,
+/// errSecNoSuchKeychain, errSecInvalidKeychain.
+#[cfg(target_os = "macos")]
+fn is_transient_status(code: i32) -> bool {
+    matches!(code, -25308 | -25291 | -25292 | -25294 | -25295)
 }
 
 struct OsKeychain;
 
 impl Keychain for OsKeychain {
-    fn read(&self, host_id: &str) -> Result<Option<String>, String> {
-        let entry = keyring::Entry::new(SERVICE, host_id).map_err(|e| e.to_string())?;
+    fn read(&self, host_id: &str) -> Result<Option<String>, ReadError> {
+        let transient = |e: keyring::Error| ReadError {
+            message: e.to_string(),
+            denied: is_denial(&e),
+        };
+        let entry = keyring::Entry::new(SERVICE, host_id).map_err(transient)?;
         match entry.get_password() {
             Ok(token) => Ok(Some(token)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(transient(e)),
         }
     }
 
@@ -94,8 +128,9 @@ impl Keychain for OsKeychain {
 
 /// Reads each host's entry from the keychain at most once per process: every
 /// keychain read can raise its own macOS access prompt, and callers read on
-/// every request and socket open. A failed or denied read is remembered too,
-/// or each caller would re-prompt forever; pairing the host again clears it.
+/// every request and socket open. A found or missing entry and a user denial
+/// are remembered, or each caller would re-prompt forever; pairing the host
+/// again clears a denial. Any other failure (locked keychain) is retried.
 /// The lock is held across a read so concurrent first reads prompt once.
 struct KeychainTokenStore<K: Keychain> {
     keychain: K,
@@ -117,7 +152,14 @@ impl<K: Keychain> TokenStore for KeychainTokenStore<K> {
         if let Some(cached) = cache.get(host_id) {
             return cached.clone();
         }
-        let stored = self.keychain.read(host_id);
+        let stored = match self.keychain.read(host_id) {
+            Err(ReadError {
+                message,
+                denied: false,
+            }) => return Err(message),
+            Err(ReadError { message, .. }) => Err(message),
+            Ok(entry) => Ok(entry),
+        };
         cache.insert(host_id.to_string(), stored.clone());
         stored
     }
@@ -203,6 +245,7 @@ mod tests {
         entries: Mutex<HashMap<String, String>>,
         reads: std::sync::atomic::AtomicUsize,
         fail_reads: std::sync::atomic::AtomicBool,
+        transient_failures: std::sync::atomic::AtomicBool,
     }
     impl CountingKeychain {
         fn reads(&self) -> usize {
@@ -210,10 +253,22 @@ mod tests {
         }
     }
     impl Keychain for Arc<CountingKeychain> {
-        fn read(&self, host_id: &str) -> Result<Option<String>, String> {
+        fn read(&self, host_id: &str) -> Result<Option<String>, ReadError> {
             self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.fail_reads.load(std::sync::atomic::Ordering::SeqCst) {
-                return Err("user denied".into());
+                return Err(ReadError {
+                    message: "user denied".into(),
+                    denied: true,
+                });
+            }
+            if self
+                .transient_failures
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(ReadError {
+                    message: "keychain locked".into(),
+                    denied: false,
+                });
             }
             Ok(self.entries.lock().unwrap().get(host_id).cloned())
         }
@@ -294,6 +349,35 @@ mod tests {
         store.set("a", "fresh").unwrap();
         assert_eq!(store.get("a").unwrap(), Some("fresh".to_string()));
         assert_eq!(keychain.reads(), 1);
+    }
+
+    #[test]
+    fn a_transient_failure_is_retried_on_the_next_get() {
+        let (store, keychain) = cached(&[("a", "tok")]);
+        keychain
+            .transient_failures
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(store.get("a"), Err("keychain locked".to_string()));
+        keychain
+            .transient_failures
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(store.get("a").unwrap(), Some("tok".to_string()));
+        assert_eq!(keychain.reads(), 2);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_an_unavailable_keychain_is_not_a_denial() {
+        use security_framework::base::Error;
+        let failure = |code| keyring::Error::PlatformFailure(Box::new(Error::from_code(code)));
+        for denied in [-128, -25293, -9999] {
+            assert!(is_denial(&failure(denied)), "{denied}");
+        }
+        for transient in [-25308, -25291] {
+            assert!(!is_denial(&failure(transient)), "{transient}");
+        }
+        let foreign = keyring::Error::PlatformFailure("boom".into());
+        assert!(is_denial(&foreign));
     }
 
     #[test]

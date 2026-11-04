@@ -29,21 +29,21 @@ function ramp(distance: number): number {
 }
 
 /**
- * Pixels to scroll this frame for a pointer at `pointerY`, given the
- * scroller's viewport box. Negative scrolls up.
+ * Pixels to scroll this frame for a pointer at `pointer` along the scroll axis, given the
+ * scroller's viewport extent (`top`/`height` on y, left/width on x). Negative scrolls back.
  */
-export function edgeScrollStep(pointerY: number, top: number, height: number): number {
+export function edgeScrollStep(pointer: number, top: number, height: number): number {
   if (height <= 0) return 0
-  const fromTop = pointerY - top
-  const fromBottom = top + height - pointerY
+  const fromTop = pointer - top
+  const fromBottom = top + height - pointer
   if (fromTop < EDGE_SCROLL_BAND_PX) return -ramp(fromTop)
   if (fromBottom < EDGE_SCROLL_BAND_PX) return ramp(fromBottom)
   return 0
 }
 
 export interface EdgeScroller {
-  /** Re-aim from a new pointer position. Pure arithmetic — no DOM access. */
-  update: (pointerY: number) => void
+  /** Re-aim from a new pointer position along the axis. Pure arithmetic — no DOM access. */
+  update: (pointer: number) => void
   stop: () => void
 }
 
@@ -70,9 +70,18 @@ export interface EdgeScrollHandlers {
  */
 export function createEdgeScroller(
   el: HTMLElement,
-  box: { top: number; height: number },
+  box: { top: number; height: number } | { left: number; width: number },
   handlers: EdgeScrollHandlers,
 ): EdgeScroller {
+  // A box with a `left` is a horizontal scroller (the view tab strip): scrollLeft off the pointer's x.
+  const horizontal = 'left' in box
+  const start = horizontal ? box.left : box.top
+  const size = horizontal ? box.width : box.height
+  const read = () => (horizontal ? el.scrollLeft : el.scrollTop)
+  const write = (v: number) => {
+    if (horizontal) el.scrollLeft = v
+    else el.scrollTop = v
+  }
   let frame: number | null = null
   let step = 0
 
@@ -89,15 +98,15 @@ export function createEdgeScroller(
       halt()
       return
     }
-    const before = el.scrollTop
-    el.scrollTop = before + step
-    if (el.scrollTop !== before) handlers.onScrolled()
+    const before = read()
+    write(before + step)
+    if (read() !== before) handlers.onScrolled()
     frame = requestAnimationFrame(tick)
   }
 
   return {
-    update: (pointerY: number) => {
-      step = edgeScrollStep(pointerY, box.top, box.height)
+    update: (pointer: number) => {
+      step = edgeScrollStep(pointer, start, size)
       if (step === 0 || frame !== null) return
       handlers.onRunningChange?.(true)
       frame = requestAnimationFrame(tick)

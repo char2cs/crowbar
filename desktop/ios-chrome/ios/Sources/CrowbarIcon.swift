@@ -7,12 +7,17 @@ extension CrowbarIcon {
 
   /// The icon's outline in a `size`-point square: the generated path data, scaled.
   func path(in size: CGFloat) -> Path {
-    let art = art
     let scale = size / art.viewBox
-    var path = Path()
-    for data in art.paths { path.addPath(Self.parse(data), transform: CGAffineTransform(scaleX: scale, y: scale)) }
-    return path
+    return Self.outlines[self, default: Path()].applying(CGAffineTransform(scaleX: scale, y: scale))
   }
+
+  /// Every icon's outline in its own viewBox, parsed once.
+  private static let outlines: [CrowbarIcon: Path] = Dictionary(
+    uniqueKeysWithValues: allCases.map { icon in
+      var outline = Path()
+      for data in icon.art.paths { outline.addPath(parse(data)) }
+      return (icon, outline)
+    })
 
   /// A template image of the icon, for the APIs that take an image (menus, swipe actions).
   func image(size: CGFloat) -> UIImage {
