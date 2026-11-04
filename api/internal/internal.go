@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -27,7 +26,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
-	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -140,23 +138,6 @@ func New(
 		warnHaltedBoot(err)
 	}
 	return c, nil
-}
-
-// serverIdentity loads the TLS identity, and its fingerprint, for a
-// network-exposed bind only: a unix-socket or loopback daemon serves no TLS,
-// so a broken identity directory must not keep it from booting.
-func serverIdentity(
-	host string,
-	h home.Home,
-) (*tlsid.Identity, string, error) {
-	if !gateway.Exposed(host) {
-		return nil, "", nil
-	}
-	identity, err := tlsid.Load(filepath.Join(h.Root(), "tls"))
-	if err != nil {
-		return nil, "", fmt.Errorf("internal: tls identity: %w", err)
-	}
-	return identity, identity.Fingerprint, nil
 }
 
 // idleConnTimeout closes a keep-alive connection left idle between requests,
