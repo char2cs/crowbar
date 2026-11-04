@@ -183,17 +183,13 @@ func TestRegression_HalfAnchoredThread_IsRejected(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	base := threadsBase(imported)
 
-	for name, body := range map[string]map[string]any{
-		"path without a line":  {"filePath": "README.md", "side": "right", "body": "x"},
-		"line without a path":  {"line": 4, "side": "right", "body": "x"},
-		"range without a path": {"startLine": 2, "endLine": 3, "side": "right", "body": "x"},
-		"end before start": {
-			"filePath": "README.md", "line": 3, "startLine": 5, "endLine": 3, "side": "right", "body": "x",
-		},
-		"negative line": {"filePath": "README.md", "line": -1, "side": "right", "body": "x"},
+	for _, body := range []map[string]any{
+		{"filePath": "README.md", "side": "right", "body": "path without a line"},
+		{"line": 4, "side": "right", "body": "line without a path"},
+		{"startLine": 2, "endLine": 3, "side": "right", "body": "range without a path"},
+		{"filePath": "README.md", "line": 3, "startLine": 5, "endLine": 3, "side": "right", "body": "end before start"},
+		{"filePath": "README.md", "line": -1, "side": "right", "body": "negative line"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			h.postError(base+"/threads", body, http.StatusBadRequest)
-		})
+		h.postError(base+"/threads", body, http.StatusUnprocessableEntity)
 	}
 }
