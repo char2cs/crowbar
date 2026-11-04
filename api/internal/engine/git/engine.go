@@ -76,35 +76,29 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 // network (07 §3.1).
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
-	if !perf.Enabled() {
-		mu.Lock()
-		return mu.Unlock
-	}
-	waitStart := time.Now()
-	mu.Lock()
-	perf.Record("lock.write.wait", time.Since(waitStart))
-	held := time.Now()
-	return func() {
-		perf.Record("lock.write.hold", time.Since(held))
-		mu.Unlock()
-	}
+	return timedLock(mu.Lock, mu.Unlock, "lock.write")
 }
 
 // lockRepoRead takes the clone's shared read lock for read-only inspection. Reads never block each
 // other, only writes (including origin-sync fetches), and never observe a torn mutation.
 func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
+	return timedLock(mu.RLock, mu.RUnlock, "lock.read")
+}
+
+// timedLock takes a lock and returns its release, recording the wait and hold under name when perf is on.
+func timedLock(lock, unlock func(), name string) func() {
 	if !perf.Enabled() {
-		mu.RLock()
-		return mu.RUnlock
+		lock()
+		return unlock
 	}
 	waitStart := time.Now()
-	mu.RLock()
-	perf.Record("lock.read.wait", time.Since(waitStart))
+	lock()
+	perf.Record(name+".wait", time.Since(waitStart))
 	held := time.Now()
 	return func() {
-		perf.Record("lock.read.hold", time.Since(held))
-		mu.RUnlock()
+		perf.Record(name+".hold", time.Since(held))
+		unlock()
 	}
 }
 
@@ -156,94 +150,6 @@ func (e *engine) runNet(
 		}
 	}
 	return r, nil
-}
-
-// errorRule maps a git exit code + output substrings to a sentinel error.
-// All patterns in contains must be present in the output (AND semantics).
-// Rules are evaluated in order; first match wins.
-type errorRule struct {
-	exitCode int
-	contains []string
-	sentinel error
-}
-
-var errorRules = []errorRule{
-	// Exit 1 — soft failure: git ran but reported a condition.
-	{1, []string{"conflict"}, ErrConflict},
-	{1, []string{"nothing to commit"}, ErrNothingToCommit},
-	{1, []string{"rejected", "non-fast-forward"}, ErrRejectedNonFastForward},
-	{1, []string{"not possible to fast-forward"}, ErrNonFastForward},
-	{1, []string{"your local changes"}, ErrDirtyTree},
-	{1, []string{"please commit or stash"}, ErrDirtyTree},
-
-	// Exit 128 — fatal: git refused to execute.
-	{128, []string{"authentication failed"}, ErrAuthFailed},
-	{128, []string{"could not read username"}, ErrAuthFailed},
-	{128, []string{"already exists"}, ErrBranchAlreadyExists},
-	{128, []string{"already checked out"}, ErrBranchAlreadyExists},
-	{128, []string{"already used by worktree"}, ErrBranchAlreadyExists},
-	{128, []string{"did not match any"}, ErrBranchNotFound},
-	{128, []string{"unknown revision or path"}, ErrBranchNotFound},
-	{128, []string{"does not appear to be a git repository"}, ErrNoRemote},
-	{128, []string{"no remote configured"}, ErrNoRemote},
-	{128, []string{"refusing to merge unrelated histories"}, ErrNonFastForward},
-	{128, []string{"your local changes"}, ErrDirtyTree},
-	{128, []string{"please commit or stash"}, ErrDirtyTree},
-}
-
-// matchRules returns the first sentinel whose exit code and all patterns match,
-// or nil if no rule applies.
-func matchRules(exitCode int, out string) error {
-	lower := strings.ToLower(out)
-	for _, r := range errorRules {
-		if r.exitCode != exitCode {
-			continue
-		}
-		if allPresent(lower, r.contains) {
-			return r.sentinel
-		}
-	}
-	return nil
-}
-
-func allPresent(s string, patterns []string) bool {
-	for _, p := range patterns {
-		if !strings.Contains(s, p) {
-			return false
-		}
-	}
-	return true
-}
-
-// classifyGitError maps a git subprocess result to a typed sentinel using
-// exit code as the primary discriminator and output text only to disambiguate
-// within the same exit code.
-func classifyGitError(op string, r gitexec.Result) error {
-	base := gitexec.RequireSuccess(op, r)
-	if base == nil {
-		return nil
-	}
-	if sentinel := matchRules(r.ExitCode, r.Stderr+r.Stdout); sentinel != nil {
-		return fmt.Errorf("%w: %w", sentinel, base)
-	}
-	return base
-}
-
-// reclassifyError applies the same rule table to an error returned by an
-// internal subpackage (e.g. branches) that manages its own exec calls.
-// It uses errors.As to extract the exit code directly from the GitError struct.
-func reclassifyError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var gitErr *gitexec.GitError
-	if !errors.As(err, &gitErr) {
-		return err
-	}
-	if sentinel := matchRules(gitErr.ExitCode, gitErr.Message); sentinel != nil {
-		return fmt.Errorf("%w: %w", sentinel, err)
-	}
-	return err
 }
 
 func (e *engine) Status(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {

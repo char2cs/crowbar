@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
@@ -20,16 +18,8 @@ type syncOK struct {
 func (h *Handlers) DidOpen(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPDidOpenRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPDidOpenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	err := h.lsp.DidOpen(
@@ -52,16 +42,8 @@ func (h *Handlers) DidOpen(
 func (h *Handlers) DidChange(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPDidChangeRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPDidChangeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	err := h.lsp.DidChange(
@@ -83,16 +65,8 @@ func (h *Handlers) DidChange(
 func (h *Handlers) DidClose(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPathRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPPathRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	err := h.lsp.DidClose(
