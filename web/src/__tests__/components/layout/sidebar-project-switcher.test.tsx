@@ -12,6 +12,10 @@ import type { HostStatus } from '@/features/hosts/types'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
 import { loadProjects, pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
+import { projectDTO } from '@/__tests__/__fixtures__/sidebar-entities'
+import { selectProjects, useSelect } from '@/core/entities/select'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/sidebar/lib/row-actions')>()),
@@ -371,5 +375,61 @@ describe('SidebarProjectSwitcher', () => {
       expect(dotIn(mark(/edit alpha icon/i))).toBeNull()
       expect(dotIn(mark('Beta, homelab-prox Offline'))).toHaveAttribute('data-host-tone', 'offline')
     })
+  })
+})
+
+// The switcher over the store, as the shell mounts it, fed by each host's own stream.
+describe('the projects each host streams', () => {
+  const h1 = streamDaemonFor('h1')
+  function Switcher() {
+    const projects = useSelect(selectProjects)
+    return (
+      <SidebarProjectSwitcher projects={projects} activeProjectId="" onSelectProject={vi.fn()} />
+    )
+  }
+  const streamProject = (id: string, name: string) =>
+    act(() => {
+      h1.deliver({
+        t: 'entity',
+        scope: 'projects',
+        kind: 'project',
+        id,
+        v: 1,
+        data: projectDTO({ id, name }),
+      })
+      h1.deliver({ t: 'synced', scope: 'projects' })
+    })
+  const mark = (name: RegExp) => screen.queryByRole('button', { name })
+
+  beforeEach(async () => {
+    resetHostWorld()
+    pairRemoteHost('h1', 'homelab-prox')
+    await act(async () => getOrCreateHostRuntime('h1').getState().setStatus('up'))
+  })
+  afterEach(() => {
+    destroyHostRuntime('h1')
+    resetHostWorld()
+  })
+
+  it("keeps a down host's projects listed under its down dot", () => {
+    render(<Switcher />)
+    streamProject('p-r', 'Remote')
+    expect(mark(/^Remote, homelab-prox Online/)).toBeInTheDocument()
+
+    act(() => {
+      h1.drop()
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+    })
+
+    expect(mark(/^Remote, homelab-prox Offline/)).toBeInTheDocument()
+  })
+
+  it("drops a removed host's projects at once", () => {
+    render(<Switcher />)
+    streamProject('p-r', 'Remote')
+
+    act(() => useHostConfigStore.getState().removeHost('h1'))
+
+    expect(mark(/^Remote/)).toBeNull()
   })
 })

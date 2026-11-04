@@ -144,10 +144,10 @@ export function startStream(): () => void          // local when hasLocalDaemon(
 
 ### T8: Offline and removed hosts in the sidebar; the phone (web)
 
-**Files:** `components/layout/sidebar-project-switcher.tsx` groups by host with `HostStatusIcon` (already there from #218) and reads rows from `useSelect(selectProjects)` only. `features/hosts/components/host-projects-pending.tsx` waits on `loaded` per host. `app-main.tsx:38` calls `startStream()`, which covers the phone (no local socket).
+**Files:** `components/layout/sidebar-project-switcher.tsx` already draws each remote mark with its host's dot (#218), and its callers feed it `useSelect(selectProjects)`, which T5 orders by host and T5's `forgetHost` empties of a removed host: no change. `features/hosts/components/host-projects-pending.tsx` says "No projects" for a host whose projects scope has synced empty, and its status for one that has not. `app-main.tsx:38` already calls `startStream()`, which covers the phone (no local socket).
 
-- [ ] **Step 1: failing tests:** `__tests__/components/layout/sidebar-project-switcher.test.tsx` (`a down host's projects stay listed under its down dot`, `a removed host's projects leave at once`, `a host that has not synced shows pending, not empty`), `__tests__/features/hosts/components/host-projects-pending.test.tsx` (`the phone lands on the first project host-1 streams`).
-- [ ] **Step 2:** red; **Step 3:** implement.
+- [x] **Step 1: failing tests:** `__tests__/components/layout/sidebar-project-switcher.test.tsx` (`keeps a down host's projects listed under its down dot`, `drops a removed host's projects at once`: both green at once, T5 did the work), `__tests__/features/hosts/components/host-projects-pending.test.tsx` (`lands on the first project host-1 streams`, `says a host that has synced holds no project, and shows the status of one that has not`), each fed by that host's stream fixture.
+- [x] **Step 2:** red; **Step 3:** implement.
 
 ### T9: Active sessions from the store (web)
 
