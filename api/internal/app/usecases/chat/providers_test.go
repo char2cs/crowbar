@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
 )
-
-// ─── from providers_test.go ───────────────────────────────────────────
 
 // geminiDescriptor is a minimal-valid on-disk descriptor override, written into a
 // fixture home so ResolveProviders sees a THIRD provider (beyond the embedded
@@ -154,8 +153,6 @@ func TestSwitchProvider_RefusesDisabledTarget(t *testing.T) {
 	assert.Empty(t, f.term.terminateRequestIDs(),
 		"a refused switch must not quit the CLI the chat still has")
 }
-
-// ─── from mcp_test.go ─────────────────────────────────────────────────
 
 // mcpResult decodes a JSON-RPC response's result member, failing the test on a
 // JSON-RPC error (which is a TRANSPORT fault here — a tool that merely failed
@@ -353,8 +350,8 @@ func TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts(
 	require.NoError(t, json.Unmarshal([]byte(raw), &config), "rendered --mcp-config is not valid JSON: %s", raw)
 
 	args := config.MCPServers["crowbar"].Args
-	require.Equal(t, runnerID, args[indexOf(args, "--segment")+1])
-	token := args[indexOf(args, "--token")+1]
+	require.Equal(t, runnerID, args[slices.Index(args, "--segment")+1])
+	token := args[slices.Index(args, "--token")+1]
 	require.NotEmpty(t, token)
 	require.NotEqual(t, runnerID, token, "the token must not be the segment id the agent can already read")
 
@@ -456,8 +453,6 @@ func TestResumeChat_GaplessRevive_SendsNoUserMessage(
 	}
 }
 
-// ─── from mcp_toggle_test.go ──────────────────────────────────────────
-
 // configKeys returns the KEY of every `-c key=value` override in a codex argv.
 //
 // Parsing rather than grepping is the point. `require.NotContains(joined,
@@ -558,7 +553,7 @@ func TestSpawnChat_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
 		f.spawn(t, "claude")
 		argv := f.term.calls[0].argv
 
-		assert.Equal(t, -1, indexOf(argv, "--mcp-config"))
+		assert.Equal(t, -1, slices.Index(argv, "--mcp-config"))
 		assert.False(t, hasMCPServers(argv), "an mcpServers document reached claude: %q", argv)
 		// The registration must not have relocated into the hook settings file
 		// either — that file is written on every spawn, MCP or not.
@@ -633,7 +628,7 @@ func TestSpawnChat_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T
 
 	f.spawn(t, "claude")
 
-	assert.GreaterOrEqual(t, indexOf(f.term.calls[0].argv, "--mcp-config"), 0,
+	assert.GreaterOrEqual(t, slices.Index(f.term.calls[0].argv, "--mcp-config"), 0,
 		"a preference row written before the column existed must not lose the tool surface")
 
 	got, err := f.usecase.ResolveProviders(f.ctx)
@@ -668,7 +663,7 @@ func TestSpawnChat_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
 	f.spawn(t, "claude")
 
 	assert.NotContains(t, configKeys(f.term.calls[0].argv), "mcp_servers.crowbar.command")
-	assert.GreaterOrEqual(t, indexOf(f.term.calls[1].argv, "--mcp-config"), 0,
+	assert.GreaterOrEqual(t, slices.Index(f.term.calls[1].argv, "--mcp-config"), 0,
 		"claude's tool surface must survive codex's switch")
 
 	got, err := f.usecase.ResolveProviders(f.ctx)
@@ -719,7 +714,7 @@ func TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 
 	// The chat was spawned with tools ON — the registration reached the CLI.
-	require.GreaterOrEqual(t, indexOf(f.term.calls[0].argv, "--mcp-config"), 0)
+	require.GreaterOrEqual(t, slices.Index(f.term.calls[0].argv, "--mcp-config"), 0)
 
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
 

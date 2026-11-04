@@ -208,7 +208,7 @@ describe.each([
     const scopes = await import('@/lib/workspace-scope')
     scopes.recordWorkspaceScope(REPO)
     scopes.recordWorkspaceScope(HOME)
-    expect((await import('@/lib/api/fetch')).API_BASE).toBe(api)
+    expect((await import('@/lib/api/fetch')).apiBaseFor('local')).toBe(api)
     for (const [name, call, bare] of REPO_URLS) expect([name, call(fresh)]).toEqual([name, bare])
     for (const b of BUILDERS) {
       if (b.home !== THROWS) expect([b.name, b.call(fresh, HOME_WS)]).toEqual([b.name, b.home])

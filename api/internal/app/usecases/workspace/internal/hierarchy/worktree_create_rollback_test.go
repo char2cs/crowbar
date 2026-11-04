@@ -57,7 +57,7 @@ func TestCreateChild_BranchExistsCheckListError(t *testing.T) {
 }
 
 // TestCreateChild_MainWorktreeAdoptedCheckListError proves a listing failure
-// during the SECOND List call (mainWorktreeAdopted, reached only once the
+// during the SECOND List call (the repo-home lookup, reached only once the
 // duplicate-branch check has already passed) is surfaced distinctly from the
 // first.
 func TestCreateChild_MainWorktreeAdoptedCheckListError(t *testing.T) {
@@ -68,7 +68,7 @@ func TestCreateChild_MainWorktreeAdoptedCheckListError(t *testing.T) {
 			if calls == 1 {
 				return nil, nil // branchWorkspaceExists: no existing branch
 			}
-			return nil, errBoom // mainWorktreeAdopted: fails
+			return nil, errBoom // repoHomeWorkspaceID: fails
 		},
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())

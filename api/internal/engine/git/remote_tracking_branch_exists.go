@@ -14,14 +14,7 @@ func (e *engine) RemoteTrackingBranchExists(
 	repoPath string,
 	branch string,
 ) (bool, error) {
-	r := e.exec(ctx, repoPath, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch)
-	if r.ExitCode == 0 {
-		return true, nil
-	}
-	if r.ExitCode == 1 {
-		return false, nil
-	}
-	return false, gitexec.RequireSuccess("remote tracking branch exists", r)
+	return e.refExists(ctx, repoPath, "refs/remotes/origin/"+branch, "remote tracking branch exists")
 }
 
 // LocalBranchExists reports whether refs/heads/<branch> is present; a missing
@@ -31,12 +24,17 @@ func (e *engine) LocalBranchExists(
 	repoPath string,
 	branch string,
 ) (bool, error) {
-	r := e.exec(ctx, repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-	if r.ExitCode == 0 {
+	return e.refExists(ctx, repoPath, "refs/heads/"+branch, "local branch exists")
+}
+
+// refExists answers whether ref is on disk: show-ref exits 1 for a missing ref, higher on failure.
+func (e *engine) refExists(ctx context.Context, repoPath, ref, op string) (bool, error) {
+	r := e.exec(ctx, repoPath, "show-ref", "--verify", "--quiet", ref)
+	switch r.ExitCode {
+	case 0:
 		return true, nil
-	}
-	if r.ExitCode == 1 {
+	case 1:
 		return false, nil
 	}
-	return false, gitexec.RequireSuccess("local branch exists", r)
+	return false, gitexec.RequireSuccess(op, r)
 }

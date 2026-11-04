@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
-import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
+import { Dropdown } from '@/components/ui/dropdown'
+import { dropdownTriggerClassName } from '@/components/ui/dropdown-styles'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 

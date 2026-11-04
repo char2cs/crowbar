@@ -367,8 +367,9 @@ func (f *sidebarFeed) awaitAfter(chatID, what string, first, then func(map[strin
 // bearer when it is not empty. It returns the upgrade's status.
 func dialStreamAs(t *testing.T, h *pairedHarness, token string) (*streamClient, int) {
 	t.Helper()
-	tlsConfig := h.tls.Client().Transport.(*http.Transport).TLSClientConfig
-	dialer := websocket.Dialer{TLSClientConfig: tlsConfig}
+	transport, ok := h.tls.Client().Transport.(*http.Transport)
+	require.True(t, ok, "the TLS test server's client has an *http.Transport")
+	dialer := websocket.Dialer{TLSClientConfig: transport.TLSClientConfig}
 	header := http.Header{}
 	if token != "" {
 		header.Set("Authorization", "Bearer "+token)

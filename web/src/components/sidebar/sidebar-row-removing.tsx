@@ -9,6 +9,7 @@ import {
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { RowGlyph } from '@/components/sidebar/sidebar-row-glyph'
+import { secondsLeft } from '@/components/layout/removal-clock'
 import {
   rowBoxStyle,
   rowGlyphStyle,
@@ -16,13 +17,6 @@ import {
   rowIndent,
   useRowMetrics,
 } from '@/components/sidebar/lib/row-metrics'
-
-/** Whole seconds left on a deadline, never below zero — same formula
- *  `removal-tray.tsx` draws its own figures from. */
-function secondsLeft(deadlineAt: number | null): number {
-  if (deadlineAt === null) return 0
-  return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000))
-}
 
 /**
  * A row held in the removal tray, drawn in place: its glyph and label, with
@@ -73,7 +67,7 @@ export function RemovingSidebarRow({
           data-removal-secs={removal.entryId}
           className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
         >
-          {secondsLeft(removal.deadlineAt)}
+          {removal.deadlineAt === null ? 0 : secondsLeft(removal.deadlineAt, Date.now())}
         </span>
         <button
           type="button"

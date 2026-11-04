@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -254,7 +255,7 @@ func TestPromote_AppendsThePromotionNote(t *testing.T) {
 	// (pre-promotion) native session INSIDE THE NEW WORKTREE instead of
 	// spawning fresh with the whole ledger, as the model spec requires.
 	argv := f.term.calls[len(f.term.calls)-1].argv
-	resumeIdx := indexOf(argv, "--resume")
+	resumeIdx := slices.Index(argv, "--resume")
 	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v must contain --resume", argv)
 	assert.Equal(t, "sid-bubble", argv[resumeIdx+1],
 		"documents the gap: this is the PRE-PROMOTION session id, resumed in the NEW worktree")

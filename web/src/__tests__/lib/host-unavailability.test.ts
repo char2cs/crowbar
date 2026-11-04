@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { hostUnavailability } from '@/lib/host-resolve'
-import { awaitHost, useHostUnavailable } from '@/lib/host-unavailability'
+import { useHostUnavailable } from '@/lib/host-unavailability'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
@@ -80,12 +80,6 @@ describe('a host that will not resolve', () => {
     loadProjects(project('p-local', 'local'))
     const { result } = renderHook(() => useHostUnavailable(null))
     expect(result.current).toBeNull()
-  })
-
-  it('awaitHost answers at once for a host that already resolves', async () => {
-    configureHosts('host-1')
-    loadProjects(project('p-remote', 'host-1'))
-    await expect(awaitHost({ projectId: 'p-remote' })).resolves.toBe(true)
   })
 
   it('keeps waiting on a project no row holds while a paired host may hold it', () => {

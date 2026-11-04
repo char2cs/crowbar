@@ -43,27 +43,28 @@ afterEach(() => {
 })
 beforeEach(() => createPlatePluginSpy.mockClear())
 
-describe('ChatMarkdownEditor — autoFocus', () => {
-  const renderFocused = () =>
-    render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        autoFocus
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-      />,
-    )
+type EditorProps = Parameters<typeof ChatMarkdownEditor>[0]
+const drawEditor = (props: Partial<EditorProps> = {}) =>
+  render(
+    <ChatMarkdownEditor
+      placeholder=""
+      ariaLabel="Message the agent"
+      onShapeChange={vi.fn()}
+      onKeyDown={vi.fn()}
+      {...props}
+    />,
+  )
 
+describe('ChatMarkdownEditor — autoFocus', () => {
   it('takes focus on mount', () => {
-    const { getByRole } = renderFocused()
+    const { getByRole } = drawEditor({ autoFocus: true })
     expect(getByRole('textbox', { name: 'Message the agent' })).toHaveFocus()
   })
 
   // On the phone a focused field raises the keyboard over the chat just opened.
   it('leaves focus alone on the phone', () => {
     platform.mobile = true
-    const { getByRole } = renderFocused()
+    const { getByRole } = drawEditor({ autoFocus: true })
     expect(getByRole('textbox', { name: 'Message the agent' })).not.toHaveFocus()
   })
 })
@@ -264,16 +265,7 @@ describe('ChatMarkdownEditor shape and commits', () => {
 // editable lives in agent-composer.test.tsx.
 describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
   function renderAndCapture(): DropGuardHandler {
-    render(
-      <ChatMarkdownEditor
-        wsId="w1"
-        chatId="c1"
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-      />,
-    )
+    drawEditor({ wsId: 'w1', chatId: 'c1' })
     return capturedDropGuardHandler()
   }
 
@@ -319,16 +311,7 @@ describe('ChatMarkdownEditor key handling', () => {
   >
 
   function renderAndCapture(onKeyDown: OnKeyDownMock): KeyDownHandler {
-    render(
-      <ChatMarkdownEditor
-        wsId="w1"
-        chatId="c1"
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={onKeyDown}
-      />,
-    )
+    drawEditor({ wsId: 'w1', chatId: 'c1', onKeyDown })
     return capturedKeyDownHandler()
   }
 
@@ -472,15 +455,7 @@ describe('ChatMarkdownEditor height reporting', () => {
 
   it('reports nothing on mount while the box has no layout', () => {
     const onHeightChange = vi.fn()
-    render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-        onHeightChange={onHeightChange}
-      />,
-    )
+    drawEditor({ onHeightChange })
 
     // jsdom reports an empty box, which is the absence of a box: not reported.
     expect(onHeightChange).not.toHaveBeenCalled()
@@ -493,15 +468,7 @@ describe('ChatMarkdownEditor height reporting', () => {
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockReturnValue({ height: 40, width: 0 } as DOMRect)
     const onHeightChange = vi.fn()
-    render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-        onHeightChange={onHeightChange}
-      />,
-    )
+    drawEditor({ onHeightChange })
     rect.mockRestore()
 
     expect(onHeightChange).toHaveBeenCalledWith(40)
@@ -509,15 +476,7 @@ describe('ChatMarkdownEditor height reporting', () => {
 
   it('does not report a height once the box is gone', () => {
     const onHeightChange = vi.fn()
-    const { container } = render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-        onHeightChange={onHeightChange}
-      />,
-    )
+    const { container } = drawEditor({ onHeightChange })
     const editable = container.querySelector('[data-slate-editor]') as HTMLElement
     vi.spyOn(editable, 'getBoundingClientRect').mockReturnValue({ height: 0, width: 0 } as DOMRect)
     FakeResizeObserver.instances[0]!.trigger()
@@ -527,15 +486,7 @@ describe('ChatMarkdownEditor height reporting', () => {
 
   it('reports a new height when the observed editable resizes', () => {
     const onHeightChange = vi.fn()
-    const { container } = render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-        onHeightChange={onHeightChange}
-      />,
-    )
+    const { container } = drawEditor({ onHeightChange })
     const editable = container.querySelector('[data-slate-editor]') as HTMLElement
     onHeightChange.mockClear()
     vi.spyOn(editable, 'getBoundingClientRect').mockReturnValue({ height: 64 } as DOMRect)
@@ -550,15 +501,7 @@ describe('ChatMarkdownEditor height reporting', () => {
   // watches the new node (an effect with stable deps kept watching a detached one).
   it('tears down the old observer and attaches a fresh one across a genuine remount', () => {
     const onHeightChange = vi.fn()
-    const { container, unmount } = render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-        onHeightChange={onHeightChange}
-      />,
-    )
+    const { container, unmount } = drawEditor({ onHeightChange })
     const firstEditable = container.querySelector('[data-slate-editor]')
     expect(FakeResizeObserver.instances).toHaveLength(1)
     const firstObserver = FakeResizeObserver.instances[0]!
@@ -567,15 +510,7 @@ describe('ChatMarkdownEditor height reporting', () => {
     unmount()
     expect(firstObserver.observed).toBeNull()
 
-    render(
-      <ChatMarkdownEditor
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={vi.fn()}
-        onKeyDown={vi.fn()}
-        onHeightChange={onHeightChange}
-      />,
-    )
+    drawEditor({ onHeightChange })
 
     expect(FakeResizeObserver.instances).toHaveLength(2)
     expect(FakeResizeObserver.instances[1]!.observed).not.toBeNull()

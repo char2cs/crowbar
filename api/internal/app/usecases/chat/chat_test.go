@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -28,8 +29,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
-
-// ─── from rename_test.go ──────────────────────────────────────────────
 
 // getTitle returns chatID's persisted Title for assertions. It waits for
 // quiescence first so the read observes the latest SetTitle (and so a
@@ -140,8 +139,6 @@ func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": "now do something else"})))
 	assert.Equal(t, "Refactor the auth module to use JWT", getTitle(t, f, chatID))
 }
-
-// ─── from purge_test.go ───────────────────────────────────────────────
 
 // TestRegression_DeleteChat_KillsItsRunner
 //
@@ -371,8 +368,6 @@ func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the original cause stays inspectable too")
 }
 
-// ─── from chatlog_test.go ─────────────────────────────────────────────
-
 // TestReadChatLog_RendersTheLedger guards agent.ChatUsecase.ReadChatLog — the
 // production agenttools.ChatLogReader get_chat_log calls once a chat's
 // workspace has already cleared the caller's CanSee check. Unlike
@@ -423,8 +418,6 @@ func TestReadChatLog_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "read chat log")
 }
 
-// ─── from thread_test.go ──────────────────────────────────────────────
-
 // injectedContext is the context document spawn carried: on its fresh launch's
 // system prompt, or in the system reminder a resume is handed.
 func injectedContext(
@@ -434,7 +427,7 @@ func injectedContext(
 ) string {
 	t.Helper()
 	argv := f.term.calls[spawn].argv
-	if at := indexOf(argv, "--append-system-prompt"); at >= 0 && at+1 < len(argv) {
+	if at := slices.Index(argv, "--append-system-prompt"); at >= 0 && at+1 < len(argv) {
 		return argv[at+1]
 	}
 	for _, a := range argv {
@@ -639,7 +632,7 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
-	assert.Equal(t, -1, indexOf(f.term.calls[2].argv, "--resume"), "claude never spoke in sid-claude")
+	assert.Equal(t, -1, slices.Index(f.term.calls[2].argv, "--resume"), "claude never spoke in sid-claude")
 }
 
 // ---------------------------------------------------------------------------
@@ -767,8 +760,6 @@ func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) 
 	assert.Contains(t, injectedContext(t, f, 1), lineageBlock(parentID),
 		"the spawn must resolve placement from the event log, never from the projection it just outran")
 }
-
-// ─── from handoff_test.go ─────────────────────────────────────────────
 
 func TestAssembleHandoff_WrapsLedgerEntriesInPreamble(t *testing.T) {
 	f := newFixture(t)
@@ -945,8 +936,6 @@ func TestRunnerExit_ForgetsTheInjectedContext(t *testing.T) {
 	_, found = f.engine.ConsumeInjectedPrefix(claudeRunner, injected)
 	assert.False(t, found, "a dead runner's injected context must be forgotten")
 }
-
-// ─── from selection_test.go ───────────────────────────────────────────
 
 func writeDescriptor(t *testing.T, f testFixture, id, body string) {
 	t.Helper()
@@ -1546,7 +1535,7 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	assert.Less(t, indexOf(call.argv, "--model"), 0, "the default carries no model flag")
+	assert.NotContains(t, call.argv, "--model", "the default carries no model flag")
 }
 
 // THE REGRESSION. "" is a REAL pick — "the provider's own default", the same
@@ -1571,8 +1560,8 @@ func TestRegression_SubmitPrompt_AnExplicitlyEmptyStagedSelectionClearsBackToThe
 	assert.Empty(t, chat.Model, "an explicitly empty pick clears the sticky model")
 	assert.Empty(t, chat.Effort)
 	call := f.term.calls[f.term.callCount()-1]
-	assert.Less(t, indexOf(call.argv, "--model"), 0, "the default carries no model flag")
-	assert.Less(t, indexOf(call.argv, "--effort"), 0, "nor an effort one")
+	assert.NotContains(t, call.argv, "--model", "the default carries no model flag")
+	assert.NotContains(t, call.argv, "--effort", "nor an effort one")
 }
 
 // A nil selection is the OTHER half of the same contract: the composer staged
@@ -1852,8 +1841,6 @@ func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat selection")
 }
-
-// ─── from displace_test.go ────────────────────────────────────────────
 
 // ---------------------------------------------------------------------------
 // A runner must never be left pointed at a chat that no longer exists.

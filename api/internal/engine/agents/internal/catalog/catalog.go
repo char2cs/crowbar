@@ -38,21 +38,10 @@ func Probe(
 	if err != nil {
 		return models.SlashCatalog{}, err
 	}
-	sc := d.Presentation.SlashCatalog
-	adapter, ok := adapters.For(sc.Pipeline.Adapter)
-	if !ok {
-		return models.SlashCatalog{}, ErrMalformedOutput
-	}
-
-	probeCtx, cancel := context.WithTimeout(
-		ctx, time.Duration(sc.EffectiveTimeoutMS())*time.Millisecond,
-	)
-	defer cancel()
-
-	return assemble(ctx, probeCtx, d, sc, adapter, newRunner(d, sc, cwd, opts, acquire))
+	return probeWith(ctx, d, newRunner(d, d.Presentation.SlashCatalog, cwd, opts, acquire))
 }
 
-func ProbeWith(
+func probeWith(
 	ctx context.Context,
 	d *spec.Descriptor,
 	runner models.ProbeRunner,

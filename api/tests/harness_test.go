@@ -151,41 +151,6 @@ func bootHarness(t *testing.T, home, fingerprint string) *harness {
 	return h
 }
 
-// pairedHarness is a daemon reached as a paired remote host reaches it: over
-// TLS with a bearer. The plaintext server beside it is the daemon's own socket.
-type pairedHarness struct {
-	*harness
-	tls      *httptest.Server
-	token    string
-	clientID string
-}
-
-// newPairedHarness boots a daemon, mints a code over plaintext as the local
-// socket would, and redeems it over TLS.
-func newPairedHarness(t *testing.T) *pairedHarness {
-	t.Helper()
-	h := bootHarness(t, t.TempDir(), "SHA256:test-daemon")
-	tlsSrv := httptest.NewTLSServer(h.handler)
-	t.Cleanup(tlsSrv.Close)
-	var minted struct{ Code string }
-	h.post("/v0/pair/code", nil, http.StatusOK, &minted)
-	body, err := json.Marshal(map[string]string{"code": minted.Code, "name": "test client"})
-	require.NoError(t, err)
-	resp, err := tlsSrv.Client().Post(tlsSrv.URL+"/v0/pair", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var env struct {
-		Data struct {
-			Token    string `json:"token"`
-			ClientID string `json:"clientId"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
-	require.NotEmpty(t, env.Data.Token)
-	return &pairedHarness{harness: h, tls: tlsSrv, token: env.Data.Token, clientID: env.Data.ClientID}
-}
-
 // drain runs the daemon's graceful-shutdown DRAIN and stops there, exactly once:
 // serving stops and every asynchronous writer is quiesced, but the DBs stay open
 // and the harness's app container stays readable. It is the seam for asserting

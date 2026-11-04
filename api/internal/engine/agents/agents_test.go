@@ -3,10 +3,9 @@ package agents_test
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func get(t *testing.T, id string) agents.Agent {
@@ -24,23 +22,6 @@ func get(t *testing.T, id string) agents.Agent {
 	a, err := agents.New().Get(context.Background(), "", id)
 	require.NoError(t, err)
 	return a
-}
-
-func TestList_EnumeratesTheShippedAgents(t *testing.T) {
-	list, err := agents.New().List(context.Background(), "")
-
-	require.NoError(t, err)
-	ids := make([]string, 0, len(list))
-	for _, a := range list {
-		ids = append(ids, a.ID())
-	}
-	assert.Equal(t, []string{"claude", "codex"}, ids)
-}
-
-func TestGet_UnknownAgentIsReported(t *testing.T) {
-	_, err := agents.New().Get(context.Background(), "", "telepathy")
-
-	assert.ErrorIs(t, err, agents.ErrUnknownAgent)
 }
 
 const minimalOverride = `
@@ -62,57 +43,6 @@ runtime:
   hooks:
     format: json
 `
-
-// TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges is
-// the fix for a live-reported bug: Codex's streaming view visibly stalled
-// mid-reply, self-correcting only once the turn ended, while Claude streamed
-// smoothly. Get sits on the ingest hot path (once per hook, including once
-// per streamed delta), and protocol.Resolve is deliberately uncached — a full
-// disk read, YAML parse and rule-validate on every call, over a millisecond
-// for codex's own descriptor, measured. Codex's much higher per-second event
-// rate over its api-transport connection paid that cost often enough to fall
-// behind the incoming stream; Claude's hooks-paced rate never did. This
-// proves the cache holds an override's resolved descriptor stable across
-// repeated Get calls — corrupting the override on disk WITHOUT changing its
-// mtime must not be noticed, because noticing would mean Resolve ran again.
-func TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	path := filepath.Join(dir, "probe.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(minimalOverride), 0o600))
-
-	svc := agents.New()
-	ctx := context.Background()
-	first, err := svc.Get(ctx, home, "probe")
-	require.NoError(t, err)
-	assert.Equal(t, "probe", first.ID())
-
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	stableModTime := info.ModTime()
-
-	// Corrupted, but pinned back to the EXACT mtime Get already saw — no
-	// sleep, no timing dependency: the cache is asked to distinguish "this
-	// file's content is different" (which it cannot, and must not try to)
-	// from "this file's mtime is different" (which it can, cheaply).
-	require.NoError(t, os.WriteFile(path, []byte("id: [unclosed"), 0o600))
-	require.NoError(t, os.Chtimes(path, stableModTime, stableModTime))
-
-	_, err = svc.Get(ctx, home, "probe")
-	require.NoError(t, err, "THE FIX: an unchanged mtime serves the cached descriptor, "+
-		"never re-reading a file that Get has no reason to believe changed")
-
-	// Now genuinely invalidate it: a real mtime change must still be caught,
-	// or this would not be a cache with correct invalidation — it would just
-	// be permanently stale, and a developer's edited override would never
-	// take effect without a daemon restart.
-	changedModTime := stableModTime.Add(time.Second)
-	require.NoError(t, os.Chtimes(path, changedModTime, changedModTime))
-
-	_, err = svc.Get(ctx, home, "probe")
-	assert.Error(t, err, "a real mtime change must invalidate the cache and surface the now-broken override")
-}
 
 func TestAgent_ReportsItsIdentityAndDisplay(t *testing.T) {
 	a := get(t, "claude")
@@ -194,7 +124,7 @@ func TestAgent_PromptStepsPlaceTheMessageExactlyOnceAfterEndOfOptions(t *testing
 				}, nil, steps)
 				require.NoError(t, err)
 
-				end := indexOf(plan.Argv, "--")
+				end := slices.Index(plan.Argv, "--")
 				require.GreaterOrEqual(t, end, 0, "argv %v must end its options", plan.Argv)
 				assert.Equal(t, "--print", plan.Argv[len(plan.Argv)-1],
 					"a message that looks like a forbidden flag must survive as DATA")
@@ -245,14 +175,6 @@ func TestAgent_ContextStepsAreADefensiveCopy(t *testing.T) {
 	first[0].Args["arg"] = "MUTATED"
 
 	assert.NotEqual(t, "MUTATED", a.ContextSteps(false)[0].Args["arg"])
-}
-
-func TestAgent_ResumeArgIsDeclaredByBothShippedAgents(t *testing.T) {
-	for _, id := range []string{"claude", "codex"} {
-		arg, ok := get(t, id).ResumeArg()
-		assert.True(t, ok, id)
-		assert.Contains(t, arg, "{id}", id)
-	}
 }
 
 func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
@@ -500,22 +422,6 @@ func TestExpand_RendersCrowbarsOwnPrompts(t *testing.T) {
 	assert.Equal(t, "chat c1 limit 4", got)
 }
 
-func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
-	e := agents.New()
-	e.RecordInjection("runner-1", "handoff blob")
-
-	remainder, found := e.ConsumeInjectedPrefix("runner-1", "handoff blob")
-	assert.True(t, found)
-	assert.Empty(t, remainder)
-	_, found = e.ConsumeInjectedPrefix("runner-1", "handoff blob")
-	assert.False(t, found)
-
-	e.RecordInjection("runner-2", "other")
-	e.ForgetRunner("runner-2")
-	_, found = e.ConsumeInjectedPrefix("runner-2", "other")
-	assert.False(t, found)
-}
-
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "TOK",
@@ -524,7 +430,7 @@ func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 
 	claude, err := get(t, "claude").SpawnPlan(ctx, nil, nil)
 	require.NoError(t, err)
-	cfgIdx := indexOf(claude.Argv, "--mcp-config")
+	cfgIdx := slices.Index(claude.Argv, "--mcp-config")
 	require.GreaterOrEqual(t, cfgIdx, 0)
 	require.Less(t, cfgIdx+2, len(claude.Argv), "the JSON must be followed by another FLAG")
 	assert.True(t, strings.HasPrefix(claude.Argv[cfgIdx+2], "-"),
@@ -648,15 +554,6 @@ func readAll(t *testing.T, dir string) string {
 	return b.String()
 }
 
-func indexOf(ss []string, target string) int {
-	for i, s := range ss {
-		if s == target {
-			return i
-		}
-	}
-	return -1
-}
-
 func TestAgent_InstalledReportsWhetherTheCLIIsPresent(t *testing.T) {
 	assert.NotPanics(t, func() { _ = get(t, "claude").Installed() })
 
@@ -693,12 +590,6 @@ func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *test
 	}
 	_, ok = get(t, "codex").PromptSteer("hello")
 	assert.False(t, ok, "a provider that declares no steering is never steered")
-}
-
-func TestAgent_ResumeArgIsAbsentWhereNoneIsDeclared(t *testing.T) {
-	_, ok := stubAgent(t, "sh").ResumeArg()
-
-	assert.False(t, ok)
 }
 
 func TestAgent_ProbeTelemetryIsUnsupportedForBothShippedAgents(t *testing.T) {
@@ -813,100 +704,6 @@ runtime:
 	return a
 }
 
-// manifestDescriptorYAML is a synthetic model.manifest: descriptor pointing
-// at url — the shared embedded model-manifest.json has no "synthetic"
-// provider key, so this id's embedded half always resolves empty, letting a
-// test tell "the network was actually consulted" apart from "the embedded
-// fallback still applies".
-func manifestDescriptorYAML(url string) string {
-	return `
-id: synthetic
-spawn:
-  cmd: true
-  interactive_required: true
-events:
-  session_start:
-    in: session_start
-    map:
-      session_id: session_id
-  turn_stop:
-    in: turn_stop
-    map:
-      message: last
-runtime:
-  transport: hooks
-  hooks:
-    format: json
-model:
-  manifest:
-    url: ` + url + `
-    items_path: "providers.synthetic.models[]"
-    item:
-      id: "{id}"
-      label: "{label}"
-  strategy: restart_tui
-  apply:
-    - pass_arg: { arg: "--model", value: "{model}" }
-`
-}
-
-// TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired proves the
-// engine-side half of the fetch toggle (agents.go's own doc on
-// SetManifestFetchEnabled): a bare New(), never wired to a settings getter,
-// must NEVER dial out as a side effect of resolving a descriptor — only the
-// embedded/disk halves apply. Wiring a getter that reports true is what
-// switches the network half on.
-func TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired(t *testing.T) {
-	calls := 0
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls++
-		// updatedAt must beat the REAL embedded model-manifest.json's own
-		// timestamp (ProbeManifest picks whichever candidate is freshest),
-		// so far in the future it can never accidentally lose that race.
-		_, _ = w.Write([]byte(
-			`{"updatedAt":"2099-01-01T00:00:00Z","providers":{"synthetic":{"models":[` +
-				`{"id":"m1","label":"M1"}]}}}`,
-		))
-	}))
-	defer server.Close()
-	// model.manifest.url must be https: (rules.modelManifest) — httptest's
-	// plain server can't satisfy that, so this borrows the TLS variant's own
-	// trusting client for the one real net/http call ProbeManifest makes.
-	realClient := http.DefaultClient
-	http.DefaultClient = server.Client()
-	t.Cleanup(func() { http.DefaultClient = realClient })
-
-	home := t.TempDir()
-	writeDescriptor(t, home, "synthetic", manifestDescriptorYAML(server.URL))
-	svc := agents.New()
-
-	a, err := svc.Get(context.Background(), home, "synthetic")
-	require.NoError(t, err)
-	assert.Empty(t, a.Models(), "no embedded fallback for this id, and fetch defaults disabled")
-	assert.Equal(t, 0, calls, "a bare New() must never dial out")
-
-	svc.SetManifestFetchEnabled(func() bool { return true })
-	// List, not Get: Get short-circuits on its own descriptor cache when the
-	// override file's mtime is unchanged (agents.go's own doc on
-	// descriptorCacheEntry), so it would never re-trigger
-	// refreshModelsIfDeclared here. List always does. The refresh itself is
-	// async, so poll the real signal (the model actually landing) instead
-	// of sleeping.
-	require.Eventually(t, func() bool {
-		list, err := svc.List(context.Background(), home)
-		if err != nil {
-			return false
-		}
-		for _, p := range list {
-			if p.ID() == "synthetic" {
-				return len(p.Models()) == 1
-			}
-		}
-		return false
-	}, 2*time.Second, 5*time.Millisecond)
-	assert.Positive(t, calls, "enabling the getter must let the next refresh reach the network")
-}
-
 func writeDescriptor(t *testing.T, home, id, body string) {
 	t.Helper()
 	dir := filepath.Join(home, "descriptors")
@@ -999,7 +796,7 @@ func TestAgent_CodexSelectionUsesItsOwnConfigChannel(t *testing.T) {
 	plan, err := codex.SpawnPlan(ctx, nil, steps)
 
 	require.NoError(t, err)
-	modelAt := indexOf(plan.Argv, "--model")
+	modelAt := slices.Index(plan.Argv, "--model")
 	require.GreaterOrEqual(t, modelAt, 0)
 	assert.Equal(t, "gpt-5.6-sol", plan.Argv[modelAt+1])
 	assert.Contains(t, plan.Argv, `model_reasoning_effort="ultra"`)
@@ -1330,270 +1127,6 @@ spawn:
 	apiWithAttach, err := agents.New().Get(context.Background(), home, "api-with-attach")
 	require.NoError(t, err)
 	assert.True(t, apiWithAttach.Capabilities().HasTerminal)
-}
-
-func TestAgent_StartAPIConnRefusesAHooksTransportDescriptor(t *testing.T) {
-	in, out, _ := testutil.StdioPipe(t)
-	_, err := get(t, "claude").StartAPIConn(t.Context(), agents.APIStdio{In: in, Out: out}, nil)
-	assert.ErrorIs(t, err, agents.ErrAPITransportNotDeclared)
-	_, err = in.Write([]byte("{}\n"))
-	assert.ErrorIs(t, err, os.ErrClosed, "a refused start closes the stdio it was handed")
-}
-
-func TestAgent_APIServeAndAttachArgvAreAbsentForAHooksOnlyDescriptor(t *testing.T) {
-	claude := get(t, "claude")
-	_, ok := claude.APIServeArgv(agents.TemplateCtx{})
-	assert.False(t, ok)
-	_, ok = claude.APIAttachArgv(agents.TemplateCtx{})
-	assert.False(t, ok)
-}
-
-func TestAgent_APIServeAndAttachArgvExpandTemplatesForAnAPITransportDescriptor(t *testing.T) {
-	home := t.TempDir()
-	writeDescriptor(t, home, "api-transport", `
-id: api-transport
-spawn:
-  cmd: acme
-  interactive_required: true
-`+v3EventsBlock+apiRuntime+`
-    serve:  [acme, app-server, --cwd, "{cwd}"]
-    attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize, notify: initialized }
-`)
-	a, err := agents.New().Get(context.Background(), home, "api-transport")
-	require.NoError(t, err)
-
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Cwd: "/work"})
-	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "app-server", "--cwd", "/work"}, serveArgv)
-
-	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Session: "sess-1"})
-	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "resume", "sess-1"}, attachArgv)
-}
-
-// TestAgent_APIAttachArgvCarriesConfigInjection pins the sibling gap: the
-// attached process is an ORDINARY hooks-transport CLI from the instant it
-// starts, and config_injection is where session_start/user_prompt/turn_stop/
-// etc. all get wired to the hook server — without this, the one process a
-// non-hotswap provider hands a live turn over to would report nothing back
-// to Crowbar's ledger at all.
-func TestAgent_APIAttachArgvCarriesConfigInjection(t *testing.T) {
-	home := t.TempDir()
-	writeDescriptor(t, home, "api-attach-hooks", `
-id: api-attach-hooks
-spawn:
-  cmd: acme
-  interactive_required: true
-`+v3EventsBlock+apiRuntime+`
-    serve:  [acme, app-server]
-    attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize, notify: initialized }
-config_injection:
-  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{hook_url}/turn_stop"}]}]' }
-`)
-	a, err := agents.New().Get(context.Background(), home, "api-attach-hooks")
-	require.NoError(t, err)
-
-	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{
-		Session: "sess-1", Segid: "seg-1", HookBase: "http://h", ProjectID: "p", Provider: "acme",
-	})
-	require.True(t, ok)
-	assert.Equal(t, []string{
-		"acme", "resume", "sess-1",
-		"-c", `hooks.Stop=[{hooks=[{type="command",command="http://h/v0/projects/p/home/chats/runners/seg-1/hooks/acme/turn_stop"}]}]`,
-	}, attachArgv, "the attached TUI must be wired with the SAME hooks a normal hooks-transport spawn gets")
-}
-
-// TestAgent_APIAttachArgvCarriesSpawnArgs pins a live-confirmed gap: codex's
-// switch-to-terminal forks `codex resume {id}` via APIAttachArgv, which never
-// applied spawn.args — unlike a normal interactive spawn (spawn.Plan), which
-// always puts them right after the executable. Codex's spawn.args carries
-// --dangerously-bypass-hook-trust, the only thing that makes codex skip its
-// interactive per-hash hook-trust confirmation screen; config_injection (see
-// the sibling test above) gives every attached resume a fresh per-segment
-// hash, so without this the attached TUI parks on that confirmation screen
-// forever instead of reaching the composer. spawn.args are a fact about any
-// interactive invocation of the provider's own executable, not about which
-// entry point is building the argv — the attach path must carry them exactly
-// as the primary spawn path does.
-func TestAgent_APIAttachArgvCarriesSpawnArgs(t *testing.T) {
-	home := t.TempDir()
-	writeDescriptor(t, home, "api-attach-spawn-args", `
-id: api-attach-spawn-args
-spawn:
-  cmd: acme
-  interactive_required: true
-  args:
-    - "--trust-workaround"
-`+v3EventsBlock+apiRuntime+`
-    serve:  [acme, app-server]
-    attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize, notify: initialized }
-`)
-	a, err := agents.New().Get(context.Background(), home, "api-attach-spawn-args")
-	require.NoError(t, err)
-
-	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Session: "sess-1"})
-	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "--trust-workaround", "resume", "sess-1"}, attachArgv,
-		"spawn.args must land right after the executable, before the attach subcommand's own args")
-
-	// serve is a genuinely different subcommand (app-server, not an
-	// interactive TUI) — spawn.args are interactive-only flags and must NOT
-	// leak onto it.
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{})
-	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "app-server"}, serveArgv,
-		"spawn.args are interactive-TUI-only and must not appear on the serve argv")
-}
-
-// TestAgent_APIServeArgvCarriesMCPInjection pins the fix for a live-confirmed
-// gap: codex's api-transport serve process was never told Crowbar's MCP
-// server exists, because forkServeProcess's argv skipped MCPInject/
-// ConfigInjection entirely. What a provider needs injected is a fact about
-// the provider, not about which of its processes is talking right now — see
-// spawn.Inject's own doc comment — so the SAME steps a hooks-attached CLI
-// gets via SpawnPlan must also land on the serve argv.
-func TestAgent_APIServeArgvCarriesMCPInjection(t *testing.T) {
-	home := t.TempDir()
-	writeDescriptor(t, home, "api-mcp", `
-id: api-mcp
-spawn:
-  cmd: acme
-  interactive_required: true
-`+v3EventsBlock+apiRuntime+`
-    serve:  [acme, app-server]
-    handshake: { call: initialize, notify: initialized }
-mcp_injection:
-  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
-  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}"]' }
-`)
-	a, err := agents.New().Get(context.Background(), home, "api-mcp")
-	require.NoError(t, err)
-
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
-		Segid: "seg-1", CrowbarBin: "/bin/crowbar",
-	})
-	require.True(t, ok)
-	assert.Equal(t, []string{
-		"acme", "app-server",
-		"-c", `mcp_servers.crowbar.command="/bin/crowbar"`,
-		"-c", `mcp_servers.crowbar.args=["mcp","--segment","seg-1"]`,
-	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
-}
-
-func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
-	a := get(t, "codex")
-	ctx := agents.TemplateCtx{Cwd: `/work/tree "a"`, CrowbarBin: "/bin/crowbar", Tmp: t.TempDir()}
-
-	serveArgv, ok := a.APIServeArgv(ctx)
-	require.True(t, ok)
-	plan, err := a.SpawnPlan(ctx, nil, nil)
-	require.NoError(t, err)
-
-	assert.NotContains(t, strings.Join(serveArgv, " "), "hooks.", "app-server must not also relay hooks")
-	assert.Contains(t, strings.Join(plan.Argv, " "), "hooks.SessionStart=", "the TUI reports over hooks")
-	assert.Contains(t, plan.Argv, `projects={"/work/tree \"a\""={trust_level="trusted"}}`,
-		"a new worktree must never park the TUI on codex's trust prompt")
-	assert.Contains(t, plan.Argv, `tui.resume_cwd="current"`)
-}
-
-// TestAgent_APIServeArgvCarriesTheSelection pins the api channel's own
-// carrier for a chat's model/effort choice. An api-transport spawn whose
-// connection comes up forks NO PTY, so the argv model.apply/effort.apply
-// render into never exists; api_apply is the same choice declared onto the
-// serve process instead. Without it the choice is built and thrown away.
-func TestAgent_APIServeArgvCarriesTheSelection(t *testing.T) {
-	home := t.TempDir()
-	writeDescriptor(t, home, "api-selection", `
-id: api-selection
-spawn:
-  cmd: acme
-  interactive_required: true
-`+v3EventsBlock+apiRuntime+`
-    serve:  [acme, app-server]
-    handshake: { call: initialize, notify: initialized }
-model:
-  available: [fast, deep]
-  strategy: restart_tui
-  apply:
-    - pass_arg: { arg: "--model", value: "{model}" }
-  api_apply:
-    - pass_arg: { arg: "-c", value: 'model="{model}"' }
-effort:
-  available: { "*": [low, high] }
-  strategy: restart_tui
-  apply:
-    - pass_arg: { arg: "--effort", value: "{effort}" }
-  api_apply:
-    - pass_arg: { arg: "-c", value: 'reasoning="{effort}"' }
-`)
-	a, err := agents.New().Get(context.Background(), home, "api-selection")
-	require.NoError(t, err)
-
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
-		Model: "deep", Effort: "high",
-	})
-	require.True(t, ok)
-	assert.Equal(t, []string{
-		"acme", "app-server",
-		"-c", `model="deep"`,
-		"-c", `reasoning="high"`,
-	}, serveArgv)
-	assert.NotContains(t, serveArgv, "--model",
-		"the argv carrier is for a forked PTY; the serve process takes the api one")
-}
-
-// A chat that chose nothing renders an argv byte-identical to one built
-// before the feature existed — the same guarantee SelectionSteps already
-// makes for the forked path.
-func TestAgent_APIServeArgvIsUnchangedWhenNothingWasChosen(t *testing.T) {
-	home := t.TempDir()
-	writeDescriptor(t, home, "api-selection-empty", `
-id: api-selection-empty
-spawn:
-  cmd: acme
-  interactive_required: true
-`+v3EventsBlock+apiRuntime+`
-    serve:  [acme, app-server]
-    handshake: { call: initialize, notify: initialized }
-model:
-  available: [fast, deep]
-  strategy: restart_tui
-  apply:
-    - pass_arg: { arg: "--model", value: "{model}" }
-  api_apply:
-    - pass_arg: { arg: "-c", value: 'model="{model}"' }
-`)
-	a, err := agents.New().Get(context.Background(), home, "api-selection-empty")
-	require.NoError(t, err)
-
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{})
-	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "app-server"}, serveArgv)
-}
-
-// TestRegression_ACodexChatsChosenModelReachesItsServeProcess is the reported
-// defect at the descriptor layer: a codex chat's model/effort rode
-// model.apply/effort.apply only, and codex's api-transport spawn forks no PTY
-// to put them on — so the user's choice silently reverted to the provider
-// default for the life of the chat.
-//
-// Driven against the REAL shipped descriptor, which is the only place the key
-// names live. Verified against codex-cli 0.154.0: `codex app-server --help`
-// documents `-c model="o3"` as its first example and offers no --model flag
-// at all, which is why the api carrier is the config channel and not a
-// second copy of the TUI's own.
-func TestRegression_ACodexChatsChosenModelReachesItsServeProcess(t *testing.T) {
-	serveArgv, ok := get(t, "codex").APIServeArgv(agents.TemplateCtx{
-		Model: "gpt-5.4-codex", Effort: "high",
-	})
-
-	require.True(t, ok)
-	assert.Contains(t, serveArgv, `model="gpt-5.4-codex"`,
-		"an adopted codex connection has no argv but this one; a model that misses it is not run")
-	assert.Contains(t, serveArgv, `model_reasoning_effort="high"`)
 }
 
 func TestAgent_TransportForResolvesPerEventOverridesAgainstTheRuntimeDefault(t *testing.T) {

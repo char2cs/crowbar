@@ -11,7 +11,7 @@ import { HostNotConfiguredError, PROXY_HEADER, proxyMarkerError } from '@/lib/ap
 import { routeToHost } from '@/lib/api/host-route'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
-export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
+const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
 /**
  * The API base for a host: the local daemon's API_BASE, or a registered remote

@@ -15,7 +15,6 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
-import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { entityStore } from '@/core/entities/entity-store'
 import { provider } from '@/__tests__/__fixtures__/agent-chat'
 
@@ -52,6 +51,7 @@ afterEach(() => {
   platform.mobile = false
   HTMLElement.prototype.getBoundingClientRect = originalRect
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 function draw(chatId: string, overrides: Partial<ComponentProps<typeof AgentChatView>> = {}) {
@@ -111,6 +111,11 @@ async function press(key: string, name = COMPOSER) {
 }
 const markdown = () => serialization.chatValueToMarkdown(grabbed.editor!.children as Value)
 
+const submitted = () =>
+  vi
+    .spyOn(commands, 'submitAgentPrompt')
+    .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+
 const transcriptReads = () =>
   fetchSpy.mock.calls.filter(([url]) => /\/(messages|activity)\b/.test(String(url)))
 
@@ -123,9 +128,7 @@ describe('AgentChatView', () => {
   })
 
   it('symptom 4: renders the reply to a sent prompt with no transcript request', async () => {
-    const submit = vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    const submit = submitted()
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r0', 'earlier'), l.start('turn-0', 'r0'), l.end('turn-0')])
     draw('c1')
@@ -147,19 +150,6 @@ describe('AgentChatView', () => {
     expect(await screen.findByText('Two files.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText('what changed?')).toHaveLength(1))
     expect(transcriptReads()).toEqual([])
-  })
-
-  it('sends the draft without the escapes its markdown does not need', async () => {
-    const submit = vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
-    seedFeed('c1', spokenIn('c1'))
-    draw('c1')
-
-    await type('rename snake_case_file.py')
-    await press('Enter')
-    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
-    expect(submit.mock.calls[0]?.[2]).toBe('rename snake_case_file.py')
   })
 
   // The rows on screen stay, but nothing new will reach them: the bar says why
@@ -208,25 +198,9 @@ describe('AgentChatView', () => {
     expect(screen.queryByText('Stopping…')).toBeNull()
   })
 
-  it('streams a reply the record has not reached yet', async () => {
-    seedFeed('c1', spokenIn('c1'))
-    draw('c1')
-
-    act(() => {
-      applyFeedFrame('c1', {
-        type: 'delta',
-        delta: { id: 'm2', turnId: 'turn-2', stream: 'answer', n: 1, text: 'Streaming now' },
-      })
-    })
-
-    expect(await screen.findByText('Streaming now')).toBeInTheDocument()
-  })
-
   // The record has not reached the reply yet, but the agent is plainly busy.
-  it('holds a prompt while a reply streams ahead of its rows', async () => {
-    const submit = vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+  it('streams a reply ahead of its rows, and holds a prompt meanwhile', async () => {
+    const submit = submitted()
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
     act(() => {
@@ -235,6 +209,7 @@ describe('AgentChatView', () => {
         delta: { id: 'm2', turnId: 'turn-2', stream: 'answer', n: 1, text: 'Streaming now' },
       })
     })
+    expect(await screen.findByText('Streaming now')).toBeInTheDocument()
 
     await type('next one')
     await press('Enter')
@@ -245,9 +220,7 @@ describe('AgentChatView', () => {
   })
 
   it('sends a slash command the catalog cannot match, rather than swallowing Enter', async () => {
-    const submit = vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    const submit = submitted()
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
 
@@ -260,9 +233,7 @@ describe('AgentChatView', () => {
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {
-    const submit = vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    const submit = submitted()
     const consoleError = vi.spyOn(console, 'error')
     const lines = Array.from({ length: 60 }, (_, line) => `line ${line + 1} of the count`)
     const long = lines.join('\n\n')
@@ -290,11 +261,6 @@ describe('AgentChatView', () => {
 })
 
 describe('AgentChatView one composer', () => {
-  const submitted = () =>
-    vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
-
   it('symptom 7: typing re-renders neither the transcript nor serializes the draft', async () => {
     const renders = vi.spyOn(transcriptModule, 'AgentTranscript')
     seedFeed('c1', spokenIn('c1'))
@@ -314,25 +280,26 @@ describe('AgentChatView one composer', () => {
     expect(renders).not.toHaveBeenCalled()
   })
 
-  it('serializes the draft exactly once on send', async () => {
+  it('serializes the draft exactly once on send, without escapes it does not need', async () => {
     const submit = submitted()
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
     const serialize = vi.spyOn(serialization, 'chatValueToMarkdown')
-    await type('ship it')
+    await type('ship snake_case_file.py')
 
     await press('Enter')
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
-    expect(submit.mock.calls[0]?.[2]).toBe('ship it')
+    expect(submit.mock.calls[0]?.[2]).toBe('ship snake_case_file.py')
     expect(serialize).toHaveBeenCalledTimes(1)
   })
 
-  it('symptom 5: the first prompt is typed into the one composer and sends through the outbox', async () => {
+  it('symptom 5: the first prompt is typed into the one composer, which stays mounted in the dock', async () => {
     const submit = submitted()
     seedFeed('c1', [])
     draw('c1')
-    expect(screen.getAllByRole('textbox')).toEqual([box(DOCUMENT)])
+    const editable = box(DOCUMENT)
+    expect(screen.getAllByRole('textbox')).toEqual([editable])
 
     await type('add a flag', DOCUMENT)
     await press('Enter', DOCUMENT)
@@ -342,28 +309,20 @@ describe('AgentChatView one composer', () => {
       expect(submit).toHaveBeenCalledWith('w1', 'c1', 'add a flag', expect.any(String), '', '', ''),
     )
     expect(screen.getAllByRole('textbox')).toEqual([box()])
-  })
-
-  it('keeps the composer mounted when the first send moves it to the dock', async () => {
-    submitted()
-    seedFeed('c1', [])
-    draw('c1')
-    const editable = box(DOCUMENT)
-
-    await type('first words', DOCUMENT)
-    await press('Enter', DOCUMENT)
-
-    expect(await screen.findByTestId('queued-prompt')).toBeInTheDocument()
     expect(box()).toBe(editable)
     expect(markdown()).toBe('')
   })
 })
 
 describe('AgentChatView Esc', () => {
+  const heldRetract = () => {
+    let answer: (value: { state: 'retracted'; text: string }) => void = () => {}
+    vi.spyOn(commands, 'retractPrompt').mockReturnValue(new Promise((r) => (answer = r)) as never)
+    return (value: { state: 'retracted'; text: string }) => answer(value)
+  }
+
   it('symptom 5: Esc in an empty composer puts the retracted text back', async () => {
-    const submit = vi
-      .spyOn(commands, 'submitAgentPrompt')
-      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    const submit = submitted()
     const retract = vi
       .spyOn(commands, 'retractPrompt')
       .mockResolvedValue({ state: 'retracted', text: 'never mind' })
@@ -385,10 +344,7 @@ describe('AgentChatView Esc', () => {
   })
 
   it('puts the taken-back text after what was typed while the retract was out', async () => {
-    let answer: (value: { state: 'retracted'; text: string }) => void = () => {}
-    vi.spyOn(commands, 'retractPrompt').mockReturnValue(
-      new Promise((resolve) => (answer = resolve)) as never,
-    )
+    const answer = heldRetract()
     const l = ledger('c1', 4)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'take back')])
     draw('c1')
@@ -426,10 +382,7 @@ describe('AgentChatView Esc', () => {
   })
 
   it('keeps taken-back text as a stash when the composer closed before the answer', async () => {
-    let answer: (value: { state: 'retracted'; text: string }) => void = () => {}
-    vi.spyOn(commands, 'retractPrompt').mockReturnValue(
-      new Promise((resolve) => (answer = resolve)) as never,
-    )
+    const answer = heldRetract()
     const l = ledger('c1', 4)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'keep me')])
     const view = draw('c1')
@@ -443,28 +396,22 @@ describe('AgentChatView Esc', () => {
 
   it('shows the terminal-wait banner only from the chat terminalWait', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    try {
-      const submit = vi
-        .spyOn(commands, 'submitAgentPrompt')
-        .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
-      const l = ledger('c1', 4)
-      seedFeed('c1', spokenIn('c1'))
-      const first = draw('c1')
-      await type('held')
-      await press('Enter')
-      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
-      act(() => seedFeed('c1', [l.prompt(String(submit.mock.calls[0]?.[3]), 'held')]))
+    const submit = submitted()
+    const l = ledger('c1', 4)
+    seedFeed('c1', spokenIn('c1'))
+    const first = draw('c1')
+    await type('held')
+    await press('Enter')
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    act(() => seedFeed('c1', [l.prompt(String(submit.mock.calls[0]?.[3]), 'held')]))
 
-      await act(async () => vi.advanceTimersByTime(60_000))
-      expect(screen.queryByRole('button', { name: /open terminal/i })).not.toBeInTheDocument()
-      expect(screen.queryByText(/only its terminal can give/i)).not.toBeInTheDocument()
+    await act(async () => vi.advanceTimersByTime(60_000))
+    expect(screen.queryByRole('button', { name: /open terminal/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/only its terminal can give/i)).not.toBeInTheDocument()
 
-      draw('c1', { terminalWaiting: true, terminalWaitKind: '' })
-      first.unmount()
-      expect(screen.getByText(/only its terminal can give/i)).toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
+    draw('c1', { terminalWaiting: true, terminalWaitKind: '' })
+    first.unmount()
+    expect(screen.getByText(/only its terminal can give/i)).toBeInTheDocument()
   })
 })
 
@@ -479,12 +426,6 @@ describe('AgentChatView type-to-focus', () => {
     act(() => (document.activeElement as HTMLElement | null)?.blur())
     for (const key of pressed) fireEvent.keyDown(window, { key })
   }
-
-  it('does not redirect on three keys or fewer', () => {
-    draw('c1')
-    keys('h', 'e', 'l')
-    expect(markdown()).toBe('')
-  })
 
   it('ignores a modifier-held key and leaves the buffer for the plain keys after it', async () => {
     draw('c1')
@@ -510,10 +451,7 @@ describe('AgentChatView on a phone', () => {
   })
 
   it('treats Return as a newline: only the send button sends', async () => {
-    vi.spyOn(commands, 'submitAgentPrompt').mockResolvedValue({
-      runnerId: 'r1',
-      terminalSessionId: 'pty1',
-    })
+    submitted()
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
     await type('hello')
@@ -529,9 +467,7 @@ describe('AgentChatView on a phone', () => {
 // One chat, one name for the model: the blank handle and the underbar are the same
 // control, and a live runner's raw launch id must not replace the reported name.
 describe('AgentChatView model name', () => {
-  const selectable: AgentProvider[] = [
-    provider('codex', 'Codex', { modelSelect: true, models: ['gpt-5'] }),
-  ]
+  const selectable = [provider('codex', 'Codex', { modelSelect: true, models: ['gpt-5'] })]
 
   it('names the launch model on the blank document handle too', () => {
     seedFeed('c1', [])

@@ -937,24 +937,19 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // REGRESSION (live-reported: "rows on recents cannot be reorder"). The band
-  // spans every workspace and repo of one project, and a row whose chat owns a
-  // workspace wears `kind: 'branch'` there for its glyph — so the tree's
-  // repo/workspace scope rules refused most pairings the band can produce, and
-  // the drag never even drew an indicator, let alone committed.
+  // The band spans every repo and workspace of a project, and a workspace-owning row
+  // wears `kind: 'branch'` there, so the tree's scope rules must not apply to it.
   describe('a target in the Recents band (spec §8.1)', () => {
     const recentsRow = (id: string, over: Partial<SidebarRow> = {}) =>
       ({
         ...makeRow({ id, kind: 'chat', ownsWorktree: false, workspaceId: null, ...over }),
         inRecents: true,
       }) as SidebarRow & { inRecents: true }
+    const ownerRow = (id: string, workspaceId: string) =>
+      recentsRow(id, { kind: 'branch', ownsWorktree: true, workspaceId })
 
     it('lets a chat entry reorder past a workspace-owning entry, and back', () => {
-      const owner = recentsRow('chat-owner', {
-        kind: 'branch',
-        ownsWorktree: true,
-        workspaceId: 'ws-1',
-      })
+      const owner = ownerRow('chat-owner', 'ws-1')
       const plain = recentsRow('chat-plain', { workspaceId: 'ws-2' })
 
       expect(SIDEBAR_DROP_POLICY.allowedModes([plain], owner)).toEqual(ALL_MODES)
@@ -962,16 +957,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
 
     it('lets two workspace-owning entries from DIFFERENT repos reorder past each other', () => {
-      const fromRepo1 = recentsRow('chat-a', {
-        kind: 'branch',
-        ownsWorktree: true,
-        workspaceId: 'ws-1',
-      })
-      const fromRepo2 = recentsRow('chat-b', {
-        kind: 'branch',
-        ownsWorktree: true,
-        workspaceId: 'ws-2',
-      })
+      const fromRepo1 = ownerRow('chat-a', 'ws-1')
+      const fromRepo2 = ownerRow('chat-b', 'ws-2')
 
       expect(SIDEBAR_DROP_POLICY.allowedModes([fromRepo1], fromRepo2)).toEqual(ALL_MODES)
     })

@@ -223,14 +223,6 @@ func writeCharset(
 	}
 }
 
-func encodeGridRow(
-	emu emulator,
-	cols int,
-	y int,
-) string {
-	return encodeLine(snapshotRowInto(emu, nil, cols, y), cols, true)
-}
-
 // encodeLine renders cells (up to width columns) into SGR-run-length ANSI; see appendLine.
 func encodeLine(
 	cells []uv.Cell,

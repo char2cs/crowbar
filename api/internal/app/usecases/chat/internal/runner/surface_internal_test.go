@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -213,4 +216,104 @@ func TestReconcileRunnerExit_ForgetsTheRunnersSurface(t *testing.T) {
 	rs.reconcileRunnerExit(context.Background(), "runner-1")
 
 	assert.False(t, rs.ShowingNativeView("runner-1"))
+}
+
+// spySurfaceChats records every SetSurface write, so a test can assert on the
+// DURABLE surface rather than only on the in-process mirror of it.
+type spySurfaceChats struct {
+	stubChatsForSpawn
+	written chan string
+}
+
+func newSpySurfaceChats() *spySurfaceChats {
+	return &spySurfaceChats{
+		stubChatsForSpawn: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
+		written:           make(chan string, 4),
+	}
+}
+
+// lastWritten is a NON-BLOCKING read: the write happens inside the call under
+// test and has already returned by the time a test asks, so an empty channel
+// means the write never happened — never that it has not happened yet.
+func (s *spySurfaceChats) lastWritten(t *testing.T) string {
+	t.Helper()
+	select {
+	case surface := <-s.written:
+		return surface
+	default:
+		t.Fatal("nothing wrote the chat's current surface")
+		return ""
+	}
+}
+
+func (s *spySurfaceChats) SetSurface(
+	_ context.Context, _, surface string,
+) (domain.Chat, error) {
+	s.written <- surface
+	return s.chat, nil
+}
+
+// TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface: the switch
+// endpoints are the two moments Crowbar is actually TOLD the user moved, so
+// they are what makes domain.Chat.Surface a current fact instead of a birth
+// record. Without this the chat came back from a daemon restart (or any
+// respawn) believing it was still on the surface it was created on, and
+// rebuilt the wrong transport underneath the view the user was looking at.
+func TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface(t *testing.T) {
+	rs, chats := switchSurfaceFixture(t)
+
+	_, err := rs.SwitchToTerminal(context.Background(), "chat-1")
+	require.NoError(t, err)
+
+	require.Equal(t, domain.SurfaceTerminal, chats.lastWritten(t))
+	require.True(t, rs.ShowingNativeView("runner-1"),
+		"the in-process mirror moves with the durable field, never independently of it")
+}
+
+// TestRegression_SwitchToNativeWritesTheChatsCurrentSurface is the reverse:
+// a chat handed back to Crowbar's own chat must stop reporting a native view.
+func TestRegression_SwitchToNativeWritesTheChatsCurrentSurface(t *testing.T) {
+	rs, chats := switchSurfaceFixture(t)
+
+	_, err := rs.SwitchToTerminal(context.Background(), "chat-1")
+	require.NoError(t, err)
+	require.Equal(t, domain.SurfaceTerminal, chats.lastWritten(t))
+
+	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
+
+	require.Equal(t, domain.SurfaceChat, chats.lastWritten(t))
+	require.False(t, rs.ShowingNativeView("runner-1"))
+}
+
+// switchSurfaceFixture stands up the smallest Runners that can complete a
+// real SwitchToTerminal: a live api connection over this file's in-process
+// server, a completed turn on the runner's own session, and an idle chat.
+func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
+	t.Helper()
+	stdio := fakeServe(t, nil)
+	agent := attachTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = apiConn.Close() })
+
+	chats := newSpySurfaceChats()
+	rs := &Runners{
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
+		surfaces: newSurfaceRegistry(), chatLock: newTestLock(), parks: newParks(),
+		live:  liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns: noopTurns{},
+
+		term:    &fakeTermForAttach{},
+		chats:   chats,
+		agents:  engineagents.New(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
+		ledger:  turnedTestLedger(t, "attach-test", "sess-1"),
+	}
+	rs.apiConns.set("runner-1", &apiconn{
+		driver: apiConn, ctx: ctx, agent: agent,
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
+	})
+	return rs, chats
 }

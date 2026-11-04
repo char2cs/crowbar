@@ -7,7 +7,6 @@
 package outbound
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -33,19 +32,6 @@ func Resolve(
 		out[field] = Substitute(tmpl, values)
 	}
 	return e.Out.Name(), out, true
-}
-
-// Declared lists the canonical events Crowbar can SEND to this provider, sorted. It is
-// what a capability flag is built from.
-func Declared(d *spec.Descriptor) []string {
-	var out []string
-	for name, e := range d.Events {
-		if !e.Out.Empty() {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // Substitute replaces every {name} with its value. An unsupplied name becomes EMPTY

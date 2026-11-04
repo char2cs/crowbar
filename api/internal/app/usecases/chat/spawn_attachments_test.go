@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -38,8 +39,8 @@ func TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage(t *
 	absPath := filepath.ToSlash(filepath.Join(
 		worktreepath.AttachmentsDir(f.ws.chatsDir, chatID), stored.FileName))
 	wantText := "check this out ![photo](" + absPath + ")"
-	assert.Equal(t, -1, indexOf(last.argv, text), "the raw durable ref must never reach the CLI's argv")
-	assert.NotEqual(t, -1, indexOf(last.argv, wantText))
+	assert.Equal(t, -1, slices.Index(last.argv, text), "the raw durable ref must never reach the CLI's argv")
+	assert.NotEqual(t, -1, slices.Index(last.argv, wantText))
 }
 
 // TestSubmitPrompt_NoAttachmentReference_DispatchesTheTextUnchanged guards the
@@ -54,7 +55,7 @@ func TestSubmitPrompt_NoAttachmentReference_DispatchesTheTextUnchanged(t *testin
 	require.NoError(t, err)
 
 	last := f.term.calls[len(f.term.calls)-1]
-	assert.NotEqual(t, -1, indexOf(last.argv, text))
+	assert.NotEqual(t, -1, slices.Index(last.argv, text))
 }
 
 // A steered prompt reaches the CLI as its row records it for dispatch, whichever

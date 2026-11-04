@@ -135,12 +135,6 @@ function problemIn(op: Operation, entityId: string): Problem | null {
   return op.error ?? null
 }
 
-/** The reason the newest operation naming `entityId` failed, or null once the user dismissed it. */
-export function selectEntityProblem(s: OperationsState, entityId: string): Problem | null {
-  const op = failedOpFor(s, entityId)
-  return op ? problemIn(op, entityId) : null
-}
-
 /** Every entity whose newest operation failed, keyed to that operation (shallow-stable). */
 export function selectFailedOps(s: OperationsState): Record<string, Operation> {
   const failed: Record<string, Operation> = {}

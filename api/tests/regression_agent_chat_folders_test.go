@@ -19,10 +19,6 @@ import (
 // that are deliberately opposite — a folder promotes what it held, a chat takes
 // its whole subtree. Each test drives the real HTTP surface, so a rule that only
 // ever existed in the frontend would fail here.
-//
-// The tests below were unblocked by Task 5, which made WorkspaceID optional
-// in the Create command. A folder is created with no workspace by design, and
-// the Create command now supports this.
 
 // agentChatFolderDTO mirrors the WIRE SHAPE a folder route answers with today:
 // dto.AgentChatDTO (api/internal/api/v0/dto/agent.go), not the deleted

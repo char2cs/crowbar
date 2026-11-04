@@ -7,9 +7,7 @@
  * The list comes from the GLOBAL provider store, not the active workspace: the
  * Settings dialog is global, and reading a per-workspace copy made this tab claim
  * the daemon had no providers whenever no workspace was in view. Only the network
- * seam is mocked. A full @dnd-kit pointer
- * drag is NOT driven here (brittle in jsdom) — the reorder→payload mapping is
- * unit-tested in provider-preferences.test.ts.
+ * seam is mocked; the reorder→payload mapping is provider-preferences.test.ts's.
  */
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -115,10 +113,14 @@ function store() {
  */
 function seedProviders(providers: AgentProvider[]) {
   listGlobalProvidersFn.mockResolvedValue(providers)
+  inWorkspace()
+  act(() => useAgentProvidersStore.setState({ providers, status: 'ready' }))
+}
+
+function inWorkspace() {
   act(() => {
     setActiveWorkspaceStoreForTests(store())
     setActiveWorkspaceId('w1')
-    useAgentProvidersStore.setState({ providers, status: 'ready' })
   })
 }
 
@@ -209,11 +211,8 @@ describe('ProvidersSettings', () => {
     seedProviders([provider('codex', 'Codex', true, true)])
     render(<ProvidersSettings />)
 
-    // A Section's own header is hidden when it is the first one in a tab
-    // (settings-section.tsx), so this tab renders its heading + intro in the
-    // BODY. Without them the group is a bare list of names that never says what
-    // an agent actually is. The name is Agents (spec §11) — user-facing only;
-    // the tab id, the store and the wire all still say provider.
+    // The first Section hides its own header, so the tab carries heading and intro in
+    // its body; the name is user-facing only (the wire still says provider).
     expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByText(/coding CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
@@ -229,10 +228,7 @@ describe('ProvidersSettings', () => {
   })
 
   // ── The column header ───────────────────────────────────────────────
-  // The row ends in a dot and two switches. Two unlabelled switches side by side
-  // is a guessing game, and the row could only ever afford one inline word
-  // ("Tools") — repeated on every row, with the other switch still anonymous.
-  // The columns are titled once, above the list, like a table header.
+  // Two unlabelled switches per row are a guessing game: the columns are titled once.
   describe('the column header', () => {
     /** The three trailing control cells of a row, in render order. */
     const rowColumns = (id: string) => [
@@ -275,13 +271,8 @@ describe('ProvidersSettings', () => {
       )
     })
 
-    // ALIGNMENT, STRUCTURALLY. `Switch` is `w-[calc(var(--thumb-size)*2-2px)]`
-    // and `--thumb-size` drops from `--spacing(5)` to `--spacing(4)` at `sm:`, so
-    // the switch is ~38px on a narrow settings pane and ~30px on a wide one. A
-    // header label with its own hardcoded width would sit off-centre at one of
-    // those. Header and row must therefore render the SAME column box — asserted
-    // here against each other, not against a copy of the expected value, so
-    // hardcoding a width into either side fails this test.
+    // `Switch` changes width at `sm:`, so header and row must render the SAME column
+    // box: asserted against each other, so a hardcoded width on either side fails.
     it('lays the header labels out in the same column box as the row controls', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       render(<ProvidersSettings />)
@@ -316,9 +307,7 @@ describe('ProvidersSettings', () => {
       )
     })
 
-    // A header titles columns that exist. None of these three states has a
-    // single row under it, and a legend floating over a spinner or an error is
-    // just furniture.
+    // A header titles columns that exist: none over the empty, loading or failed list.
     it('does not appear over the empty state', () => {
       seedProviders([])
       render(<ProvidersSettings />)
@@ -326,40 +315,10 @@ describe('ProvidersSettings', () => {
       expect(screen.getByText('No agents available.')).toBeInTheDocument()
       expect(screen.queryByTestId('provider-columns-header')).toBeNull()
     })
-
-    it('does not appear while the first fetch is in flight', () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
-      listGlobalProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
-
-      render(<ProvidersSettings />)
-
-      expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
-      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
-    })
-
-    it('does not appear when the list could not be loaded', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
-      listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
-
-      render(<ProvidersSettings />)
-
-      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
-      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
-    })
   })
 
   // ── The tab is GLOBAL; the workspace store is not ───────────────────
-  // Reported live: "No providers available." with both CLIs installed, both rows
-  // enabled in the daemon's own sqlite, and the workspace-scoped GET returning
-  // them. The list was being read out of the ACTIVE WORKSPACE store, so any
-  // moment without one — Project Home, the projects screen, mid-switch — made
-  // this tab assert something false about the machine.
+  // Read from the active workspace, any moment without one claimed no providers.
   describe('with no workspace in view', () => {
     it('still renders the providers it knows about', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
@@ -396,10 +355,7 @@ describe('ProvidersSettings', () => {
     // Opening the tab GETs /v0/settings/chat/providers — not the in-view workspace's
     // chat-providers route, which is the wrong daemon whenever that workspace is remote.
     it('reads the local daemon on open through the global route', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+      inWorkspace()
       listGlobalProvidersFn.mockResolvedValue([provider('codex', 'Codex', true, true)])
 
       render(<ProvidersSettings />)
@@ -410,10 +366,7 @@ describe('ProvidersSettings', () => {
     })
 
     it('shows a loading state while the first fetch is in flight', () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+      inWorkspace()
       const inflight = deferred<AgentProvider[]>()
       listGlobalProvidersFn.mockReturnValue(inflight.promise)
 
@@ -421,26 +374,22 @@ describe('ProvidersSettings', () => {
 
       expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
       expect(screen.queryByText('No agents available.')).toBeNull()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
     })
 
     it('shows the unavailable state — not the empty one — when the fetch fails', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+      inWorkspace()
       listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
 
       render(<ProvidersSettings />)
 
       await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
       expect(screen.queryByText('No agents available.')).toBeNull()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
     })
 
     it('loads the list again from the unavailable state when asked to retry', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+      inWorkspace()
       listGlobalProvidersFn.mockRejectedValueOnce(new Error('daemon is down'))
       listGlobalProvidersFn.mockResolvedValueOnce([provider('codex', 'Codex', true, true)])
       render(<ProvidersSettings />)
@@ -478,9 +427,8 @@ describe('ProvidersSettings', () => {
   })
 
   // ── Crowbar's tools, per provider ───────────────────────────────────
-  // A SECOND, INDEPENDENT axis: a provider with its tools off still spawns and
-  // still holds a normal chat — the agent just cannot reach into Crowbar. The row
-  // never says "MCP"; the transport is not what the user is deciding.
+  // Independent of enabled: with tools off a provider still chats, it just cannot
+  // reach Crowbar.
   describe('the tools switch', () => {
     it('renders one per row, reflecting mcpEnabled', () => {
       seedProviders([
@@ -537,17 +485,8 @@ describe('ProvidersSettings', () => {
       expect(screen.getByTestId('provider-toggle-codex')).toHaveAttribute('aria-checked', 'true')
     })
 
-    // THE LANDMINE. The PUT replaces whole rows, so any later write that forgot
-    // this flag would write its zero value back over the user's choice. Every
-    // write carries both flags — here, an enable toggle taken after a tools
-    // toggle still says mcpDisabled.
-    //
-    // BOTH CLICKS ARE ON THE SAME PROVIDER, deliberately. The pair that has to
-    // survive is "turn this provider's tools off, then turn this provider off":
-    // handleToggle carries mcpDisabled through from the row it is flipping, so
-    // aiming the second click at a DIFFERENT provider tested nothing — claude's
-    // mcpDisabled was already false, and dropping the flag from handleToggle's
-    // payload left the assertion passing.
+    // The PUT replaces whole rows, so every write carries both flags. Both clicks hit
+    // the same provider: handleToggle carries mcpDisabled from the row it flips.
     it("survives a later toggle of the same provider's enable switch", async () => {
       seedProviders([
         provider('codex', 'Codex', true, true),
@@ -589,13 +528,8 @@ describe('ProvidersSettings', () => {
   })
 
   // ── A READ THAT OVERTAKES A WRITE ───────────────────────────────────
-  // The rows are interactive from the workspace seed, so the user can toggle
-  // while the mount GET is still in flight. That GET is a snapshot of the server
-  // BEFORE the PUT, and publishing it re-installs the pre-write list: the switch
-  // visibly flips back, and — because every write PUTs the complete set built
-  // from whatever the store now says — the next drag or toggle writes the stale
-  // flag back to the daemon. Sequencing writes against writes cannot see this;
-  // the fence has to cover reads.
+  // The mount GET is a snapshot from before a toggle's PUT; publishing it flips the
+  // switch back and the next full-set write sends the stale flag. Reads are fenced too.
   describe('a stale read landing after a write', () => {
     /** Seeded, with the mount GET deliberately left in flight. */
     function seedWithGetInFlight(providers: AgentProvider[]) {
@@ -680,10 +614,7 @@ describe('ProvidersSettings', () => {
   })
 
   // ── Overlapping writes ─────────────────────────────────────────────
-  // Every write PUTs the COMPLETE preference set, so a payload built from a
-  // stale snapshot doesn't just miss an update — it actively UNDOES one. And
-  // because `Switch checked={provider.enabled}` is fully controlled off the
-  // store, the user never even saw their first toggle move.
+  // Every write PUTs the complete set, so one built from a stale snapshot undoes an update.
   describe('overlapping writes', () => {
     it('builds the second payload from the first toggle, not the pre-response snapshot', async () => {
       seedProviders([
@@ -840,10 +771,8 @@ describe('ProvidersSettings', () => {
       expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded')
     })
 
-    // THE RACE: a user who changes their mind before the first PUT settles.
-    // The first write's eventual rejection must not roll back a SECOND,
-    // already-successful selection — and must not toast for a write that is
-    // no longer current.
+    // A first write's late rejection must not roll back or toast over a second,
+    // already-successful selection.
     it('keeps the later selection when an earlier, now-stale write rejects after a later one resolves', async () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       getDefaultPermissionLevelFn.mockResolvedValue('guarded')

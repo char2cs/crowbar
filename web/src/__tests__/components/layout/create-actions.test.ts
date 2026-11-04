@@ -92,6 +92,9 @@ beforeEach(() => {
 
 const ANY = expect.any(String)
 
+const offerProviders = (...providers: { id: string; enabled: boolean }[]) =>
+  useAgentProvidersStore.setState({ status: 'ready', providers: providers as never })
+
 /** Confirms the naming input `handleCreate` opened, as the row's input does. */
 function confirmArmedBranchName(name = 'typed-branch', navigate = vi.fn()): void {
   if (!treeUiStore.getState().draft) throw new Error('no draft is open')
@@ -139,10 +142,7 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
 // (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
 describe('creating a workspace off the repo-home row', () => {
   it('calls the atomic own-worktree endpoint, not postWorkspace', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
@@ -162,10 +162,7 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('falls back to the clicked row id for a workspace that names no owning chat', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
 
     handleCreate('ws-a', 'workspace', vi.fn())
@@ -184,13 +181,7 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('picks the first ENABLED provider from the global provider store', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [
-        { id: 'disabled-one', enabled: false },
-        { id: 'codex', enabled: true },
-      ] as never,
-    })
+    offerProviders({ id: 'disabled-one', enabled: false }, { id: 'codex', enabled: true })
     seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
@@ -209,7 +200,6 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('is a silent no-op with no enabled provider loaded yet', async () => {
-    useAgentProvidersStore.setState({ status: 'ready', providers: [] })
     seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
@@ -220,10 +210,7 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('a second click while the first create is still in flight mints nothing extra', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
@@ -239,10 +226,7 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('releases the guard once the request settles, so the NEXT click is honored', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
@@ -258,10 +242,7 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('a different row is never blocked by another row’s in-flight create', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([repo(), repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' })])
 
     handleCreate('home-1', 'workspace', vi.fn())
@@ -284,10 +265,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     })
 
   it('names the workspace’s OWNING CHAT, never the clicked row id', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
@@ -308,10 +286,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
   // The daemon sends the branch's entities before the operation's succeeded (R16).
   it('a branch create draws its row from the operation and opens the chat once it succeeded', async () => {
     resetWindowPaneStoreForTests()
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([forkRepo()])
     const navigate = vi.fn(() => Promise.resolve())
 
@@ -356,10 +331,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 
   it('a branch create the daemon refuses keeps its row with the reason', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([forkRepo()])
     createChatWithOwnWorktree.mockImplementationOnce(() =>
       Promise.reject(new ApiError('feature/x already exists', 409, 'conflict')),
@@ -382,10 +354,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
   // The naming row sits at the OWNING CHAT parent: a real sibling's parentId is
   // the parent's rendered id, never the raw workspace id.
   it('confirming a name starts the create; cancelling clears the draft', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
@@ -413,10 +382,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 
   it('its thread "+" still runs in the workspace, not in the owning chat', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: true })
     seedRepos([forkRepo()])
 
     await createThread('ws-a', vi.fn())
@@ -432,10 +398,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 
   it('says why instead of silently doing nothing when no provider is enabled', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: false }] as never,
-    })
+    offerProviders({ id: 'claude', enabled: false })
     seedRepos([forkRepo()])
 
     await createThread('ws-a', vi.fn())
@@ -445,7 +408,6 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 
   it('says why instead of silently doing nothing when a fork finds no provider', () => {
-    useAgentProvidersStore.setState({ status: 'ready', providers: [] as never })
     seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
@@ -472,7 +434,6 @@ describe('forking a workspace of a project on a remote host', () => {
     resetHostWorld()
     pairRemoteHost('host-1')
     loadProjects(projectOn('p-remote', 'host-1'))
-    useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
     seedRepos([remoteRepo()])
   })
   afterEach(() => resetHostWorld())

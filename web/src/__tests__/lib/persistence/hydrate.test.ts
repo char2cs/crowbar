@@ -545,43 +545,21 @@ describe('hydrateSidebar', () => {
     expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 
-  // The retired key a previous build persisted replays as "every repo open", the
-  // product default: gating on it left repos that never loaded a thread.
-  it('ignores the retired collapsedRepos key a previous build persisted', async () => {
+  // Retired keys a previous build persisted replay as "everything open", the product
+  // default: gating on them left repos that never loaded a thread and projects blank.
+  it('ignores the retired collapsedRepos, -Workspaces and -Projects keys', async () => {
     await saveSidebarUI({
       collapsedRepos: ['crowbar', 'quiver-core'],
-      collapsedWorkspaces: [],
-      collapsedChatRows: ['f1'],
-    })
-    await hydrateSidebar()
-    const state = treeUiStore.getState() as unknown as Record<string, unknown>
-    expect(state.collapsedRepos).toBeUndefined()
-    expect(treeUiStore.getState().collapsed.has('f1')).toBe(true)
-  })
-
-  it('ignores the retired collapsedWorkspaces key a previous build persisted', async () => {
-    await saveSidebarUI({ collapsedRepos: [], collapsedWorkspaces: ['ws3', 'ws1'] })
-    await hydrateSidebar()
-    const state = treeUiStore.getState() as unknown as Record<string, unknown>
-    expect(state.collapsedWorkspaces).toBeUndefined()
-    expect(treeUiStore.getState().collapsed.size).toBe(0)
-  })
-
-  // REGRESSION (restyle v2): the old build's project-row fold persisted this
-  // set and project-visibility gated a folded project's streams on it; the
-  // restyled sidebar has no writer, so a project it folded rendered blank
-  // whenever it was not active. The key is retired like collapsedRepos.
-  it('ignores the retired collapsedProjects key a previous build persisted', async () => {
-    await saveSidebarUI({
-      collapsedRepos: [],
-      collapsedWorkspaces: [],
+      collapsedWorkspaces: ['ws3', 'ws1'],
       collapsedProjects: ['p2', 'p3'],
       collapsedChatRows: ['f1'],
     })
     await hydrateSidebar()
     const state = treeUiStore.getState() as unknown as Record<string, unknown>
-    expect(state.collapsedProjects).toBeUndefined()
-    expect(treeUiStore.getState().collapsed.has('f1')).toBe(true)
+    expect(state.collapsedRepos ?? state.collapsedWorkspaces ?? state.collapsedProjects).toBe(
+      undefined,
+    )
+    expect([...treeUiStore.getState().collapsed]).toEqual(['f1'])
   })
 
   it('restores collapsedChatRows from IDB', async () => {

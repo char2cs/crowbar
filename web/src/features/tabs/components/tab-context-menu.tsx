@@ -25,7 +25,6 @@ interface TabContextMenuProps {
   isOpen: boolean
   position: { x: number; y: number }
   buffer: PaneContent | null
-  paneId?: string
   onClose: () => void
   onPin: (bufferId: string) => void
   onCloseTab: (bufferId: string) => void
@@ -36,8 +35,6 @@ interface TabContextMenuProps {
   onCopyRelativePath?: (path: string) => void
   onReload?: (bufferId: string) => void
   onRevealInFinder?: (path: string) => void
-  onSplitRight?: (paneId: string, bufferId: string) => void
-  onSplitDown?: (paneId: string, bufferId: string) => void
 }
 
 const TabContextMenu = ({
@@ -54,10 +51,6 @@ const TabContextMenu = ({
   onCopyRelativePath,
   onReload,
   onRevealInFinder,
-  // paneId/onSplitRight/onSplitDown are still accepted (tab-bar.tsx keeps
-  // wiring them from splitEditorGroup) but deliberately unused: spec §7.3 —
-  // "a pane group is a group of chats, never of tabs" (Law 3) — a tab's
-  // context menu no longer offers a way to split a pane.
 }: TabContextMenuProps) => {
   // Stays mounted while closed (the tab bar keeps the buffer): unmounting at once
   // makes base-ui return focus to the tab, stealing it from the Rename prompt.
