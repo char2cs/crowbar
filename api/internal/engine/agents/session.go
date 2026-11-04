@@ -73,3 +73,10 @@ func (s squeezedScreen) find(needle string) (string, bool) {
 	first, last := s.from[at], s.from[at+len(n)-1]
 	return strings.TrimSpace(s.rows[first.row][:first.off] + needle + s.rows[last.row][last.off+1:]), true
 }
+
+func (a *agent) ResumeArg() (string, bool) {
+	if a.spec.Session.Resume == nil || a.spec.Session.Resume.Arg == "" {
+		return "", false
+	}
+	return a.spec.Session.Resume.Arg, true
+}

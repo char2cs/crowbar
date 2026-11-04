@@ -3,16 +3,12 @@ package agents
 import (
 	"context"
 	"errors"
-	"os"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/modeldiscovery"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/selection"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -21,26 +17,15 @@ import (
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
 
-// Allowed reports whether want is acceptable against a resolved catalogue.
-// A non-empty known list rejects anything it omits, same as always. An
-// EMPTY one only means "nothing is valid" when nothing could ever resolve
-// it (discovered is false — no catalogue declared, or a static one that is
-// itself empty); when discovered is true, empty means "a live probe hasn't
-// resolved this yet", and rejecting on that would wedge selection every
-// time discovery is merely pending or failed. Every selection-validation
-// gate (promptswitch.go, the two selection.go files) reads
-// Agent.Models()/Efforts() plus Agent.Capabilities().ModelDiscovery through
-// this rather than a bare slices.Contains.
+// Allowed reports whether want is acceptable against a resolved catalogue. An empty known list
+// rejects everything only when nothing could resolve it (!discovered); while discovery is pending
+// or failed, rejecting would wedge selection.
 func Allowed(known []string, discovered bool, want string) bool {
 	if len(known) > 0 {
 		return slices.Contains(known, want)
 	}
 	return discovered
 }
-
-// errAPITransportNotDeclared is StartAPIConn's refusal for a hooks-only
-// descriptor — one with no runtime.api and no event overriding transport: api.
-var errAPITransportNotDeclared = errors.New("agents: provider does not declare an api transport")
 
 type Agents interface {
 	List(ctx context.Context, homeDir string) ([]Agent, error)
@@ -207,194 +192,6 @@ type Agent interface {
 	SurfaceStartHere(surface string) bool
 }
 
-type service struct {
-	injected *registry.Registry
-	// acceptOverride is WithOverrideCheck's predicate, nil to admit all.
-	acceptOverride func(raw []byte) bool
-
-	resolved sync.Mutex
-	// descriptors caches Get per (homeDir, id): the hook recorder calls it per
-	// streamed delta, and a full Resolve costs a millisecond. A Stat of the
-	// override path keeps an edited override picked up without a restart.
-	descriptors map[string]descriptorCacheEntry
-
-	// discovery is the shared, provider-keyed cache behind a model.discover
-	// OR model.manifest descriptor's Models()/Efforts() — one instance for
-	// every agent this service ever builds, so a refresh triggered by one
-	// List/Get is visible to the next, however many *agent values point at
-	// it.
-	discovery *modeldiscovery.Cache
-
-	// manifestFetchMu guards manifestFetch, the live getter
-	// SetManifestFetchEnabled installs — read fresh on every manifest
-	// refresh, never latched at construction, so a settings toggle takes
-	// effect on the very next refresh rather than needing a restart.
-	manifestFetchMu sync.RWMutex
-	manifestFetch   func() bool
-}
-
-// descriptorCacheEntry is one Get result, held until the on-disk override
-// path it was resolved against changes.
-type descriptorCacheEntry struct {
-	agent Agent
-	// overrideModTime is protocol.OverridePath's mtime as of this resolve, or
-	// the zero Time when no override file existed then (including every
-	// homeDir-less caller). Compared against a fresh Stat on every Get so an
-	// override created, edited, or removed on disk invalidates the entry —
-	// the zero Time changing to a real one, or a real one changing, are both
-	// "this changed" under time.Time.Equal.
-	overrideModTime time.Time
-}
-
-// serviceOpts is New's own option set — currently just the lifecycle context
-// its model-discovery cache forks background work against.
-type serviceOpts struct {
-	lifecycle      context.Context
-	acceptOverride func(raw []byte) bool
-}
-
-// Option configures New.
-type Option func(*serviceOpts)
-
-// WithLifecycle ties every background model-discovery refresh this service
-// ever forks to ctx: cancelling it (a daemon's own shutdown) stops in-flight
-// probes/fetches and refuses to store or write one that raced past the
-// cancellation — see modeldiscovery.Cache's own doc. Omitted, refreshes are
-// bound to context.Background() — never cancelled by anything — which is the
-// state every existing bare New() call (test or otherwise) is already in;
-// the app layer is the only caller that needs this, wiring its own
-// shutdown-bound context once at boot.
-func WithLifecycle(ctx context.Context) Option {
-	return func(o *serviceOpts) { o.lifecycle = ctx }
-}
-
-// WithOverrideCheck admits an on-disk descriptor override only when accept
-// passes it; a refused override runs the shipped default instead. Omitted,
-// every override is loaded as written.
-func WithOverrideCheck(accept func(raw []byte) bool) Option {
-	return func(o *serviceOpts) { o.acceptOverride = accept }
-}
-
-func New(opts ...Option) Agents {
-	cfg := serviceOpts{lifecycle: context.Background()}
-	for _, o := range opts {
-		o(&cfg)
-	}
-	return &service{
-		acceptOverride: cfg.acceptOverride,
-		injected:       registry.New(),
-		descriptors:    map[string]descriptorCacheEntry{},
-		discovery:      modeldiscovery.NewCache(cfg.lifecycle),
-	}
-}
-
-func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
-	descriptors, err := protocol.All(ctx, homeDir, s.acceptOverride)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Agent, 0, len(descriptors))
-	for _, d := range descriptors {
-		s.refreshModelsIfDeclared(d, homeDir)
-		out = append(out, &agent{spec: d, discovery: s.discovery})
-	}
-	return out, nil
-}
-
-func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
-	key := homeDir + "\x00" + id
-	modTime := overrideModTime(protocol.OverridePath(homeDir, id))
-
-	s.resolved.Lock()
-	cached, ok := s.descriptors[key]
-	s.resolved.Unlock()
-	if ok && cached.overrideModTime.Equal(modTime) {
-		return cached.agent, nil
-	}
-
-	d, err := protocol.Resolve(ctx, homeDir, id, s.acceptOverride)
-	if err != nil {
-		return nil, err
-	}
-	s.refreshModelsIfDeclared(d, homeDir)
-	a := &agent{spec: d, discovery: s.discovery}
-
-	s.resolved.Lock()
-	s.descriptors[key] = descriptorCacheEntry{agent: a, overrideModTime: modTime}
-	s.resolved.Unlock()
-	return a, nil
-}
-
-// refreshModelsIfDeclared kicks off a background catalogue refresh for a
-// descriptor that declares model.discover or model.manifest — a no-op (and
-// zero extra cost on every other Get/List call) for one that declares
-// neither.
-func (s *service) refreshModelsIfDeclared(d *spec.Descriptor, homeDir string) {
-	if d.Model == nil {
-		return
-	}
-	if d.Model.Discover != nil {
-		s.discovery.Refresh(d, homeDir)
-	}
-	if d.Model.Manifest != nil {
-		s.discovery.RefreshManifest(d, homeDir, protocol.EmbeddedModelManifest(), s.manifestFetchAllowed())
-	}
-}
-
-// SetManifestFetchEnabled installs the live getter refreshModelsIfDeclared's
-// model.manifest half reads before hitting the network.
-func (s *service) SetManifestFetchEnabled(enabled func() bool) {
-	s.manifestFetchMu.Lock()
-	defer s.manifestFetchMu.Unlock()
-	s.manifestFetch = enabled
-}
-
-// manifestFetchAllowed defaults to DISABLED (nil getter, the state before
-// SetManifestFetchEnabled is ever called) — every bare New(), every test —
-// so resolving a descriptor never makes a network call as a side effect
-// until the app layer explicitly wires the real, DB-backed getter (whose own
-// default IS enabled) at boot.
-func (s *service) manifestFetchAllowed() bool {
-	s.manifestFetchMu.RLock()
-	defer s.manifestFetchMu.RUnlock()
-	if s.manifestFetch == nil {
-		return false
-	}
-	return s.manifestFetch()
-}
-
-// overrideModTime is the zero Time for an empty path (no override possible)
-// or one Stat could not reach (none exists, or a permission error — either
-// way, Resolve itself will fail the same Stat too, so there is nothing this
-// cache could get more wrong than Resolve already would).
-func overrideModTime(path string) time.Time {
-	if path == "" {
-		return time.Time{}
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}
-
-// Close joins this service's model-discovery cache — see Agents.Close.
-func (s *service) Close() {
-	s.discovery.Close()
-}
-
-func (s *service) RecordInjection(runnerID string, docs ...string) {
-	s.injected.SetInjected(runnerID, docs...)
-}
-
-func (s *service) ConsumeInjectedPrefix(runnerID, text string) (string, bool) {
-	return s.injected.ConsumePrefix(runnerID, text)
-}
-
-func (s *service) ForgetRunner(runnerID string) {
-	s.injected.Forget(runnerID)
-}
-
 func Expand(s string, ctx TemplateCtx) string {
 	return template.Expand(s, ctx)
 }
@@ -529,13 +326,6 @@ func (a *agent) ContextSteps(resuming bool) []InjectStep {
 	return spec.CloneSteps(a.spec.ContextInject)
 }
 
-func (a *agent) ResumeArg() (string, bool) {
-	if a.spec.Session.Resume == nil || a.spec.Session.Resume.Arg == "" {
-		return "", false
-	}
-	return a.spec.Session.Resume.Arg, true
-}
-
 func (a *agent) ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error) {
 	return protocol.Recv(a.spec, canonical, raw, channel)
 }
@@ -584,60 +374,6 @@ func (a *agent) ProbeTelemetry(
 	return protocol.ProbeTelemetry(ctx, a.spec, opts, acquire, now)
 }
 
-func (a *agent) StartAPIConn(
-	ctx context.Context, stdio APIStdio, origin APISessionOrigin,
-) (*APIConn, error) {
-	if a.spec.Runtime.Transport != "api" && !hasAPIEventOverride(a.spec) {
-		return nil, errors.Join(errAPITransportNotDeclared, stdio.Close())
-	}
-	return protocol.StartAPIDriver(ctx, a.spec, stdio, origin)
-}
-
-// APIServeArgv is the api-transport `serve` argv: MCP + session config (never
-// hook wiring — spawn.InjectServe) plus the chat's model/effort via api_apply,
-// since this process is the only carrier a PTY-less runner has.
-func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
-	if len(a.spec.Runtime.API.Serve) == 0 {
-		return nil, false
-	}
-	argv := expandArgv(a.spec.Runtime.API.Serve, ctx)
-	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
-	sel := Selection{Model: ctx.Model, Effort: ctx.Effort}
-	if err := spawn.InjectServe(a.spec, ctx, plan, selection.APISteps(a.spec, sel)); err != nil {
-		return nil, false
-	}
-	return append([]string{plan.Executable}, plan.Argv...), true
-}
-
-// APIAttachArgv carries the SAME MCPInject/ConfigInjection steps APIServeArgv
-// now does — see that method's doc comment. It matters even more here: the
-// attached process is an ORDINARY hooks-transport CLI the instant it starts
-// (config_injection is where session_start/user_prompt/turn_stop/tool_pre&
-// post/subagent_pre&post/permission/compact_pre&post/session_end all get
-// wired to the hook server), so without this the one process a non-hotswap
-// provider hands a live turn over to would report NOTHING back to Crowbar's
-// ledger — indistinguishable from the chat going silently out of sync.
-//
-// It also carries spawn.Args (see spawn.PrependArgs), the same as a primary
-// interactive spawn does — the attached process IS an interactive TUI in
-// every way that matters here. Without this, an attached resume carries
-// config_injection's per-segment hook wiring but not spawn.Args' trust flag,
-// so it parks on an interactive hook-trust confirmation screen instead of
-// reaching the composer: confirmed live, this is what "switch to terminal"
-// looked like before this fix.
-func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
-	if len(a.spec.Runtime.API.Attach) == 0 {
-		return nil, false
-	}
-	argv := expandArgv(a.spec.Runtime.API.Attach, ctx)
-	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
-	spawn.PrependArgs(a.spec, ctx, plan)
-	if err := spawn.Inject(a.spec, ctx, plan, nil); err != nil {
-		return nil, false
-	}
-	return append([]string{plan.Executable}, plan.Argv...), true
-}
-
 func (a *agent) TransportFor(canonical string) string {
 	return a.spec.TransportFor(canonical)
 }
@@ -654,30 +390,7 @@ func (a *agent) SurfaceStartHere(surface string) bool {
 	return a.spec.SurfaceStartHere(surface)
 }
 
-func expandArgv(argv []string, ctx TemplateCtx) []string {
-	out := make([]string, len(argv))
-	for i, a := range argv {
-		out[i] = template.Expand(a, ctx)
-	}
-	return out
-}
-
-// hasAPIEventOverride reports whether any event declares transport: api even
-// when the runtime default is something else — defensive: neither shipped
-// descriptor relies on this today (an api provider's runtime.transport IS api
-// once merged), but StartAPIConn must not assume Runtime.Transport is the only
-// source of truth.
-func hasAPIEventOverride(d *spec.Descriptor) bool {
-	for _, e := range d.Events {
-		if e.Transport == "api" {
-			return true
-		}
-	}
-	return false
-}
-
 var (
 	_ Agents = (*service)(nil)
 	_ Agent  = (*agent)(nil)
-	_        = models.Telemetry{}
 )
