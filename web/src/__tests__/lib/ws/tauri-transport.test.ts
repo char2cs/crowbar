@@ -1,9 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The transport mints a Tauri Channel and bridges its frames into the
-// WebSocket-like onmessage callback. We mock @tauri-apps/api/core so a frame
-// pushed at the captured Channel fires onmessage with the RAW DTO text, and so
-// the open/send/close handlers invoke the right ws_* commands.
+// The mocked core captures each Channel the transport mints, so a test pushes frames
+// at it and reads which ws_* commands were invoked.
 
 interface MockChannel {
   onmessage: ((data: string | ArrayBuffer) => void) | null
@@ -107,17 +105,13 @@ describe('TauriWebSocket', () => {
 
   it('treats the close sentinel as a close (fires onclose, goes CLOSED) — not a message', async () => {
     const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
-    const onmessage = vi.fn()
-    const onclose = vi.fn()
-    sock.onmessage = onmessage
-    sock.onclose = onclose
+    const events = record(sock)
 
     await opened(sock)
     // The Rust reader pushes this exact sentinel when the daemon closes the stream.
     channels[0].onmessage?.('\u0000crowbar-ws-close')
 
-    expect(onclose).toHaveBeenCalledTimes(1)
-    expect(onmessage).not.toHaveBeenCalled()
+    expect(events).toEqual(['open@1', 'close'])
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
   })
 
@@ -131,14 +125,9 @@ describe('TauriWebSocket', () => {
     )
   })
 
-  // 'local' (the default every existing caller keeps using) must send NO
-  // hostId at all — Tauri Bridge plan Task 6's ws_open treats an omitted
-  // host_id as the local daemon, so sending 'local' explicitly would be a
-  // different (if harmless) wire shape than today's zero-arg callers produce.
+  // ws_open reads an omitted host_id as the local daemon, so 'local' sends none.
   it('omits hostId from ws_open when the host is "local" (the default)', async () => {
     new TauriWebSocket('/v0/projects/p/repos/r/workspaces', { hostId: 'local' })
-    // toHaveBeenCalledWith treats an `undefined`-valued key as absent, so this
-    // also proves the real call carries no hostId at all for the local host.
     await vi.waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('ws_open', {
         connId: 'conn-fixed-id',
@@ -318,11 +307,9 @@ describe('TauriWebSocket', () => {
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('ws_open', expect.anything()))
     invoke.mockClear()
 
-    sock.send('{"hello":true}')
-    expect(invoke).toHaveBeenCalledWith('ws_send', {
-      connId: 'conn-fixed-id',
-      data: '{"hello":true}',
-    })
+    const data = '{"hello":true}'
+    sock.send(data)
+    expect(invoke).toHaveBeenCalledWith('ws_send', { connId: 'conn-fixed-id', data })
   })
 
   it('close() invokes ws_close, fires onclose, and goes CLOSED', async () => {
@@ -335,42 +322,6 @@ describe('TauriWebSocket', () => {
     sock.close()
     expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' })
     expect(onclose).toHaveBeenCalled()
-    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
-  })
-
-  it('close() while CONNECTING defers ws_close until ws_open resolves and never fires onopen', async () => {
-    // Gate the ws_open resolution so we can close() while the socket is still
-    // CONNECTING — the StrictMode double-mount / rapid scope-switch race that
-    // leaks a daemon FD + 2 tokio tasks if the deferred teardown is missing.
-    let resolveOpen: (() => void) | undefined
-    invoke.mockImplementationOnce(
-      () =>
-        new Promise<undefined>((resolve) => {
-          resolveOpen = () => resolve(undefined)
-        }),
-    )
-
-    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
-    const onopen = vi.fn()
-    sock.onopen = onopen
-
-    // The Channel is minted, but ws_open has NOT resolved: still CONNECTING.
-    await vi.waitFor(() => expect(channels.length).toBe(1))
-    expect(sock.readyState).toBe(TauriWebSocket.CONNECTING)
-
-    // Close before the handshake completes. Rust hasn't registered the
-    // connection yet, so no eager ws_close (it would be a Rust-side no-op).
-    sock.close()
-    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
-    expect(invoke).not.toHaveBeenCalledWith('ws_close', expect.anything())
-
-    // ws_open now resolves: the connection is registered, so the deferred
-    // ws_close fires to tear it down — and onopen must NOT fire.
-    resolveOpen?.()
-    await vi.waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' }),
-    )
-    expect(onopen).not.toHaveBeenCalled()
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
   })
 
@@ -425,13 +376,19 @@ describe('TauriWebSocket', () => {
       expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
     })
 
-    it('is never delivered when the socket is closed while connecting', async () => {
+    // A close while CONNECTING (StrictMode's double mount) must still tear down what
+    // ws_open registers, or the daemon connection leaks.
+    it('is never delivered when closed while connecting, and ws_close waits for ws_open', async () => {
       const gate = gateOpen()
       const sock = new TauriWebSocket('/v0/stream')
       const events = record(sock)
 
       channels[0].onmessage?.('a')
+      expect(sock.readyState).toBe(TauriWebSocket.CONNECTING)
       sock.close()
+      expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+      // Rust has not registered the connection yet: an eager ws_close would be a no-op.
+      expect(invoke).not.toHaveBeenCalledWith('ws_close', expect.anything())
       gate.resolve()
       await vi.waitFor(() =>
         expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' }),
@@ -439,6 +396,7 @@ describe('TauriWebSocket', () => {
       channels[0].onmessage?.('b')
 
       expect(events).toEqual(['close'])
+      expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
     })
 
     it('is never delivered when ws_open fails', async () => {
