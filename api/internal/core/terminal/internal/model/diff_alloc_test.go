@@ -99,18 +99,6 @@ func TestSnapshotRowInto_GrowsWhenDstTooSmall(t *testing.T) {
 	}
 }
 
-// encodeGridRow must stay equivalent to encoding a snapshot of the same row —
-// the identity that let writeScreenDiff drop its second materialisation.
-func TestEncodeGridRow_MatchesEncodedSnapshot(t *testing.T) {
-	emu := allocTestEmu(t, 10, 3)
-
-	want := encodeGridRow(emu, 10, 0)
-	got := encodeLine(snapshotRowInto(emu, nil, 10, 0), 10, true)
-	if got != want {
-		t.Errorf("encodeLine(snapshot) = %q, want encodeGridRow = %q", got, want)
-	}
-}
-
 // Scrolling is the hot path: every emit grows scrollback, which invalidates
 // every row. The rows' backing arrays must survive that invalidation and be
 // refilled in place — nilling them (or re-materialising a row per emit for the

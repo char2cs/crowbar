@@ -97,14 +97,6 @@ func (e *ExitError) Error() string {
 
 func (e *ExitError) Unwrap() error { return ErrCommandFailed }
 
-func ExitCode(err error) (int, bool) {
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.Code, true
-	}
-	return 0, false
-}
-
 type budget struct {
 	mu        sync.Mutex
 	remaining int

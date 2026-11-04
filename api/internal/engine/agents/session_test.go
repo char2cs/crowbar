@@ -67,3 +67,17 @@ func TestSessionPersists_IsWhenTheCLIHasWrittenItsSession(t *testing.T) {
 	assert.Equal(t, "turn_end", get(t, "codex").SessionPersists())
 	assert.Equal(t, "turn_start", get(t, "claude").SessionPersists())
 }
+
+func TestAgent_ResumeArgIsDeclaredByBothShippedAgents(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		arg, ok := get(t, id).ResumeArg()
+		assert.True(t, ok, id)
+		assert.Contains(t, arg, "{id}", id)
+	}
+}
+
+func TestAgent_ResumeArgIsAbsentWhereNoneIsDeclared(t *testing.T) {
+	_, ok := stubAgent(t, "sh").ResumeArg()
+
+	assert.False(t, ok)
+}

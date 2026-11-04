@@ -309,9 +309,9 @@ func (otherModel) ModelBytes() int64                  { return 0 }
 func (otherModel) Close()                             {}
 func (otherModel) SetResponseSink(func(p []byte))     {}
 
-func TestEncodeGridRowOutOfBounds(t *testing.T) {
+func TestEncodeLineOfAnOutOfBoundsRowIsEmpty(t *testing.T) {
 	m := newVTModel(5, 3, 100)
-	if got := encodeGridRow(m.emu, 5, 999); got != "" {
+	if got := encodeLine(snapshotRowInto(m.emu, nil, 5, 999), 5, true); got != "" {
 		t.Fatalf("out-of-bounds row encoded to %q, want empty", got)
 	}
 }
