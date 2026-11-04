@@ -31,6 +31,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
+const HALT_EVENTS = ['daemon:halted', 'daemon:restarted']
 const REASON = 'this home is at layout 9 but this Crowbar only knows layout 0'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: object }
@@ -64,14 +65,14 @@ describe('the root route', () => {
     renderRootOn('/oobe')
 
     expect(await screen.findByText('first-run screen')).toBeTruthy()
-    await waitFor(() => expect(handlers.size).toBe(4))
+    await waitFor(() => expect([...handlers.keys()]).toEqual(expect.arrayContaining(HALT_EVENTS)))
     expect(screen.queryByText(/could not start/i)).toBeNull()
   })
 
   it('replaces the first-run route with the halt screen when the daemon announces a halt', async () => {
     renderRootOn('/oobe')
     await screen.findByText('first-run screen')
-    await waitFor(() => expect(handlers.size).toBe(4))
+    await waitFor(() => expect([...handlers.keys()]).toEqual(expect.arrayContaining(HALT_EVENTS)))
 
     act(() => handlers.get('daemon:halted')!({ payload: REASON }))
 
@@ -82,7 +83,7 @@ describe('the root route', () => {
 
   it('returns to the route when the daemon is restarted', async () => {
     renderRootOn('/oobe')
-    await waitFor(() => expect(handlers.size).toBe(4))
+    await waitFor(() => expect([...handlers.keys()]).toEqual(expect.arrayContaining(HALT_EVENTS)))
     act(() => handlers.get('daemon:halted')!({ payload: REASON }))
     await screen.findByText(REASON)
 

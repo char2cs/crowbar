@@ -18,17 +18,25 @@ export async function readDesktopFile(path: string, limit: UploadLimit): Promise
   const unreadable = (cause?: unknown) =>
     new UserFacingError(`could not read ${name} to send it to the remote host`, { cause })
   const src = convertFileSrc(path)
-  const read = (init?: RequestInit) =>
-    fetch(src, init).catch((err: unknown) => {
-      throw unreadable(err)
-    })
-  const head = await read({ method: 'HEAD' })
-  if (head.ok && Number(head.headers.get('content-length')) > limit.bytes) throw tooLarge()
-  const res = await read()
+  const size = await sizeOf(src)
+  if (size !== null && size > limit.bytes) throw tooLarge()
+  const res = await fetch(src).catch((err: unknown) => {
+    throw unreadable(err)
+  })
   if (!res.ok) throw unreadable()
   const blob = await res.blob()
   if (blob.size > limit.bytes) throw tooLarge()
   return new File([blob], name, { type: blob.type })
+}
+
+// The HEAD is only a size probe: a protocol that cannot answer it must not cost the upload.
+async function sizeOf(src: string): Promise<number | null> {
+  try {
+    const head = await fetch(src, { method: 'HEAD' })
+    return head.ok ? Number(head.headers.get('content-length')) : null
+  } catch {
+    return null
+  }
 }
 
 /** Encodes a multipart body (each of `fields`, then `file` as `fileField`) as plain bytes:

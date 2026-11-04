@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { copyFileNode, renameFileNode } from '@/features/files/lib/file-tree-api'
 import { getBaseName, joinPath } from '@/utils/path-helpers'
 import { createSelectors } from '@/utils/zustand-selectors'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 export interface ClipboardEntry {
   path: string
@@ -59,7 +60,7 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
 
       if (!wsId) throw new Error('no workspace to paste into')
       if (clipboard.wsId !== wsId) {
-        throw new Error('Copied from another workspace — paste there, or copy again here')
+        throw new UserFacingError('Copied from another workspace — paste there, or copy again here')
       }
 
       const results: PastedEntry[] = []

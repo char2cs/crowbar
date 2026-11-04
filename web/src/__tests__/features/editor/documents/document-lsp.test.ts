@@ -22,10 +22,16 @@ import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspac
 // The document, not the pane, is what the language server knows: one open per
 // document, addressed to the document's own workspace, whichever is active.
 type DiagnosticsHandler = (path: string, diagnostics: LspDiagnostic[]) => void
-const { client, handlers } = vi.hoisted(() => {
+const { client, handlers, sent } = vi.hoisted(() => {
   const handlers = new Map<string, Set<DiagnosticsHandler>>()
+  // The text each open sends: the real client reads it as it opens.
+  const sent: (string | null)[] = []
   const client = {
-    documentOpen: vi.fn(async (..._args: unknown[]) => {}),
+    documentOpen: vi.fn(
+      async (_ws: string, _path: string, read: () => string | null, _language: string) => {
+        sent.push(read())
+      },
+    ),
     documentClose: vi.fn(async (..._args: unknown[]) => {}),
     scheduleChange: vi.fn((_ws: string, _path: string, _read: () => string | null) => {}),
     onDiagnosticsUpdate: vi.fn((ws: string, handler: DiagnosticsHandler) => {
@@ -34,7 +40,7 @@ const { client, handlers } = vi.hoisted(() => {
       return () => set.delete(handler)
     }),
   }
-  return { client, handlers }
+  return { client, handlers, sent }
 })
 vi.mock('@/features/editor/lsp/lsp-client', () => ({
   LSP_MARKER_OWNER: 'crowbar-lsp',
@@ -92,6 +98,7 @@ beforeEach(async () => {
   setActiveWorkspaceId('w1')
   vi.useFakeTimers()
   for (const fn of Object.values(client)) fn.mockClear()
+  sent.length = 0
   readDocument.mockReset()
 }, MONACO_LOAD_MS)
 
@@ -112,7 +119,8 @@ describe('document language-server sync', () => {
     await idle()
 
     expect(opens()).toEqual([['w1', 'src/a.ts']])
-    expect(client.documentOpen.mock.calls[0]?.slice(2)).toEqual(['let a = 1', 'typescript'])
+    expect(sent).toEqual(['let a = 1'])
+    expect(client.documentOpen.mock.calls[0]?.[3]).toBe('typescript')
     host.manager.closeBuffer('p2', documentUri(A))
     await idle()
     expect(closes()).toEqual([])
@@ -123,7 +131,7 @@ describe('document language-server sync', () => {
     modelOf(A).setValue('let a = 2 // before the open')
     expect(client.scheduleChange).not.toHaveBeenCalled()
     await idle()
-    expect(client.documentOpen.mock.calls[0]?.[2]).toBe('let a = 2 // before the open')
+    expect(sent[0]).toBe('let a = 2 // before the open')
 
     modelOf(A).setValue('let a = 3')
     const read = client.scheduleChange.mock.calls[0]?.[2]
@@ -191,7 +199,7 @@ describe('document language-server sync', () => {
     reopenDocument(documentUri(A), () => host.documents.open(A, 'typescript', 'draft', 'disk'))
     await idle()
 
-    expect(client.documentOpen.mock.calls.map((c) => c[2])).toEqual(['disk', 'draft'])
+    expect(sent).toEqual(['disk', 'draft'])
     expect(closes()).toEqual([['w1', 'src/a.ts']])
     host.documents.release(documentUri(A))
     expect(closes()).toHaveLength(2)
@@ -216,7 +224,7 @@ describe('document language-server sync', () => {
     host.documents.release(documentUri(A))
     clearDraft(documentUri(A))
 
-    expect(client.documentOpen.mock.calls.map((c) => c[2])).toEqual(['disk', 'mine'])
+    expect(sent).toEqual(['disk', 'mine'])
     expect(closes()).toEqual([
       ['w1', 'src/a.ts'],
       ['w1', 'src/a.ts'],

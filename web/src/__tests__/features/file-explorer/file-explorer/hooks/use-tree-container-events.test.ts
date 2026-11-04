@@ -3,7 +3,7 @@ import type React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTreeContainerEvents } from '@/features/file-explorer/file-explorer/hooks/use-tree-container-events'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
-import { toast } from '@/features/window/stores/toast-store'
+import { expectReported, watchToasts } from '@/__tests__/__fixtures__/reports'
 
 const rows = [
   { file: { path: 'src', name: 'src', isDir: true }, depth: 0, isExpanded: true },
@@ -63,13 +63,14 @@ describe('the tree’s copy, cut and paste keys', () => {
   })
 
   it('⌘V refuses entries copied in another workspace, and says so', async () => {
-    const error = vi.spyOn(toast, 'error').mockReturnValue('')
+    const toasts = watchToasts()
     press(treeEvents('ws-a'), 'c')
 
     press(treeEvents('ws-b', 'src'), 'v')
 
     await vi.waitFor(() =>
-      expect(error).toHaveBeenCalledWith(
+      expectReported(
+        toasts,
         'Paste failed',
         'Copied from another workspace — paste there, or copy again here',
       ),

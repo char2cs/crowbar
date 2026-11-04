@@ -1,13 +1,18 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 
-const { createFileNode, writeFileContent } = vi.hoisted(() => ({
+const { createFileNode, writeDocument } = vi.hoisted(() => ({
   createFileNode: vi.fn(async () => {}),
-  writeFileContent: vi.fn(async () => {}),
+  writeDocument: vi.fn(async () => {}),
 }))
-vi.mock('@/features/files/lib/file-tree-api', () => ({ createFileNode, writeFileContent }))
+vi.mock('@/features/files/lib/file-tree-api', () => ({ createFileNode }))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  writeDocument,
+}))
 
 import { pickAndUploadFiles, readFileAsBase64 } from '@/features/files/lib/file-upload'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 // Uploads go through readFileAsBase64 → writeDocument(..., { encoding: 'base64' })
 // so the exact bytes reach the daemon. This pins the byte-faithful half: bytes that are
@@ -49,6 +54,10 @@ describe('pickAndUploadFiles', () => {
 
     expect(written).toEqual(['docs/a.txt'])
     expect(createFileNode).toHaveBeenCalledExactlyOnceWith('ws-b', 'docs/a.txt', 'file')
-    expect(writeFileContent).toHaveBeenCalledExactlyOnceWith('ws-b', 'docs/a.txt', 'aGk=', 'base64')
+    expect(writeDocument).toHaveBeenCalledExactlyOnceWith(
+      workspaceRef('ws-b', 'docs/a.txt'),
+      'aGk=',
+      { encoding: 'base64' },
+    )
   })
 })

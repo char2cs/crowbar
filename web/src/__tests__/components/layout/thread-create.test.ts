@@ -68,6 +68,8 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   resetEntities()
+  // A draft pane left by an earlier test would be promoted by the next create.
+  resetWindowPaneStoreForTests()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   resetOperations()
   // A create needs a provider, read from the global store: there is no workspace yet to scope by.
