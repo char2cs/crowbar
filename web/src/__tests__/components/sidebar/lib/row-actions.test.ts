@@ -495,12 +495,11 @@ describe('a row action its host fails', () => {
         .fn()
         .mockResolvedValue({ ok: false, status, headers: new Headers(headers), json })
       vi.stubGlobal('fetch', fetch)
-      const toasts = watchToasts()
 
       await performRenameProject('p-remote', 'renamed')
 
       expect(fetch).toHaveBeenCalledOnce()
-      expectReported(toasts, 'Failed to rename project', message)
+      expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe(message)
       expect(statusOf('h1')).toBe('needs-repair')
     },
   )
@@ -510,11 +509,13 @@ describe('a row action its host fails', () => {
     pairRemoteHost('h1', 'Studio Mac')
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
-    const toasts = watchToasts()
 
     await performRenameProject('p-remote', 'renamed')
 
-    expectReported(toasts, 'Failed to rename project', 'Still loading your projects')
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Still loading your projects',
+      'Try again in a moment.',
+    )
     expect(fetch).not.toHaveBeenCalled()
   })
 })

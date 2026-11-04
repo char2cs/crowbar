@@ -785,7 +785,10 @@ describe('performSidebarDrop — failures', () => {
       'before',
     )
 
-    expectReported('Still loading your projects')
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Still loading your projects',
+      'Try again in a moment.',
+    )
   })
 })
 

@@ -6,9 +6,12 @@ import {
   EditableRepoIcon,
   type RepoIconSource,
 } from '@/components/layout/repo-icon-mark'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/api/fetch', async (importOriginal) => ({
@@ -180,31 +183,16 @@ describe('EditableRepoIcon', () => {
 // host, and nothing is editable (or thrown) until that host is known.
 describe('EditableRepoIcon on a remote host', () => {
   const repo: RepoIconSource = { name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700' }
-  const loadRow = (hostId: string) =>
-    useProjectDataStore.setState({
-      data: success([
-        { id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId },
-      ]),
-    })
+  const loadRow = (hostId: string) => loadProjects(projectOn('p1', hostId))
 
   beforeEach(() => {
     vi.clearAllMocks()
     apiFetch.mockResolvedValue(undefined)
-    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-    useHostConfigStore.getState().addHost({
-      id: 'host-2',
-      name: 'host-2',
-      endpoint: 'host-2.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-host-2',
-    })
-    useProjectDataStore.setState({ data: idle() })
+    resetHostWorld()
+    pairRemoteHost('host-2')
   })
 
-  afterEach(() => {
-    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-    useProjectDataStore.setState({ data: idle() })
-  })
+  afterEach(() => resetHostWorld())
 
   it('PUTs an emoji to the repo’s qualified base', async () => {
     loadRow('host-2')

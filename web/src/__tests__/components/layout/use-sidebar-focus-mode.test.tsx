@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import {
   publishFocusedWorkspaceContext,
   type FocusedWorkspaceContext,
@@ -60,7 +60,7 @@ function focusDiff() {
   act(() => screen.getByRole('button', { name: 'diff' }).focus())
 }
 
-const mode = () => useSidebarStore.getState().activeTab
+const mode = () => treeUiStore.getState().activeTab
 
 // The user's first press: until one lands, focus is startup's, not the user's.
 function press() {
@@ -83,13 +83,13 @@ function setFollowsFocus(sidebarFollowsFocus: boolean) {
 
 describe('useSidebarFocusMode', () => {
   beforeEach(() => {
-    useSidebarStore.setState(getInitialState())
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
     setFollowsFocus(true)
     publishFocusedWorkspaceContext(REPO_CTX)
   })
 
   it('startup focus across surfaces, before the user presses anything, keeps the persisted mode', () => {
-    act(() => useSidebarStore.getState().setActiveTab('git'))
+    act(() => treeUiStore.getState().setActiveTab('git'))
     render(<Shell />)
     focus('editor')
     focus('chat composer')
@@ -100,7 +100,7 @@ describe('useSidebarFocusMode', () => {
   })
 
   it('a key press also hands focus to the user', () => {
-    act(() => useSidebarStore.getState().setActiveTab('git'))
+    act(() => treeUiStore.getState().setActiveTab('git'))
     render(<Shell />)
     focus('chat composer')
     fireEvent.keyDown(document.body, { key: 'Tab' })
@@ -153,7 +153,7 @@ describe('useSidebarFocusMode', () => {
   it('a manual choice holds while focus stays in the same kind, until it crosses kinds', () => {
     renderShell()
     focus('editor')
-    act(() => useSidebarStore.getState().setActiveTab('git'))
+    act(() => treeUiStore.getState().setActiveTab('git'))
     focus('second editor')
     focus('editor')
     expect(mode()).toBe('git')
@@ -164,7 +164,7 @@ describe('useSidebarFocusMode', () => {
   it('focus entering an unmarked element, like a dialog, changes nothing', () => {
     renderShell()
     focus('editor')
-    act(() => useSidebarStore.getState().setActiveTab('git'))
+    act(() => treeUiStore.getState().setActiveTab('git'))
     focus('settings field')
     expect(mode()).toBe('git')
     // Closing the dialog hands focus back to the same editor: not a crossing.
@@ -189,13 +189,13 @@ describe('useSidebarFocusMode', () => {
 
   it('with the setting off, focus crossing surfaces never changes the mode', () => {
     setFollowsFocus(false)
-    act(() => useSidebarStore.getState().setActiveTab('git'))
+    act(() => treeUiStore.getState().setActiveTab('git'))
     renderShell()
     focus('editor')
     focus('chat composer')
     focusDiff()
     expect(mode()).toBe('git')
-    act(() => useSidebarStore.getState().setActiveTab('files'))
+    act(() => treeUiStore.getState().setActiveTab('files'))
     focus('terminal')
     expect(mode()).toBe('files')
   })

@@ -1,4 +1,5 @@
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import {
@@ -132,6 +133,6 @@ export async function performSidebarDrop(
       toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
       return
     }
-    report(err, { action: 'Move' })
+    if (!toastHostFailure(err)) report(err, { action: 'Move' })
   }
 }

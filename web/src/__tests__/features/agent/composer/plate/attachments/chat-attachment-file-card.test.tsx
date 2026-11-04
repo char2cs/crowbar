@@ -5,15 +5,16 @@ import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-mess
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { formatAttachmentSize } from '@/features/agent/composer/plate/attachments/chat-attachment-file-card'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn as remoteProject,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
-import type { Project } from '@/lib/types'
 
 beforeEach(() => {
-  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetHostWorld()
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 })
@@ -369,21 +370,8 @@ describe('chat attachment file card', () => {
 // The card builds its href while rendering, through the host-aware chat base,
 // which throws until the workspace's host is known.
 describe('chat attachment file card on a remote host', () => {
-  const pairHost = () =>
-    useHostConfigStore.getState().addHost({
-      id: 'host-1',
-      name: 'host-1',
-      endpoint: 'host-1.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-1',
-    })
-  const projectOn = (hostId: string): Project => ({
-    id: 'p1',
-    name: 'p1',
-    path: '/work/p1',
-    lastActivity: new Date(0),
-    hostId,
-  })
+  const pairHost = () => pairRemoteHost('host-1')
+  const projectOn = (hostId: string) => remoteProject('p1', hostId)
   const REF = '[report.pdf](chats/c1/attachments/report.pdf)'
   const renderCard = () =>
     render(
@@ -405,7 +393,7 @@ describe('chat attachment file card on a remote host', () => {
     expect(anchor()).not.toHaveAttribute('href')
     expect(fetchSpy).not.toHaveBeenCalled()
 
-    act(() => useProjectDataStore.setState({ data: success([projectOn('host-1')]) }))
+    act(() => loadProjects(projectOn('host-1')))
 
     const remote = 'crowbar://host-1/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf'
     expect(anchor()).toHaveAttribute('href', remote)
@@ -419,7 +407,7 @@ describe('chat attachment file card on a remote host', () => {
   it('never falls back to the local daemon when the project turns out to be on another host', () => {
     pairHost()
     renderCard()
-    act(() => useProjectDataStore.setState({ data: success([projectOn('host-gone')]) }))
+    act(() => loadProjects(projectOn('host-gone')))
     expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
   })
 
@@ -427,7 +415,7 @@ describe('chat attachment file card on a remote host', () => {
     pairHost()
     renderCard()
     expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
-    act(() => useProjectDataStore.setState({ data: success([projectOn('local')]) }))
+    act(() => loadProjects(projectOn('local')))
     expect(screen.getByText('report.pdf').closest('a')).toHaveAttribute(
       'href',
       '/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf',

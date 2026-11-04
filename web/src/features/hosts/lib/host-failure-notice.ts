@@ -5,13 +5,8 @@ import { LOCAL_HOST } from '@/features/hosts/types'
 import { toast } from '@/features/window/stores/toast-store'
 import { HostNotConfiguredError } from '@/lib/api/errors'
 import { ApiError } from '@/lib/errors/api-error'
-import { userWords } from '@/lib/errors/report'
 import { HostNotResolvedError } from '@/lib/host-path'
-import {
-  hostUnavailability,
-  useHostUnavailable,
-  type HostUnavailable,
-} from '@/lib/host-unavailability'
+import { hostUnavailability, type HostUnavailable } from '@/lib/host-unavailability'
 
 interface HostFailureNotice {
   message: string
@@ -120,11 +115,6 @@ function show({ message, description }: HostFailureNotice): void {
   else toast.error(message, description)
 }
 
-/** Its host's words for a failed action when the host is why, else null. */
-export function hostFailureWords(err: unknown): string | null {
-  return hostFailureNotice(err)?.message ?? null
-}
-
 /** Toasts why nothing can be asked of `projectId`'s host yet, or any more. */
 export function toastUnresolvedHost(projectId: string): void {
   show(unresolvedHostNotice(currentFacts(undefined, projectId)))
@@ -138,27 +128,11 @@ export function toastHostFailure(err: unknown): boolean {
   return notice !== null
 }
 
-/** Toasts a failed action: its host's notice when the host is why, else the error's own
- *  words (`fallback` for a non-Error). */
-export function toastActionFailure(err: unknown, fallback: string): void {
-  if (!toastHostFailure(err)) toast.error(userWords(err, fallback) ?? fallback)
-}
-
-/** Its host's words for `err` when the host is why, else null — kept current as the host and
- *  project lists change: for a surface that says what failed in its own words. */
-export function useHostFailureMessage(err: unknown): string | null {
-  const hostId = failedRemoteHost(err)
-  const projectId = unresolvedProject(err)
-  const hostName = useHostConfigStore((s) => s.hosts.find((host) => host.id === hostId)?.name)
-  const unavailable = useHostUnavailable(projectId === undefined ? null : { projectId })
-  return describeHostFailure(err, { hostName, unavailable })?.message ?? null
-}
-
 /** The words for a failed action shown inline or under the action's own title: its host's
  *  trouble when the host is why, else the error's own words (`fallback` for a non-Error). */
 export function actionErrorMessage<F extends string | undefined>(
   err: unknown,
   fallback: F,
 ): string | F {
-  return hostFailureWords(err) ?? (err instanceof Error ? err.message : fallback)
+  return hostFailureNotice(err)?.message ?? (err instanceof Error ? err.message : fallback)
 }

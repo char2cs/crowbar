@@ -15,6 +15,7 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { useSettingsStore } from '@/features/settings/store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 vi.mock('@/features/panes/components/terminal-pane', () => ({
   TerminalPane: () => <textarea aria-label="terminal input" />,
@@ -34,13 +35,11 @@ const EDITOR: PaneContent = {
   ...BASE,
   id: 'ed',
   type: 'editor',
-  path: '/a.ts',
+  path: 'a.ts',
   name: 'a.ts',
-  content: '',
-  savedContent: '',
+  authority: 'workspace',
   isDirty: false,
   isVirtual: false,
-  tokens: [],
 }
 const TERMINAL: PaneContent = { ...BASE, id: 'term', type: 'terminal', name: 'zsh', sessionId: 's' }
 const REVIEW: PaneContent = { ...BASE, id: 'rev', type: 'branchReview', name: 'Review', wsId: 'w1' }
@@ -50,7 +49,7 @@ const PREVIEW: PaneContent = {
   type: 'markdownPreview',
   name: 'README.md',
   content: '# hi',
-  sourceFilePath: '/README.md',
+  source: workspaceRef('w1', 'README.md'),
 }
 
 function Host({ activeTab }: { activeTab: string }) {

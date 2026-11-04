@@ -3,11 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
 
-import {
-  actionErrorMessage,
-  toastActionFailure,
-  toastHostFailure,
-} from '@/features/hosts/lib/host-failure-notice'
+import { actionErrorMessage, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,
@@ -171,16 +167,6 @@ describe('a failure that is not its host’s', () => {
     expect(statusOf('h1')).toBe('up')
   })
 
-  it('is toasted with its own words, or the fallback for a non-error', () => {
-    toastActionFailure(
-      new ApiError('branch is taken', 409, undefined, undefined, 'local'),
-      'Failed',
-    )
-    toastActionFailure('kaboom', 'Failed to rename branch')
-
-    expect(toastError.mock.calls).toEqual([['branch is taken'], ['Failed to rename branch']])
-  })
-
   it('is described in its own words inline', () => {
     expect(actionErrorMessage(new Error('locked'), 'Failed')).toBe('locked')
     expect(actionErrorMessage(42, 'Failed to commit changes')).toBe('Failed to commit changes')
@@ -196,7 +182,7 @@ describe('inline and toasted host failures read the same', () => {
   })
 
   it('a host failure toasted by an action is the host’s notice, not the action’s text', () => {
-    toastActionFailure(unreachable(), 'Failed to rename folder')
+    toastHostFailure(unreachable())
 
     expect(toastError).toHaveBeenCalledExactlyOnceWith(
       'Couldn’t reach Studio Mac',

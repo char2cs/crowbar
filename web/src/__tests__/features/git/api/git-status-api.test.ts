@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getGitStatus, stagePaths } from '@/features/git/api/git-status-api'
+import { getGitStatus, unstagePaths } from '@/features/git/api/git-status-api'
 import { expectMigratingShown, expectReported, watchToasts } from '@/__tests__/__fixtures__/reports'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
@@ -72,23 +72,23 @@ function mockRefusal(status: number, error: string, code: string): void {
   )
 }
 
-describe('stagePaths', () => {
-  it('a refused stage reports the daemon’s reason', async () => {
+describe('unstagePaths', () => {
+  it('a refused unstage reports the daemon’s reason', async () => {
     const toasts = watchToasts()
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockRefusal(409, 'index.lock exists', 'conflict')
 
-    await expect(stagePaths('ws-1', ['a.ts'])).resolves.toBe(false)
+    await expect(unstagePaths('ws-1', ['a.ts'])).resolves.toBe(false)
 
-    expectReported(toasts, 'git stage failed', 'index.lock exists')
+    expectReported(toasts, 'git unstage failed', 'index.lock exists')
   })
 
-  it('a stage refused while the daemon migrates shows the migrating state, not a toast', async () => {
+  it('an unstage refused while the daemon migrates shows the migrating state, not a toast', async () => {
     const toasts = watchToasts()
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockRefusal(503, 'Crowbar is upgrading its data (step 2 of 7)', 'daemon_migrating')
 
-    await expect(stagePaths('ws-1', ['a.ts'])).resolves.toBe(false)
+    await expect(unstagePaths('ws-1', ['a.ts'])).resolves.toBe(false)
 
     expectMigratingShown(toasts)
   })

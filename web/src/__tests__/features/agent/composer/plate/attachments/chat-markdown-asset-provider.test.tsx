@@ -4,17 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { useChatId } from '@/features/agent/composer/plate/attachments/chat-id-context'
-import { pairRemoteHost, projectOn } from '@/__tests__/__fixtures__/remote-host'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 beforeEach(() => {
-  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetHostWorld()
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 })
@@ -74,7 +75,7 @@ describe('ChatMarkdownAssetProvider', () => {
   // A message on another host that links that host's own localhost means that host.
   it('makes the chat’s links its workspace’s: a remote loopback link is not opened here', () => {
     pairRemoteHost('h1', 'Build box')
-    useProjectDataStore.setState({ data: success([projectOn('p1', 'h1')]) })
+    loadProjects(projectOn('p1', 'h1'))
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const info = vi.spyOn(toast, 'info').mockReturnValue('')
     render(
@@ -152,13 +153,7 @@ describe('ChatMarkdownAssetProvider', () => {
       .fn()
       .mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) })
     vi.stubGlobal('fetch', fetchMock)
-    useHostConfigStore.getState().addHost({
-      id: 'host-1',
-      name: 'host-1',
-      endpoint: 'host-1.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-1',
-    })
+    pairRemoteHost('host-1')
 
     render(
       <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
@@ -168,13 +163,7 @@ describe('ChatMarkdownAssetProvider', () => {
     await waitFor(() => expect(screen.getByTestId('probe').textContent).toBe('null'))
     expect(fetchMock).not.toHaveBeenCalled()
 
-    act(() =>
-      useProjectDataStore.setState({
-        data: success([
-          { id: 'p1', name: 'p1', path: '/p1', lastActivity: new Date(0), hostId: 'local' },
-        ]),
-      }),
-    )
+    act(() => loadProjects(projectOn('p1', 'local')))
     await waitFor(() => expect(screen.getByTestId('probe').textContent).toMatch(/^data:/))
     expect(fetchMock).toHaveBeenCalledTimes(1)
     vi.unstubAllGlobals()

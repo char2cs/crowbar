@@ -317,9 +317,7 @@ describe('the sidebar mode', () => {
   it('persists a fold without dropping the mode from the record', async () => {
     state().setActiveTab('git')
     state().toggleChatRow('f1')
-    await vi.waitFor(async () =>
-      expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['f1']),
-    )
+    await vi.waitFor(async () => expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['f1']))
     expect((await loadSidebarUI())?.activeTab).toBe('git')
   })
 

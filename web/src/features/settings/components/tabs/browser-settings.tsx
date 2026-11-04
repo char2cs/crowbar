@@ -21,6 +21,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { browserApi } from '@/lib/browser-bridge'
 import Section, { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
+import { report } from '@/lib/errors/report'
 
 const CLEAR_UNAVAILABLE =
   'Not available on this system: browser tabs share their storage with the app itself, so clearing it would erase app data too.'
@@ -35,7 +36,11 @@ async function clearBrowsingData() {
     await browserApi.clearData()
     toast.success('Browsing data cleared', 'Reload open pages to see the change.')
   } catch (error) {
-    toast.error('Could not clear browsing data', String(error))
+    // The native side rejects with its own sentence, not an Error.
+    report(error, {
+      action: 'Could not clear browsing data',
+      fallback: typeof error === 'string' ? error : undefined,
+    })
   }
 }
 

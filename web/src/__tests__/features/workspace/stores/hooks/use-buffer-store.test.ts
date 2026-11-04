@@ -6,6 +6,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useTerminalBufferCount } from '@/features/workspace/stores/hooks/use-buffer-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 vi.mock('@/features/terminal/lib/kill-terminal-session', () => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -40,10 +41,8 @@ describe('useTerminalBufferCount', () => {
       openTerminal('sess-2')
       windowPaneStore.getState().bufferActions.openContent({
         type: 'editor',
-        path: '/a.ts',
+        doc: workspaceRef('w1', 'a.ts'),
         name: 'a.ts',
-        content: '',
-        workspaceId: 'w1',
       })
     })
     expect(result.current).toBe(2)

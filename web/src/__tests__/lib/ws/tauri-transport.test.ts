@@ -22,7 +22,6 @@ vi.mock('@tauri-apps/api/core', () => ({
     }
   },
   invoke,
-  convertFileSrc: (path: string) => path,
 }))
 
 beforeEach(() => {

@@ -29,6 +29,7 @@ describe('dispatchDrop', () => {
       kind: 'row',
       row: { ...row, mode: 'into', inRecents },
       rect: { top: 0, bottom: 36, left: 0, right: 200, width: 200, height: 36 },
+      axis: 'y',
     } as ReturnType<typeof hover.hitTest>)
     const onDrop = vi.fn()
 

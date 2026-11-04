@@ -334,9 +334,10 @@ describe('useFileExplorerContextMenu — failures', () => {
 // shows, never to whichever other one is in view.
 describe('useFileExplorerContextMenu — env template', () => {
   function createEnvExample(workspaceId: string) {
-    const read = vi.spyOn(documents, 'readDocument').mockImplementation(async (ref) => {
-      if (ref.path.endsWith('.env.example')) throw new ApiError('not found', 404, 'not_found')
-      return { ref, text: 'KEY=secret\n' }
+    const read = vi.spyOn(documents, 'readDocument').mockImplementation(async (target) => {
+      if (!('authority' in target)) throw new Error('read by absolute path')
+      if (target.path.endsWith('.env.example')) throw new ApiError('not found', 404, 'not_found')
+      return { ref: target, text: 'KEY=secret\n' }
     })
     const write = vi.spyOn(documents, 'writeDocument').mockResolvedValue(undefined as never)
     onTestFinished(() => {
@@ -363,7 +364,9 @@ describe('useFileExplorerContextMenu — env template', () => {
       ),
     )
     expect(
-      read.mock.calls.map(([ref]) => ref.authority === 'workspace' && ref.workspaceId),
+      read.mock.calls.map(
+        ([t]) => 'authority' in t && t.authority === 'workspace' && t.workspaceId,
+      ),
     ).toEqual(['ws-a', 'ws-a'])
   })
 

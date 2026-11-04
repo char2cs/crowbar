@@ -40,7 +40,14 @@ import { readSelect, selectRepos } from '@/core/entities/select'
  * fine, and the skew was introduced one layer up.
  */
 
-const PROJECT = { id: 'p1', name: 'Space', path: '/tmp/p1', lastActivity: new Date(0), order: 0 }
+const PROJECT = {
+  id: 'p1',
+  name: 'Space',
+  path: '/tmp/p1',
+  lastActivity: new Date(0),
+  order: 0,
+  hostId: 'local',
+}
 
 /** A repo whose fork rows are unified: one row per (workspace, owning chat). */
 function repo(): Repo {

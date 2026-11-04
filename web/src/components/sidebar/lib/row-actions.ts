@@ -11,6 +11,7 @@ import {
 } from '@/lib/api/sidebar-placement'
 import { renameChat } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
@@ -25,6 +26,11 @@ import { report } from '@/lib/errors/report'
  */
 export function chatNotLoadedYet(verb: string, branch: string | undefined): string {
   return `Can't ${verb} ${branch ?? 'this branch'} yet — its chat is still loading`
+}
+
+/** A failed verb, worded by its host when the host is why. */
+function reportFailure(err: unknown, action: string): void {
+  if (!toastHostFailure(err)) report(err, { action })
 }
 
 /** What a folder is called until the user says otherwise. */
@@ -64,7 +70,7 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
       toast.error(chatNotLoadedYet('rename', ws.branch))
       return
     }
-    report(err, { action: 'Failed to rename branch' })
+    reportFailure(err, 'Failed to rename branch')
   }
 }
 
@@ -91,7 +97,7 @@ export async function performRenameFolder(folderId: string, name: string): Promi
     } = await placeFolder(repo.projectId, repo.id, folderId, { name })
     await applyFolderPlacements(repo.id, [updated, ...shifted], shiftedRows)
   } catch (err) {
-    report(err, { action: 'Failed to rename folder' })
+    reportFailure(err, 'Failed to rename folder')
   }
 }
 
@@ -112,7 +118,7 @@ export async function performRenameHomeFolder(
     const { folder: updated, shifted } = await placeHomeFolder(projectId, folderId, { name })
     await applyFolderPlacements('', [updated, ...shifted])
   } catch (err) {
-    report(err, { action: 'Failed to rename folder' })
+    reportFailure(err, 'Failed to rename folder')
   }
 }
 
@@ -157,7 +163,7 @@ export async function performRenameChat(chatId: string, title: string): Promise<
   try {
     await renameChat(wsId, chatId, title)
   } catch (err) {
-    report(err, { action: 'Failed to rename chat' })
+    reportFailure(err, 'Failed to rename chat')
   }
 }
 
@@ -177,7 +183,7 @@ export async function performRenameHomeChat(
   try {
     await renameChat(homeWorkspaceId, chatId, title)
   } catch (err) {
-    report(err, { action: 'Failed to rename chat' })
+    reportFailure(err, 'Failed to rename chat')
   }
 }
 
@@ -195,7 +201,7 @@ export async function performRenameRepo(repoId: string, name: string): Promise<v
   try {
     await renameRepo(repo.projectId, repoId, name)
   } catch (err) {
-    report(err, { action: 'Failed to rename repository' })
+    reportFailure(err, 'Failed to rename repository')
   }
 }
 
@@ -208,7 +214,7 @@ export async function performRenameProject(projectId: string, name: string): Pro
   try {
     await renameProject(projectId, name)
   } catch (err) {
-    report(err, { action: 'Failed to rename project' })
+    reportFailure(err, 'Failed to rename project')
   }
 }
 
@@ -310,7 +316,7 @@ export async function performSetWorkspaceLock(
       toast.error(chatNotLoadedYet(locked === false ? 'unlock' : 'lock', branch))
       return
     }
-    report(err, { action: 'Failed to update lock' })
+    reportFailure(err, 'Failed to update lock')
   }
 }
 
@@ -373,7 +379,7 @@ export async function performCreateFolder(rowId: string): Promise<void> {
     )
     await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
-    report(err, { action: 'Failed to create folder' })
+    reportFailure(err, 'Failed to create folder')
   }
 }
 
@@ -405,7 +411,7 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
     )
     await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
-    report(err, { action: 'Failed to create folder' })
+    reportFailure(err, 'Failed to create folder')
   }
 }
 
@@ -426,6 +432,6 @@ export async function performCreateHomeFolder(projectId: string, parentId = ''):
     const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)
     await applyFolderPlacements('', [folder, ...shifted])
   } catch (err) {
-    report(err, { action: 'Failed to create folder' })
+    reportFailure(err, 'Failed to create folder')
   }
 }
