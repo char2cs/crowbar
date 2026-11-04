@@ -124,27 +124,30 @@ async fn resolve<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn Error + S
     Ok(())
 }
 
-fn resolved() -> &'static ResolvedPaths {
-    PATHS
-        .get()
-        .expect("sidecar::resolve runs in setup, before any window can reach the daemon")
-}
-
-pub fn socket_path() -> PathBuf {
-    resolved().socket.clone()
+/// The daemon's socket; `None` when setup could not resolve its paths, so no
+/// daemon was started (setup told the user why and went on without one).
+pub fn socket_path() -> Option<PathBuf> {
+    PATHS.get().map(|paths| paths.socket.clone())
 }
 
 /// The daemon's captured stdout/stderr, where `paths` says it goes. This is
 /// the only place a Go panic's stack trace survives in the packaged app — the
-/// sidecar's pipes are otherwise connected to nothing.
-pub fn daemon_log_path() -> PathBuf {
-    resolved().log.clone()
+/// sidecar's pipes are otherwise connected to nothing. `None` as for the socket.
+pub fn daemon_log_path() -> Option<PathBuf> {
+    PATHS.get().map(|paths| paths.log.clone())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{explain_failure, parse_paths};
+    use super::{daemon_log_path, explain_failure, parse_paths, socket_path};
     use std::path::PathBuf;
+
+    #[test]
+    fn unresolved_paths_are_none_rather_than_a_panic() {
+        // Nothing in the test binary resolves them: only setup's resolve does.
+        assert_eq!(socket_path(), None);
+        assert_eq!(daemon_log_path(), None);
+    }
 
     #[test]
     fn a_failed_resolve_is_explained_and_stops_setup_instead_of_panicking() {

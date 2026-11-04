@@ -51,16 +51,20 @@ pub async fn diagnostics_export<R: Runtime>(app: AppHandle<R>) -> Result<String,
 
     // Daemon log generations — where panic traces, exit codes, and watchdog
     // goroutine dumps live.
-    let daemon_log = sidecar::daemon_log_path();
-    add_file(&mut entries, &mut meta, &daemon_log, "daemon.log");
-    let mut rotated = daemon_log.as_os_str().to_owned();
-    rotated.push(".1");
-    add_file(
-        &mut entries,
-        &mut meta,
-        &PathBuf::from(rotated),
-        "daemon.log.1",
-    );
+    match sidecar::daemon_log_path() {
+        Some(daemon_log) => {
+            add_file(&mut entries, &mut meta, &daemon_log, "daemon.log");
+            let mut rotated = daemon_log.as_os_str().to_owned();
+            rotated.push(".1");
+            add_file(
+                &mut entries,
+                &mut meta,
+                &PathBuf::from(rotated),
+                "daemon.log.1",
+            );
+        }
+        None => meta.push_str("daemon log: daemon not started, its paths are unresolved\n"),
+    }
 
     // The Rust host's own log(s).
     match app.path().app_log_dir() {

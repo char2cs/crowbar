@@ -114,7 +114,8 @@ pub async fn ws_open(
     let opened = match remote_host(host_id) {
         #[cfg(desktop)]
         None => {
-            let socket = crate::sidecar::socket_path();
+            let socket = crate::sidecar::socket_path()
+                .ok_or_else(|| "daemon not started".to_string())?;
             open_bridge(
                 &socket,
                 conn_id,

@@ -1183,7 +1183,11 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = sidecar::spawn(&app_handle, sidecar::socket_path()).await {
+                    let Some(socket) = sidecar::socket_path() else {
+                        log::error!("failed to start crowbar daemon: its paths are unresolved");
+                        return;
+                    };
+                    if let Err(e) = sidecar::spawn(&app_handle, socket).await {
                         log::error!("failed to start crowbar daemon: {e}");
                     }
                 });

@@ -78,7 +78,7 @@ impl SidecarHandle {
 }
 
 fn open_daemon_log() -> Option<std::fs::File> {
-    let path = daemon_log_path();
+    let path = daemon_log_path()?;
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -183,7 +183,8 @@ async fn pump_output<R: Runtime>(
         lines_since_rotate_check += 1;
         if lines_since_rotate_check >= 5000 {
             lines_since_rotate_check = 0;
-            if supervisor::rotate_if_needed(&daemon_log_path(), DAEMON_LOG_MAX_LEN).is_ok() {
+            let path = daemon_log_path();
+            if path.is_some_and(|p| supervisor::rotate_if_needed(&p, DAEMON_LOG_MAX_LEN).is_ok()) {
                 log_file = open_daemon_log();
             }
         }
@@ -245,8 +246,12 @@ fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
             if state.shutting_down.load(Ordering::SeqCst) {
                 return;
             }
+            let Some(socket) = socket_path() else {
+                log::error!("cannot respawn crowbar daemon: daemon not started");
+                return;
+            };
             log::warn!("respawning crowbar daemon after unexpected exit");
-            match spawn(&app, socket_path()).await {
+            match spawn(&app, socket).await {
                 Ok(()) => {
                     let _ = app.emit("daemon:restarted", ());
                 }
