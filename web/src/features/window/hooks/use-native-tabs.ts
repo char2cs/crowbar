@@ -26,8 +26,7 @@ function kindOf(buffer: PaneContent): Pick<NativeTab, 'kind' | 'path'> {
       return { kind: 'newTab', path: null }
     case 'markdownPreview':
     case 'htmlPreview':
-    case 'csvPreview':
-      return { kind: 'preview', path: buffer.sourceFilePath }
+      return { kind: 'preview', path: buffer.source.path }
     default:
       return { kind: 'file', path: buffer.path ?? null }
   }

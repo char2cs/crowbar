@@ -7,7 +7,12 @@ vi.mock('@/features/agent/lib/kill-agent', () => ({ confirmAndKillAgent: vi.fn()
 import { ActiveSessionsSettings } from '@/features/settings/components/tabs/active-sessions-settings'
 import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
 import { useActiveSessionsStore } from '@/lib/store/active-sessions'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import {
+  projectDTO,
+  resetEntities,
+  seedProjects,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 const running = (id: string, title: string) => ({
   chatId: id,
@@ -18,7 +23,7 @@ const running = (id: string, title: string) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   useActiveSessionsStore.setState({ sessions: {}, attached: {} })
-  useSidebarStore.setState({ repos: [] })
+  resetEntities()
 })
 
 describe('ActiveSessionsSettings', () => {
@@ -55,17 +60,24 @@ describe('ActiveSessionsSettings', () => {
   })
 
   it('names where each agent runs, as the chat header does', () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo-1',
-          name: 'crowbar',
-          workspaces: [
-            { id: 'ws-1', branch: 'enhancement/new-additions', parentBranch: 'feature/mobile-app' },
-          ],
-        } as Repo,
-      ],
-    })
+    seedProjects([projectDTO({ id: 'p1' })])
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'p1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: '',
+        workspaces: [
+          {
+            id: 'ws-1',
+            branch: 'enhancement/new-additions',
+            parentBranch: 'feature/mobile-app',
+            age: '',
+          },
+        ],
+      },
+    ])
     useActiveSessionsStore.getState().applyFrame('repo:r1', running('c1', 'Fix login'))
 
     render(<ActiveSessionsSettings />)

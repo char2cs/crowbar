@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { NativeAgentsSettings, NativeHostsSettings } from '@/lib/native-chrome'
 import { MobileSettingsPage } from '@/features/settings/components/mobile-settings-page'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
