@@ -39,7 +39,7 @@ func repoRoot(t *testing.T) string {
 // originOf returns dir's real origin URL, which the engine would have detected.
 func originOf(t *testing.T, dir string) string {
 	t.Helper()
-	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	out, err := exec.CommandContext(t.Context(), "git", "-C", dir, "remote", "get-url", "origin").Output()
 	require.NoError(t, err)
 	return strings.TrimSpace(string(out))
 }

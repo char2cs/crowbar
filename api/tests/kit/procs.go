@@ -92,7 +92,13 @@ func zombie(pid int) bool {
 
 func describe(pid int) string {
 	p := strconv.Itoa(pid)
-	cmdline, _ := os.ReadFile(filepath.Join("/proc", p, "cmdline")) //nolint:gosec // G304: a /proc entry of a pid this helper listed
-	cwd, _ := os.Readlink("/proc/" + p + "/cwd")
+	cmdline, err := os.ReadFile(filepath.Join("/proc", p, "cmdline")) //nolint:gosec // G304: a /proc entry of a pid this helper listed
+	if err != nil {
+		return p + ": " + err.Error()
+	}
+	cwd, err := os.Readlink("/proc/" + p + "/cwd")
+	if err != nil {
+		return p + ": " + err.Error()
+	}
 	return p + " (cwd " + cwd + "): " + strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
 }

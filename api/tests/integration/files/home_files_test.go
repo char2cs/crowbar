@@ -33,7 +33,7 @@ func (s *HomeFilesSuite) SetupTest() {
 	// workspace and mask the bug.
 	s.projectPath = s.T().TempDir()
 	s.projectID = s.Env.RegisterProject(s.T(), "home-files", s.projectPath)
-	resp := s.Env.GET(s.T(), s.base())
+	resp := s.Env.GET(s.T(), s.base()) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var home map[string]any
 	kit.DecodeEnvData(s.T(), resp, &home)
@@ -71,7 +71,7 @@ func (s *HomeFilesSuite) TestRegression_HomeSaveFileContent_NonGitProjectDir() {
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
-	resp = s.Env.GET(s.T(), documentsContent+"?"+url.Values{"workspace": {s.homeID}, "path": {"NOTES.md"}}.Encode())
+	resp = s.Env.GET(s.T(), documentsContent+"?"+url.Values{"workspace": {s.homeID}, "path": {"NOTES.md"}}.Encode()) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var content map[string]any
 	kit.DecodeEnvData(s.T(), resp, &content)

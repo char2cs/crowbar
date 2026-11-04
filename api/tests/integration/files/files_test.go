@@ -95,7 +95,7 @@ func (s *FilesSuite) TestFiles_treeReturnsRootEntries() {
 // TestFiles_readContentReturnsFileBytes verifies the document read returns the
 // exact bytes committed to the repo.
 func (s *FilesSuite) TestFiles_readContentReturnsFileBytes() {
-	resp := s.Env.GET(s.T(), s.doc("hello.txt"))
+	resp := s.Env.GET(s.T(), s.doc("hello.txt")) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 
 	var content map[string]any
@@ -110,7 +110,7 @@ func (s *FilesSuite) TestFiles_writeContentMutatesAndResyncs() {
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
-	resp = s.Env.GET(s.T(), s.doc("hello.txt"))
+	resp = s.Env.GET(s.T(), s.doc("hello.txt")) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 
 	var content map[string]any
@@ -208,7 +208,7 @@ func (s *FilesSuite) TestRegression_Files_BinaryReadIsByteFaithfulThroughJSON() 
 	resp.Body.Close()
 
 	// Read it back: must be base64, and decode to the exact original bytes.
-	resp = s.Env.GET(s.T(), s.doc("assets/late.bin"))
+	resp = s.Env.GET(s.T(), s.doc("assets/late.bin")) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 
 	var content map[string]any
@@ -237,7 +237,7 @@ func (s *FilesSuite) TestRegression_Files_RenameRefusesToClobber() {
 	resp.Body.Close()
 
 	// The occupant survived untouched.
-	resp = s.Env.GET(s.T(), s.doc("dst.txt"))
+	resp = s.Env.GET(s.T(), s.doc("dst.txt")) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var content map[string]any
 	kit.DecodeEnvData(s.T(), resp, &content)
@@ -262,7 +262,7 @@ func (s *FilesSuite) TestRegression_Files_CopyBinaryByteFaithful() {
 	kit.RequireStatus(s.T(), resp, http.StatusCreated)
 	resp.Body.Close()
 
-	resp = s.Env.GET(s.T(), s.doc("logo copy.png"))
+	resp = s.Env.GET(s.T(), s.doc("logo copy.png")) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var content map[string]any
 	kit.DecodeEnvData(s.T(), resp, &content)
@@ -288,20 +288,20 @@ func (s *FilesSuite) TestRegression_OpenFileOutsideWorkspace() {
 	abs := filepath.Join(dir, "outside.md")
 	s.Require().NoError(os.WriteFile(abs, []byte("outside\n"), 0o600))
 
-	resp := s.Env.GET(s.T(), documentsContent+"?path="+url.QueryEscape(abs))
+	resp := s.Env.GET(s.T(), documentsContent+"?path="+url.QueryEscape(abs)) //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var doc map[string]any
 	kit.DecodeEnvData(s.T(), resp, &doc)
-	s.Assert().Equal("host", doc["authority"])
-	s.Assert().Equal(safepath.Canonical(abs), doc["path"])
-	s.Assert().Equal("outside\n", doc["content"])
+	s.Equal("host", doc["authority"])
+	s.Equal(safepath.Canonical(abs), doc["path"])
+	s.Equal("outside\n", doc["content"])
 
 	resp = s.Env.PUT(s.T(), documentsContent, map[string]any{"path": abs, "content": "edited\n"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
-	resp.Body.Close()
+	s.Require().NoError(resp.Body.Close())
 	got, err := os.ReadFile(abs)
 	s.Require().NoError(err)
-	s.Assert().Equal("edited\n", string(got))
+	s.Equal("edited\n", string(got))
 }
 
 // TestRegression_AbsolutePathInsideWorktreeIsWorkspaceDocument proves an
@@ -316,12 +316,12 @@ func (s *FilesSuite) TestRegression_AbsolutePathInsideWorktreeIsWorkspaceDocumen
 	s.Require().NoError(os.Symlink(wt, link))
 
 	for _, abs := range []string{filepath.Join(wt, "hello.txt"), filepath.Join(link, "hello.txt")} {
-		resp := s.Env.GET(s.T(), documentsContent+"?path="+url.QueryEscape(abs))
+		resp := s.Env.GET(s.T(), documentsContent+"?path="+url.QueryEscape(abs)) //nolint:bodyclose // DecodeEnvData closes the body
 		kit.RequireStatus(s.T(), resp, http.StatusOK)
 		var doc map[string]any
 		kit.DecodeEnvData(s.T(), resp, &doc)
-		s.Assert().Equal("workspace", doc["authority"], abs)
-		s.Assert().Equal(s.wsID, doc["workspaceId"], abs)
-		s.Assert().Equal("hello.txt", doc["path"], abs)
+		s.Equal("workspace", doc["authority"], abs)
+		s.Equal(s.wsID, doc["workspaceId"], abs)
+		s.Equal("hello.txt", doc["path"], abs)
 	}
 }

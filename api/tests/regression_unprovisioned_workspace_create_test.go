@@ -32,7 +32,7 @@ func heldBranchPlaceholder(
 	feed := recordSidebar(t, h)
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches(branch), http.StatusAccepted).Body.Close()
-	created := feed.awaitNewChat("with its workspace", hasWorkspace)
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "a branch held elsewhere must still produce a row")
 

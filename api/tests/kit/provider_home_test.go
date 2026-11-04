@@ -25,7 +25,7 @@ func TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome(t *testing.
 
 	IsolateProviderHomes(t)
 
-	cmd := exec.Command(codex, "login", "status")
+	cmd := exec.CommandContext(t.Context(), codex, "login", "status")
 	cmd.Env = os.Environ()
 	cmd.Dir = t.TempDir()
 	out, err := cmd.CombinedOutput()

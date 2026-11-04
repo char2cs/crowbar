@@ -30,7 +30,7 @@ func failingPush(
 	resp := h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches("feature/a"), http.StatusAccepted)
 	require.NoError(t, resp.Body.Close())
-	created := feed.awaitNewChat("with its workspace", hasWorkspace)
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID)
 

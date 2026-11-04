@@ -24,7 +24,7 @@ func TestRegression_RefusedCreateCarriesItsCode(t *testing.T) {
 	feed := recordSidebar(t, h)
 	require.NoError(t, h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches(branch), http.StatusAccepted).Body.Close())
-	feed.awaitNewChat("with its workspace", hasWorkspace)
+	feed.awaitNewChat(hasWorkspace)
 	h.Quiesce()
 
 	body, err := json.Marshal(map[string]any{

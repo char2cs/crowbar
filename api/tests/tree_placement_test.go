@@ -110,7 +110,7 @@ func importBranch(
 	feed := recordSidebar(t, h)
 	require.NoError(t, h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches(branch), http.StatusAccepted).Body.Close())
-	created := feed.awaitNewChat("with its workspace", hasWorkspace)
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, ok := created["workspaceId"].(string)
 	require.True(t, ok && wsID != "", "import must broadcast a workspace for %s", branch)
 	h.Quiesce()

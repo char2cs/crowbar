@@ -78,7 +78,7 @@ func postOnQuit(dir string, rec launch) {
 	}
 	req.Header.Set("X-Crowbar-Runner-Token", rec.Token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: a URL the test harness wrote
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return
 	}

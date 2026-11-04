@@ -263,10 +263,10 @@ func (f *sidebarFeed) awaitChat(chatID, what string, match func(chat map[string]
 
 // awaitNewChat answers the first live row of a chat the snapshot did not
 // hold that match accepts.
-func (f *sidebarFeed) awaitNewChat(what string, match func(chat map[string]any) bool) map[string]any {
+func (f *sidebarFeed) awaitNewChat(match func(chat map[string]any) bool) map[string]any {
 	f.t.Helper()
 	isChat := func(r feedRow) bool { return r.Kind == string(stream.KindChatEntity) && !r.Gone }
-	return f.await("a new chat "+what, func(i int, r feedRow) bool {
+	return f.await("a new chat with its workspace", func(i int, r feedRow) bool {
 		snapshot, ok := f.snapshot()
 		if !ok || i < len(snapshot) || !isChat(r) || !match(r.Data) {
 			return false

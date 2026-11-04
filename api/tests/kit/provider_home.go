@@ -110,7 +110,7 @@ func copyCredential(
 	require.NoError(t, outsideProviderHomes(env, src))
 	blob, err := os.ReadFile(src) //nolint:gosec // G304: the path is the one the test env var names
 	require.NoError(t, err, "kit: read the credential %s names", env)
-	require.NoError(t, os.WriteFile(dst, blob, 0o600), "kit: copy the credential %s names", env)
+	require.NoError(t, os.WriteFile(dst, blob, 0o600), "kit: copy the credential %s names", env) //nolint:gosec // G703: dst is the kit's own path under the test's temp home
 }
 
 // outsideProviderHomes refuses a credential kept in a provider's own home,

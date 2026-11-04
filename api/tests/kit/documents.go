@@ -35,9 +35,11 @@ func ServeLocal(
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
 	require.NoError(t, err)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 30 * time.Second}
-	go func() { _ = server.Serve(ln) }()
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(ln) }()
 	t.Cleanup(func() {
 		require.NoError(t, server.Close())
+		require.ErrorIs(t, <-served, http.ErrServerClosed)
 		if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
 			t.Logf("kit: remove socket: %v", err)
 		}

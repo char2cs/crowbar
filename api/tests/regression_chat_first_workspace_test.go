@@ -109,7 +109,7 @@ func TestRegression_AnImportedBranchIsOwnedByAChatWithoutARestart(t *testing.T) 
 		importBranches(branch), http.StatusAccepted).Body.Close()
 	// The new chat's row names its workspace only once CreateImportedWorkspace
 	// has materialised it, so its WorkspaceID is the real one.
-	created := feed.awaitNewChat("with its workspace", func(chat map[string]any) bool {
+	created := feed.awaitNewChat(func(chat map[string]any) bool {
 		return chat["workspaceId"] != ""
 	})
 	wsID, _ := created["workspaceId"].(string)

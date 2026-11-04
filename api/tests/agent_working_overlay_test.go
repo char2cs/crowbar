@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // liveStubProviderDescriptorYAML runs the fake CLI, which stays alive on its PTY

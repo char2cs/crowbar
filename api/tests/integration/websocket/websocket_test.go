@@ -61,7 +61,7 @@ func (s *WebSocketSuite) TestWS_ProjectsScopeCarriesAWorkspaceChange() {
 
 	msg := kit.WaitForWorkspace(t, watcher, wsID, 5*time.Second, prURLIs("https://example.test/pr/1"))
 	s.Assert().Equal(imported.RepoID, msg["repoId"])
-	s.Assert().Equal(imported.ProjectID, msg["projectId"])
+	s.Equal(imported.ProjectID, msg["projectId"])
 }
 
 // TestWS_ProjectsScopeCarriesAnImportedRepo proves an imported repo reaches a

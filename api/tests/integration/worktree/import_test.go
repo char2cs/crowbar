@@ -55,7 +55,7 @@ func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
 
 	resp := s.Env.POST(t, s.importBatchURL(), importBody("import/alpha", "import/beta"))
 	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().NoError(resp.Body.Close())
 
 	linked := map[string]bool{}
 	watcher.Next(t, 20*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
@@ -65,9 +65,9 @@ func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
 		return len(linked) >= 2
 	})
 
-	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/alpha"),
+	s.True(kit.BranchExists(t, s.imported.RepoPath, "import/alpha"),
 		"import must create branch import/alpha")
-	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/beta"),
+	s.True(kit.BranchExists(t, s.imported.RepoPath, "import/beta"),
 		"import must create branch import/beta")
 }
 
@@ -99,7 +99,7 @@ func (s *WorktreeSuite) TestWorktree_importHeldBranchYieldsPlaceholder() {
 	watcher := s.Env.HoldProjects(t)
 	resp := s.Env.POST(t, s.importBatchURL(), importBody("import/held"))
 	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().NoError(resp.Body.Close())
 
 	var chatID string
 	watcher.Next(t, 20*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
@@ -116,11 +116,11 @@ func (s *WorktreeSuite) TestWorktree_importHeldBranchYieldsPlaceholder() {
 	s.Require().Equal("import/held", placeholder["branch"],
 		"the linked chat must own the import/held branch, not some other row the batch created")
 
-	s.Assert().Empty(placeholder["localPath"],
+	s.Empty(placeholder["localPath"],
 		"a held branch has no managed worktree — the empty path IS the placeholder signal")
-	s.Assert().NotEmpty(placeholder["heldByPath"],
+	s.NotEmpty(placeholder["heldByPath"],
 		"the holder path is what the placeholder toast and the Detach… modal render")
-	s.Assert().NotEqual("locked", placeholder["status"],
+	s.NotEqual("locked", placeholder["status"],
 		"an imported feature branch must not be locked; locked survives provisioning "+
 			"and would block merge/rename/delete forever")
 }
@@ -134,6 +134,6 @@ func (s *WorktreeSuite) TestWorktree_importDefaultBranchIsRefusedSynchronously()
 	t := s.T()
 
 	resp := s.Env.POST(t, s.importBatchURL(), importBody(s.defaultBranch()))
-	defer resp.Body.Close()
 	kit.RequireStatus(t, resp, http.StatusConflict)
+	s.Require().NoError(resp.Body.Close())
 }

@@ -269,7 +269,7 @@ func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 // runnerByID is runnerID's runner while the supervisor holds it, also while it
 // is exiting.
 func runnerByID(h *harness, runnerID string) (agents.Runner, bool) {
-	return h.app.Usecases.AgentRunner.(*agentusecase.Usecase).RunnerByID(runnerID)
+	return h.app.Usecases.AgentRunner.(*agentusecase.Usecase).RunnerByID(runnerID) //nolint:forcetypeassert // the harness wires the concrete usecase
 }
 
 // runnerTerminalSession returns runnerID's PTY. A plain read: a runner id

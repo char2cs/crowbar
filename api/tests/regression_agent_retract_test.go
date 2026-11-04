@@ -32,10 +32,10 @@ func (c turnChat) retract(t *testing.T, requestID string) retractAnswer {
 	return got
 }
 
-// send submits text as requestID and returns the launch that carries it.
-func (c turnChat) send(t *testing.T, text, requestID string) kit.Launch {
+// send submits the prompt "one" as requestID and returns the launch that carries it.
+func (c turnChat) send(t *testing.T, requestID string) kit.Launch {
 	t.Helper()
-	require.Equal(t, http.StatusOK, postPrompt(t, c.h, c.imported, c.chatID, text, requestID))
+	require.Equal(t, http.StatusOK, postPrompt(t, c.h, c.imported, c.chatID, "one", requestID))
 	c.h.QuiesceReactors()
 	return c.fake.AwaitLaunch(t, getAgentChat(t, c.h, repoBase(c.imported), c.chatID).LiveRunnerID)
 }
@@ -118,7 +118,7 @@ func settledAs(t *testing.T, rows []stream.Frame, requestID string) []ledger.Pro
 func TestRegression_Symptom5_RetractBeforeDeliveryReturnsTheText(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	r1 := uuid.NewString()
-	l := c.send(t, "one", r1)
+	l := c.send(t, r1)
 
 	assert.Equal(t, retractAnswer{State: "retracted", Text: "one"}, c.retract(t, r1))
 
@@ -133,7 +133,7 @@ func TestRegression_Symptom5_RetractBeforeDeliveryReturnsTheText(t *testing.T) {
 func TestRegression_Symptom5_TheNextPromptIsAcceptedAfterARetract(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	r1 := uuid.NewString()
-	c.send(t, "one", r1)
+	c.send(t, r1)
 	c.retract(t, r1)
 
 	assert.Equal(t, http.StatusOK, postPrompt(t, c.h, c.imported, c.chatID, "two", uuid.NewString()),
@@ -143,7 +143,7 @@ func TestRegression_Symptom5_TheNextPromptIsAcceptedAfterARetract(t *testing.T) 
 func TestRegression_Symptom5_RetractAfterDeliveryInterruptsTheTurn(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	r1 := uuid.NewString()
-	l := c.send(t, "one", r1)
+	l := c.send(t, r1)
 	c.hook(t, l, "user_prompt", map[string]any{"prompt": "one", "prompt_id": uuid.NewString()})
 	require.True(t, c.working(t), "precondition: r1's turn is running")
 
@@ -158,7 +158,7 @@ func TestRegression_Symptom5_RetractAfterDeliveryInterruptsTheTurn(t *testing.T)
 func TestRegression_Symptom5_RetractingASettledPromptIs409(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	r1 := uuid.NewString()
-	l := c.send(t, "one", r1)
+	l := c.send(t, r1)
 	c.hook(t, l, "user_prompt", map[string]any{"prompt": "one", "prompt_id": "P1"})
 	c.hook(t, l, "turn_stop", map[string]any{"prompt_id": "P1", "last_assistant_message": ""})
 	require.False(t, c.working(t), "precondition: r1's turn is over")

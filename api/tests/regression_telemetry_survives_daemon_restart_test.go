@@ -7,9 +7,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // telemetryStubProviderDescriptorYAML declares a v2-style top-level
@@ -136,7 +137,7 @@ func TestRegression_TelemetryForgetPurgesTheDurableRowAcrossARestart(t *testing.
 	before := getTelemetry(t, h1, imported, chatID)
 	require.NotNil(t, before.Context, "precondition: the chat has a usage report")
 
-	h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close()
+	require.NoError(t, h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close())
 	feed.awaitGone(stream.KindChatEntity, chatID)
 	h1.Quiesce()
 

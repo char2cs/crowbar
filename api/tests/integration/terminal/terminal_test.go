@@ -173,12 +173,12 @@ func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 	s.Require().NotEmpty(sessionID)
 
 	s.kill(t, sessionID)
-	listResp := s.Env.GET(t, s.base()+"/terminals")
+	listResp := s.Env.GET(t, s.base()+"/terminals") //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(t, listResp, http.StatusOK)
 	var sessions []map[string]any
 	kit.DecodeEnvData(t, listResp, &sessions)
 	for _, sess := range sessions {
-		s.Assert().NotEqual(sessionID, sess["id"], "a killed session is no longer listed")
+		s.NotEqual(sessionID, sess["id"], "a killed session is no longer listed")
 	}
 }
 
@@ -297,7 +297,7 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	ws := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws.ReadMsg(t, 10*time.Second)
 	s.Require().Contains(frame, "data", "the first PTY frame must be output")
-	s.Assert().Equal(true, frame["snapshot"], "the first frame after attach is the snapshot")
+	s.Equal(true, frame["snapshot"], "the first frame after attach is the snapshot")
 
 	s.kill(t, sessionID)
 }
@@ -608,9 +608,10 @@ func (s *TerminalSuite) kill(
 	t *testing.T,
 	sessionID string,
 ) {
+	t.Helper()
 	resp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	defer resp.Body.Close()
 	kit.RequireStatus(t, resp, http.StatusOK)
+	require.NoError(t, resp.Body.Close())
 }
 
 // TestRegression_ReattachNoQueryReplies is the §13.3 DISCRIMINATOR for device queries under
@@ -892,6 +893,6 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 	// TempDir teardown (avoids "directory not empty" flakes on some platforms).
 	// The kill answers once the PTY is reaped.
 	killResp := env2.DELETE(t, base+"/terminals/"+sessionID)
-	defer killResp.Body.Close()
 	kit.RequireStatus(t, killResp, http.StatusOK)
+	require.NoError(t, killResp.Body.Close())
 }

@@ -263,7 +263,7 @@ func (s *GitSuite) TestGit_blameAnnotatesLines() {
 
 	kit.CommitFile(t, s.worktree, "blame.txt", "line1\nline2\nline3\n", "blame base")
 
-	resp := s.Env.GET(s.T(), s.base()+"/blame?path=blame.txt")
+	resp := s.Env.GET(s.T(), s.base()+"/blame?path=blame.txt") //nolint:bodyclose // DecodeEnvData closes the body
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var entries []map[string]any
 	kit.DecodeEnvData(s.T(), resp, &entries)

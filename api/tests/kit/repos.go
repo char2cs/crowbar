@@ -313,8 +313,9 @@ func RepoImport(projectID, repoPath string) project.RepoImport {
 
 // RequireBranches is an import's progress that fails t for every protected
 // branch whose workspace could not be set up.
-func RequireBranches(t testing.TB) project.RepoProgress {
-	return requireBranches{t}
+func RequireBranches(tb testing.TB) project.RepoProgress {
+	tb.Helper()
+	return requireBranches{tb}
 }
 
 type requireBranches struct{ t testing.TB }

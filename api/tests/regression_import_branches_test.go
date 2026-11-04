@@ -163,7 +163,7 @@ func TestRegression_ImportBranchTakesRemoteContentNotDivergedLocal(t *testing.T)
 		importBranches(branch), http.StatusAccepted).Body.Close()
 	// The new chat's row names its workspace only once the import has
 	// materialised it (placeholder or worktree), so its WorkspaceID is the real one.
-	created := feed.awaitNewChat("with its workspace", hasWorkspace)
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "import must broadcast a workspace for the branch")
 
@@ -205,7 +205,7 @@ func TestRegression_ImportParentsUnderLockedDefaultBranchWorkspace(t *testing.T)
 		importBranches(branch), http.StatusAccepted).Body.Close()
 	// The new chat's row names its workspace only once the import has
 	// materialised it (placeholder or worktree), so its WorkspaceID is the real one.
-	feed.awaitNewChat("with its workspace", hasWorkspace)
+	feed.awaitNewChat(hasWorkspace)
 	h.Quiesce()
 
 	var parentID string
@@ -300,7 +300,7 @@ func TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal(t *testing.
 		importBranches(branch), http.StatusAccepted).Body.Close()
 	// The new chat's row names its workspace only once the import has
 	// materialised it (placeholder or worktree), so its WorkspaceID is the real one.
-	created := feed.awaitNewChat("with its workspace", hasWorkspace)
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "a branch held elsewhere must still produce a row")
 
