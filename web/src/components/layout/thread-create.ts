@@ -9,7 +9,7 @@ import {
   providersOf,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
-import { resolvedHostOf } from '@/lib/host-resolve'
+import { hostUnavailability, resolvedHostOf } from '@/lib/host-resolve'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
@@ -98,7 +98,7 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
 export function enabledProvider(projectId: string): AgentProvider | null {
   const hostId = resolvedHostOf({ projectId })
   if (hostId === null) {
-    toastUnresolvedHost(projectId)
+    toastUnresolvedHost(hostUnavailability({ projectId }))
     return null
   }
   const provider = providersOf(useAgentProvidersStore.getState(), hostId).find((p) => p.enabled)

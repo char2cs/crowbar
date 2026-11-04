@@ -101,18 +101,16 @@ describe('createFileTreeHandlers', () => {
   })
 
   it.each([
-    [
-      'in its own words',
-      () => new ApiError('workspace locked', 500),
-      { title: 'Duplicate failed', description: 'workspace locked' },
-    ],
-    ['naming the remote host that failed it', hostFailure, { title: 'Couldn’t reach Studio Mac' }],
-  ])('surfaces a duplicate failure %s', async (_, failure, toast) => {
+    ['in its own words', () => new ApiError('workspace locked', 500), 'workspace locked'],
+    ['naming the remote host that failed it', hostFailure, 'Couldn’t reach Studio Mac'],
+  ])('surfaces a duplicate failure %s', async (_, failure, description) => {
     copyFileNode.mockRejectedValueOnce(failure())
     await createFileTreeHandlers('ws-test', createWorkspaceStore('ws-test')).handleDuplicatePath(
       'a.txt',
     )
-    expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining(toast))
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Duplicate failed', description }),
+    )
   })
 
   it('a duplicate refused while the daemon migrates shows the migrating state, not a toast', async () => {

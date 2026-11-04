@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import type { NavigateFn } from '@tanstack/react-router'
 import { subscribeHostResolution } from '@/lib/host-resolve'
-import { isProjectGone } from '@/lib/host-unavailability'
+import { isProjectGone } from '@/lib/host-resolve'
 
 /**
  * Leaves for `/` (its own router picks a project that exists or `/oobe`) once the routed

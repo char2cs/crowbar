@@ -1,3 +1,4 @@
+import { hostFailureWords } from '@/features/hosts/lib/host-failure-notice'
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { problemOf } from '@/lib/errors/problem'
@@ -41,14 +42,18 @@ export function userWords(error: unknown, fallback?: string): string | undefined
   return error instanceof Error ? UNEXPLAINED : fallback
 }
 
-/** Tells the user an action failed and why, in the daemon's own words. */
+/** Tells the user an action failed and why: its host's trouble when the host is why, else
+ *  the daemon's own words. */
 export function report(error: unknown, context: ReportContext): void {
   // A failed operation was already toasted by the operations watcher.
   if (isCancellation(error) || error instanceof OperationFailedError) return
   // A migrating or halted daemon has its own screen; a toast per refused call would bury it.
   if (reportDaemonRefusal(problemOf(error))) return
-  if (error instanceof Error && !isWorded(error)) console.error(`${context.action}:`, error)
-  const description = userWords(error, context.fallback)
+  const hostWords = hostFailureWords(error)
+  if (hostWords === null && error instanceof Error && !isWorded(error)) {
+    console.error(`${context.action}:`, error)
+  }
+  const description = hostWords ?? userWords(error, context.fallback)
   toastManager.add({ id: context.action, type: 'error', title: context.action, description })
 }
 

@@ -1,49 +1,17 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   getHostRuntime,
   subscribeHostStatuses,
 } from '@/features/hosts/stores/host-runtime-registry'
-import { isHostResolved, subscribeHostResolution, type HostKey } from '@/lib/host-resolve'
-import { readSelect } from '@/core/entities/select'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
-
-/** Why a host that will not resolve is not coming: the loaded list does not hold its
- *  project, or holds it on a host that is not configured (or ambiguously). */
-export type HostUnavailable = 'project-missing' | 'host-unavailable'
-
-/** `key`'s project while a loaded list does not place its host; null while it resolves, the
- *  list has not loaded, or a workspace's scope (and so its project) is not recorded yet. */
-function unplacedProject(key: HostKey): string | null {
-  if (!readSelect((s) => s.synced) || isHostResolved(key)) return null
-  return (key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId) ?? null
-}
-
-/** Paired hosts that have not said what projects they hold: a project in no row may be on
- *  any of them. The projects scope is the local daemon's, so no paired host ever has. */
-function unreadHosts(): string[] {
-  return useHostConfigStore.getState().hosts.map((host) => host.id)
-}
-
-function heldProject(projectId: string): boolean {
-  return readSelect((s) => s.projects.some((p) => p.id === projectId))
-}
-
-/** True once a loaded list holds no row of `projectId` and every paired host has said what it
- *  has: nothing more can bring the project back. */
-export function isProjectGone(projectId: string): boolean {
-  if (!readSelect((s) => s.synced) || heldProject(projectId)) return false
-  return unreadHosts().length === 0
-}
-
-/** Why `key`'s host is not coming, or null while it is still worth waiting: the list has not
- *  loaded, a workspace's scope is not recorded yet, or a paired host has not said what it has. */
-export function hostUnavailability(key: HostKey): HostUnavailable | null {
-  const projectId = unplacedProject(key)
-  if (projectId === null) return null
-  if (heldProject(projectId)) return 'host-unavailable'
-  return isProjectGone(projectId) ? 'project-missing' : null
-}
+import {
+  hostUnavailability,
+  isHostResolved,
+  subscribeHostResolution,
+  unplacedProject,
+  unreadHosts,
+  type HostKey,
+} from '@/lib/host-resolve'
+import type { HostUnavailable } from '@/lib/host-path'
 
 // A wait only on hosts the app tried and could not reach is still a wait (one may come back
 // with the project), but it is not "opening" any more: the pane says the host is not there.

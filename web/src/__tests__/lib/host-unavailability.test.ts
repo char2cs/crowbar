@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { awaitHost, hostUnavailability, useHostUnavailable } from '@/lib/host-unavailability'
+import { hostUnavailability } from '@/lib/host-resolve'
+import { awaitHost, useHostUnavailable } from '@/lib/host-unavailability'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {

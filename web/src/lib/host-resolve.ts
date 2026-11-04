@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
-import { HostNotResolvedError } from '@/lib/host-path'
+import { HostNotResolvedError, type HostUnavailable } from '@/lib/host-path'
 import { entityStore } from '@/core/entities/entity-store'
 import type { Project } from '@/lib/types'
 import {
@@ -77,25 +77,33 @@ function resolveChatHost(chatId: string): Resolution {
   return resolveWorkspaceHost(wsId)
 }
 
+// Says, as of the throw, whether the host is still worth waiting for: the words a
+// failure is shown in depend on it.
+function notResolved(
+  entity: HostNotResolvedError['entity'],
+  id: string,
+  { reason, projectId }: { reason: string; projectId?: string },
+): HostNotResolvedError {
+  const project = entity === 'project' ? id : projectId
+  const unavailable = project === undefined ? null : hostUnavailability({ projectId: project })
+  return new HostNotResolvedError(entity, id, reason, projectId, unavailable)
+}
+
 export function hostIdForProject(projectId: string): string {
   const resolved = resolveProjectHost(projectId)
-  if (!('hostId' in resolved)) throw new HostNotResolvedError('project', projectId, resolved.reason)
+  if (!('hostId' in resolved)) throw notResolved('project', projectId, resolved)
   return resolved.hostId
 }
 
 export function hostIdForWorkspace(wsId: string): string {
   const resolved = resolveWorkspaceHost(wsId)
-  if (!('hostId' in resolved)) {
-    throw new HostNotResolvedError('workspace', wsId, resolved.reason, resolved.projectId)
-  }
+  if (!('hostId' in resolved)) throw notResolved('workspace', wsId, resolved)
   return resolved.hostId
 }
 
 export function hostIdForChat(chatId: string): string {
   const resolved = resolveChatHost(chatId)
-  if (!('hostId' in resolved)) {
-    throw new HostNotResolvedError('chat', chatId, resolved.reason, resolved.projectId)
-  }
+  if (!('hostId' in resolved)) throw notResolved('chat', chatId, resolved)
   return resolved.hostId
 }
 
@@ -147,4 +155,37 @@ export function useWorkspaceIsLocal(wsId: string): boolean {
 /** True once `hostIdForProject`/`hostIdForWorkspace` would stop throwing for `key`. */
 export function useHostResolved(key: HostKey): boolean {
   return useResolvedHost(key) !== null
+}
+
+/** `key`'s project while a loaded list does not place its host; null while it resolves, the
+ *  list has not loaded, or a workspace's scope (and so its project) is not recorded yet. */
+export function unplacedProject(key: HostKey): string | null {
+  if (heldProjects() === undefined || isHostResolved(key)) return null
+  return (key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId) ?? null
+}
+
+/** Paired hosts that have not said what projects they hold: a project in no row may be on
+ *  any of them. The projects scope is the local daemon's, so no paired host ever has. */
+export function unreadHosts(): string[] {
+  return useHostConfigStore.getState().hosts.map((host) => host.id)
+}
+
+function heldProject(projectId: string): boolean {
+  return heldProjects()?.some((p) => p.id === projectId) ?? false
+}
+
+/** True once a loaded list holds no row of `projectId` and every paired host has said what it
+ *  has: nothing more can bring the project back. */
+export function isProjectGone(projectId: string): boolean {
+  if (heldProjects() === undefined || heldProject(projectId)) return false
+  return unreadHosts().length === 0
+}
+
+/** Why `key`'s host is not coming, or null while it is still worth waiting: the list has not
+ *  loaded, a workspace's scope is not recorded yet, or a paired host has not said what it has. */
+export function hostUnavailability(key: HostKey): HostUnavailable | null {
+  const projectId = unplacedProject(key)
+  if (projectId === null) return null
+  if (heldProject(projectId)) return 'host-unavailable'
+  return isProjectGone(projectId) ? 'project-missing' : null
 }

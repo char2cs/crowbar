@@ -2,7 +2,8 @@ import { hostDotLabel, hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { useResolvedHost } from '@/lib/host-resolve'
-import { useHostUnavailable, type HostUnavailable } from '@/lib/host-unavailability'
+import type { HostUnavailable } from '@/lib/host-path'
+import { useHostUnavailable } from '@/lib/host-unavailability'
 
 function Notice({ title, detail }: { title: string; detail?: string }) {
   return (

@@ -20,7 +20,6 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { holdsWorkspace } from '@/core/entities/repo-queries'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
-import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -238,9 +237,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
       return
     }
     treeUiStore.getState().release(entry.hiddenIds)
-    if (!toastHostFailure(err)) {
-      report(err, { action: `Couldn't remove ${entry.label}`, fallback: 'request failed' })
-    }
+    report(err, { action: `Couldn't remove ${entry.label}`, fallback: 'request failed' })
     return
   }
 
