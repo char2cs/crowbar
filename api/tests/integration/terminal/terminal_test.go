@@ -137,10 +137,7 @@ func (s *TerminalSuite) base() string {
 func TestTerminalSuite(
 	t *testing.T,
 ) {
-	suite.Run(
-		t,
-		new(TerminalSuite),
-	)
+	suite.Run(t, new(TerminalSuite))
 }
 
 // TestTerminal_Create201ThenKill verifies a terminal session creates

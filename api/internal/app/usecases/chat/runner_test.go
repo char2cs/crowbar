@@ -31,353 +31,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// ─── from switch_test.go ──────────────────────────────────────────────
-
-// A switch's preflight resolves a bubble's cwd through the ancestor walk too.
-// The whole call list is asserted: the spawn resolves "ws1" last either way, and
-// fakeWorkspace answers "" as readily as a real id.
-func TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
-	f := newFixture(t)
-	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
-	f.ws.worktreeDirIDs = nil
-
-	_, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	require.NotEmpty(t, f.ws.worktreeDirIDs)
-	assert.NotContains(t, f.ws.worktreeDirIDs, "",
-		"every cwd a bubble's switch resolves must come from its workspace-owning ancestor")
-}
-
-func TestSwitchProvider_TerminatesOutgoingCLI_AndTakesOverTheChat(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, oldRunner := f.spawn(t, "claude")
-	oldTerm := f.runner(t, oldRunner).TerminalSession
-	require.NotEmpty(t, oldTerm)
-
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	assert.Contains(t, f.term.terminatedIDs(), oldTerm, "the outgoing CLI is quit gracefully")
-
-	// The chat did not move and was not written to; only the runner on it changed.
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, newRunner, live.ID)
-	assert.Equal(t, "codex", live.ProviderID)
-	assert.NotEqual(t, oldTerm, live.TerminalSession, "the incoming CLI has its own PTY")
-
-	// The switch returned only once the outgoing CLI's exit was recorded: a
-	// replacement never lands beside it.
-	assert.False(t, f.isLive(oldRunner))
-	exit, ok := f.lastExit(t, chatID)
-	require.True(t, ok)
-	assert.Equal(t, ledger.RunnerExit{RunnerID: oldRunner, Reason: domain.AgentExitDisplaced, At: exit.At}, exit)
-}
-
-// TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch: when
-// TerminateGraceful fails because the terminal session is already gone (the one error
-// the real engine returns today), the switch must still proceed.
-func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, _ := f.spawn(t, "claude")
-	f.term.terminateErr = fmt.Errorf("terminal: terminate: %w: term-1", engineterminal.ErrSessionNotFound)
-
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	require.NotEmpty(t, newRunner)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, newRunner, live.ID)
-}
-
-// TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch: a TerminateGraceful
-// failure that is NOT "session already gone" must abort the switch entirely rather
-// than leave two live CLIs pointed at one chat.
-func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, oldRunner := f.spawn(t, "claude")
-	f.term.terminateErr = errors.New("boom: terminate genuinely failed")
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "terminate outgoing terminal")
-
-	require.Equal(t, 1, f.term.callCount(), "no second CLI may be spawned after a real terminate failure")
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, oldRunner, live.ID, "the chat still belongs to the CLI that would not die")
-}
-
-// TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate: the handoff is
-// assembled BEFORE the terminate, so a failure there leaves the chat completely
-// untouched — rather than killing the old CLI and spawning the new one with an EMPTY
-// handoff.
-func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, oldRunner := f.spawn(t, "claude")
-
-	f.ws.err = errors.New("boom: worktree lookup")
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.Error(t, err)
-
-	f.ws.err = nil // let the assertion reads resolve the worktree again
-	assert.Empty(t, f.term.terminatedIDs(), "the outgoing CLI must never be terminated when the handoff fails first")
-	require.Equal(t, 1, f.term.callCount(), "and no new CLI is spawned")
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, oldRunner, live.ID)
-}
-
-func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	turn(t, f, runnerID, "claude", "prior turn content for handoff")
-
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	require.NotEmpty(t, newRunner)
-
-	require.Equal(t, 2, f.term.callCount())
-	newCall := f.term.calls[1]
-	// Basename: argv[0] is binpath.Resolve'd to the CLI's absolute path when installed.
-	assert.Equal(t, "codex", filepath.Base(newCall.argv[0]))
-	assert.Contains(t, strings.Join(newCall.argv, "\x00"), "prior turn content for handoff")
-}
-
-// TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange: a handoff changes which
-// CLI is on the chat, and the runner feed carries that whole story in order — the
-// outgoing runner exits, and only then does the incoming one start.
-//
-// The chat aggregate is written to exactly ONCE, and only for what durably moved: its
-// own vendor (domain.Chat.ProviderID), the same way SwitchToTerminal writes its
-// surface. A respawn on the SAME provider changes nothing and emits nothing — the
-// command refuses an unchanged value — so this frame appears only on a real switch.
-func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, _ := f.spawn(t, "claude")
-	f.bc.reset()
-	f.snapFrames.reset()
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	assert.Equal(t, []string{"provider_set"}, f.bcKinds(t),
-		"the only chat-aggregate write a switch makes is the chat's own vendor moving")
-	assert.Equal(t, []string{"exited", "started"}, f.runnerKinds(t))
-}
-
-// TestSwitchProvider_RecordsAProviderSwitchedInterruption guards the new
-// InterruptProviderSwitched marker: recorded once the switch actually
-// commits, and only when the target differs from the chat's provider
-// beforehand — Crowbar's own doing, not something a provider hook reports.
-func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	ints, err := f.activity.Interruptions(f.ctx, chatID)
-	require.NoError(t, err)
-	require.Len(t, ints, 1)
-	assert.Equal(t, ledger.MarkerProviderSwitched, ints[0].Kind)
-	assert.Equal(t, "codex", ints[0].Detail)
-	assert.NotNil(t, ints[0].ResolvedAt, "Crowbar's own doing: opened and resolved together")
-}
-
-// TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing guards the
-// no-op case ResumeChat exercises every day: resuming into the provider the
-// chat is ALREADY on is not a switch worth marking.
-func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	ints, err := f.activity.Interruptions(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.Empty(t, ints, "switching to the provider already on the chat is not a switch")
-}
-
-// With no api connection (this fixture disables it, as production degrades to
-// when app-server fails), the hooks PTY is the only codex: it must carry the
-// native `resume {id}` itself, or codex mints a new thread on every switch back.
-// Its sessions live in its own home, which Crowbar must never own and so delete.
-func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, codexRunner := f.spawn(t, "codex")
-	f.announce(t, codexRunner, "sid-codex-native")
-	exchange(t, f, codexRunner, "codex", "codex ledger content")
-	for _, call := range f.term.calls {
-		for _, kv := range call.env {
-			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME=") && kv != "CODEX_HOME="+os.Getenv("CODEX_HOME"),
-				"Crowbar must never own codex's home — its sessions live there")
-		}
-	}
-
-	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	// What codex misses while it is away.
-	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
-
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, "codex", live.ProviderID)
-
-	require.Equal(t, 3, f.term.callCount())
-	argv := f.term.calls[2].argv
-	assert.Equal(t, "sid-codex-native", argAfter(t, argv, "resume"),
-		"the resume subcommand must name codex's own prior thread: %v", argv)
-	for _, tok := range argv {
-		assert.NotContains(t, tok, "[Crowbar]",
-			"codex declares no resume_context_inject: its gap never rides argv as a pointer it would answer "+
-				"as an unrelated second conversation: %v", argv)
-	}
-}
-
-// TestSwitchProvider_ForwardSwitch_CarriesWholeConversation is the other half of the
-// gap rule: a provider that has never run in this chat has no conversation to resume
-// and therefore no history at all, so it gets the ENTIRE ledger.
-func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sid-claude-native")
-	turn(t, f, runnerID, "claude", "claude said this first")
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-
-	require.Equal(t, 2, f.term.callCount())
-	argv := f.term.calls[1].argv
-
-	// codex is new to this chat: no resume, and the context rides the silent
-	// developer_instructions channel — never the positional user prompt.
-	assert.Equal(t, -1, indexOf(argv, "resume"), "a provider new to the chat has no conversation to resume")
-
-	doc := configValue(t, argv, "developer_instructions=")
-	assert.Contains(t, doc, "claude said this first")
-}
-
-// A switch's handoff carries only the most recent defaultChatLogTurns turns,
-// pointing at the earlier ones through get_chat_log rather than replaying a
-// long chat's whole history into the incoming CLI.
-func TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow(t *testing.T) {
-	f := newFixture(t)
-
-	// Discovered from the real cap rather than copied, so a future change to it
-	// cannot leave this test silently under the threshold it means to exceed.
-	kept, _ := agenttools.RecentHandoffWindow("probe", make([]struct{}, 100_000))
-	handoffCap := len(kept)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sid-claude-native")
-	total := handoffCap + 5
-	for i := 0; i < total; i++ {
-		turn(t, f, runnerID, "claude", fmt.Sprintf("claude turn %d", i))
-	}
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-
-	argv := f.term.calls[f.term.callCount()-1].argv
-	doc := configValue(t, argv, "developer_instructions=")
-	assert.NotContains(t, doc, "claude turn 0",
-		"the earliest turn must be trimmed once history exceeds the cap")
-	assert.Contains(t, doc, fmt.Sprintf("claude turn %d", total-1),
-		"the most recent turn must survive")
-	assert.Contains(t, doc, "get_chat_log",
-		"a trimmed handoff must point at how to read what was cut")
-}
-
-func TestSwitchProvider_UnknownChat_ReturnsWrappedError(t *testing.T) {
-	f := newFixture(t)
-
-	_, err := f.usecase.SwitchProvider(f.ctx, "does-not-exist", "codex")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "switch provider: chat")
-}
-
-// TestSwitchProvider_DormantChat_SwitchesAnyway: a chat whose CLI is gone (it exited,
-// or died with the daemon) used to be a hard dead end — the pane told the user to
-// "switch provider below to start a new one" while this call returned ErrNotFound, so
-// the chat could never be re-entered by ANY route. A dormant chat now simply means
-// there is no outgoing CLI to quit.
-func TestSwitchProvider_DormantChat_SwitchesAnyway(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
-	f.wait()
-	_, err := f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "precondition: the chat is dormant")
-
-	before := len(f.term.terminateRequestIDs())
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	require.NotEmpty(t, newRunner)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, "codex", live.ProviderID)
-	assert.Len(t, f.term.terminateRequestIDs(), before, "a dormant chat has no CLI to terminate")
-}
-
-func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, _ := f.spawn(t, "claude")
-
-	// A workspace-reader failure surfaces wrapped, at the preflight WorktreeDir
-	// read: the wait for a pending prompt reads only the chat ledger before it.
-	f.ws.err = errors.New("boom: workspace lookup")
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "preflight worktree dir")
-	assert.ErrorContains(t, err, "boom: workspace lookup")
-}
-
-func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	spawnCount := f.term.callCount()
-	terminatedCount := len(f.term.terminatedIDs())
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "resolve descriptor")
-	assert.Equal(t, spawnCount, f.term.callCount(), "an invalid target must not spawn anything")
-	assert.Len(t, f.term.terminatedIDs(), terminatedCount,
-		"target planning must fail before the outgoing TUI is touched")
-	live, liveErr := f.liveRunnerFor(t, chatID)
-	require.NoError(t, liveErr)
-	assert.Equal(t, runnerID, live.ID)
-}
-
 // ---------------------------------------------------------------------------
 // Resume
 // ---------------------------------------------------------------------------
@@ -581,7 +234,7 @@ func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t 
 	last := argv[len(argv)-1]
 	assert.Contains(t, last, "codex spoke while claude was away")
 	assert.Contains(t, last, "what did I miss?")
-	assert.Equal(t, 2, len(argv)-indexOf(argv, "--"),
+	assert.Equal(t, 2, len(argv)-slices.Index(argv, "--"),
 		"exactly one argv entry must follow the final \"--\": argv was %v", argv)
 }
 
@@ -770,7 +423,7 @@ func TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider(t *te
 	require.NoError(t, err)
 	assert.Equal(t, revived, live.ID)
 	assert.Equal(t, "codex", live.ProviderID)
-	assert.Equal(t, -1, indexOf(f.term.calls[1].argv, "resume"),
+	assert.Equal(t, -1, slices.Index(f.term.calls[1].argv, "resume"),
 		"and it comes back FRESH: there is still no conversation to resume into")
 }
 
@@ -792,7 +445,7 @@ func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, agentusecase.ErrChatProviderUnknown)
+	require.ErrorIs(t, err, agentusecase.ErrChatProviderUnknown)
 	assert.Contains(t, err.Error(), "no longer records which provider it ran")
 	require.ErrorIs(t, err, problem.ErrNotFound,
 		"and it still maps to the 404 the old sentinel did, never a 500")
@@ -865,8 +518,6 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsANewSession(t *te
 	assert.Contains(t, strings.Join(argv, "\x00"), "codex actually said something")
 	assert.Equal(t, assigned, f.conversation(t, chatID, "claude").SessionID)
 }
-
-// ─── from midturn_test.go ─────────────────────────────────────────────
 
 // switchResult is what a SwitchProvider driven on its own goroutine hands back.
 type switchResult struct {
@@ -982,8 +633,6 @@ func TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn(t *testing.T) {
 			"chat is no longer on, so nothing else will ever close it")
 }
 
-// ─── from race_test.go ────────────────────────────────────────────────
-
 // A CLI is live before its runner can be recorded, so a record that fails tears
 // the CLI down unconditionally and still surfaces the error: a CLI nothing
 // points at is invisible.
@@ -1004,8 +653,6 @@ func TestSwitchProvider_ARunnerThatCannotBeRecordedIsTornDown(t *testing.T) {
 	_, err = f.liveRunnerFor(t, chatID)
 	assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "and the chat is free for the next one")
 }
-
-// ─── from spawn_startup_exit_test.go ──────────────────────────────────
 
 func exitDuringFork(f testFixture) {
 	f.term.duringForkCall = func(c commandCall) { c.onExit(engineterminal.Exit{}) }
@@ -1042,8 +689,6 @@ func TestRegression_ProviderExitingBeforeItsRunnerRowCommitsLeavesNoChat(t *test
 	require.Len(t, chats, 1, "a working provider still creates exactly one chat")
 	assert.Equal(t, chatID, chats[0].ID)
 }
-
-// ─── from catalog_test.go ─────────────────────────────────────────────
 
 func TestSlashCatalogRejectsResultWhenTheProviderChangesDuringProbe(t *testing.T) {
 	f := newFixture(t)
@@ -1316,8 +961,6 @@ presentation:
 	))
 }
 
-// ─── from prompts_test.go ─────────────────────────────────────────────
-
 func TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -1362,7 +1005,7 @@ func TestSubmitPrompt_ResumeCodexOrdersSubcommandSessionThenPrompt(t *testing.T)
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	resumeIdx := indexOf(call.argv, "resume")
+	resumeIdx := slices.Index(call.argv, "resume")
 	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", call.argv)
 	require.Less(t, resumeIdx+1, len(call.argv))
 	assert.Equal(t, "native-session", call.argv[resumeIdx+1])
@@ -1378,8 +1021,8 @@ func TestSubmitPrompt_FreshClaudeTerminatesVariadicMCPBeforeFinalPrompt(t *testi
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	mcpAt := indexOf(call.argv, "--mcp-config")
-	contextAt := indexOf(call.argv, "--append-system-prompt")
+	mcpAt := slices.Index(call.argv, "--mcp-config")
+	contextAt := slices.Index(call.argv, "--append-system-prompt")
 	require.GreaterOrEqual(t, mcpAt, 0)
 	require.Greater(t, contextAt, mcpAt+1,
 		"a following option terminates Claude's variadic --mcp-config before the positional prompt")
@@ -1500,7 +1143,7 @@ func TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff(t *tes
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I say before?", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	contextAt := indexOf(call.argv, "--append-system-prompt")
+	contextAt := slices.Index(call.argv, "--append-system-prompt")
 	require.GreaterOrEqual(t, contextAt, 0, "the replacement spawn must still carry the handoff")
 	require.Less(t, contextAt+1, len(call.argv))
 	assert.Contains(t, call.argv[contextAt+1], "I like turtles",
@@ -1520,7 +1163,7 @@ func TestSubmitPrompt_AlreadyTurnedNativeSessionStaysOnTheCheapPath(t *testing.T
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "a normal follow-up", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	assert.Equal(t, -1, indexOf(call.argv, "--append-system-prompt"),
+	assert.Equal(t, -1, slices.Index(call.argv, "--append-system-prompt"),
 		"an already-turned session must not be re-handed a handoff on every follow-up")
 }
 
@@ -1786,8 +1429,6 @@ func TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI(t *test
 	}
 }
 
-// ─── from compact_test.go ─────────────────────────────────────────────
-
 // compactingDescriptorBody declares the compaction gesture the way claude does: no API
 // for it, so the trigger is the slash command injected over the prompt transport.
 const compactingDescriptorBody = `
@@ -2020,8 +1661,6 @@ func TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot(t *testing.T
 		"compact_post must settle a delivery compact_pre left pending")
 }
 
-// ─── from boot_test.go ────────────────────────────────────────────────
-
 // No carrier from before a restart can acknowledge a prompt, so boot settles
 // every pending one rather than leave its chat busy.
 func TestReconcileRunnersOnBoot_SettlesEveryPendingPromptAsDaemonRestart(t *testing.T) {
@@ -2162,8 +1801,6 @@ func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing
 	_, err = f.usecase.GetChat(f.ctx, bubbleID)
 	require.NoError(t, err)
 }
-
-// ─── from stop_test.go ────────────────────────────────────────────────
 
 // TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable is the headline: closing
 // a chat tab STOPS the vendor CLI but must leave the chat exactly where a later reopen
@@ -2312,8 +1949,6 @@ func TestStopChat_DoesNotDeleteTheChat(t *testing.T) {
 	}
 	assert.True(t, found, "the stopped chat still appears in the chat list")
 }
-
-// ─── from agent_test.go ───────────────────────────────────────────────
 
 // ---------------------------------------------------------------------------
 // The bugs. One test per bug, each named for what it locks out.
@@ -3083,8 +2718,6 @@ func TestSubmitPrompt_ARetryAfterAConfirmedDeliveryReturnsTheOriginal(t *testing
 	assert.Len(t, turns, 1, "the prompt is recorded once")
 }
 
-// ─── from agent_errors_test.go ────────────────────────────────────────
-
 // Each prompt and catalogue refusal carries its own code, wrapped or not, so
 // the client branches on the code rather than the prose.
 func TestPromptAndCatalogRefusals_CarryDistinctCodes(t *testing.T) {
@@ -3124,8 +2757,6 @@ func TestPromptRefusals_StillMatchTheirCategory(t *testing.T) {
 	require.ErrorIs(t, agentusecase.ErrSlashCatalogUnavailable, engineterminal.ErrCommandNotFound)
 }
 
-// ─── from terminal_wait_test.go ───────────────────────────────────────
-
 const trustDialog = "❯ 1. Yes, I trust this folder\n  2. No, exit\n  Enter to confirm · Esc to cancel"
 
 func TestUsecase_MatchTerminalPrompt_ResolvesTheShippedDescriptor(t *testing.T) {
@@ -3152,8 +2783,6 @@ func TestUsecase_MatchTerminalPrompt_OrdinaryScreenIsNotABlock(t *testing.T) {
 
 	assert.False(t, ok)
 }
-
-// ─── from message_record_test.go ──────────────────────────────────────
 
 // deltaHook renders one claude `message_delta` payload exactly as the bundled
 // descriptor declares it (session_id/turn_id/message_id/index/final/delta), so
@@ -3952,5 +3581,54 @@ func TestRegression_ResumeChat_ClosedMidFirstTurn_ResumesTheAssignedSession(t *t
 	argv := f.term.calls[1].argv
 	assert.Equal(t, assigned, argAfter(t, argv, "--resume"),
 		"the session Crowbar assigned must be resumed; argv was %v", argv)
-	assert.Equal(t, -1, indexOf(argv, "--session-id"), "a resume must not also assign a fresh id")
+	assert.Equal(t, -1, slices.Index(argv, "--session-id"), "a resume must not also assign a fresh id")
+}
+
+// A switch's handoff carries only the most recent defaultChatLogTurns turns,
+// pointing at the earlier ones through get_chat_log rather than replaying a
+// long chat's whole history into the incoming CLI.
+func TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow(t *testing.T) {
+	f := newFixture(t)
+
+	// Discovered from the real cap rather than copied, so a future change to it
+	// cannot leave this test silently under the threshold it means to exceed.
+	kept, _ := agenttools.RecentHandoffWindow("probe", make([]struct{}, 100_000))
+	handoffCap := len(kept)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-claude-native")
+	total := handoffCap + 5
+	for i := 0; i < total; i++ {
+		turn(t, f, runnerID, "claude", fmt.Sprintf("claude turn %d", i))
+	}
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	doc := configValue(t, argv, "developer_instructions=")
+	assert.NotContains(t, doc, "claude turn 0",
+		"the earliest turn must be trimmed once history exceeds the cap")
+	assert.Contains(t, doc, fmt.Sprintf("claude turn %d", total-1),
+		"the most recent turn must survive")
+	assert.Contains(t, doc, "get_chat_log",
+		"a trimmed handoff must point at how to read what was cut")
+}
+
+func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	spawnCount := f.term.callCount()
+	terminatedCount := len(f.term.terminatedIDs())
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolve descriptor")
+	assert.Equal(t, spawnCount, f.term.callCount(), "an invalid target must not spawn anything")
+	assert.Len(t, f.term.terminatedIDs(), terminatedCount,
+		"target planning must fail before the outgoing TUI is touched")
+	live, liveErr := f.liveRunnerFor(t, chatID)
+	require.NoError(t, liveErr)
+	assert.Equal(t, runnerID, live.ID)
 }

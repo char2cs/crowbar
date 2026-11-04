@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -62,16 +61,7 @@ func gitRepoWithBranches(
 
 func gitCurrentBranch(t *testing.T, dir string) string {
 	t.Helper()
-	out := gitOutput(t, dir, "branch", "--show-current")
-	return strings.TrimSpace(out)
-}
-
-func gitOutput(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
-	return string(out)
+	return strings.TrimSpace(runGitOut(t, dir, "branch", "--show-current"))
 }
 
 // TestRepoImport_ProtectedBranchesGetManagedWorktrees is the end-to-end contract

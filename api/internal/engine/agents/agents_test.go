@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -194,7 +195,7 @@ func TestAgent_PromptStepsPlaceTheMessageExactlyOnceAfterEndOfOptions(t *testing
 				}, nil, steps)
 				require.NoError(t, err)
 
-				end := indexOf(plan.Argv, "--")
+				end := slices.Index(plan.Argv, "--")
 				require.GreaterOrEqual(t, end, 0, "argv %v must end its options", plan.Argv)
 				assert.Equal(t, "--print", plan.Argv[len(plan.Argv)-1],
 					"a message that looks like a forbidden flag must survive as DATA")
@@ -524,7 +525,7 @@ func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 
 	claude, err := get(t, "claude").SpawnPlan(ctx, nil, nil)
 	require.NoError(t, err)
-	cfgIdx := indexOf(claude.Argv, "--mcp-config")
+	cfgIdx := slices.Index(claude.Argv, "--mcp-config")
 	require.GreaterOrEqual(t, cfgIdx, 0)
 	require.Less(t, cfgIdx+2, len(claude.Argv), "the JSON must be followed by another FLAG")
 	assert.True(t, strings.HasPrefix(claude.Argv[cfgIdx+2], "-"),
@@ -646,15 +647,6 @@ func readAll(t *testing.T, dir string) string {
 		b.Write(data)
 	}
 	return b.String()
-}
-
-func indexOf(ss []string, target string) int {
-	for i, s := range ss {
-		if s == target {
-			return i
-		}
-	}
-	return -1
 }
 
 func TestAgent_InstalledReportsWhetherTheCLIIsPresent(t *testing.T) {
@@ -999,7 +991,7 @@ func TestAgent_CodexSelectionUsesItsOwnConfigChannel(t *testing.T) {
 	plan, err := codex.SpawnPlan(ctx, nil, steps)
 
 	require.NoError(t, err)
-	modelAt := indexOf(plan.Argv, "--model")
+	modelAt := slices.Index(plan.Argv, "--model")
 	require.GreaterOrEqual(t, modelAt, 0)
 	assert.Equal(t, "gpt-5.6-sol", plan.Argv[modelAt+1])
 	assert.Contains(t, plan.Argv, `model_reasoning_effort="ultra"`)

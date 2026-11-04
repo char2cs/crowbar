@@ -1149,16 +1149,6 @@ func (f testFixture) refuseRunnerStarted(t *testing.T) {
 		WHEN NEW.kind = 'runner_started' BEGIN SELECT RAISE(ABORT, 'boom: disk refused'); END`).Error)
 }
 
-// indexOf is the argv helper the spawn/switch tests assert with.
-func indexOf(ss []string, target string) int {
-	for i, s := range ss {
-		if s == target {
-			return i
-		}
-	}
-	return -1
-}
-
 // refuseRows makes the ledger refuse every row of kinds, as a full disk
 // refuses a write.
 func (f testFixture) refuseRows(t *testing.T, kinds ...ledger.Kind) {
