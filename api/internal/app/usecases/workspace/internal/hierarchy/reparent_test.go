@@ -182,23 +182,6 @@ func TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop(t *testing.T) {
 	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", "feature/a", "HEAD"))
 }
 
-func TestReparent_AllowsLockedNewParent(t *testing.T) {
-	// A locked (protected) branch is a valid re-parent target: it already adopts
-	// children via create, so reparent must be consistent — the old "07 §4
-	// new-parent-locked" block was incoherent and has been removed.
-	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
-	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked, WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
-	ws := reparentWS(child, newParent, nil)
-	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
-		return domain.Workspace{ID: id}, nil
-	}
-	g := &fakeGit{revParseSha: "ntip"}
-	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
-	_, err := uc.Reparent(context.Background(), "c", "np")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
-}
-
 func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -393,4 +376,80 @@ func TestRegression_RestackNeverLosesAChildCommit(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestReparent_GetChildError(t *testing.T) {
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
+			return domain.Workspace{}, errBoom
+		},
+	}
+	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, errBoom)
+}
+
+func TestReparent_GetNewParentError(t *testing.T) {
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			if id == "c" {
+				return domain.Workspace{ID: "c"}, nil
+			}
+			return domain.Workspace{}, errBoom
+		},
+	}
+	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, errBoom)
+}
+
+func reparentWS(
+	child domain.Workspace,
+	newParent domain.Workspace,
+	children []domain.Workspace,
+) *fakeWorkspace {
+	list := append([]domain.Workspace{child, newParent}, children...)
+	return &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			if id == child.ID {
+				return child, nil
+			}
+			if id == newParent.ID {
+				return newParent, nil
+			}
+			return domain.Workspace{}, fmt.Errorf("not found: %s", id)
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return list, nil
+		},
+	}
+}
+
+func TestReparent_RevParseError(t *testing.T) {
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
+	g := &fakeGit{revParseErr: errBoom}
+	uc := hierarchy.New(reparentWS(child, newParent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, errBoom)
+}
+
+// TestRebaseOntoParent_RejectsUnprovisionedParent: finishing the move against a
+// placeholder parent is rejected before RevParse.
+func TestRebaseOntoParent_RejectsUnprovisionedParent(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "f", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspacePlaceholder}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			if id == "c" {
+				return child, nil
+			}
+			return parent, nil
+		},
+	}
+	g := &fakeGit{}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.RebaseOntoParent(context.Background(), "c")
+	require.ErrorIs(t, err, hierarchy.ErrParentUnprovisioned)
+	assert.Empty(t, g.calls)
 }

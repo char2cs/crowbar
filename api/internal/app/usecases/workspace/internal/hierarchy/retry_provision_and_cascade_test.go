@@ -28,7 +28,7 @@ func TestRetryProvision_OriginBranch_FetchFails_StillChecksOutBestEffort(t *test
 }
 
 // TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds proves the
-// fork point read in materializeProtectedWorktree's LOCAL-branch path is
+// fork point read in RetryProvision's LOCAL-branch path is
 // non-essential: when it fails, provisioning still succeeds with an empty fork
 // point rather than failing a checkout that already landed cleanly on disk.
 func TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds(t *testing.T) {

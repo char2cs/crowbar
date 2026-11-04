@@ -114,3 +114,76 @@ func (u *hierarchyUsecase) rehangSurvivors(
 	}
 	return nil
 }
+
+// WorkAtRisk reports what deleting each of rootIDs (with its cascade) would
+// destroy that exists nowhere else — the list a delete without consent refuses
+// over. Unknown or already-deleted roots contribute nothing.
+func (u *hierarchyUsecase) WorkAtRisk(
+	ctx context.Context,
+	rootIDs []string,
+) ([]domain.WorkAtRisk, error) {
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("work at risk: list: %w", err)
+	}
+	index := indexByID(all)
+	seen := map[string]bool{}
+	var risks []domain.WorkAtRisk
+	for _, rootID := range rootIDs {
+		root, ok := index[rootID]
+		if !ok || seen[rootID] {
+			continue
+		}
+		var doomed []domain.Workspace
+		for _, ws := range liveRows(cascade.Plan(rootID, nodesFrom(all)), index) {
+			if !seen[ws.ID] {
+				seen[ws.ID] = true
+				doomed = append(doomed, ws)
+			}
+		}
+		found, assessErr := u.assess(ctx, doomed, u.repoRefFor(ctx, root.RepoID), all)
+		if assessErr != nil {
+			return nil, assessErr
+		}
+		risks = append(risks, found...)
+	}
+	return risks, nil
+}
+
+// liveRows resolves ids to their rows in order, skipping tombstones.
+func liveRows(
+	ids []string,
+	index map[string]domain.Workspace,
+) []domain.Workspace {
+	rows := make([]domain.Workspace, 0, len(ids))
+	for _, id := range ids {
+		if ws, ok := index[id]; ok && ws.Status != domain.WorkspaceStatusDeleted {
+			rows = append(rows, ws)
+		}
+	}
+	return rows
+}
+
+func nodesFrom(
+	all []domain.Workspace,
+) []cascade.Node {
+	nodes := make([]cascade.Node, 0, len(all))
+	for _, ws := range all {
+		nodes = append(nodes, cascade.Node{
+			ID:     ws.ID,
+			Parent: ws.ParentID,
+			Locked: ws.Status == domain.WorkspaceStatusLocked,
+		})
+	}
+	return nodes
+}
+
+func indexByID(
+	all []domain.Workspace,
+) map[string]domain.Workspace {
+	index := make(map[string]domain.Workspace, len(all))
+	for _, ws := range all {
+		index[ws.ID] = ws
+	}
+	return index
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // A delete never destroys work that exists nowhere else unless the request
@@ -129,4 +130,76 @@ func TestWorkAtRisk_ListsEachDoomedWorkspaceOnce(t *testing.T) {
 		{WorkspaceID: "root", Branch: "feature/a", UnmergedCommits: 1},
 		{WorkspaceID: "child", Branch: "feature/b", UnmergedCommits: 4},
 	}, risks)
+}
+
+// TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch proves that
+// removing a managed workspace on the repo's default branch re-attaches the main
+// folder to that branch and NEVER force-deletes it (the shared integration
+// branch must survive).
+func TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch(t *testing.T) {
+	// The main folder is exactly as a create's detach left it: detached at the tip.
+	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
+	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "w1", RepoID: "r1", Branch: "develop", WorktreePath: "/managed", Provisioning: domain.WorkspaceProvisioned},
+			}, nil
+		},
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "w1", domain.KeepWorkAtRisk))
+
+	assert.Contains(t, g.ops(), "CheckoutBranch", "the main folder must be re-attached to the default branch")
+	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the default branch must never be force-deleted")
+}
+
+// TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch proves removing a
+// managed workspace on a non-default branch still force-deletes that branch (the
+// default-branch protection must not leak into ordinary teardown).
+func TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch(t *testing.T) {
+	g := &fakeGit{}
+	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "w1", RepoID: "r1", Branch: "feature/x", WorktreePath: "/managed", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
+			}, nil
+		},
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "w1", domain.KeepWorkAtRisk))
+
+	assert.Contains(t, g.ops(), "ForceDeleteBranch", "a feature branch is force-deleted on teardown")
+	assert.NotContains(t, g.ops(), "CheckoutBranch", "no re-attach for a non-default branch")
+}
+
+// TestRemoveOne_PlaceholderSkipsGitTeardown proves a placeholder (empty
+// WorktreePath) whose branch is a protected NON-default branch is torn down as a
+// pure read-model drop: no WorktreeRemove, no ForceDeleteBranch, no CheckoutBranch
+// — the real branch is never git-touched (spec §5 defense-in-depth). The
+// placeholder is created NON-locked here only to exercise removeOne directly
+// (DeleteCascade's locked guard is proven separately by TestDeleteCascade).
+func TestRemoveOne_PlaceholderSkipsGitTeardown(t *testing.T) {
+	g := &fakeGit{}
+	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "ph", RepoID: "r1", Branch: "master", Provisioning: domain.WorkspacePlaceholder},
+			}, nil
+		},
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "ph", domain.KeepWorkAtRisk))
+
+	assert.NotContains(t, g.ops(), "WorktreeRemove")
+	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the real protected branch must never be force-deleted")
+	assert.NotContains(t, g.ops(), "CheckoutBranch")
 }
