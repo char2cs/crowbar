@@ -76,35 +76,29 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 // network (07 §3.1).
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
-	if !perf.Enabled() {
-		mu.Lock()
-		return mu.Unlock
-	}
-	waitStart := time.Now()
-	mu.Lock()
-	perf.Record("lock.write.wait", time.Since(waitStart))
-	held := time.Now()
-	return func() {
-		perf.Record("lock.write.hold", time.Since(held))
-		mu.Unlock()
-	}
+	return timedLock(mu.Lock, mu.Unlock, "lock.write")
 }
 
 // lockRepoRead takes the clone's shared read lock for read-only inspection. Reads never block each
 // other, only writes (including origin-sync fetches), and never observe a torn mutation.
 func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
+	return timedLock(mu.RLock, mu.RUnlock, "lock.read")
+}
+
+// timedLock takes a lock and returns its release, recording the wait and hold under name when perf is on.
+func timedLock(lock, unlock func(), name string) func() {
 	if !perf.Enabled() {
-		mu.RLock()
-		return mu.RUnlock
+		lock()
+		return unlock
 	}
 	waitStart := time.Now()
-	mu.RLock()
-	perf.Record("lock.read.wait", time.Since(waitStart))
+	lock()
+	perf.Record(name+".wait", time.Since(waitStart))
 	held := time.Now()
 	return func() {
-		perf.Record("lock.read.hold", time.Since(held))
-		mu.RUnlock()
+		perf.Record(name+".hold", time.Since(held))
+		unlock()
 	}
 }
 
