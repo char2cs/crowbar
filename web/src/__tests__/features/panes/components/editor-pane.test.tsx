@@ -65,6 +65,9 @@ function monacoMounted(): boolean {
 }
 
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+// A retry lazy-loads the restore module; transform it at collection, where no
+// test timeout runs, rather than inside the first retry's polling budget.
+await import('@/features/editor/documents/restore-documents')
 
 beforeEach(() => {
   readDocument.mockClear()
@@ -130,11 +133,16 @@ describe('EditorPane', () => {
       .bufferActions.openContent({ type: 'editor', doc, name: 'Untitled-7', isVirtual: true })
     setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'Untitled-7' })
     await putDrafts([{ uri: documentUri(doc), text: 'scratch', savedText: '', updatedAt: 0 }])
+    const retry = vi.spyOn(openDocumentModule, 'retryLoad')
+    onTestFinished(() => retry.mockRestore())
     render(inAmbient(pane(id)))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+      await retry.mock.results[0]?.value
+    })
 
-    await waitFor(() => expect(documentText(doc)).toBe('scratch'))
+    expect(documentText(doc)).toBe('scratch')
     expect(screen.queryByText('Failed to open file')).not.toBeInTheDocument()
   })
 
