@@ -10,6 +10,8 @@ import { Route as RootRoute } from '@/routes/__root'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { OobeScreen } from '@/components/oobe/oobe-screen'
 import { ApiError } from '@/lib/errors/api-error'
+import * as agentPeer from '@/features/browser/lib/agent-peer'
+import { browserApi } from '@/lib/browser-bridge'
 
 const postProject = vi.fn()
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -56,6 +58,13 @@ describe('the root route', () => {
     handlers.clear()
     useDaemonHaltStore.getState().clear()
     tauriWindow.__TAURI_INTERNALS__ = {}
+    // The desktop root also subscribes to webview events and lazy-mounts the browser
+    // peer, both needing a native shell this fake lacks; when they ran before the file
+    // ended depended on load, each throwing an unhandled error.
+    for (const on of ['onNavigated', 'onLoading', 'onTitle'] as const) {
+      vi.spyOn(browserApi, on).mockResolvedValue(() => {})
+    }
+    vi.spyOn(agentPeer, 'attachBrowserAgentPeer').mockReturnValue(() => {})
   })
   afterEach(() => {
     delete tauriWindow.__TAURI_INTERNALS__
