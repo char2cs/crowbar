@@ -12,7 +12,7 @@ import (
 
 func announced(t *testing.T, st ledger.State, provider, sessionID string) ledger.State {
 	t.Helper()
-	rows, err := ledger.Announce(st, provider, sessionID, false)
+	rows, err := ledger.Announce(st, provider, sessionID, "")
 	require.NoError(t, err)
 	for _, r := range rows {
 		r.Seq = st.Head() + 1

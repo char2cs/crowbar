@@ -214,3 +214,45 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	h.get(base+"/chats", &chats)
 	assert.Len(t, conversationsOnly(chats), 1, "a /clear mints no chat")
 }
+
+// TestRegression_ResumeInAChatThatNeverTurned_MovesTheConversationThere: a /resume
+// typed in a chat whose own session never turned picks another chat's session.
+// The conversation lands where it was typed, the chat that held it loses it, its
+// CLI is ended, and what the resumed CLI says next is recorded.
+func TestRegression_ResumeInAChatThatNeverTurned_MovesTheConversationThere(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	ws := importWritableWorkspace(t, h)
+	base := repoBase(ws)
+	frames := recordSidebar(t, h)
+
+	held, heldRunner := createLiveStubChat(t, h, ws)
+	announce(t, h, ws, heldRunner, "sess-held")
+	frames.awaitConversation(held, "sess-held")
+	postHook(t, h, base, "livestub", heldRunner, "user_prompt", `{"prompt":"the conversation"}`)
+	frames.awaitTurnStart(held)
+	postHook(t, h, base, "livestub", heldRunner, "turn_stop", `{"last_assistant_message":"held here"}`)
+	frames.awaitTurnEnd(held)
+
+	taker, takerRunner := createLiveStubChat(t, h, ws)
+	announce(t, h, ws, takerRunner, "sess-stand-in")
+	frames.awaitConversation(taker, "sess-stand-in")
+
+	announce(t, h, ws, takerRunner, "sess-held")
+	frames.awaitConversation(taker, "sess-held")
+	frames.awaitChat(held, "lost its session", func(chat map[string]any) bool {
+		conversation, _ := chat["conversation"].(map[string]any)
+		return conversation["sessionId"] == "sess-held" && conversation["state"] == "lost"
+	})
+	frames.awaitRunnerGone(held, heldRunner)
+
+	const said = "said where it was resumed"
+	postHook(t, h, base, "livestub", takerRunner, "user_prompt", `{"prompt":"go on"}`)
+	frames.awaitTurnStart(taker)
+	postHook(t, h, base, "livestub", takerRunner, "turn_stop", `{"last_assistant_message":"`+said+`"}`)
+	frames.awaitTurnEnd(taker)
+	h.Quiesce()
+
+	requireChatHoldsText(t, h, taker, said, "the resumed CLI is recorded on the chat it was resumed in")
+	assert.Equal(t, takerRunner, getAgentChat(t, h, base, taker).LiveRunnerID, "and keeps running there")
+}

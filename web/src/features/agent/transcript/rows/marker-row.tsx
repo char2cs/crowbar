@@ -42,9 +42,9 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
     case 'turn_failed':
       return { label: 'Turn failed', testId: 'agent-failed-divider' }
     case 'session_conflict':
-      // Two chats never share a session: this one lost that binding, and says so.
+      // Two chats never share a session: this chat kept its own and ended the CLI that left it.
       return {
-        label: 'Another chat holds this session; this chat did not take it',
+        label: 'Another chat holds that session; its CLI was ended so nothing goes unrecorded',
         testId: 'agent-session-conflict-divider',
       }
     case 'session_lost':

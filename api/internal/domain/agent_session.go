@@ -14,4 +14,7 @@ const (
 	AgentExitDisplaced = "displaced"
 	// AgentExitRetracted: the prompt the CLI was launched to carry was withdrawn.
 	AgentExitRetracted = "retracted"
+	// AgentExitMoved: its conversation was resumed in another chat, which
+	// took the session.
+	AgentExitMoved = "moved"
 )

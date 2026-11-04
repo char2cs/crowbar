@@ -1,6 +1,7 @@
 package ledger_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,12 +41,16 @@ func decodeRows(t *testing.T, rows []ledger.Row) []string {
 		case ledger.KindSessionBound:
 			b, err := ledger.DecodeBody[ledger.SessionBound](r)
 			require.NoError(t, err)
-			out = append(out, "bound "+b.SessionID+" "+b.Cause+" after "+b.Previous)
+			out = append(out, strings.Join(strings.Fields("bound "+b.SessionID+" "+b.Cause+" after "+b.Previous+" "+b.From), " "))
 		case ledger.KindMarker:
 			m, err := ledger.DecodeBody[ledger.Marker](r)
 			require.NoError(t, err)
 			out = append(out, "marker "+m.Kind+" "+m.Detail)
-		case ledger.KindUserMessage, ledger.KindTurnStarted, ledger.KindPromptSettled, ledger.KindSessionLost,
+		case ledger.KindSessionLost:
+			b, err := ledger.DecodeBody[ledger.SessionLost](r)
+			require.NoError(t, err)
+			out = append(out, strings.TrimSpace("session_lost "+b.MovedTo))
+		case ledger.KindUserMessage, ledger.KindTurnStarted, ledger.KindPromptSettled,
 			ledger.KindRunnerStarted, ledger.KindRunnerExited, ledger.KindTurnEnded, ledger.KindTurnFailed,
 			ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk,
 			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan:
@@ -58,7 +63,7 @@ func decodeRows(t *testing.T, rows []ledger.Row) []string {
 func TestAssign_IsFreshOnlyAfterALoss(t *testing.T) {
 	first, err := ledger.Assign(ledger.State{}, "p1", "S1")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"bound S1 assigned after "}, decodeRows(t, []ledger.Row{first}))
+	assert.Equal(t, []string{"bound S1 assigned after"}, decodeRows(t, []ledger.Row{first}))
 
 	st := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), lostS1(t, "p1")))
 	again, err := ledger.Assign(st, "p1", "S2")
@@ -86,22 +91,25 @@ func TestAnnounce_DecidesBetweenNothingABindingAChangeAndAConflict(t *testing.T)
 	turnedS1 := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), turnedOn(t, "p1", "S1")))
 	lostS1 := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), lostS1(t, "p1")))
 	cases := []struct {
-		name    string
-		st      ledger.State
-		id      string
-		claimed bool
-		want    []string
+		name  string
+		st    ledger.State
+		id    string
+		owner string
+		want  []string
 	}{
-		{"the bound session", boundS1, "S1", true, []string{}},
-		{"an unbound chat", ledger.State{}, "S1", false, []string{"bound S1 announced after "}},
-		{"a lost chat", lostS1, "S2", false, []string{"bound S2 announced after S1"}},
-		{"a binding that never turned", boundS1, "S2", false, []string{"bound S2 announced after S1"}},
-		{"a change", turnedS1, "S2", false, []string{"bound S2 announced after S1", "marker session_changed S2"}},
-		{"another chat's session", turnedS1, "S2", true, []string{"marker session_conflict S2"}},
+		{"the bound session", boundS1, "S1", "c2", []string{}},
+		{"an unbound chat", ledger.State{}, "S1", "", []string{"bound S1 announced after"}},
+		{"a lost chat", lostS1, "S2", "", []string{"bound S2 announced after S1"}},
+		{"a binding that never turned", boundS1, "S2", "", []string{"bound S2 announced after S1"}},
+		{"a change", turnedS1, "S2", "", []string{"bound S2 announced after S1", "marker session_changed S2"}},
+		{"another chat's session, from a conversation", turnedS1, "S2", "c2", []string{"marker session_conflict S2"}},
+		{"another chat's session, from a binding that never turned", boundS1, "S2", "c2", []string{"bound S2 moved after S1 c2"}},
+		{"another chat's session, from a lost chat", lostS1, "S2", "c2", []string{"bound S2 moved after S1 c2"}},
+		{"another chat's session, from an unbound chat", ledger.State{}, "S2", "c2", []string{"bound S2 moved after c2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rows, err := ledger.Announce(tc.st, "p1", tc.id, tc.claimed)
+			rows, err := ledger.Announce(tc.st, "p1", tc.id, tc.owner)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, decodeRows(t, rows))
 		})
@@ -130,6 +138,28 @@ func TestLose_LosesTheBoundSessionAndSettlesItsCarriersPrompt(t *testing.T) {
 	}
 }
 
+func TestMoveAway_LosesOnlyTheBoundSessionToTheChatThatTookIt(t *testing.T) {
+	carried := row(t, ledger.KindUserMessage, "T1", ledger.UserMessage{
+		RequestID: "r1", Text: "a", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "run-1",
+	})
+	st := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), turnedOn(t, "p1", "S1"), carried))
+
+	rows, err := ledger.MoveAway(st, "p1", "S1", "c2", "run-1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"session_lost c2", "prompt_settled"}, decodeRows(t, rows))
+	for i := range rows {
+		rows[i].Seq = st.Head() + int64(i) + 1
+		st.Apply(rows[i])
+	}
+	c, _ := st.Conversation("p1")
+	assert.Equal(t, ledger.ConversationLost, c.State, "the chat shows the session lost")
+
+	past := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), bound(t, "p1", "S2", ledger.CauseAnnounced, "S1")))
+	rows, err = ledger.MoveAway(past, "p1", "S1", "c2", "run-1")
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a session the chat already left is only history there")
+}
+
 func mustLose(t *testing.T, st ledger.State, provider, session string) []ledger.Row {
 	t.Helper()
 	rows, err := ledger.Lose(st, provider, session, "refused", "run-1")
@@ -141,6 +171,7 @@ func TestCheck_RefusesASessionRowWithoutItsIdentity(t *testing.T) {
 	for name, r := range map[string]ledger.Row{
 		"bound without a session": bound(t, "p1", "", ledger.CauseAssigned, ""),
 		"bound without a cause":   bound(t, "p1", "S1", "", ""),
+		"moved from nowhere":      bound(t, "p1", "S1", ledger.CauseMoved, ""),
 		"lost without a provider": lostS1(t, ""),
 		"an undecodable binding":  {Kind: ledger.KindSessionBound, Body: []byte("{")},
 	} {

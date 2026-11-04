@@ -115,10 +115,13 @@ export interface RowBodies {
   session_bound: {
     provider: string
     sessionId: string
-    cause: 'assigned' | 'announced' | 'fresh'
+    cause: 'assigned' | 'announced' | 'fresh' | 'moved'
     previous?: string
+    /** `moved`: the chat that gave the session up. */
+    from?: string
   }
-  session_lost: { provider: string; sessionId: string; reason: string }
+  /** `movedTo`: the chat that resumed the session and took it. */
+  session_lost: { provider: string; sessionId: string; reason: string; movedTo?: string }
   runner_started: {
     runnerId: string
     provider: string

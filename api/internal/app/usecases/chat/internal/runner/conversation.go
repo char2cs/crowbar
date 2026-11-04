@@ -18,8 +18,9 @@ import (
 )
 
 // HandleSessionStart applies a CLI's session announcement to the chat it is
-// on. The runner never moves: a session the chat does not hold is a change or
-// a conflict on this chat (ledger.Announce).
+// on. The runner never moves: a session the chat does not hold is a change,
+// a move of another chat's session onto this one, or a conflict that ends
+// the CLI, since nothing it does could be recorded here (ledger.Announce).
 func (rs *Runners) HandleSessionStart(
 	ctx context.Context,
 	runner engineagents.Runner,
@@ -28,12 +29,17 @@ func (rs *Runners) HandleSessionStart(
 	if ev.SessionID == "" {
 		return nil
 	}
-	changed, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID)
+	got, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID)
 	if err != nil {
 		return err
 	}
-	if changed {
+	switch got {
+	case announcedNothing:
+	case announcedChange:
 		rs.leaveSession(ctx, runner)
+	case announcedConflict:
+		rs.endOffLock(ctx, runner, domain.AgentExitDisplaced)
+		return nil
 	}
 	rs.reportLaunch(ctx, runner.ID, ev.Model, ev.Effort)
 	return nil
@@ -54,29 +60,41 @@ func (rs *Runners) reportLaunch(ctx context.Context, runnerID, model, effort str
 	}
 }
 
-// announceSession records that providerID's CLI on chatID is on sessionID,
-// and reports whether that moved the chat off the session it was on. The
-// ledger's session index alone judges a session another chat holds.
-func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string) (bool, error) {
-	rows, err := rs.announce(ctx, chatID, providerID, sessionID, false)
+// announced is what a CLI's announcement did to its chat.
+type announced int
+
+const (
+	announcedNothing  announced = iota // bound, or already the chat's
+	announcedChange                    // moved the chat off a session that turned
+	announcedConflict                  // another chat holds it, and this one kept its own
+)
+
+// announceSession records that providerID's CLI on chatID is on sessionID.
+// The ledger's session index alone judges a session another chat holds.
+func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string) (announced, error) {
+	rows, err := rs.announce(ctx, chatID, providerID, sessionID, "")
 	if errors.Is(err, ledgerstore.ErrSessionClaimed) {
-		rows, err = rs.announce(ctx, chatID, providerID, sessionID, true)
+		rows, err = rs.claimHeld(ctx, chatID, providerID, sessionID)
 	}
 	if err != nil {
-		return false, fmt.Errorf("agent: announce session: %w", err)
+		return announcedNothing, fmt.Errorf("agent: announce session: %w", err)
 	}
 	for _, r := range rows {
-		if m, err := ledger.DecodeBody[ledger.Marker](r); err == nil && r.Kind == ledger.KindMarker &&
-			m.Kind == ledger.MarkerSessionChanged {
-			return true, nil
+		m, err := ledger.DecodeBody[ledger.Marker](r)
+		switch {
+		case err != nil || r.Kind != ledger.KindMarker:
+		case m.Kind == ledger.MarkerSessionChanged:
+			return announcedChange, nil
+		case m.Kind == ledger.MarkerSessionConflict:
+			return announcedConflict, nil
 		}
 	}
-	return false, nil
+	return announcedNothing, nil
 }
 
-func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID string, claimed bool) ([]ledger.Row, error) {
+func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID, owner string) ([]ledger.Row, error) {
 	rows, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Announce(st, providerID, sessionID, claimed)
+		return ledger.Announce(st, providerID, sessionID, owner)
 	})
 	return rows, err
 }

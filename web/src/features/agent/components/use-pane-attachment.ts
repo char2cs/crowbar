@@ -30,7 +30,7 @@ function describeDormant(exitReason: string): string {
     case 'resume_failed':
       return 'The provider could not reopen its session. Start a new conversation to continue.'
     case 'moved':
-      return 'The agent moved to another conversation. Send a message to continue this one.'
+      return 'This conversation was resumed in another chat. Send a message to start a new one here.'
     case 'displaced':
       return 'Crowbar took the agent off this chat. Send a message to continue.'
     case 'retracted':

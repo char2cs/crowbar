@@ -292,7 +292,7 @@ func TestRecorder_SessionEventsAreTheRunnersNotTheLedgers(t *testing.T) {
 // nested conversation the chat's agent opened.
 func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
-	bound, err := ledger.Announce(f.state(t), "claude", "main", false)
+	bound, err := ledger.Announce(f.state(t), "claude", "main", "")
 	require.NoError(t, err)
 	_, _, err = f.ledger.Append(t.Context(), testChat, bound...)
 	require.NoError(t, err)

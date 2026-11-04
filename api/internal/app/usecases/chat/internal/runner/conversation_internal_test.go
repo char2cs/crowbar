@@ -35,9 +35,9 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	require.NoError(t, err)
 	rs := &Runners{ledger: l}
 
-	changed, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2")
+	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2")
 	require.NoError(t, err)
-	assert.False(t, changed)
+	assert.Equal(t, announcedConflict, got)
 	c, _ := chatState(t, l).Conversation("claude")
 	assert.Equal(t, "S1", c.SessionID)
 	assert.Equal(t, ledger.ConversationBound, c.State)

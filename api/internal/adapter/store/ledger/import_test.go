@@ -74,3 +74,30 @@ func TestStore_ImportRefusesRowsItCannotKeepAsGiven(t *testing.T) {
 	assert.Empty(t, got, "a refused import writes nothing")
 	require.NoError(t, s.Import(ctx, "c1", nil), "nothing to import is no error")
 }
+
+// Two chats' rows replay into the session index in either order: the session
+// ends with the chat that took it last.
+func TestStore_ImportOfAMovedSessionReplaysInAnyChatOrder(t *testing.T) {
+	then := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
+	chats := map[string][]ledger.Row{
+		"c1": numbered("c1", then, boundS(t, "p"), gaveUpS(t, "p", "c2"), movedS(t, "p", "c2")),
+		"c2": numbered("c2", then, movedS(t, "p", "c1"), gaveUpS(t, "p", "c1")),
+		"c3": numbered("c3", then, boundS(t, "q"), gaveUpS(t, "q", "c4")),
+		"c4": numbered("c4", then, movedS(t, "q", "c3")),
+	}
+	for name, order := range map[string][]string{"taker first": {"c2", "c1", "c4", "c3"}, "giver first": {"c1", "c2", "c3", "c4"}} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			ctx := context.Background()
+			for _, chatID := range order {
+				require.NoError(t, s.Import(ctx, chatID, chats[chatID]), chatID)
+			}
+			owner, _, err := s.SessionOwner(ctx, "p", "S")
+			require.NoError(t, err)
+			assert.Equal(t, "c1", owner, "moved to c2 and back")
+			owner, _, err = s.SessionOwner(ctx, "q", "S")
+			require.NoError(t, err)
+			assert.Equal(t, "c4", owner)
+		})
+	}
+}

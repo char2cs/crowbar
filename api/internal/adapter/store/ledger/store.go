@@ -241,6 +241,7 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 	if next.HasOpenWork() {
 		open = 1
 	}
+	movedAway := movedAway(rows)
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, r := range rows {
 			if err := tx.Exec(
@@ -249,7 +250,7 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 			).Error; err != nil {
 				return fmt.Errorf("row %d: %w", r.Seq, err)
 			}
-			if err := claimSession(tx, chatID, r); err != nil {
+			if err := indexSession(tx, chatID, r, movedAway); err != nil {
 				return fmt.Errorf("row %d: %w", r.Seq, err)
 			}
 		}
@@ -268,10 +269,32 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 	return nil
 }
 
-// claimSession indexes a session_bound row's session under chatID, refusing a
-// session another chat owns. The insert is the claim: only when it took no row
-// is the session already someone's, and then only its owner may rebind it.
-func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
+// sessionKey names one provider session in the index.
+type sessionKey struct{ provider, sessionID string }
+
+// movedAway is every session rows give up to another chat. A binding of one
+// of them in the same rows is not claimed: an import replays in any chat order.
+func movedAway(rows []ledger.Row) map[sessionKey]bool {
+	out := map[sessionKey]bool{}
+	for _, r := range rows {
+		if body, err := ledger.DecodeBody[ledger.SessionLost](r); err == nil && r.Kind == ledger.KindSessionLost && body.MovedTo != "" {
+			out[sessionKey{body.Provider, body.SessionID}] = true
+		}
+	}
+	return out
+}
+
+// indexSession keeps the session index with r: a binding claims its session,
+// a move takes it from the chat that gave it up, and a session given up
+// passes to the chat that took it.
+func indexSession(tx *gorm.DB, chatID string, r ledger.Row, movedAway map[sessionKey]bool) error {
+	if r.Kind == ledger.KindSessionLost {
+		body, err := ledger.DecodeBody[ledger.SessionLost](r)
+		if err != nil || body.MovedTo == "" {
+			return err
+		}
+		return passSession(tx, sessionKey{body.Provider, body.SessionID}, chatID, body.MovedTo)
+	}
 	if r.Kind != ledger.KindSessionBound {
 		return nil
 	}
@@ -279,8 +302,35 @@ func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
 	if err != nil {
 		return err
 	}
+	key := sessionKey{body.Provider, body.SessionID}
+	if body.Cause != ledger.CauseMoved && movedAway[key] {
+		return nil
+	}
+	if body.Cause == ledger.CauseMoved {
+		if err := passSession(tx, key, body.From, chatID); err != nil {
+			return err
+		}
+	}
+	return claimSession(tx, chatID, key)
+}
+
+// passSession repoints key's claim from one chat to another; a claim the
+// first chat no longer holds is left as it is.
+func passSession(tx *gorm.DB, key sessionKey, from, to string) error {
+	err := tx.Exec(`UPDATE chat_ledger_sessions SET chat_id = ? WHERE provider = ? AND session_id = ? AND chat_id = ?`,
+		to, key.provider, key.sessionID, from).Error
+	if err != nil {
+		return fmt.Errorf("session index: pass on: %w", err)
+	}
+	return nil
+}
+
+// claimSession indexes key under chatID, refusing a session another chat
+// owns. The insert is the claim: only when it took no row is the session
+// already someone's, and then only its owner may rebind it.
+func claimSession(tx *gorm.DB, chatID string, key sessionKey) error {
 	claim := tx.Exec(`INSERT INTO chat_ledger_sessions (provider, session_id, chat_id) VALUES (?, ?, ?)
-		ON CONFLICT(provider, session_id) DO NOTHING`, body.Provider, body.SessionID, chatID)
+		ON CONFLICT(provider, session_id) DO NOTHING`, key.provider, key.sessionID, chatID)
 	if claim.Error != nil {
 		return fmt.Errorf("session index: %w", claim.Error)
 	}
@@ -289,11 +339,11 @@ func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
 	}
 	var owners []string
 	if err := tx.Raw(`SELECT chat_id FROM chat_ledger_sessions WHERE provider = ? AND session_id = ?`,
-		body.Provider, body.SessionID).Scan(&owners).Error; err != nil {
+		key.provider, key.sessionID).Scan(&owners).Error; err != nil {
 		return fmt.Errorf("session owner: %w", err)
 	}
 	if len(owners) != 1 || owners[0] != chatID {
-		return fmt.Errorf("%s %s: %w", body.Provider, body.SessionID, ErrSessionClaimed)
+		return fmt.Errorf("%s %s: %w", key.provider, key.sessionID, ErrSessionClaimed)
 	}
 	return nil
 }

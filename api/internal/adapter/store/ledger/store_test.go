@@ -369,6 +369,52 @@ func TestStore_ASessionCanBeBoundToOneChatOnly(t *testing.T) {
 	assert.False(t, ok, "a forgotten chat owns nothing")
 }
 
+// movedS is a chat taking session "S" from chat from; gaveUpS, a chat giving it up to to.
+func movedS(t *testing.T, provider, from string) ledger.Row {
+	t.Helper()
+	return mustRow(t, ledger.KindSessionBound, "", ledger.SessionBound{
+		Provider: provider, SessionID: "S", Cause: ledger.CauseMoved, From: from,
+	})
+}
+
+func gaveUpS(t *testing.T, provider, to string) ledger.Row {
+	t.Helper()
+	return mustRow(t, ledger.KindSessionLost, "", ledger.SessionLost{
+		Provider: provider, SessionID: "S", Reason: ledger.ReasonMovedAway, MovedTo: to,
+	})
+}
+
+// A session moves between chats only by the chat that held it giving it up,
+// or by a move naming it: a third chat's claim is never taken.
+func TestStore_AMovedSessionIsOwnedByTheChatThatTookIt(t *testing.T) {
+	cases := map[string][]struct {
+		chatID string
+		row    ledger.Row
+	}{
+		"given up first":       {{"c1", gaveUpS(t, "p", "c2")}, {"c2", movedS(t, "p", "c1")}},
+		"taken without a loss": {{"c2", movedS(t, "p", "c1")}},
+	}
+	for name, steps := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			ctx := context.Background()
+			_, _, err := s.Append(ctx, "c1", boundS(t, "p"))
+			require.NoError(t, err)
+			for _, step := range steps {
+				_, _, err := s.Append(ctx, step.chatID, step.row)
+				require.NoError(t, err)
+			}
+			owner, _, err := s.SessionOwner(ctx, "p", "S")
+			require.NoError(t, err)
+			assert.Equal(t, "c2", owner)
+			_, _, err = s.Append(ctx, "c3", movedS(t, "p", "c1"))
+			require.ErrorIs(t, err, ledgerstore.ErrSessionClaimed, "a move from a chat that no longer holds it takes nothing")
+			_, _, err = s.Append(ctx, "c1", boundS(t, "p"))
+			require.ErrorIs(t, err, ledgerstore.ErrSessionClaimed, "the chat that gave it up cannot bind it back")
+		})
+	}
+}
+
 // fired reports whether ch is already closed; a commit closes it before Do returns.
 func fired(ch <-chan struct{}) bool {
 	select {

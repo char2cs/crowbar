@@ -10,6 +10,7 @@ const (
 	CauseAssigned  = "assigned"  // Crowbar minted the id and launched the CLI with it
 	CauseAnnounced = "announced" // the CLI announced an id of its own
 	CauseFresh     = "fresh"     // Crowbar minted the id to replace a lost session
+	CauseMoved     = "moved"     // the CLI resumed a session another chat held, which gave it up
 )
 
 // SessionBound is the body of a session_bound row: from now on the chat's
@@ -17,17 +18,23 @@ const (
 type SessionBound struct {
 	Provider  string `json:"provider"`
 	SessionID string `json:"sessionId"`
-	Cause     string `json:"cause"` // CauseAssigned | CauseAnnounced | CauseFresh
+	Cause     string `json:"cause"` // CauseAssigned | CauseAnnounced | CauseFresh | CauseMoved
 	Previous  string `json:"previous,omitempty"`
+	From      string `json:"from,omitempty"` // CauseMoved: the chat that gave the session up
 }
 
 // SessionLost is the body of a session_lost row: the CLI refused to resume
-// SessionID, and Reason is the line it refused with.
+// SessionID, and Reason is the line it refused with; or, with MovedTo, the
+// session was resumed in that chat, which took it.
 type SessionLost struct {
 	Provider  string `json:"provider"`
 	SessionID string `json:"sessionId"`
 	Reason    string `json:"reason"`
+	MovedTo   string `json:"movedTo,omitempty"`
 }
+
+// ReasonMovedAway is a session_lost's reason when another chat took the session.
+const ReasonMovedAway = "resumed in another chat"
 
 // ConversationState is where a chat's conversation with one provider stands.
 type ConversationState string
@@ -141,24 +148,28 @@ func Assign(st State, provider, sessionID string) (Row, error) {
 }
 
 // Announce is what a CLI announcing sessionID adds: nothing for the bound
-// session, a binding, a change, or a conflict when the session is claimed by
-// another chat. Only leaving a session that turned is a change: one that never
-// turned held nothing of the conversation.
-func Announce(st State, provider, sessionID string, claimedElsewhere bool) ([]Row, error) {
+// session, a binding, a change, or, when owner (another chat) holds the
+// session, a move or a conflict. Only leaving a session that turned is a
+// change: one that never turned held nothing, so it takes owner's session.
+func Announce(st State, provider, sessionID, owner string) ([]Row, error) {
 	c, ok := st.Conversation(provider)
 	if ok && c.SessionID == sessionID && c.State == ConversationBound {
 		return nil, nil
 	}
-	if claimedElsewhere {
+	holds := ok && c.Resumable()
+	if owner != "" && holds {
 		r, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionConflict, Detail: sessionID})
 		return []Row{r}, err
 	}
 	bound := SessionBound{Provider: provider, SessionID: sessionID, Cause: CauseAnnounced}
+	if owner != "" {
+		bound.Cause, bound.From = CauseMoved, owner
+	}
 	if ok && c.SessionID != sessionID {
 		bound.Previous = c.SessionID
 	}
 	r, err := NewRow(KindSessionBound, "", "", bound)
-	if err != nil || !ok || !c.Resumable() {
+	if err != nil || !holds {
 		return []Row{r}, err
 	}
 	m, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionChanged, Detail: sessionID})
@@ -169,10 +180,20 @@ func Announce(st State, provider, sessionID string, claimedElsewhere bool) ([]Ro
 // for every pending prompt runnerID carried. Nil when sessionID is not the
 // provider's bound session any more.
 func Lose(st State, provider, sessionID, reason, runnerID string) ([]Row, error) {
-	if c, ok := st.Conversation(provider); !ok || c.SessionID != sessionID || c.State != ConversationBound {
+	return lose(st, SessionLost{Provider: provider, SessionID: sessionID, Reason: reason}, runnerID)
+}
+
+// MoveAway is Lose for a session the chat gives up to toChat, which resumed it.
+// Nil when it is not the bound session: one the chat left is only history here.
+func MoveAway(st State, provider, sessionID, toChat, runnerID string) ([]Row, error) {
+	return lose(st, SessionLost{Provider: provider, SessionID: sessionID, Reason: ReasonMovedAway, MovedTo: toChat}, runnerID)
+}
+
+func lose(st State, body SessionLost, runnerID string) ([]Row, error) {
+	if c, ok := st.Conversation(body.Provider); !ok || c.SessionID != body.SessionID || c.State != ConversationBound {
 		return nil, nil
 	}
-	lost, err := NewRow(KindSessionLost, "", "", SessionLost{Provider: provider, SessionID: sessionID, Reason: reason})
+	lost, err := NewRow(KindSessionLost, "", "", body)
 	if err != nil {
 		return nil, err
 	}

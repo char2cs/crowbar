@@ -35,11 +35,8 @@ import (
 // Resume
 // ---------------------------------------------------------------------------
 
-// TestResumeChat_RevivesLastProviderIntoItsOwnConversation: the CLI died (it exited, or
-// the daemon restarted), and the chat must come back exactly where the user left it.
-// Everything needed is in the chat's conversation history — the provider that was last
-// here and the conversation it was in — so a revive is nothing more than "switch to the
-// provider that was last here", which resumes into that conversation.
+// A chat whose CLI died revives as a switch to the provider last here, which
+// resumes its own conversation.
 func TestResumeChat_RevivesLastProviderIntoItsOwnConversation(t *testing.T) {
 	f := newFixture(t)
 
@@ -305,13 +302,9 @@ func TestAudit_SubmitPromptWithStagedProvider_LedgerMustNotPermanentlyStoreTheIn
 			"become durable ledger content: got %q", storedUserText)
 }
 
-// TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDelivered
-// closes the gap between "switch alone" and "switch with a model/effort pick
-// riding the SAME send" — SetChatSelection's own restart-forcing
-// (RequirePromptRestart) is a SEPARATE decision from resolvePromptDelivery's
-// gap assembly, and this pins that the two compose correctly: the delivery
-// spawn must carry BOTH the newly staged model/effort AND the gap, not one at
-// the expense of the other.
+// A switch with a model/effort pick riding the same send: the restart the pick
+// forces and the gap assembly are separate decisions, and the delivery spawn
+// carries both.
 func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDelivered(t *testing.T) {
 	f := newFixture(t)
 
@@ -337,13 +330,9 @@ func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDeliver
 	assert.Contains(t, last, "what did I miss?")
 }
 
-// TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOtherProviderWithTheGap
-// covers reopening an old chat and sending straight to a DIFFERENT provider
-// than it was last on, in one action — no explicit Resume first. There is no
-// live runner to displace at all, so SubmitPromptWithSwitch's own
-// current-vs-staged comparison, resumableConversation's age/turn checks, and
-// the delivery spawn's gap assembly all run cold, off nothing but durable
-// state. A chat with no live runner is still a chat with real history.
+// Sending a dormant chat straight to another provider than it was last on, with
+// no Resume first: the switch, the resume checks and the gap all run off durable
+// state alone.
 func TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOtherProviderWithTheGap(t *testing.T) {
 	f := newFixture(t)
 
@@ -393,21 +382,9 @@ func TestResumeChat_LiveChat_IsNoop(t *testing.T) {
 	assert.Empty(t, f.term.terminateRequestIDs())
 }
 
-// TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider replaces
-// the old TestResumeChat_NoConversation_ReturnsError, whose assertion was
-//
-//	require.Error(t, err)
-//	assert.Contains(t, err.Error(), "no conversation to resume")
-//
-// on this exact setup. That refusal was the premise behind the live
-// data-integrity bug: a chat that never announced a conversation WAS refused,
-// and the pane answered the refusal by starting the first enabled provider on
-// the chat — converting it. A chat's provider does not depend on its CLI having
-// got as far as a session hook, and the chat has recorded its own vendor since
-// the moment a runner was placed on it.
-//
-// The genuine "nothing to resume" case is unchanged and is pinned by
-// TestResumeChat_NothingHasEverRunHere_ReturnsError below.
+// A chat that never announced a conversation still has its own provider, and
+// Resume revives that one: refusing it once made the pane start another provider
+// on the chat, converting it.
 func TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -427,15 +404,8 @@ func TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider(t *te
 		"and it comes back FRESH: there is still no conversation to resume into")
 }
 
-// TestResumeChat_NothingHasEverRunHere_ReturnsError keeps the refusal reachable
-// for the one chat that genuinely has nothing to resume as: a bare row no runner
-// was ever placed on — a reducer mint, or a row from before the chat carried its
-// own vendor at all.
-//
-// It must refuse with ErrChatProviderUnknown, NOT with ErrNoLiveRunner.
-// A dormant chat having no live runner is the normal state and the entire reason
-// Resume was called, so reporting a missing RUNNER named the one thing that was
-// never in question — what could not be resolved is the PROVIDER.
+// A bare row no runner was ever placed on has nothing to resume as: it refuses
+// with ErrChatProviderUnknown, since what is missing is the provider, not a runner.
 func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 	f := newFixture(t)
 
@@ -453,12 +423,8 @@ func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 		"a missing RUNNER is the expected dormant state, and is not what failed")
 }
 
-// TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge is
-// a defensive guard for mergeLeadingPositional: codex declares NO
-// resume_context_inject (its gap rides the api connection instead, never
-// argv), so ContextSteps returns nothing on resume and the merge must never
-// fire for it — the replacement PTY's argv must carry exactly the message,
-// nothing folded in ahead of it, exactly as it always has.
+// codex declares no resume_context_inject (its gap rides the api connection),
+// so mergeLeadingPositional never fires for it: argv carries the message alone.
 func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(t *testing.T) {
 	f := newFixture(t)
 
@@ -898,16 +864,8 @@ func TestSlashCatalog_ServesADormantChatFromItsOwnProvider(t *testing.T) {
 	assert.Equal(t, "$review ", catalog.Items[0].InsertText)
 }
 
-// TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble proves
-// SlashCatalog (catalog.go) resolves a bubble's cwd through the SAME
-// ancestor walk spawnPaths uses (Task 22) — a genuinely separate call site
-// that used to resolve WorktreeDir from chat.WorkspaceID directly.
-//
-// The assertion is on f.ws.lastWorkspaceID, not merely on the call
-// succeeding: fakeWorkspace answers every id identically, including "",
-// which is exactly how the original bug went undetected through 21 tasks
-// (see spawnPaths' own test coverage history). Only checking WHICH id
-// reached the fake proves the fallback actually ran.
+// SlashCatalog resolves a bubble's cwd through the ancestor walk spawnPaths uses.
+// The fake answers every id alike, so only the id that reached it proves it.
 func TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", nonCompactingDescriptorBody)
@@ -1802,11 +1760,8 @@ func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing
 	require.NoError(t, err)
 }
 
-// TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable is the headline: closing
-// a chat tab STOPS the vendor CLI but must leave the chat exactly where a later reopen
-// can revive the REAL conversation. It drives the whole life-cycle a close touches —
-// terminate the live runner, drop to dormant, clear a mid-turn spinner, keep the chat
-// and its bound conversation — and then proves resumability end-to-end via ResumeChat.
+// Closing a chat tab stops its CLI and leaves the chat dormant with its bound
+// conversation, so ResumeChat revives the real conversation.
 func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 	f := newFixture(t)
 
@@ -1979,23 +1934,89 @@ func TestRegression_ClearKeepsTheChatAndThePTY(t *testing.T) {
 }
 
 // TestRegression_ResumeOfAnotherChatsSession_IsAConflictNotAMove: a CLI that /resumes a
-// session another chat owns stays where it is; its chat keeps its binding and says so.
+// session another chat owns, from a chat holding a conversation of its own, takes
+// nothing: its chat keeps its binding, says so, and its CLI is ended rather than
+// left running where nothing it does is recorded.
 func TestRegression_ResumeOfAnotherChatsSession_IsAConflictNotAMove(t *testing.T) {
 	f := newFixture(t)
 
 	chatA, r1 := f.spawn(t, "codex")
 	f.announce(t, r1, "sA")
+	exchange(t, f, r1, "codex", "said on sA")
+	terminal := f.runner(t, r1).TerminalSession
 	chatB, r2 := f.spawn(t, "codex")
 	f.announce(t, r2, "sB")
 
 	f.announce(t, r1, "sB")
 
-	assert.Equal(t, chatA, f.runner(t, r1).CurrentChatID, "the CLI is never moved onto another chat")
-	assert.Equal(t, "sA", f.conversation(t, chatA, "codex").SessionID, "and its chat keeps its own session")
+	assert.Equal(t, "sA", f.conversation(t, chatA, "codex").SessionID, "its chat keeps its own session")
 	assert.Equal(t, []string{"session_conflict:sB"}, f.markers(t, chatA))
 	assert.Equal(t, chatB, f.chatForSession(t, "codex", "sB"))
 	assert.Equal(t, r2, mustLive(t, f, chatB).ID, "nobody is evicted")
-	assert.Empty(t, f.term.terminateRequestIDs())
+	require.Eventually(t, func() bool { return !f.isLive(r1) }, 5*time.Second, time.Millisecond,
+		"the CLI that left its chat's conversation is ended")
+	assert.Equal(t, []string{terminal}, f.term.terminateRequestIDs())
+	exit, ok := f.lastExit(t, chatA)
+	require.True(t, ok)
+	assert.Equal(t, domain.AgentExitDisplaced, exit.Reason)
+	assert.True(t, f.conversation(t, chatA, "codex").Resumable(), "and the next send resumes it")
+}
+
+// A chat whose conversation was lost is relaunched on a stand-in session. A
+// /resume typed there lands the picked conversation in that chat: the claim
+// moves, the chat that held it loses it and its CLI is ended.
+func TestRegression_ResumeInARelaunchedChat_BindsTheConversationInPlace(t *testing.T) {
+	f := newFixture(t)
+
+	chatA, r1 := f.spawn(t, "claude")
+	f.announce(t, r1, "sA")
+	exchange(t, f, r1, "claude", "the conversation the user wants back")
+	terminal := f.runner(t, r1).TerminalSession
+
+	chatB, lost := f.spawn(t, "claude")
+	f.announce(t, lost, "sLost")
+	exchange(t, f, lost, "claude", "history Crowbar kept but claude lost")
+	f.term.exit(t, f.runner(t, lost).TerminalSession)
+	f.wait()
+	refused, err := f.usecase.ResumeChat(f.ctx, chatB)
+	require.NoError(t, err)
+	f.wait()
+	f.term.exitWith(t, f.runner(t, refused).TerminalSession, engineterminal.Exit{
+		Code: 1, Screen: "No conversation found with session ID: sLost",
+	})
+	f.wait()
+	require.Equal(t, ledger.ConversationLost, f.conversation(t, chatB, "claude").State)
+
+	r2, err := f.usecase.ResumeChat(f.ctx, chatB)
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, r2, f.conversation(t, chatB, "claude").SessionID)
+
+	f.announce(t, r2, "sA")
+	got := f.conversation(t, chatB, "claude")
+	assert.Equal(t, "sA", got.SessionID)
+	assert.Equal(t, ledger.CauseMoved, got.Cause)
+	assert.Equal(t, chatB, f.chatForSession(t, "claude", "sA"), "the claim moved with it")
+	assert.Equal(t, ledger.ConversationLost, f.conversation(t, chatA, "claude").State, "the chat it left lost it")
+	require.Eventually(t, func() bool { return !f.isLive(r1) }, 5*time.Second, time.Millisecond,
+		"one CLI per session: the one on the chat that gave it up is ended")
+	assert.Contains(t, f.term.terminateRequestIDs(), terminal)
+	exit, ok := f.lastExit(t, chatA)
+	require.True(t, ok)
+	assert.Equal(t, domain.AgentExitMoved, exit.Reason)
+	for _, chatID := range []string{chatA, chatB} {
+		rows, err := f.ledger.Read(f.ctx, chatID, 0, 0)
+		require.NoError(t, err)
+		replayed, _ := ledger.Fold(chatID, rows).Conversation("claude")
+		assert.Equal(t, f.conversation(t, chatID, "claude"), replayed, "the move replays from the rows alone")
+	}
+
+	dead := deadLetters(t, f)
+	exchange(t, f, r2, "claude", "recorded where the user resumed it")
+	page, err := f.activity.Turns(f.ctx, chatB)
+	require.NoError(t, err)
+	assert.Contains(t, textsOfPage(page), "recorded where the user resumed it")
+	assert.Equal(t, dead, deadLetters(t, f), "nothing the CLI sends is dead-lettered")
 }
 
 // ---------------------------------------------------------------------------
@@ -2084,14 +2105,8 @@ func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
 	}
 }
 
-// TestSpawnChat_ResolvesArgv0ToAbsolutePath pins the fix for the packaged .app
-// failing to open ANY chat. exec.Command resolves a bare argv[0] against the
-// DAEMON's PATH (cmd.Env is ignored for lookup), and a launchd-started daemon
-// has a minimal PATH that misses ~/.local/bin — where claude and codex install.
-// Every spawn therefore died with "executable file not found in $PATH", which
-// surfaced as POST /chats 500 and a chat button that did nothing.
-//
-// argv[0] must come out of binpath.Resolve so the CLI is exec'd by absolute path.
+// argv[0] is exec'd by absolute path (binpath.Resolve): a launchd daemon's
+// minimal PATH misses where the CLIs install.
 func TestSpawnChat_ResolvesArgv0ToAbsolutePath(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "claude")
@@ -2914,12 +2929,8 @@ func TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeli
 	}
 }
 
-// Targets claude, not codex, for the invalid model: codex's own catalogue is
-// now DISCOVERED (model.discover:), so with no live codex CLI in this test
-// environment nothing has resolved and Allowed() cannot call any model
-// invalid for it yet (see engineagents.Allowed) — claude's is still a
-// static, always-resolved list, so it stays the reliable vehicle for "the
-// selection step itself fails" this regression is actually about.
+// Targets claude for the invalid model: codex's catalogue is discovered from a
+// live CLI, so only claude's static list can call a model invalid here.
 func TestRegression_SubmitPromptWithStagedProviderAndInvalidModel_SwitchStaysCommitted(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -3076,11 +3087,8 @@ func TestRegression_ReopeningADormantChatBornOnCodexKeepsCodex(t *testing.T) {
 		"the chat came back as codex — a reopen that converts it to another vendor is the bug")
 }
 
-// TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker
-// closes the OTHER half of "silently": a switch whose previous provider could
-// not be resolved recorded no provider_switched marker at all, so a conversion
-// left no trace anywhere. The durable choice is what makes the previous
-// provider knowable, which is what makes a real conversion legible.
+// A switch back to the chat's own provider records provider_switched: the
+// durable choice is what makes the previous provider knowable.
 func TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker(t *testing.T) {
 	f := newFixture(t)
 
@@ -3101,16 +3109,8 @@ func TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker(t 
 		"and the chat's own durable choice moves with the switch the user asked for")
 }
 
-// TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillLeavesAMarker
-// is the other half of "silently". The switch marker was gated on the PREVIOUS
-// provider being resolvable, so a chat neither projection could name recorded
-// nothing at all: the conversion happened and left no trace anywhere — no
-// divider in the transcript, and no interruption for the next resolver to read.
-//
-// The chat here is the one shape that can still reach that state: a row minted
-// before domain.Chat.ProviderID existed, which carries "" and has nothing bound.
-// Switching it is legitimate — hand-picking a vendor is the only way left to
-// name one — but it must be recorded.
+// Switching a chat with no resolvable provider (a row from before chats carried
+// one) still leaves the switch marker: the conversion is never silent.
 func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillLeavesAMarker(t *testing.T) {
 	f := newFixture(t)
 

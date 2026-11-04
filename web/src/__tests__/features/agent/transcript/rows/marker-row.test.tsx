@@ -164,12 +164,12 @@ describe('MarkerRow', () => {
     )
   })
 
-  it('says the chat could not take a session another chat holds, not the session id', () => {
+  it('says the chat kept its session and ended the CLI that left it, not the session id', () => {
     const l = ledger()
     const feed = seed([l.row('marker', { kind: 'session_conflict', detail: 'S-1' })])
     draw(markerOf(feed)!)
     expect(screen.getByTestId('agent-session-conflict-divider')).toHaveTextContent(
-      'Another chat holds this session; this chat did not take it',
+      'Another chat holds that session; its CLI was ended so nothing goes unrecorded',
     )
   })
 

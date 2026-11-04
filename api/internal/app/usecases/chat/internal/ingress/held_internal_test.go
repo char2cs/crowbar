@@ -18,7 +18,7 @@ import (
 func apiChild(t *testing.T) *recorderFixture {
 	t.Helper()
 	f := newRecorderFixture(t, "codex")
-	bound, err := ledger.Announce(f.state(t), "codex", "main", false)
+	bound, err := ledger.Announce(f.state(t), "codex", "main", "")
 	require.NoError(t, err)
 	_, _, err = f.ledger.Append(t.Context(), testChat, bound...)
 	require.NoError(t, err)
