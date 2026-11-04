@@ -10,6 +10,7 @@ import {
 } from '@/lib/store/build-repo-tree'
 import type { Project, WorkspaceDTO } from '@/lib/types'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 /** A project's home chats and folders. */
 export interface HomeTree {
@@ -36,7 +37,16 @@ export interface SidebarViews {
 
 type ByKind = EntityState['byKind']
 
+function hostRank(hostId: string): number {
+  if (hostId === LOCAL_HOST.id) return -1
+  const index = useHostConfigStore.getState().hosts.findIndex((host) => host.id === hostId)
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index
+}
+
+/** Grouped by host (each daemon numbers only its own projects), then as that daemon orders them. */
 function byOrder(a: Project, b: Project): number {
+  const h = hostRank(a.hostId) - hostRank(b.hostId)
+  if (h !== 0) return h
   const d = (a.order ?? 0) - (b.order ?? 0)
   if (d !== 0) return d
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
@@ -153,10 +163,12 @@ function derive(k: ByKind, synced: boolean): SidebarViews {
     if (data.repoId) repoChats.push(row)
     else home(data.projectId).chats.push(row)
   }
-  // The one stream is the local daemon's: every project it carries lives there.
+  // A twin (one id on two hosts, as a copied database makes) is drawn once, at its first host.
+  const seen = new Set<string>()
   const projects = Object.values(k.project)
-    .map((r) => ({ hostId: LOCAL_HOST.id, ...r.data }))
+    .map((r) => r.data)
     .sort(byOrder)
+    .filter((p) => !seen.has(p.id) && !!seen.add(p.id))
   for (const p of projects) home(p.id)
   return {
     projects,
@@ -178,7 +190,8 @@ let memo: { key: unknown[]; views: SidebarViews } | undefined
 /** The sidebar's views of `s`, the same object until a kind they read changes. */
 export function viewsFromEntities(s: EntityState): SidebarViews {
   const k = s.byKind
-  const key = [k.project, k.repo, k.workspace, k.chat, k.folder, !!s.loaded.projects]
+  const hosts = useHostConfigStore.getState().hosts
+  const key = [k.project, k.repo, k.workspace, k.chat, k.folder, !!s.loaded.projects, hosts]
   if (memo && memo.key.length === key.length && memo.key.every((part, i) => part === key[i])) {
     return memo.views
   }

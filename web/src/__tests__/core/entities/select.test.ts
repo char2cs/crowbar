@@ -42,7 +42,7 @@ describe('selectReviewThreads', () => {
     const first = selectReviewThreads(entityStore.getState(), 'w1')
     expect(first.map((t) => t.id)).toEqual(['a', 'c'])
 
-    entityStore.setState({ epoch: 'other' })
+    entityStore.setState({ epochs: { local: 'other' } })
     expect(selectReviewThreads(entityStore.getState(), 'w1')).toBe(first)
 
     const { byKind } = entityStore.getState()

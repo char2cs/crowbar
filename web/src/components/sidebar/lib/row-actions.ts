@@ -15,6 +15,7 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
 import { report } from '@/lib/errors/report'
+import { hostIdForProject } from '@/lib/host-resolve'
 
 /**
  * Every worktree verb is addressed through the chat that owns the workspace
@@ -89,7 +90,11 @@ export async function performRenameFolder(folderId: string, name: string): Promi
       shifted,
       shiftedRows,
     } = await placeFolder(repo.projectId, repo.id, folderId, { name })
-    await applyFolderPlacements(repo.id, [updated, ...shifted], shiftedRows)
+    await applyFolderPlacements(
+      hostIdForProject(repo.projectId),
+      [updated, ...shifted],
+      shiftedRows,
+    )
   } catch (err) {
     report(err, { action: 'Failed to rename folder' })
   }
@@ -110,7 +115,7 @@ export async function performRenameHomeFolder(
   if (!folder || folder.name === name) return
   try {
     const { folder: updated, shifted } = await placeHomeFolder(projectId, folderId, { name })
-    await applyFolderPlacements('', [updated, ...shifted])
+    await applyFolderPlacements(hostIdForProject(projectId), [updated, ...shifted])
   } catch (err) {
     report(err, { action: 'Failed to rename folder' })
   }
@@ -371,7 +376,7 @@ export async function performCreateFolder(rowId: string): Promise<void> {
       NEW_FOLDER_NAME,
       folderParentId,
     )
-    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
+    await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted], shiftedRows)
   } catch (err) {
     report(err, { action: 'Failed to create folder' })
   }
@@ -403,7 +408,7 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
       NEW_FOLDER_NAME,
       '',
     )
-    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
+    await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted], shiftedRows)
   } catch (err) {
     report(err, { action: 'Failed to create folder' })
   }
@@ -424,7 +429,7 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
 export async function performCreateHomeFolder(projectId: string, parentId = ''): Promise<void> {
   try {
     const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)
-    await applyFolderPlacements('', [folder, ...shifted])
+    await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted])
   } catch (err) {
     report(err, { action: 'Failed to create folder' })
   }

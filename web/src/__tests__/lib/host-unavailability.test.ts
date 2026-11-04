@@ -28,8 +28,12 @@ const project = (id: string, hostId: string): Project => ({
   hostId,
 })
 
+// As pairing does: an install that ever had a host remembers it.
 function configureHosts(...ids: string[]): void {
-  useHostConfigStore.setState({ hosts: ids.map(host) })
+  useHostConfigStore.setState((s) => ({
+    hosts: ids.map(host),
+    remoteEverPaired: s.remoteEverPaired || ids.length > 0,
+  }))
 }
 
 function loadProjects(...projects: Project[]): void {
@@ -57,13 +61,13 @@ afterEach(() => {
 
 // The projects scope is the local daemon's: a project it does not hold may be on a paired host.
 describe('a host that will not resolve', () => {
-  it('tells a project gone from the list apart from one whose host is not configured', () => {
+  it("reads a removed host's project as missing: its rows leave with it", () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
     const { result } = renderHook(() => useHostUnavailable({ projectId: 'p-remote' }))
     expect(result.current).toBeNull()
     act(() => configureHosts())
-    expect(result.current).toBe('host-unavailable')
+    expect(result.current).toBe('project-missing')
   })
 
   it('is never unavailable for an install that cannot hold a remote project', () => {

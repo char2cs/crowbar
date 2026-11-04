@@ -4,7 +4,8 @@ import {
   saveWorkspaceLayout,
   WINDOW_LAYOUT_VERSION,
 } from './workspace-layout'
-import { entityStore, type EntityState } from '@/core/entities/entity-store'
+import { entityOf, entityStore, type EntityState } from '@/core/entities/entity-store'
+import { chatHostOf } from '@/lib/host-resolve'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
@@ -94,7 +95,10 @@ function placeFrom(s: EntityState): boolean {
   for (const pane of Object.values(panes)) {
     const inView = pane.viewId ? views[pane.viewId]?.projectId !== undefined : false
     if (!pane.chatId || pane.workspaceId || !inView) continue
-    const chat = s.byKind.chat[pane.chatId]?.data
+    // A chat no host can be named for yet is neither placed nor gone.
+    const hostId = chatHostOf(pane.chatId)
+    if (!hostId) continue
+    const chat = entityOf(s, 'chat', hostId, pane.chatId)
     if (chat?.workspaceId) placed.set(pane.chatId, chat.workspaceId)
     else if (!chat && definitive) gone.add(pane.chatId)
   }

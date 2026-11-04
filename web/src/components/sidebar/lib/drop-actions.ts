@@ -10,6 +10,7 @@ import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { report } from '@/lib/errors/report'
+import { hostIdForChat, hostIdForProject, hostIdForWorkspace } from '@/lib/host-resolve'
 import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import {
   placeWorkspace,
@@ -50,7 +51,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
         order: call.order,
       })
-      await applyWorkspacePlacement(call.wsId, workspace, shifted)
+      await applyWorkspacePlacement(hostIdForWorkspace(call.wsId), call.wsId, workspace, shifted)
       return
     }
     case 'folder': {
@@ -60,7 +61,11 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
         call.folderId,
         { ...(call.parentId !== undefined && { parentId: call.parentId }), order: call.order },
       )
-      await applyFolderPlacements(call.repoId, [folder, ...shifted], shiftedRows)
+      await applyFolderPlacements(
+        hostIdForProject(call.projectId),
+        [folder, ...shifted],
+        shiftedRows,
+      )
       return
     }
     case 'homeFolder': {
@@ -68,7 +73,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
         ...(call.parentId !== undefined && { parentId: call.parentId }),
         order: call.order,
       })
-      await applyFolderPlacements('', [folder, ...shifted])
+      await applyFolderPlacements(hostIdForProject(call.projectId), [folder, ...shifted])
       return
     }
     case 'chat': {
@@ -76,7 +81,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
         parentId: call.parentId,
         order: call.order,
       })
-      await applyChatPlacement(chat, shifted)
+      await applyChatPlacement(hostIdForChat(call.chatId), chat, shifted)
       return
     }
     case 'repoHome':

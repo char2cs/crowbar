@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { entityStore } from '@/core/entities/entity-store'
 import { viewsFromEntities } from '@/core/entities/views-from-entities'
 import type { RepoDTO } from '@/lib/types'
@@ -10,6 +10,7 @@ import {
   resetEntities,
   workspaceDTO,
 } from '@/__tests__/__fixtures__/sidebar-entities'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const views = () => viewsFromEntities(entityStore.getState())
 
@@ -82,7 +83,7 @@ describe('the sidebar views of the entity store', () => {
 
   it('answers the same object until a kind it reads changes', () => {
     const before = views()
-    entityStore.setState({ epoch: 'other' })
+    entityStore.setState({ epochs: { local: 'other' } })
     expect(views()).toBe(before)
   })
 
@@ -157,5 +158,31 @@ describe('a workspace and its owning chat, in whichever order they arrive', () =
     settled()
     putEntities('workspace', [ws('')])
     expect(drawn().chats).toEqual([['c-new', false]])
+  })
+})
+
+describe('projects of several hosts', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-b')
+    pairRemoteHost('host-a')
+  })
+  afterEach(() => resetHostWorld())
+
+  it('lists local first, then each host in pairing order', () => {
+    putEntities('project', [projectDTO({ id: 'pa', order: 0, hostId: 'host-a' })], 'host-a')
+    putEntities('project', [projectDTO({ id: 'pb', order: 0, hostId: 'host-b' })], 'host-b')
+    putEntities('project', [projectDTO({ id: 'pl', order: 3 })])
+    expect(views().projects.map((p) => [p.hostId, p.id])).toEqual([
+      ['local', 'pl'],
+      ['host-b', 'pb'],
+      ['host-a', 'pa'],
+    ])
+  })
+
+  it('a twin shows once', () => {
+    putEntities('project', [projectDTO({ id: 'p1', hostId: 'host-a' })], 'host-a')
+    putEntities('project', [projectDTO({ id: 'p1' })])
+    expect(views().projects.filter((p) => p.id === 'p1')).toHaveLength(1)
   })
 })

@@ -104,7 +104,7 @@ registerScopeKind('chat', {
     const attachment = attachments.get(chatId)
     if (attachment?.hostId !== hostId) return
     // The chat's usage report rides its scope as an entity the entity store holds.
-    if (f.t === 'entity') return applyEntityFrame(f)
+    if (f.t === 'entity') return applyEntityFrame(hostId, f)
     onFrame(chatId, attachment, f)
   },
 })

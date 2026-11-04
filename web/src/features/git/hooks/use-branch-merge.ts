@@ -7,6 +7,8 @@ import {
   subscribeActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { entityStore, holdsEntity } from '@/core/entities/entity-store'
+import { entityKey } from '@/core/stream/host-scope'
+import { resolvedHostOf } from '@/lib/host-resolve'
 import { selectEntityBusy, useOperations } from '@/core/entities/operations'
 import { readSelect, selectRepos } from '@/core/entities/select'
 import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/core/entities/repo-queries'
@@ -20,9 +22,13 @@ import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-re
 function whenChildLeaves(wsId: string, go: () => void): () => void {
   const stops: (() => void)[] = []
   const stop = () => stops.splice(0).forEach((s) => s())
+  // Named while the child is still held: once it leaves, nothing resolves its host.
+  const hostId = resolvedHostOf({ wsId })
+  if (!hostId) return stop
+  const child = { kind: 'workspace' as const, id: entityKey(hostId, wsId) }
   const check = () => {
     if (getActiveWorkspaceId() !== wsId) return stop()
-    if (holdsEntity(entityStore.getState(), { kind: 'workspace', id: wsId })) return
+    if (holdsEntity(entityStore.getState(), child)) return
     stop()
     go()
   }

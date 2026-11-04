@@ -19,7 +19,7 @@ const unresolved = (reason: string, projectId?: string): Resolution => ({ reason
 function heldProjects(): Project[] | undefined {
   const s = entityStore.getState()
   if (!s.loaded.projects) return undefined
-  return Object.values(s.byKind.project).map((r) => ({ hostId: LOCAL_HOST.id, ...r.data }))
+  return Object.values(s.byKind.project).map((r) => r.data)
 }
 
 // The only proof that an unknown id is local: no remote was ever paired and no

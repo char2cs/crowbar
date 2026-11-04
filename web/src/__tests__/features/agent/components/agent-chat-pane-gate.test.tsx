@@ -216,7 +216,11 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     expect(screen.queryByTestId('chat-view')).toBeNull()
     expect(liveKeydown()).toBeLessThan(whileMounted)
 
-    act(() => pairRemoteHost('host-1'))
+    // A re-paired host streams its projects again.
+    act(() => {
+      pairRemoteHost('host-1')
+      loadProjects(projectOn('p-remote', 'host-1'))
+    })
 
     expect(await screen.findByTestId('chat-view')).toBeInTheDocument()
     expect(probe.mounts).toBe(2)

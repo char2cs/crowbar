@@ -11,6 +11,8 @@ import {
   type EntityState,
 } from '@/core/entities/entity-store'
 import { readSelect, selectRepos } from '@/core/entities/select'
+import { entityKey } from '@/core/stream/host-scope'
+import { hostIdForProject } from '@/lib/host-resolve'
 import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { operationsState, putLocalOperation, type Operation } from '@/core/entities/operations'
 import { dismissOperation, whenSettled, type OperationReply } from '@/core/entities/run-operation'
@@ -138,8 +140,12 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
           : deleteHomeFolder(entry.projectId, entry.id, ...opts)
       ).then((shifted) => {
         // The delete's answer applies at once, so the row does not flash back before its frame.
-        forgetEntities('folder', [entry.id])
-        placeEntities('folder', Object.fromEntries(shifted.map((f) => [f.id, f])))
+        const hostId = hostIdForProject(entry.projectId)
+        forgetEntities('folder', [entityKey(hostId, entry.id)])
+        placeEntities(
+          'folder',
+          Object.fromEntries(shifted.map((f) => [entityKey(hostId, f.id), f])),
+        )
       })
     case 'repo':
       return sendOperation((opId) => deleteRepo(entry.projectId, entry.repoId, opId, ...opts))

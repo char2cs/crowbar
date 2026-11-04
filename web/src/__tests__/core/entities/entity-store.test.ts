@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  entityOf,
   entityStore,
   forgetEntities,
   patchEntities,
@@ -11,19 +12,40 @@ import { operationsState, putLocalOperation, type Operation } from '@/core/entit
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
-import { chatEntity, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
+import { chatEntity, projectDTO, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
+import { pairRemoteHost } from '@/__tests__/__fixtures__/remote-host'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-const socket = vi.hoisted(() => ({ deliver: (_data: unknown) => {}, drop: () => {} }))
+interface FakeSocket {
+  deliver: (data: unknown) => void
+  drop: () => void
+}
+const sockets = vi.hoisted(() => {
+  const by = new Map<string, FakeSocket>()
+  return {
+    of(endpoint: string): FakeSocket {
+      let s = by.get(endpoint)
+      if (!s) by.set(endpoint, (s = { deliver: () => {}, drop: () => {} }))
+      return s
+    },
+  }
+})
+const LOCAL_ENDPOINT = '/v0/stream'
+const HOST1_ENDPOINT = 'crowbar://host-1/v0/stream'
+const socket = sockets.of(LOCAL_ENDPOINT)
+const host1 = sockets.of(HOST1_ENDPOINT)
 
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: {
-    subscribe: (_endpoint: string, cb: (data: unknown) => void) => {
-      socket.deliver = cb
-      return () => {}
+    subscribe: (endpoint: string, cb: (data: unknown) => void) => {
+      sockets.of(endpoint).deliver = cb
+      return () => {
+        sockets.of(endpoint).deliver = () => {}
+      }
     },
     send: () => {},
-    onDrop: (_endpoint: string, listener: () => void) => {
-      socket.drop = listener
+    onDrop: (endpoint: string, listener: () => void) => {
+      sockets.of(endpoint).drop = listener
       return () => {}
     },
   },
@@ -107,7 +129,7 @@ describe('entity store', () => {
     entity('op1', 1, operation('op1', 'failed'))
     synced()
     expect(held('op1')).toMatchObject({ v: 1, data: { state: 'failed' } })
-    expect(entityStore.getState().epoch).toBe(`e${epochs}-restarted`)
+    expect(entityStore.getState().epochs.local).toBe(`e${epochs}-restarted`)
   })
 
   it('synced prunes the members of a scope not seen since its sub', () => {
@@ -340,5 +362,77 @@ describe('a projects snapshot that could not read a repo', () => {
     reconnect(`e${epochs}`)
     synced()
     expect(chatStore.getState().outbox['c-r1']).toBeUndefined()
+  })
+})
+
+describe('two hosts in one store', () => {
+  const project = (on: FakeSocket, id: string, v: number, over: object = {}) =>
+    on.deliver({
+      t: 'entity',
+      scope: 'projects',
+      kind: 'project',
+      id,
+      v,
+      data: { ...projectDTO({ id }), ...over },
+    })
+  const projects = () => entityStore.getState().byKind.project
+  const readyHost1 = (epoch = 'h1') => {
+    host1.drop()
+    host1.deliver({ t: 'ready', epoch })
+    host1.deliver({ t: 'synced', scope: 'projects' })
+  }
+
+  beforeEach(() => {
+    pairRemoteHost('host-1')
+    readyHost1()
+  })
+  afterEach(() => {
+    useHostConfigStore.getState().removeHost('host-1')
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  })
+
+  it("two hosts' rows with one raw id are both held", () => {
+    project(socket, 'p1', 1, { name: 'here' })
+    project(host1, 'p1', 1, { name: 'there' })
+    expect(entityOf(entityStore.getState(), 'project', 'local', 'p1')?.name).toBe('here')
+    expect(entityOf(entityStore.getState(), 'project', 'host-1', 'p1')?.name).toBe('there')
+  })
+
+  it('a payload naming another hostId is filed under the socket host', () => {
+    project(host1, 'p9', 1, { hostId: 'local' })
+    expect(entityOf(entityStore.getState(), 'project', 'local', 'p9')).toBeUndefined()
+    expect(entityOf(entityStore.getState(), 'project', 'host-1', 'p9')?.hostId).toBe('host-1')
+  })
+
+  it("host-1's synced prunes none of local's rows", () => {
+    project(socket, 'p1', 1)
+    project(host1, 'p2', 1)
+    readyHost1()
+    expect(Object.keys(projects())).toEqual(['p1'])
+    expect(entityStore.getState().synced['host-1~projects']).toBe(true)
+    expect(entityStore.getState().synced.projects).toBe(true)
+  })
+
+  it("host-1's new epoch voids only host-1's versions", () => {
+    project(socket, 'p1', 5, { name: 'local v5' })
+    project(host1, 'p1', 5, { name: 'remote v5' })
+    host1.drop()
+    host1.deliver({ t: 'ready', epoch: 'h2' })
+    project(host1, 'p1', 1, { name: 'remote v1' })
+    host1.deliver({ t: 'synced', scope: 'projects' })
+    project(socket, 'p1', 1, { name: 'local v1' })
+    expect(entityOf(entityStore.getState(), 'project', 'host-1', 'p1')?.name).toBe('remote v1')
+    expect(entityOf(entityStore.getState(), 'project', 'local', 'p1')?.name).toBe('local v5')
+  })
+
+  it("forgetHost drops that host's rows and scopes, nothing else", () => {
+    project(socket, 'p1', 1)
+    project(host1, 'p1', 1)
+    useHostConfigStore.getState().removeHost('host-1')
+    const s = entityStore.getState()
+    expect(Object.keys(s.byKind.project)).toEqual(['p1'])
+    expect(Object.keys(s.synced).filter((scope) => scope.startsWith('host-1'))).toEqual([])
+    expect(s.epochs['host-1']).toBeUndefined()
+    expect(s.synced.projects).toBe(true)
   })
 })

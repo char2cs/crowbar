@@ -445,6 +445,7 @@ describe('LspClient on a remote host', () => {
     client.scheduleChange(ws, 'a.ts', () => text)
     await client.flushChange(ws, 'a.ts')
     pairHost()
+    loadProjects(remoteProject())
     expect(postsTo('/didOpen')).toHaveLength(2)
     expect(bodyOf(1)).toMatchObject({ path: 'a.ts', text: 'y' })
   })

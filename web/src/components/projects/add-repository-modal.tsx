@@ -13,7 +13,8 @@ import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { fetchRepos, fetchWorkspaces, postRepo } from '@/lib/api'
-import { useResolvedHost } from '@/lib/host-resolve'
+import { hostIdForProject, useResolvedHost } from '@/lib/host-resolve'
+import { entityKey } from '@/core/stream/host-scope'
 import { placeEntities } from '@/core/entities/entity-store'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { operationsState, type Operation } from '@/core/entities/operations'
@@ -109,8 +110,9 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
 
       // The /ide guard reads the entity store; the read's answer lands there before the
       // navigate, so it never bounces back to /.
-      placeEntities('repo', { [repo.id]: repo })
-      if (home) placeEntities('workspace', { [home.id]: home })
+      const hostId = hostIdForProject(projectId)
+      placeEntities('repo', { [entityKey(hostId, repo.id)]: repo })
+      if (home) placeEntities('workspace', { [entityKey(hostId, home.id)]: home })
 
       onOpenChange(false)
       setPath('')

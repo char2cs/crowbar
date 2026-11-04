@@ -1,9 +1,11 @@
 import { readSelect, selectRepos } from '@/core/entities/select'
-import { entityStore } from '@/core/entities/entity-store'
+import { entityOf, entityStore } from '@/core/entities/entity-store'
+import { resolvedHostOf } from '@/lib/host-resolve'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 
 function projectPath(projectId: string): string | undefined {
-  return entityStore.getState().byKind.project[projectId]?.data.path
+  const hostId = resolvedHostOf({ projectId })
+  return hostId ? entityOf(entityStore.getState(), 'project', hostId, projectId)?.path : undefined
 }
 
 /**

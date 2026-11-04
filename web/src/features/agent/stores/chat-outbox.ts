@@ -10,7 +10,8 @@ import {
 import { attachFeed } from '@/features/agent/stores/chat-feed'
 import { chatHostOf } from '@/lib/host-resolve'
 import { chatStore, setStopping, type ChatStoreState } from '@/features/agent/stores/chat-store'
-import { entityStore, patchEntities } from '@/core/entities/entity-store'
+import { entityOf, entityStore, patchEntities } from '@/core/entities/entity-store'
+import { entityKey } from '@/core/stream/host-scope'
 import {
   mayBeHeld,
   newestRetractable,
@@ -92,7 +93,9 @@ function failureOf(error: unknown): SendFailure {
 function drain(chatId: string) {
   const feed = chatStore.getState().feeds[chatId]
   if (feed?.status !== 'live' || terminalHolds.has(chatId)) return
-  const waits = entityStore.getState().byKind.chat[chatId]?.data.terminalWait !== undefined
+  const hostId = chatHostOf(chatId)
+  const chat = hostId ? entityOf(entityStore.getState(), 'chat', hostId, chatId) : undefined
+  const waits = chat?.terminalWait !== undefined
   const head = nextToSend(itemsOf(chatId), feed, waits)
   if (head) void send(chatId, head)
 }
@@ -111,8 +114,10 @@ async function send(chatId: string, item: OutboxItem) {
       item.effort,
     )
     // The 202 is the only word that a staged pick was taken; the chat's frame confirms it.
-    if (item.model !== undefined || item.effort !== undefined) {
-      patchEntities('chat', { [chatId]: { model: item.model ?? '', effort: item.effort ?? '' } })
+    const hostId = chatHostOf(chatId)
+    if (hostId && (item.model !== undefined || item.effort !== undefined)) {
+      const pick = { model: item.model ?? '', effort: item.effort ?? '' }
+      patchEntities('chat', { [entityKey(hostId, chatId)]: pick })
     }
     update(chatId, (items) => onSent(items, item.requestId))
   } catch (error) {
@@ -201,7 +206,9 @@ function watch() {
   entityStore.subscribe((s, prev) => {
     if (s.byKind.chat === prev.byKind.chat) return
     for (const chatId of Object.keys(chatStore.getState().outbox)) {
-      if (s.byKind.chat[chatId] !== prev.byKind.chat[chatId]) drain(chatId)
+      const hostId = chatHostOf(chatId)
+      const key = hostId && entityKey(hostId, chatId)
+      if (key && s.byKind.chat[key] !== prev.byKind.chat[key]) drain(chatId)
     }
   })
 }

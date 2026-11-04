@@ -345,7 +345,11 @@ describe('on an install that has paired a remote host', () => {
       { name: 'new.ts', path: 'new.ts', isDir: false },
     ])
 
-    act(() => pairRemoteHost('host-1'))
+    // A re-paired host streams its projects again.
+    act(() => {
+      pairRemoteHost('host-1')
+      loadProjects(projectOn('p-remote', 'host-1'))
+    })
 
     await waitFor(() => expect(store.getState().files).toHaveLength(3))
     expect(fetchFileTree.mock.calls.map(([wsId]) => wsId)).toEqual(['ws-remote'])

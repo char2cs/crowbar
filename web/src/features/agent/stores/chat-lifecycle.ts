@@ -1,4 +1,5 @@
 import { entityStore, type EntityState } from '@/core/entities/entity-store'
+import { splitHostKey } from '@/core/stream/host-scope'
 import type { ChatEntity } from '@/core/entities/chat-entity'
 import { clearExcalidrawEditRequest } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { clearScrollPosition } from '@/features/agent/hooks/lib/transcript-scroll-positions'
@@ -36,22 +37,25 @@ function adoptIfViewless(chat: ChatEntity) {
   paneActions.adoptBackgroundChat(chat.id, chat.projectId, chat.workspaceId)
 }
 
+// Records are keyed by host (`entityKey`); what this client keeps per chat is by raw id.
 function followChats(next: Chats, prev: Chats, live: boolean) {
-  for (const id of Object.keys(prev)) if (!(id in next)) forget(id)
-  for (const [id, { data }] of Object.entries(next)) {
-    const was = prev[id]?.data
+  for (const key of Object.keys(prev)) if (!(key in next)) forget(splitHostKey(key).id)
+  for (const [key, { data }] of Object.entries(next)) {
+    const was = prev[key]?.data
     if (was === data) continue
     if (was?.liveRunnerId && was.liveRunnerId !== data.liveRunnerId) {
-      releaseRunner(was.liveRunnerId, id)
+      releaseRunner(was.liveRunnerId, data.id)
     }
     if (live && data.working && !was?.working) adoptIfViewless(data)
   }
 }
 
 function followWorkspaces(next: Workspaces, prev: Workspaces) {
-  for (const id of Object.keys(prev)) if (!(id in next)) forgetWorkspaceScope(id)
-  for (const [id, { data: ws }] of Object.entries(next)) {
-    if (prev[id]?.data === ws || !ws.projectId) continue
+  for (const key of Object.keys(prev)) {
+    if (!(key in next)) forgetWorkspaceScope(splitHostKey(key).id)
+  }
+  for (const [key, { data: ws }] of Object.entries(next)) {
+    if (prev[key]?.data === ws || !ws.projectId) continue
     recordWorkspaceScope({
       projectId: ws.projectId,
       repoId: ws.repoId,

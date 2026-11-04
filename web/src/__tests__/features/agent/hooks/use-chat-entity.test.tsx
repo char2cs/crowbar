@@ -42,7 +42,7 @@ describe('useChatWorking', () => {
 
 describe('useChatTelemetry', () => {
   const report = (chatId: string, v: number, usedPercent: number) =>
-    applyEntityFrame({
+    applyEntityFrame('local', {
       t: 'entity',
       kind: 'telemetry',
       id: chatId,

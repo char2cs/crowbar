@@ -26,7 +26,7 @@ describe('MobileTopBar', () => {
     expect(titleBox().style.paddingLeft).toBe('68px')
     expect(titleBox().style.paddingRight).toBe('68px')
     act(() =>
-      applyEntityFrame({
+      applyEntityFrame('local', {
         t: 'entity',
         kind: 'telemetry',
         id: 'c1',

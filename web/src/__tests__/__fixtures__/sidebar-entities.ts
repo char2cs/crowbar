@@ -1,4 +1,5 @@
 import { entityStore, type EntityState, type StoredKind } from '@/core/entities/entity-store'
+import { entityKey } from '@/core/stream/host-scope'
 import type { ChatEntity } from '@/core/entities/chat-entity'
 import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/core/entities/views-from-entities'
@@ -13,11 +14,17 @@ export function resetEntities(): void {
   entityStore.setState(entityStore.getInitialState(), true)
 }
 
-/** Writes rows as the projects scope's frames leave them, each at a newer version. */
-export function putEntities<K extends StoredKind>(kind: K, rows: readonly EntityOf<K>[]): void {
+/** Writes `hostId`'s rows as its projects scope's frames leave them, each at a newer version. */
+export function putEntities<K extends StoredKind>(
+  kind: K,
+  rows: readonly EntityOf<K>[],
+  hostId = 'local',
+): void {
   entityStore.setState((s) => {
     const next = { ...s.byKind[kind] } as Record<string, { v: number; data: EntityOf<K> }>
-    for (const row of rows) next[(row as { id: string }).id] = { v: ++v, data: row }
+    for (const row of rows) {
+      next[entityKey(hostId, (row as { id: string }).id)] = { v: ++v, data: row }
+    }
     return { byKind: { ...s.byKind, [kind]: next } }
   })
 }
@@ -177,6 +184,7 @@ function fromRepo(repo: Repo): {
 }
 
 type Rows = { [K in StoredKind]?: (row: EntityOf<K>) => boolean }
+type Row = { id: string; hostId?: string }
 
 /** Drops the held rows `drop` names, then writes `rows` over the rest, in one write as
  *  a snapshot lands, and marks the projects scope synced. */
@@ -191,7 +199,12 @@ function replaceEntities(drop: Rows, rows: { [K in StoredKind]?: readonly Entity
     }
     for (const kind of Object.keys(rows) as StoredKind[]) {
       const next = { ...byKind[kind] } as Record<string, { v: number; data: unknown }>
-      for (const row of rows[kind] ?? []) next[(row as { id: string }).id] = { v: ++v, data: row }
+      // A project row names its host; every other fixture row is the local daemon's.
+      for (const row of (rows[kind] ?? []) as unknown as readonly Row[]) {
+        const hostId = row.hostId ?? 'local'
+        const data = kind === 'project' ? { ...row, hostId } : row
+        next[entityKey(hostId, row.id)] = { v: ++v, data }
+      }
       byKind[kind] = next as never
     }
     return {

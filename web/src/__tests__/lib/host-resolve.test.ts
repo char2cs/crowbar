@@ -38,8 +38,12 @@ const project = (id: string, hostId: string): Project => ({
   hostId,
 })
 
+// As pairing does: an install that ever had a host remembers it.
 function configureHosts(...ids: string[]): void {
-  useHostConfigStore.setState({ hosts: ids.map(host) })
+  useHostConfigStore.setState((s) => ({
+    hosts: ids.map(host),
+    remoteEverPaired: s.remoteEverPaired || ids.length > 0,
+  }))
 }
 
 function loadProjects(...projects: Project[]): void {
@@ -104,14 +108,14 @@ describe('hostIdForProject', () => {
     expect(unresolved(() => hostIdForProject('p1')).message).toMatch(/project list is not loaded/)
   })
 
-  // Settings -> Hosts -> Revoke removes the host and leaves its project rows.
+  // Settings -> Hosts -> Revoke removes the host, and its project rows with it.
   it('throws for a remote project once its host is no longer configured', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
     expect(hostIdForProject('p-remote')).toBe('host-1')
     configureHosts()
     expect(unresolved(() => hostIdForProject('p-remote')).message).toMatch(
-      /its host "host-1" is not configured/,
+      /not in the project list/,
     )
     expect(unresolved(() => hostIdForProject('p-other')).message).toMatch(/not in the project list/)
   })
@@ -121,9 +125,7 @@ describe('hostIdForProject', () => {
     loadProjects(project('p-on-1', 'host-1'))
     expect(hostIdForProject('p-on-1')).toBe('host-1')
     configureHosts('host-2')
-    expect(unresolved(() => hostIdForProject('p-on-1')).message).toMatch(
-      /its host "host-1" is not configured/,
-    )
+    expect(unresolved(() => hostIdForProject('p-on-1')).message).toMatch(/not in the project list/)
   })
 })
 
@@ -204,9 +206,7 @@ describe('hostIdForWorkspace', () => {
     recordScope('ws-remote', 'p-remote')
     expect(hostIdForWorkspace('ws-remote')).toBe('host-1')
     configureHosts()
-    expect(unresolved(() => hostIdForWorkspace('ws-remote')).message).toMatch(
-      /"host-1" is not configured/,
-    )
+    expect(unresolved(() => hostIdForWorkspace('ws-remote')).projectId).toBe('p-remote')
   })
 
   it('throws for an unrecorded workspace while remote rows are held, with or without hosts', () => {
@@ -359,7 +359,7 @@ describe('useHostResolved', () => {
     expect(result.current).toBe(false)
   })
 
-  it('goes false when the last host is revoked while its project rows linger', () => {
+  it('goes false when the last host is revoked, its project rows leaving with it', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
     const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))

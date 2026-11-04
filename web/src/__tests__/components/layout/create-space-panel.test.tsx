@@ -55,13 +55,14 @@ function space(over: Partial<Project> & { id: string; path: string }): Project {
   return { name: 'space', lastActivity: new Date(0), hostId: 'local', ...over }
 }
 
-/** The create the daemon accepted as `opId` succeeds, its project `id` landing in the store. */
+/** The create the daemon accepted as `opId` succeeds, its project `id` landing in the store
+ *  from the host the create was posted to. */
 async function settleCreate(id: string, path: string, others: Project[] = []) {
   await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalled())
-  const opId = vi.mocked(api.postProject).mock.calls[0][2]
+  const [, , opId, hostId] = vi.mocked(api.postProject).mock.calls[0]
   await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
   act(() => {
-    seedProjects([...others, space({ id, path })])
+    seedProjects([...others, space({ id, path, hostId })])
     streamOperation(createOp(opId, 2, 'succeeded', id))
   })
 }
