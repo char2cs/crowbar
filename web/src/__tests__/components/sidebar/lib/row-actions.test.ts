@@ -70,9 +70,7 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
   }),
 }))
 
-// `resolveHomeRowScope` needs a resolved home workspace id — real elsewhere
-// in this file's fixtures, but real resolution is an async fetch this file
-// has no business exercising.
+// Resolving the home workspace is an async fetch this file does not exercise.
 vi.spyOn(homeWorkspaceResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1')
 
 describe('row-actions', () => {
@@ -111,9 +109,7 @@ describe('row-actions', () => {
     expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
   })
 
-  // Task 34: folders carry no dedicated push channel any more — the PATCH's
-  // own {folder, shifted} response is applied to the sidebar store directly,
-  // or the rename would never show up anywhere.
+  // Folders have no push channel: the PATCH's own response is the only update.
   it('renaming a folder applies the response to the sidebar store', async () => {
     await performRenameRow('folder-1', 'Fixes')
     expect(readSelect(selectRepos)[0].folders).toEqual([
@@ -121,11 +117,8 @@ describe('row-actions', () => {
     ])
   })
 
-  // Fix round 1: the project-home row's id is `repo.defaultWorkspaceId`,
-  // never a member of `repo.workspaces` — renaming it has to name the REPO
-  // (matching the deleted repo-section.tsx's "Repo rename stays on the
-  // [repo name], not the branch"), not silently no-op through the
-  // branch-rename path.
+  // The project-home row's id is `defaultWorkspaceId`, in no `repo.workspaces`:
+  // renaming it names the repo rather than no-op through the branch path.
   it('renaming the project-home row calls renameRepo, not renameWorkspaceBranch', async () => {
     await performRenameRow('ws-home', 'renamed-repo')
     expect(api.renameRepo).toHaveBeenCalledWith('proj-1', 'repo-1', 'renamed-repo')
@@ -137,10 +130,8 @@ describe('row-actions', () => {
     expect(api.renameRepo).not.toHaveBeenCalled()
   })
 
-  // A chat is the FOURTH id space `performRenameRow` dispatches over, and the
-  // one whose fall-through was silent: it reached performRenameWorkspaceBranch,
-  // found no workspace by that id, and returned — no request, no error, and the
-  // name the user had just typed simply gone.
+  // A chat id falling through to the branch path found no workspace and
+  // dropped the typed name without a request or an error.
   it('renaming a chat row calls renameChat, not renameWorkspaceBranch', async () => {
     await performRenameRow('chat-1', 'Parser rewrite')
     expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'chat-1', 'Parser rewrite')
@@ -153,12 +144,8 @@ describe('row-actions', () => {
     expect(agentApi.renameChat).not.toHaveBeenCalled()
   })
 
-  // The rename dialog seeds its input from the row's LABEL
-  // (`chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so for an
-  // untitled chat, pressing Enter without editing sends the placeholder text
-  // itself. That must stay a no-op the same way re-submitting a real title
-  // does, or a blank chat's title gets permanently locked to "Untitled chat"
-  // and the agent's own auto-title is rejected forever after.
+  // The dialog seeds from the row's label, so Enter on an untitled chat sends the
+  // placeholder; titling it so would lock out the agent's own auto-title.
   it('submitting an untitled chat’s placeholder label unedited is a no-op', async () => {
     seedRepos([
       {
@@ -222,8 +209,7 @@ describe('row-actions', () => {
       'New folder',
       'ws-1',
     )
-    // Applied straight to the store — no dedicated push channel exists for
-    // folders any more (Task 34), so this response is the only confirmation.
+    // No push channel exists for folders: this response is the only confirmation.
     expect(readSelect(selectRepos)[0].folders?.map((f) => f.id)).toContain('folder-new')
   })
 
@@ -233,19 +219,9 @@ describe('row-actions', () => {
   })
 })
 
-/**
- * A FIFTH id space, and the one that overlaps a fourth: a `branch` row's id is
- * the id of the CHAT that owns its workspace (`deriveRows`). Without
- * translating first, the repo-home row stops matching `defaultWorkspaceId`,
- * falls into the chat branch, and renaming the repo silently retitles a
- * conversation instead — a locked branch's rename must still move the git
- * branch, not retitle its own row as if it were a chat.
- *
- * An ORDINARY (unlocked) fork's row is the one case that changed with rule
- * 6: its label is now its owning chat's title, not its branch, so renaming
- * it retitles the chat — the opposite of what this same row did before every
- * workspace-owning row folded the same way.
- */
+// A branch row's id is its workspace's owning chat id: untranslated, a repo-home
+// or locked-branch rename would retitle a chat. An unlocked fork is labelled by
+// its chat's title, so renaming it does retitle the chat.
 describe('performRenameRow — a branch row is not a chat', () => {
   beforeEach(() => {
     seedRepos([
@@ -304,18 +280,13 @@ describe('performRenameRow — a branch row is not a chat', () => {
   })
 
   it('renaming a LOCKED branch row is still routed as a branch rename, not a chat rename', async () => {
-    // `performRenameWorkspaceBranch` itself refuses a locked workspace before
-    // it ever reaches the API (its own guard, unrelated to this fix) — what
-    // this pins is the ROUTING decision one level up: a locked row's rename
-    // must not fall through to retitling the chat instead.
+    // The branch rename refuses a locked workspace itself; this pins only that
+    // the row is not routed to a chat rename instead.
     await performRenameRow('locked-row', 'feature-y')
     expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
     expect(agentApi.renameChat).not.toHaveBeenCalled()
   })
 
-  // Rule 6: an ordinary (unlocked) fork's row is now labelled by its owning
-  // chat's title, not its branch — so renaming it retitles the CHAT, the same
-  // as any other chat row, and no longer moves the git branch at all.
   it('renaming an ordinary (unlocked) fork row retitles its CHAT, not the branch', async () => {
     await performRenameRow('ws-1-row', 'New title')
     expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'ws-1-row', 'New title')
@@ -323,16 +294,8 @@ describe('performRenameRow — a branch row is not a chat', () => {
   })
 })
 
-/**
- * The same fifth id space, at the two verbs the first fix round missed.
- *
- * `performRenameRow` was translated; `performSetWorkspaceLock` and
- * `performCreateFolder` were not, and both match a row id against exactly the
- * spaces a branch row is NOT in. Lock/unlock resolved no repo and sent nothing —
- * which, with `DeleteCascade` refusing a locked workspace, made a lock a
- * one-way door — and "New folder" on the repo home or any locked branch fired
- * no request at all.
- */
+// Lock and create-folder translate the owning chat id too: untranslated, an unlock
+// sent nothing (a lock became a one-way door) and "New folder" fired no request.
 describe('a branch row addressed by its owning chat id — lock and create-folder', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -382,11 +345,8 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
   })
 
   it('creating a folder under a locked branch row parents it to that CHAT id, not its workspace', async () => {
-    // The workspace-id translation exists only to find the owning repo and to
-    // detect the repo-home special case below — `POST .../chats/folders`
-    // resolves its `parentId` as a chat (or folder), so the value actually
-    // sent must stay the untranslated row id. Sending the workspace id here
-    // 404s on the daemon ("agentchat: get chat: not found"), caught live.
+    // The translation only finds the repo: the daemon resolves `parentId` as a
+    // chat or folder, so a workspace id there 404s.
     await performCreateFolder('ws-1-row')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith(
       'proj-1',
@@ -396,23 +356,14 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
     )
   })
 
-  // The repo-home row is the same translation with a second step behind it: the
-  // home workspace is not a placement target the daemon knows, so it normalises
-  // to the repo root — which it can only do once the row id has become
-  // `defaultWorkspaceId` again.
+  // The home workspace is no placement target, so once translated it roots at the repo.
   it('creating a folder under the repo-home row roots it at the repo', async () => {
     await performCreateFolder('home-row')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 })
 
-/**
- * A SIXTH id space `performRenameRow` has to know about: a project-home row
- * lives outside every repo entirely (home rides no repo), so none of the
- * repo-scoped branches above ever match one — renaming a home chat or
- * folder silently no-op'd before this, caught live as "can't rename
- * folders."
- */
+// A project-home row lives outside every repo, so no repo-scoped path matches it.
 describe('performRenameRow — a project-home row', () => {
   beforeEach(() => {
     vi.clearAllMocks()
