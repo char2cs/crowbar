@@ -15,6 +15,7 @@ import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { heldScopes } from '@/__tests__/__fixtures__/stream-daemon'
+import { wsManager } from '@/lib/ws/manager'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
 
@@ -788,6 +789,20 @@ describe('AgentChatPane', () => {
     await renderPane(store, paneId)
 
     expect(heldScopes('chat:')).toContain('chat:c1')
+  })
+
+  // Holding the chat's stream scope is what counts a viewer: no socket of its own.
+  it('views a chat through its stream scope alone', async () => {
+    const subscribe = vi.spyOn(wsManager, 'subscribe')
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
+
+    expect(heldScopes('chat:')).toContain('chat:c1')
+    expect(subscribe.mock.calls.map(([endpoint]) => endpoint)).not.toContainEqual(
+      expect.stringMatching(/\/attach$/),
+    )
+    subscribe.mockRestore()
   })
 
   // The feed is addressed by chat id alone, so no workspace has to vouch for it.

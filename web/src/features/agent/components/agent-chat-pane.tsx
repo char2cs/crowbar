@@ -23,7 +23,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneAttachment } from '@/features/agent/components/use-pane-attachment'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
-import { useChatAttachment } from '@/features/agent/hooks/use-chat-attachment'
 import {
   SPLIT_MIN_HALF_PX,
   SPLIT_MIN_STACKED_PX,
@@ -90,7 +89,6 @@ export function AgentChatPaneBody({
   // My runner's chat, '' when it is nowhere; a move shows up as a different id.
   const runnerChatId = useSelect((s) => (runnerId ? selectRunnerChat(s, runnerId) : ''))
   const shownChatId = runnerChatId || chatId
-  useChatAttachment(wsId, shownChatId)
 
   // A landed list turns `!known` from "not yet" into "not in it".
   const listSeeded = useChatListReady()
