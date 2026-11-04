@@ -98,9 +98,9 @@ func TestRunner_Run_NonZeroExitCarriesTheCodeAndNoOutput(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, exec.ErrCommandFailed)
-	code, ok := exec.ExitCode(err)
-	require.True(t, ok)
-	assert.Equal(t, 3, code)
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	assert.Equal(t, 3, exitErr.Code)
 	assert.NotContains(t, err.Error(), os.Args[0], "an error must never leak the executable path")
 }
 

@@ -138,20 +138,6 @@ func TestStartAPIDriver_PropagatesTheUnderlyingStartFailure(t *testing.T) {
 	assert.Nil(t, conn)
 }
 
-// TestSends_ListsOnlyEventsDeclaringAnOutboundCall pins protocol.Sends'
-// delegation to outbound.Declared: an event with only an inbound `in:` must
-// not be reported as something Crowbar can send.
-func TestSends_ListsOnlyEventsDeclaringAnOutboundCall(t *testing.T) {
-	d := &spec.Descriptor{
-		Events: map[string]spec.EventSpec{
-			"compact_start": {Out: spec.WireRef{"thread/compact/start"}},
-			"turn_stop":     {In: spec.WireRef{"turn/completed"}},
-		},
-	}
-
-	assert.Equal(t, []string{"compact_start"}, protocol.Sends(d))
-}
-
 // TestCheckVersion_DelegatesToTheDescriptorsDeclaredRange pins protocol.
 // CheckVersion's delegation to descriptor.CheckProtocolVersion.
 func TestCheckVersion_DelegatesToTheDescriptorsDeclaredRange(t *testing.T) {

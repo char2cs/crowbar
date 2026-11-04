@@ -154,9 +154,6 @@ func Send(
 	return outbound.Resolve(d, canonical, values)
 }
 
-// Sends lists the canonical events Crowbar can drive on this provider.
-func Sends(d *spec.Descriptor) []string { return outbound.Declared(d) }
-
 // CanSend reports whether one outbound event is available.
 func CanSend(d *spec.Descriptor, canonical string) bool {
 	_, _, ok := outbound.Resolve(d, canonical, nil)

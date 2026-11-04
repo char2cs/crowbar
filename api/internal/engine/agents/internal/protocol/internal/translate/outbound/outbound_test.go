@@ -83,17 +83,3 @@ func TestResolve_SubstitutesEveryOccurrence(t *testing.T) {
 		t.Fatalf("got %+v", send)
 	}
 }
-
-// Declared lists what Crowbar can SEND, which is what a capability flag is built from.
-func TestDeclared_ListsOnlyOutboundEventsSorted(t *testing.T) {
-	got := outbound.Declared(desc())
-	want := []string{"compact_start", "interrupt", "prompt"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-	}
-}
