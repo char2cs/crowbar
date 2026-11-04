@@ -1,72 +1,16 @@
-// The bare 'monaco-editor' specifier resolves to the package's "main" bundle
-// (`editor.main.js`), which EAGERLY statically imports all 60+ built-in
-// basic-languages contributions + the 4 heavy language services — undoing
-// every bit of on-demand loading below the moment this module (imported
-// eagerly by `editor-surface.tsx`/`monaco-diff-editor.tsx` for the custom
-// diff/gitignore/… Monarch languages) loads. `editor.api` exposes the exact
-// same `languages` singleton (both resolve through the shared
-// `editor.api2.js` — confirmed by reading monaco's own source; no split-brain
-// risk from other files still importing the bare specifier for types) MINUS
-// that eager language bundling.
-//
-// `edcore.main.js` is the EDITOR-FEATURE contribution chain (find, folding,
-// hover, suggest, bracket-matching, multicursor, sticky-scroll, rename,
-// context-menu, … = `editor.all.js`, PLUS the 8 standalone modules: the four
-// quick-access providers, references widget, inspectTokens, toggleHighContrast,
-// iPadShowKeyboard) — deliberately EAGER, and load-bearing: monaco's
-// CodeEditorWidget SNAPSHOTS EditorExtensionsRegistry.getEditorContributions()
-// AND .getEditorActions() AT CONSTRUCTION (codeEditorWidget.js ~221-232), and
-// `EditorManager.mountPane` builds the retained widget BEFORE `showBuffer`
-// resolves any language. If this chain only arrived as a side effect of the
-// first per-language `import()` below (every `*.contribution` module
-// transitively imports the same set), any widget constructed before that
-// first language load finished would be PERMANENTLY feature-degraded — no
-// find widget, no folding, no hover, no suggest — for the life of the pane.
-// edcore.main (not just editor.all) because `_.contribution.js` pulls exactly
-// this superset — using the smaller set would leave those 8 modules as a
-// stray lazy chunk whose contributions/actions miss early-constructed widgets.
-// This module is statically imported by both editor surfaces AND by
-// `monaco-adapters.ts` (the editor host's dynamic import), so the chain
-// registers before ANY widget construction on every path; only the
-// per-LANGUAGE contributions stay deferred.
+// Monaco's editor-feature chain (find, folding, hover, suggest, …), eager on purpose: a
+// CodeEditorWidget snapshots the registered contributions and actions when it is built, and a pane
+// builds its widget before any language loads. Only the per-language contributions stay deferred.
 import 'monaco-editor/esm/vs/editor/edcore.main.js'
-import { languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { registerMonarchLanguages } from './monarch-languages'
 import { registerViewportSemanticTokens } from './semantic-tokens-provider'
 
 /**
- * On-demand grammar/language-service loaders, keyed by MONACO language id (the
- * `id` each contribution registers via `languages.register`, mirrored from the
- * real contribution files under `monaco-editor/esm/vs/{basic-languages,language}`).
- *
- * Each basic-languages `*.contribution` module is already internally lazy
- * (`registerLanguage` in monaco's own `_.contribution.js` sets up a
- * `registerTokensProviderFactory` + `onLanguageEncountered` hook that defers the
- * actual tokenizer/keyword-list module) — but the CONTRIBUTION FILE ITSELF was
- * previously reached via 35 static imports at the top of this file (31
- * basic-languages + 4 language services). That put all of them on the SAME
- * chunk boundary as this module, so opening a single `.md` file paid the
- * parse/registration cost of every language (plus the 4 heavier
- * css/html/json/typescript language services) before any highlighting could
- * appear. Wrapping each in `import()` lets the bundler split them into
- * independent chunks, fetched only for the language actually opened. (The
- * shared editor-FEATURE chain stays eager via `edcore.main.js` above — see
- * that import's comment for why deferring it would be a bug, not a win.)
- *
- * DRIFT GUARD: keys here must cover every monaco language id the app's own
- * resolver (`getLanguageIdFromPath` → `toMonacoLanguageId`, i.e. the values of
- * `MONACO_LANGUAGE_BY_LANGUAGE_ID` in `monaco/language.ts`) can produce, except
- * ids registered by the custom Monarch section below or deliberately excluded.
- * `language-contributions.test.ts` asserts this — if you add a language to
- * `monaco/language.ts`, that test forces you to add its loader here (or a
- * documented exclusion there).
- *
- * Some monaco ids are combined loaders because ONE contribution module
- * registers TWO ids (`cpp.contribution` → `c` + `cpp`) or because a language's
- * full behavior originally came from TWO separately-imported modules (a
- * basic-languages Monarch tokenizer PLUS one of the 4 richer language
- * services): css/less/scss all route through the shared
- * `language/css/monaco.contribution`; html has its own service; json has no
- * basic-languages counterpart at all (language-service only).
+ * On-demand grammar/language-service loaders, keyed by monaco language id. Each `import()` is its
+ * own chunk, fetched only for a language actually opened. Keys must cover every id
+ * `toMonacoLanguageId` can produce, bar the Monarch ones (monarch-languages.ts) and documented
+ * exclusions: language-contributions.test.ts enforces it. One module may serve two ids
+ * (`cpp.contribution` → c, cpp), and css/less/scss/html pair a Monarch grammar with a service.
  */
 const contributionLoaders: Record<string, () => Promise<unknown>> = {
   c: () => import('monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution'),
@@ -109,10 +53,6 @@ const contributionLoaders: Record<string, () => Promise<unknown>> = {
     import('monaco-editor/esm/vs/basic-languages/objective-c/objective-c.contribution'),
   php: () => import('monaco-editor/esm/vs/basic-languages/php/php.contribution'),
   proto: () => import('monaco-editor/esm/vs/basic-languages/protobuf/protobuf.contribution'),
-  // Not in the original 35 static imports — but pre-Task-5 the bare
-  // 'monaco-editor' specifier (= editor.main.js) registered ALL built-ins,
-  // python included, so python WAS Monarch-highlighted. Kept registered here
-  // to preserve that behavior now that editor.main.js is off the graph.
   python: () => import('monaco-editor/esm/vs/basic-languages/python/python.contribution'),
   ruby: () => import('monaco-editor/esm/vs/basic-languages/ruby/ruby.contribution'),
   rust: () => import('monaco-editor/esm/vs/basic-languages/rust/rust.contribution'),
@@ -134,24 +74,9 @@ const contributionLoaders: Record<string, () => Promise<unknown>> = {
 }
 
 /**
- * File extension → monaco language id, mirrored from the `extensions` arrays
- * each contribution module above registers (see the `.contribution.js` source
- * for the authoritative list). Extension-only: contributions that also match by
- * bare filename (`Dockerfile`, `rakefile`, `Gemfile`, …) still register the
- * language id itself via their loader (unchanged), they just aren't a trigger
- * key here — those files fall back to whatever `langForUri` resolves them to
- * (already-registered-elsewhere or plaintext) until something else opens a
- * same-language file with a matching extension.
- *
- * NOTE — parallel source of truth: the app's own resolver
- * (`utils/language-id.ts` extension tables → `monaco/language.ts`
- * `MONACO_LANGUAGE_BY_LANGUAGE_ID`) independently maps paths to monaco language
- * ids for MODEL ASSIGNMENT, while this map only decides which CONTRIBUTION to
- * fetch. They must agree on the id per extension or a model gets an id whose
- * grammar never loads (silent plaintext). The drift test in
- * `language-contributions.test.ts` pins the id-level agreement; keep this
- * map's values consistent with `toMonacoLanguageId`'s output when editing
- * either side.
+ * File extension → the language whose contribution to fetch, mirrored from each contribution's
+ * `extensions`. Must agree per extension with `toMonacoLanguageId` (which assigns the model's id),
+ * or a model gets an id whose grammar never loads.
  */
 const extensionToLanguage: Record<string, string> = {
   '.c': 'c',
@@ -316,230 +241,5 @@ export function __loaderLanguageIdsForTests(): string[] {
   return Object.keys(contributionLoaders)
 }
 
-function ensureLanguage(id: string, extensions: string[], aliases: string[], filenames?: string[]) {
-  if (languages.getLanguages().some((language) => language.id === id)) return
-  languages.register({ id, extensions, aliases, filenames })
-}
-
-ensureLanguage('diff', ['.diff', '.patch'], ['Diff', 'diff', 'patch'])
-languages.setMonarchTokensProvider('diff', {
-  tokenizer: {
-    root: [
-      [/^@@.*$/, 'keyword'],
-      [/^diff --git.*$/, 'keyword'],
-      [/^index\s.*$/, 'comment'],
-      [/^---.*$/, 'comment'],
-      [/^\+\+\+.*$/, 'comment'],
-      [/^\+.*/, 'string'],
-      [/^-.*/, 'regexp'],
-    ],
-  },
-})
-
-ensureLanguage(
-  'gitignore',
-  [
-    '.gitignore',
-    '.dockerignore',
-    '.ignore',
-    '.npmignore',
-    '.eslintignore',
-    '.prettierignore',
-    '.stylelintignore',
-    '.vscodeignore',
-    '.rgignore',
-    '.fdignore',
-  ],
-  ['Git Ignore', 'gitignore', 'ignore'],
-  [
-    '.gitignore',
-    '.dockerignore',
-    '.ignore',
-    '.npmignore',
-    '.eslintignore',
-    '.prettierignore',
-    '.stylelintignore',
-    '.vscodeignore',
-    '.rgignore',
-    '.fdignore',
-  ],
-)
-languages.setMonarchTokensProvider('gitignore', {
-  tokenizer: {
-    root: [
-      [/^\s*#.*$/, 'comment'],
-      [/^\s*!/, 'keyword'],
-      [/\\[# !]/, 'string.escape'],
-      [/[/?*[\]]/, 'operator'],
-      [/[^/?*[\]\s]+/, 'string'],
-    ],
-  },
-})
-
-ensureLanguage(
-  'gitattributes',
-  ['.gitattributes'],
-  ['Git Attributes', 'gitattributes'],
-  ['.gitattributes'],
-)
-languages.setMonarchTokensProvider('gitattributes', {
-  tokenizer: {
-    root: [
-      [/^\s*#.*$/, 'comment'],
-      [/^\s*\[attr\][^\s]+/, 'attribute'],
-      [/^\S+/, 'string'],
-      [/[!-](?=[A-Za-z0-9_.-])/, 'operator'],
-      [/[A-Za-z0-9_.-]+(?==)/, 'key'],
-      [/=/, 'operator'],
-      [/[A-Za-z0-9_.-]+/, 'key'],
-    ],
-  },
-})
-
-ensureLanguage('toml', ['.toml'], ['TOML', 'toml'])
-languages.setMonarchTokensProvider('toml', {
-  tokenizer: {
-    root: [
-      [/^\s*#.*$/, 'comment'],
-      [/\[[^\]]+\]/, 'type'],
-      [/^\s*[A-Za-z0-9_.-]+(?=\s*=)/, 'key'],
-      [/".*?"/, 'string'],
-      [/'[^']*'/, 'string'],
-      [/\b(true|false)\b/, 'keyword'],
-      [/\b\d+(\.\d+)?\b/, 'number'],
-    ],
-  },
-})
-
-ensureLanguage('zig', ['.zig'], ['Zig', 'zig'])
-languages.setMonarchTokensProvider('zig', {
-  tokenizer: {
-    root: [
-      [/\/\/.*$/, 'comment'],
-      [/\/\*/, 'comment', '@comment'],
-      [/"([^"\\]|\\.)*$/, 'string.invalid'],
-      [/"/, 'string', '@string'],
-      [/'([^'\\]|\\.)*'/, 'string'],
-      [
-        /\b(addrspace|align|allowzero|and|anyframe|anytype|asm|async|await|break|callconv|catch|comptime|const|continue|defer|else|enum|errdefer|error|export|extern|fn|for|if|inline|linksection|noalias|noinline|nosuspend|opaque|or|orelse|packed|pub|resume|return|struct|suspend|switch|test|threadlocal|try|union|unreachable|usingnamespace|var|volatile|while)\b/,
-        'keyword',
-      ],
-      [/\b(true|false|null|undefined)\b/, 'constant'],
-      [
-        /\b[ui](8|16|32|64|128|size)\b|\b(f16|f32|f64|f80|f128|bool|void|noreturn|type|anyerror|comptime_int|comptime_float)\b/,
-        'type',
-      ],
-      [/@[A-Za-z_][\w]*/, 'keyword'],
-      [/\b0x[0-9a-fA-F_]+\b|\b\d[\d_]*(\.\d[\d_]*)?\b/, 'number'],
-    ],
-    comment: [
-      [/[^*/]+/, 'comment'],
-      [/\*\//, 'comment', '@pop'],
-      [/[*/]/, 'comment'],
-    ],
-    string: [
-      [/[^\\"]+/, 'string'],
-      [/\\./, 'string.escape'],
-      [/"/, 'string', '@pop'],
-    ],
-  },
-})
-
-ensureLanguage('elm', ['.elm'], ['Elm', 'elm'])
-languages.setMonarchTokensProvider('elm', {
-  tokenizer: {
-    root: [
-      [/--.*$/, 'comment'],
-      [/\{-/, 'comment', '@comment'],
-      [/"([^"\\]|\\.)*$/, 'string.invalid'],
-      [/"/, 'string', '@string'],
-      [/'([^'\\]|\\.)*'/, 'string'],
-      [
-        /\b(alias|as|case|else|exposing|if|import|in|infix|let|module|of|port|then|type|where)\b/,
-        'keyword',
-      ],
-      [/\b(True|False)\b/, 'constant'],
-      [/\b[A-Z][\w']*/, 'type'],
-      [/\b\d+(\.\d+)?\b/, 'number'],
-    ],
-    comment: [
-      [/[^{-]+/, 'comment'],
-      [/\{-/, 'comment', '@push'],
-      [/-\}/, 'comment', '@pop'],
-      [/[{-]/, 'comment'],
-    ],
-    string: [
-      [/[^\\"]+/, 'string'],
-      [/\\./, 'string.escape'],
-      [/"/, 'string', '@pop'],
-    ],
-  },
-})
-
-ensureLanguage('elisp', ['.el'], ['Emacs Lisp', 'elisp'])
-languages.setMonarchTokensProvider('elisp', {
-  tokenizer: {
-    root: [
-      [/;.*/, 'comment'],
-      [/"([^"\\]|\\.)*$/, 'string.invalid'],
-      [/"/, 'string', '@string'],
-      [
-        /\b(defun|defmacro|defvar|defcustom|defgroup|defconst|let|let\*|lambda|if|when|unless|cond|pcase|progn|save-excursion|interactive|setq|setq-local|require|provide|use-package)\b/,
-        'keyword',
-      ],
-      [/\b(nil|t)\b/, 'constant'],
-      [/:[A-Za-z0-9_-]+/, 'type'],
-      [/\b\d+(\.\d+)?\b/, 'number'],
-      [/[()'`,#]/, 'delimiter'],
-    ],
-    string: [
-      [/[^\\"]+/, 'string'],
-      [/\\./, 'string.escape'],
-      [/"/, 'string', '@pop'],
-    ],
-  },
-})
-
-ensureLanguage('lockfile', ['.lock'], ['Lockfile', 'lockfile'])
-languages.setMonarchTokensProvider('lockfile', {
-  tokenizer: {
-    root: [
-      [/^\s*#.*$/, 'comment'],
-      [/^\s*("[^"]+"|'[^']+'|[^:\s][^:]*)(?=:)/, 'key'],
-      [/"([^"\\]|\\.)*"/, 'string'],
-      [/'([^'\\]|\\.)*'/, 'string'],
-      [/\b(true|false|null)\b/, 'constant'],
-      [/\b\d+(\.\d+)?\b/, 'number'],
-      [/[{}[\],:]/, 'delimiter'],
-    ],
-  },
-})
-
-ensureLanguage('ocaml', ['.ml', '.mli'], ['OCaml', 'ocaml'])
-languages.setMonarchTokensProvider('ocaml', {
-  tokenizer: {
-    root: [
-      [/\(\*/, 'comment', '@comment'],
-      [/"([^"\\]|\\.)*$/, 'string.invalid'],
-      [/"/, 'string', '@string'],
-      [
-        /\b(let|in|rec|type|module|open|match|with|function|fun|if|then|else|struct|sig|end)\b/,
-        'keyword',
-      ],
-      [/\b(true|false)\b/, 'constant'],
-      [/\b\d+(\.\d+)?\b/, 'number'],
-    ],
-    comment: [
-      [/[^(*]+/, 'comment'],
-      [/\*\)/, 'comment', '@pop'],
-      [/[(*)]/, 'comment'],
-    ],
-    string: [
-      [/[^\\"]+/, 'string'],
-      [/\\./, 'string.escape'],
-      [/"/, 'string', '@pop'],
-    ],
-  },
-})
-
+registerMonarchLanguages()
 registerViewportSemanticTokens()
