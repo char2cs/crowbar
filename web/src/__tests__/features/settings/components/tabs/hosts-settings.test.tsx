@@ -158,9 +158,13 @@ describe('HostsSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /add.*host/i }))
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'again' } })
     fireEvent.change(screen.getByLabelText(/address/i), { target: { value: 'https://10.0.0.2/' } })
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    // The dialog is open while the probe is in flight, so finding it proves nothing:
+    // settle the probe's promise chain first, then read the verdict.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    })
 
-    expect(await screen.findByRole('dialog')).toHaveTextContent(
+    expect(screen.getByRole('dialog')).toHaveTextContent(
       'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
     )
     expect(screen.queryByRole('button', { name: /confirm fingerprint/i })).toBeNull()
