@@ -18,7 +18,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   resetHostWorld()
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
@@ -55,7 +55,9 @@ describe('probeHost', () => {
   })
 
   it('says down when the host never answers, without waiting on the proxy’s own timeout', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // The deadline's own clock is the platform's: the test fires it.
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
     fetchMock.mockImplementation(
       (_url: string, init?: RequestInit) =>
         new Promise((_resolve, reject) =>
@@ -66,7 +68,9 @@ describe('probeHost', () => {
     )
 
     const probe = probeHost('h1')
-    await vi.advanceTimersByTimeAsync(5_000)
+    deadline.abort(new DOMException('timed out', 'TimeoutError'))
+
+    expect(timeout).toHaveBeenCalledWith(5_000)
 
     expect(await probe).toEqual({ status: 'down' })
   })

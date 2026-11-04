@@ -35,12 +35,7 @@ describe('OOBE backdrop', () => {
 async function advanceToAddProject() {
   // presentation → prerequisites
   fireEvent.click(screen.getByRole('button', { name: /get started/i }))
-  // prerequisites resolve + reveal (the staggered reveal timers run on real
-  // time; waitFor polls until Continue enables), then continue → add-project.
-  await waitFor(
-    () => expect(screen.getByRole('button', { name: /continue/i })).not.toBeDisabled(),
-    { timeout: 3000 },
-  )
+  await waitFor(() => expect(screen.getByRole('button', { name: /continue/i })).not.toBeDisabled())
   fireEvent.click(screen.getByRole('button', { name: /continue/i }))
 }
 
@@ -49,6 +44,16 @@ describe('OobeScreen', () => {
     render(<OobeScreen />)
     expect(screen.getByText(/the ide where agents do the heavy lifting/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument()
+  })
+
+  it('shows each check’s result as soon as the checks answer', async () => {
+    render(<OobeScreen />)
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }))
+    await act(async () => {})
+
+    expect(screen.getByText('git 2.0')).toBeInTheDocument()
+    expect(screen.getAllByText('Authenticated')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: /continue/i })).not.toBeDisabled()
   })
 
   it('opens the import modal from the add-project step CTA', async () => {

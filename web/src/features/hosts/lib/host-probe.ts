@@ -12,14 +12,15 @@ type HostProbe = { status: 'up' | 'down' | 'needs-repair' }
 
 /** Reads one host's /v0/health once and says what that makes the host. */
 export async function probeHost(hostId: string): Promise<HostProbe> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), HOST_PROBE_TIMEOUT_MS)
   try {
-    await apiFetch<void>('/v0/health', { signal: abort.signal }, ONCE, hostId)
+    await apiFetch<void>(
+      '/v0/health',
+      { signal: AbortSignal.timeout(HOST_PROBE_TIMEOUT_MS) },
+      ONCE,
+      hostId,
+    )
     return { status: 'up' }
   } catch (err) {
     return { status: classifyHostFailure(err) }
-  } finally {
-    clearTimeout(timer)
   }
 }

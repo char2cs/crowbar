@@ -28,18 +28,19 @@ function CheckRow({
   label,
   description,
   status,
-  visible,
+  order,
 }: {
   label: string
   description: string
   status: CheckStatus
-  visible: boolean
+  /** The row's place in the list: rows come in one after another. */
+  order: number
 }) {
   return (
     <m.div
       initial={{ opacity: 0, x: -8 }}
-      animate={visible ? { opacity: 1, x: 0 } : { opacity: 0, x: -8 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut', delay: order * 0.35 }}
       className="flex items-center justify-between gap-4 py-3"
     >
       <div>
@@ -60,11 +61,10 @@ function CheckRow({
 
 function prereqStatus(
   check: { installed: boolean; authed?: boolean } | undefined,
-  visible: boolean,
   isProvider: boolean,
   otherProviderOk: boolean,
 ): CheckStatus {
-  if (!visible || check === undefined) return 'loading'
+  if (check === undefined) return 'loading'
   if (isProvider) {
     if (check.authed) return 'ok'
     return otherProviderOk ? 'warn' : 'error'
@@ -74,30 +74,25 @@ function prereqStatus(
 
 function PrerequisitesStep({
   prereqs,
-  visible,
   onContinue,
   onRetry,
 }: {
   prereqs: Prerequisites | null
-  visible: { git: boolean; gh: boolean; glab: boolean }
   onContinue: () => void
   onRetry: () => void
 }) {
-  const allVisible = visible.git && visible.gh && visible.glab
+  const checked = prereqs !== null
   const ghOk = !!prereqs?.gh.authed
   const glabOk = !!prereqs?.glab.authed
 
-  const gitStatus = prereqStatus(prereqs?.git, visible.git, false, false)
-  const ghStatus = prereqStatus(prereqs?.gh, visible.gh, true, glabOk)
-  const glabStatus = prereqStatus(prereqs?.glab, visible.glab, true, ghOk)
+  const gitStatus = prereqStatus(prereqs?.git, false, false)
+  const ghStatus = prereqStatus(prereqs?.gh, true, glabOk)
+  const glabStatus = prereqStatus(prereqs?.glab, true, ghOk)
 
   const canContinue =
-    allVisible &&
-    prereqs !== null &&
-    prereqs.git.installed &&
-    (prereqs.gh.authed || prereqs.glab.authed)
+    prereqs !== null && prereqs.git.installed && (prereqs.gh.authed || prereqs.glab.authed)
 
-  const blockedReason = !allVisible
+  const blockedReason = !checked
     ? null
     : !prereqs?.git.installed
       ? 'Git is required. Install it from git-scm.com.'
@@ -118,19 +113,19 @@ function PrerequisitesStep({
         <CheckRow
           label="Git"
           description={
-            !visible.git
+            !checked
               ? 'Checking…'
               : prereqs?.git.installed
                 ? (prereqs.git.version ?? 'Installed')
                 : 'Not found — install from git-scm.com'
           }
           status={gitStatus}
-          visible={visible.git}
+          order={0}
         />
         <CheckRow
           label="GitHub CLI (gh)"
           description={
-            !visible.gh
+            !checked
               ? 'Checking…'
               : prereqs?.gh.authed
                 ? 'Authenticated'
@@ -139,12 +134,12 @@ function PrerequisitesStep({
                   : 'Not installed — optional, enables GitHub features'
           }
           status={ghStatus}
-          visible={visible.gh}
+          order={1}
         />
         <CheckRow
           label="GitLab CLI (glab)"
           description={
-            !visible.glab
+            !checked
               ? 'Checking…'
               : prereqs?.glab.authed
                 ? 'Authenticated'
@@ -153,7 +148,7 @@ function PrerequisitesStep({
                   : 'Not installed — optional, enables GitLab features'
           }
           status={glabStatus}
-          visible={visible.glab}
+          order={2}
         />
       </div>
 
@@ -174,7 +169,7 @@ function PrerequisitesStep({
       </AnimatePresence>
 
       <div className="mt-4 flex gap-2">
-        {allVisible && !canContinue && (
+        {checked && !canContinue && (
           <Button
             variant="ghost"
             size="sm"
@@ -231,27 +226,17 @@ function AddProjectStep({ onChooseFolder }: { onChooseFolder: () => void }) {
 export function OobeScreen() {
   const [step, setStep] = useState<OobeStep>('presentation')
   const [prereqs, setPrereqs] = useState<Prerequisites | null>(null)
-  const [visible, setVisible] = useState({ git: false, gh: false, glab: false })
   const [retryCount, setRetryCount] = useState(0)
   const [importOpen, setImportOpen] = useState(false)
   const navigate = useNavigate()
 
-  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.302-305: `cancelled` flag + timers.forEach(clearTimeout)); tracer can't follow it.
   useEffect(() => {
     if (step !== 'prerequisites') return
     let cancelled = false
     setPrereqs(null)
-    setVisible({ git: false, gh: false, glab: false })
-
-    const timers: ReturnType<typeof setTimeout>[] = []
-
     fetchPrerequisites()
       .then((data) => {
-        if (cancelled) return
-        setPrereqs(data)
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, git: true })), 300))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, gh: true })), 650))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, glab: true })), 1000))
+        if (!cancelled) setPrereqs(data)
       })
       .catch(() => {
         if (cancelled) return
@@ -261,14 +246,9 @@ export function OobeScreen() {
           gh: { installed: false, authed: false },
           glab: { installed: false, authed: false },
         })
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, git: true })), 300))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, gh: true })), 650))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, glab: true })), 1000))
       })
-
     return () => {
       cancelled = true
-      timers.forEach(clearTimeout)
     }
   }, [step, retryCount])
 
@@ -353,7 +333,6 @@ export function OobeScreen() {
                       >
                         <PrerequisitesStep
                           prereqs={prereqs}
-                          visible={visible}
                           onContinue={() => setStep('add-project')}
                           onRetry={() => setRetryCount((c) => c + 1)}
                         />
