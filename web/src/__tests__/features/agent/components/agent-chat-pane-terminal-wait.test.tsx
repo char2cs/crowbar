@@ -7,9 +7,10 @@ import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
+const { slashCatalogFn, switchToTerminalFn, switchToNativeFn } = vi.hoisted(() => ({
   slashCatalogFn: vi.fn(),
   switchToTerminalFn: vi.fn(),
+  switchToNativeFn: vi.fn(),
 }))
 
 // The 44px header-clearance assertion below is a macOS value — force it
@@ -27,6 +28,7 @@ vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
+vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
 
 // jsdom cannot run xterm/WebGL. The marker records the visibility props the pane
 // threads down, which is how "the terminal surface is the selected one" is proven
@@ -117,6 +119,8 @@ beforeEach(() => {
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
   switchToTerminalFn.mockResolvedValue('term-session-1')
+  switchToNativeFn.mockReset()
+  switchToNativeFn.mockResolvedValue(undefined)
   slashCatalogFn.mockResolvedValue({
     providerId: 'claude',
     completeness: 'model_visible',
@@ -436,6 +440,19 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
 
     await waitFor(() => expect(showing()).toBe('terminal'))
     expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
+  })
+
+  // The escort forked the terminal view, so its way back drops it, as the user's own would.
+  it('hands the chat back to its api channel when it returns the user after the prompt', async () => {
+    const store = seedNonHotswap()
+    await renderPane(store)
+    await setWait({ kind: 'workspace_trust' })
+    await waitFor(() => expect(showing()).toBe('terminal'))
+
+    await setWait(null)
+
+    await waitFor(() => expect(showing()).toBe('chat'))
+    expect(switchToNativeFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
   // A refused switch (a turn in flight) must leave

@@ -63,6 +63,24 @@ export function useTerminalEscort(options: EscortOptions) {
     })()
   }
 
+  // Off the terminal surface: a non-hotswap provider drops the terminal view it forked first.
+  const leaveTerminal = (next: ChatPresentation) => {
+    const { provider, hotswap } = isHotswap(providers, activeProviderId)
+    if (hotswap) {
+      setPresentation(next)
+      return
+    }
+    void (async () => {
+      try {
+        await switchToNative(wsId, chatId)
+        setPresentation(next)
+      } catch (err: unknown) {
+        // A refusal (a turn in flight) keeps the user on the terminal doing the work.
+        toastSpawnFailure(err, provider?.displayName ?? activeProviderId, 'switch back to')
+      }
+    })()
+  }
+
   // An effect event: it fires on the agent's edge, never on a focus or visibility change.
   const onWaitEdge = useEffectEvent((nowWaiting: boolean) => {
     if (nowWaiting) {
@@ -80,7 +98,7 @@ export function useTerminalEscort(options: EscortOptions) {
     if (escort === 'none') return
     if (escort === 'sent' && presentation === 'terminal' && userIsWatching()) {
       // react-doctor-disable-next-line no-adjust-state-on-prop-change -- see above
-      setPresentation('chat')
+      leaveTerminal('chat')
       return
     }
     // They moved on, so Crowbar does not move them, but says why they are here.
@@ -98,8 +116,7 @@ export function useTerminalEscort(options: EscortOptions) {
     if (escortRef.current !== 'none') escortRef.current = next === 'terminal' ? 'released' : 'none'
     if (next !== 'terminal') setReturnOffered(false)
     if (next === 'split') setSplitFocus(presentation === 'terminal' ? 'terminal' : 'chat')
-    const { provider, hotswap } = isHotswap(providers, activeProviderId)
-    if (hotswap || next === presentation) {
+    if (next === presentation || isHotswap(providers, activeProviderId).hotswap) {
       setPresentation(next)
       return
     }
@@ -111,15 +128,7 @@ export function useTerminalEscort(options: EscortOptions) {
       setPresentation(next)
       return
     }
-    void (async () => {
-      try {
-        await switchToNative(wsId, chatId)
-        setPresentation(next)
-      } catch (err: unknown) {
-        // A refusal (a turn in flight) keeps the user on the terminal doing the work.
-        toastSpawnFailure(err, provider?.displayName ?? activeProviderId, 'switch back to')
-      }
-    })()
+    leaveTerminal(next)
   }
 
   // In split the terminal is on screen already, so the caret goes there instead.
