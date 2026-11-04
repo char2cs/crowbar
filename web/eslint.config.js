@@ -22,8 +22,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
   'src/components/ui/dropdown.tsx',
-  'src/components/ui/table-icons.tsx',
-  'src/components/ui/table-node.tsx',
   'src/features/tabs/components/tab-bar.tsx',
 ]
 
