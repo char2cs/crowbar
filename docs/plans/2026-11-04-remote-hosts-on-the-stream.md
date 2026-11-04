@@ -130,10 +130,10 @@ export function startStream(): () => void          // local when hasLocalDaemon(
 
 ### T6: Host resolution reads the owner (web)
 
-**Files:** `lib/host-resolve.ts`. `resolveProjectHost`/`resolveWorkspaceHost`/`resolveChatHost` collect the `hostId`s of held rows with that raw id (project, workspace, chat entities). The workspace hop through `getWorkspaceIdOwnedByChat` goes, since chat and workspace rows carry their host. An absent id is unknown until every configured host that is up has `loaded` its projects scope, and absent after that. `noRemoteEntityCanExist` keeps its `hasPairedRemote` rule. `subscribeHostResolution` subscribes to `entityStore` and `useHostConfigStore` only. `host-unavailability.ts` keeps its API.
+**Files:** `lib/host-resolve.ts`. `resolveProjectHost`/`resolveWorkspaceHost`/`resolveChatHost` collect the `hostId`s of held rows with that raw id (project, workspace, chat entities; an index per version of the kind's records). A held row decides; the recorded workspace scope (and the owner hop through it) is only the fallback for an id no row holds yet, as a route records one before its host syncs: dropping it would move 34 test files' worlds for no behaviour. An absent id is unknown until this install's daemon (if it has one) and every configured host that is up have `loaded` their projects scope, and at least one has; absent after that. `unreadHosts` is the configured hosts not `loaded` yet. `noRemoteEntityCanExist` keeps its `hasPairedRemote` rule. `subscribeHostResolution` also follows host statuses. `host-unavailability.ts` keeps its API. Fixtures: `loadProjects` lands each named host's snapshot; a paired host's fake daemon leaves its projects sub to the test.
 
-- [ ] **Step 1: failing tests** (`__tests__/lib/host-resolve.test.ts`, extend, using `projectOn`): `a chat streamed by host-1 resolves to host-1 with no workspace scope recorded`, `an id no up host has listed after all synced is absent`, `an id while host-1 is still syncing is unknown`, `a twin is unresolved naming both hosts`.
-- [ ] **Step 2:** red; **Step 3:** implement; drop the `workspace-scope` imports and any export they leave unused (knip).
+- [x] **Step 1: failing tests** (`__tests__/lib/host-resolve.test.ts`, extend, using `projectOn`): `a chat streamed by host-1 resolves to host-1 with no workspace scope recorded`, `an id no up host has listed after all synced is absent`, `an id while host-1 is still syncing is unknown`, `a twin is unresolved naming both hosts`, `on the phone, a host's synced list is the list`.
+- [x] **Step 2:** red; **Step 3:** implement.
 
 ### T7: Chat scopes and chat REST per host (web)
 

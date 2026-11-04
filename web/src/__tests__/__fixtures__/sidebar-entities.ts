@@ -1,5 +1,5 @@
 import { entityStore, type EntityState, type StoredKind } from '@/core/entities/entity-store'
-import { entityKey } from '@/core/stream/host-scope'
+import { entityKey, hostScope } from '@/core/stream/host-scope'
 import type { ChatEntity } from '@/core/entities/chat-entity'
 import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/core/entities/views-from-entities'
@@ -29,11 +29,12 @@ export function putEntities<K extends StoredKind>(
   })
 }
 
-/** The projects scope's snapshot has landed. */
-export function markProjectsSynced(): void {
+/** `hostId`'s projects scope's snapshot has landed. */
+export function markProjectsSynced(hostId = 'local'): void {
+  const scope = hostScope(hostId, 'projects')
   entityStore.setState((s) => ({
-    synced: { ...s.synced, projects: true },
-    loaded: { ...s.loaded, projects: true },
+    synced: { ...s.synced, [scope]: true },
+    loaded: { ...s.loaded, [scope]: true },
   }))
 }
 

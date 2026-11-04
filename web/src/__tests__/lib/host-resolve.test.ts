@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
 import {
+  isProjectGone,
   hostIdForChat,
   hostIdForProject,
   hostIdForWorkspace,
@@ -15,10 +16,18 @@ import {
   putEntities,
   resetEntities,
   seedProjects,
+  workspaceDTO,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { entityStore } from '@/core/entities/entity-store'
+import { hostScope } from '@/core/stream/host-scope'
+import * as localDaemon from '@/features/hosts/lib/local-daemon'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -72,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  destroyHostRuntime('host-1')
 })
 
 describe('hostIdForProject', () => {
@@ -246,10 +256,10 @@ describe('hostIdForChat', () => {
     expect(unresolved(() => hostIdForChat('sibling')).message).toMatch(/no workspace scope records/)
   })
 
-  it('places a listed chat no scope owns (a sibling) by its own project', () => {
+  it('places a held chat no scope owns (a sibling) by the host that streamed it', () => {
     configureHosts('host-1')
     loadProjects(project('p-local', 'local'), project('p-remote', 'host-1'))
-    putEntities('chat', [chatEntity({ id: 'sibling', projectId: 'p-remote' })])
+    putEntities('chat', [chatEntity({ id: 'sibling', projectId: 'p-remote' })], 'host-1')
     expect(hostIdForChat('sibling')).toBe('host-1')
   })
 
@@ -391,5 +401,60 @@ describe('useResolvedHost', () => {
     expect(result.current).toBe('host-1')
     act(() => configureHosts())
     expect(result.current).toBeNull()
+  })
+})
+
+describe('the owner of a held row', () => {
+  const hostUp = (hostId: string) => getOrCreateHostRuntime(hostId).getState().setStatus('up')
+  // `hostId`'s projects scope has synced, holding `projects`.
+  const synced = (hostId: string, ...projects: Project[]) => {
+    putEntities('project', projects, hostId)
+    entityStore.setState((s) => ({
+      loaded: { ...s.loaded, [hostScope(hostId, 'projects')]: true },
+    }))
+  }
+
+  it('a chat streamed by host-1 resolves to host-1 with no workspace scope recorded', () => {
+    configureHosts('host-1')
+    synced('host-1', project('p-r', 'host-1'))
+    putEntities('chat', [chatEntity({ id: 'c-r', projectId: 'p-r' })], 'host-1')
+    putEntities('workspace', [workspaceDTO({ id: 'ws-r', projectId: 'p-r' })], 'host-1')
+    expect(hostIdForChat('c-r')).toBe('host-1')
+    expect(hostIdForWorkspace('ws-r')).toBe('host-1')
+  })
+
+  it('an id no up host has listed after all synced is absent', () => {
+    configureHosts('host-1')
+    hostUp('host-1')
+    synced('local', project('p-l', 'local'))
+    synced('host-1', project('p-r', 'host-1'))
+    expect(unresolved(() => hostIdForProject('p-x')).message).toMatch(/not in the project list/)
+    expect(isProjectGone('p-x')).toBe(true)
+  })
+
+  it('an id while host-1 is still syncing is unknown', () => {
+    configureHosts('host-1')
+    hostUp('host-1')
+    synced('local', project('p-l', 'local'))
+    expect(unresolved(() => hostIdForProject('p-x')).message).toMatch(/not loaded/)
+    expect(isProjectGone('p-x')).toBe(false)
+  })
+
+  it('a twin is unresolved naming both hosts', () => {
+    configureHosts('host-1')
+    synced('local', project('p1', 'local'))
+    synced('host-1', project('p1', 'host-1'))
+    expect(unresolved(() => hostIdForProject('p1')).message).toMatch(
+      /more than one host \(local, host-1\)/,
+    )
+  })
+
+  it("on the phone, which has no daemon of its own, a host's synced list is the list", () => {
+    vi.spyOn(localDaemon, 'hasLocalDaemon').mockReturnValue(false)
+    configureHosts('host-1')
+    expect(unresolved(() => hostIdForProject('p-r')).message).toMatch(/not loaded/)
+    synced('host-1', project('p-r', 'host-1'))
+    expect(hostIdForProject('p-r')).toBe('host-1')
+    expect(unresolved(() => hostIdForProject('p-x')).message).toMatch(/not in the project list/)
   })
 })

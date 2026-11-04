@@ -23,6 +23,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { markProjectsSynced } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const unreachable = (hostId = 'h1') => proxyMarkerError('host-unreachable', hostId)!
 const changed = (hostId = 'h1') => proxyMarkerError('host-identity-changed', hostId)!
@@ -133,6 +134,7 @@ describe('an action whose host could not be told yet', () => {
 
   it('sends a project held on a host that is not configured to Hosts', () => {
     loadProjects(projectOn('p-gone', 'h2'))
+    markProjectsSynced('h1')
 
     toastHostFailure(unresolved('p-gone'))
 
@@ -143,6 +145,7 @@ describe('an action whose host could not be told yet', () => {
 
   it('places a workspace through the project its scope names', () => {
     loadProjects(projectOn('p-gone', 'h2'))
+    markProjectsSynced('h1')
     recordWorkspaceScope({ projectId: 'p-gone', repoId: 'r1', wsId: 'ws-1' })
     const err = thrown(() => hostIdForWorkspace('ws-1'))
 

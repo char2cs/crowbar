@@ -27,8 +27,10 @@ export function projectOn(id: string, hostId: string): Project {
   return { id, name: id, path: `/work/${id}`, lastActivity: new Date(0), hostId }
 }
 
-/** The projects scope's snapshot landing: what makes a paired install's workspaces resolve. */
+/** The projects scopes' snapshots landing, the local daemon's and each named host's: what
+ *  makes a paired install's workspaces resolve. */
 export function loadProjects(...projects: Project[]): void {
   seedProjects(projects)
   markProjectsSynced()
+  for (const hostId of new Set(projects.map((p) => p.hostId))) markProjectsSynced(hostId)
 }

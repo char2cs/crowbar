@@ -7,7 +7,8 @@ interface Request {
 interface StreamDaemon {
   /** Every request the client sent, in order. */
   sent: Request[]
-  /** The frames a request is answered with; by default a sub's synced, at once. */
+  /** The frames a request is answered with; by default a sub's synced, at once (but a paired
+   *  host's projects). */
   answer: (req: Request) => unknown[]
   /** Hands frames to the client, as the daemon writing them. */
   deliver: (frame: unknown) => void
@@ -16,6 +17,10 @@ interface StreamDaemon {
 }
 
 const synced = (req: Request) => (req.op === 'sub' ? [{ t: 'synced', scope: req.scope }] : [])
+// A paired host's project list is the test's to land (`loadProjects`): an empty synced would
+// say the host holds nothing.
+const syncedButProjects = (req: Request) => (req.scope === 'projects' ? [] : synced(req))
+const answerOf = (hostId: string) => (hostId === 'local' ? synced : syncedButProjects)
 
 const daemons = new Map<string, StreamDaemon>()
 
@@ -23,7 +28,7 @@ const daemons = new Map<string, StreamDaemon>()
 export function streamDaemonFor(hostId: string): StreamDaemon {
   let daemon = daemons.get(hostId)
   if (!daemon) {
-    daemon = { sent: [], answer: synced, deliver: () => {}, drop: () => {} }
+    daemon = { sent: [], answer: answerOf(hostId), deliver: () => {}, drop: () => {} }
     daemons.set(hostId, daemon)
   }
   return daemon
@@ -52,8 +57,8 @@ export function heldScopes(prefix: string, hostId = 'local'): string[] {
 
 /** Back to daemons that answer every sub with its synced. */
 export function resetStreamDaemon(): void {
-  for (const daemon of daemons.values()) {
+  for (const [hostId, daemon] of daemons) {
     daemon.sent.length = 0
-    daemon.answer = synced
+    daemon.answer = answerOf(hostId)
   }
 }

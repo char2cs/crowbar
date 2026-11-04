@@ -2,7 +2,13 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { HostNotResolvedError, type HostUnavailable } from '@/lib/host-path'
-import { entityStore } from '@/core/entities/entity-store'
+import { entityStore, type EntityState } from '@/core/entities/entity-store'
+import { entityKey, hostScope, splitHostKey } from '@/core/stream/host-scope'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
+import {
+  getHostRuntime,
+  subscribeHostStatuses,
+} from '@/features/hosts/stores/host-runtime-registry'
 import type { Project } from '@/lib/types'
 import {
   getWorkspaceIdOwnedByChat,
@@ -14,12 +20,51 @@ type Resolution = { hostId: string } | { reason: string; projectId?: string }
 
 const unresolved = (reason: string, projectId?: string): Resolution => ({ reason, projectId })
 
-// Before the projects scope has synced, an absent row is unknown, not gone. Read off the
-// records, not the sidebar views: deriving those resolves each repo icon's host through here.
-function heldProjects(): Project[] | undefined {
+const listed = (s: EntityState, hostId: string) => !!s.loaded[hostScope(hostId, 'projects')]
+
+/** Configured hosts whose projects scope has not synced yet: a project in no row may be on any. */
+export function unreadHosts(): string[] {
   const s = entityStore.getState()
-  if (!s.loaded.projects) return undefined
-  return Object.values(s.byKind.project).map((r) => r.data)
+  return useHostConfigStore
+    .getState()
+    .hosts.map((host) => host.id)
+    .filter((hostId) => !listed(s, hostId))
+}
+
+// The lists are in once this install's own daemon (if it has one) and every host that is up
+// have synced, and at least one has: a host that is down cannot be waited on.
+function listsLoaded(s: EntityState): boolean {
+  if (hasLocalDaemon() && !listed(s, LOCAL_HOST.id)) return false
+  const hosts = useHostConfigStore.getState().hosts.map((host) => host.id)
+  const up = (hostId: string) => getHostRuntime(hostId)?.getState().status === 'up'
+  if (hosts.some((hostId) => up(hostId) && !listed(s, hostId))) return false
+  return hasLocalDaemon() || hosts.some((hostId) => listed(s, hostId))
+}
+
+// Read off the records, not the sidebar views: deriving those resolves each repo icon's
+// host through here. A held row counts at once; only absence waits for the lists.
+function heldProjects(): Project[] {
+  return Object.values(entityStore.getState().byKind.project).map((r) => r.data)
+}
+
+const loaded = () => listsLoaded(entityStore.getState())
+
+type Placed = 'workspace' | 'chat'
+const holders = new WeakMap<object, Map<string, string[]>>()
+
+/** The hosts holding a row of `kind` with raw id `id` (one map per version of the kind). */
+function hostsHolding(s: EntityState, kind: Placed, id: string): string[] {
+  const records = s.byKind[kind]
+  let byId = holders.get(records)
+  if (!byId) {
+    byId = new Map()
+    for (const key of Object.keys(records)) {
+      const { hostId, id: raw } = splitHostKey(key)
+      byId.set(raw, [...(byId.get(raw) ?? []), hostId])
+    }
+    holders.set(records, byId)
+  }
+  return byId.get(id) ?? []
 }
 
 // The only proof that an unknown id is local: no remote was ever paired and no
@@ -27,7 +72,7 @@ function heldProjects(): Project[] | undefined {
 // rows (scopes, route, panes), and a re-read without them must not read as local.
 function noRemoteEntityCanExist(): boolean {
   if (hasPairedRemote(useHostConfigStore.getState())) return false
-  return !heldProjects()?.some((p) => p.hostId !== LOCAL_HOST.id)
+  return !heldProjects().some((p) => p.hostId !== LOCAL_HOST.id)
 }
 
 function absentEntity(reason: string, projectId?: string): Resolution {
@@ -36,42 +81,55 @@ function absentEntity(reason: string, projectId?: string): Resolution {
 
 // The entity's own row is looked up first; its host counts only while that host
 // is local or still configured.
-function resolveProjectHost(projectId: string): Resolution {
-  const projects = heldProjects()
-  const rows = projects?.filter((p) => p.id === projectId) ?? []
-  if (rows.length === 0) {
-    return absentEntity(
-      projects ? 'the project is not in the project list' : 'the project list is not loaded',
-    )
-  }
-  // A twin on a configured-but-down host (a copied database) shows no second row.
-  const hostIds = [...new Set(rows.map((p) => p.hostId))]
+function ownerOf(entity: string, hostIds: readonly string[], projectId?: string): Resolution {
   if (hostIds.length > 1) {
-    return unresolved(`the project exists on more than one host (${hostIds.join(', ')})`)
+    return unresolved(
+      `the ${entity} exists on more than one host (${hostIds.join(', ')})`,
+      projectId,
+    )
   }
   const [hostId] = hostIds
   const configured = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)
   if (hostId === LOCAL_HOST.id || configured) return { hostId }
-  return unresolved(`its host "${hostId}" is not configured`)
+  return unresolved(`its host "${hostId}" is not configured`, projectId)
+}
+
+function resolveProjectHost(projectId: string): Resolution {
+  const rows = heldProjects().filter((p) => p.id === projectId)
+  if (rows.length === 0) {
+    return absentEntity(
+      loaded() ? 'the project is not in the project list' : 'the project list is not loaded',
+    )
+  }
+  return ownerOf('project', [...new Set(rows.map((p) => p.hostId))])
+}
+
+// A held row names its host by its key; its project names the pane's wait.
+function heldOwner(kind: Placed, id: string): Resolution | null {
+  const s = entityStore.getState()
+  const hostIds = hostsHolding(s, kind, id)
+  if (hostIds.length === 0) return null
+  const projectId = s.byKind[kind][entityKey(hostIds[0]!, id)]?.data.projectId
+  return ownerOf(kind, hostIds, projectId)
 }
 
 // An empty wsId names no workspace; it must not borrow the one in view, which is how
 // a call lands on the wrong host.
 function resolveWorkspaceHost(wsId: string): Resolution {
+  const held = wsId ? heldOwner('workspace', wsId) : null
+  if (held) return held
+  // A workspace the route names before any host's rows carry it.
   const scope = wsId ? getWorkspaceScope(wsId) : null
   if (!scope) return absentEntity('no scope is recorded for the workspace')
   const project = resolveProjectHost(scope.projectId)
   return 'hostId' in project ? project : unresolved(project.reason, scope.projectId)
 }
 
-// A listed chat is placed by its own row's project; one not listed yet, through the
-// workspace whose recorded scope names it as owner.
+// A held chat is its row's host's; one not held yet is placed through the workspace whose
+// recorded scope names it as owner.
 function resolveChatHost(chatId: string): Resolution {
-  const chat = entityStore.getState().byKind.chat[chatId]?.data
-  if (chat) {
-    const project = resolveProjectHost(chat.projectId)
-    return 'hostId' in project ? project : unresolved(project.reason, chat.projectId)
-  }
+  const held = heldOwner('chat', chatId)
+  if (held) return held
   const wsId = getWorkspaceIdOwnedByChat(chatId)
   if (wsId === null) return absentEntity('no workspace scope records this chat as its owner')
   return resolveWorkspaceHost(wsId)
@@ -144,7 +202,11 @@ export function subscribeHostResolution(
   wsId: string | undefined,
   onChange: () => void,
 ): () => void {
-  const stops = [useHostConfigStore.subscribe(onChange), entityStore.subscribe(onChange)]
+  const stops = [
+    useHostConfigStore.subscribe(onChange),
+    entityStore.subscribe(onChange),
+    subscribeHostStatuses(onChange),
+  ]
   if (wsId !== undefined) stops.push(subscribeToWorkspaceScope(wsId, onChange))
   return () => stops.forEach((stop) => stop())
 }
@@ -174,24 +236,18 @@ export function useHostResolved(key: HostKey): boolean {
 /** `key`'s project while a loaded list does not place its host; null while it resolves, the
  *  list has not loaded, or a workspace's scope (and so its project) is not recorded yet. */
 export function unplacedProject(key: HostKey): string | null {
-  if (heldProjects() === undefined || isHostResolved(key)) return null
+  if (!loaded() || isHostResolved(key)) return null
   return (key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId) ?? null
 }
 
-/** Paired hosts that have not said what projects they hold: a project in no row may be on
- *  any of them. The projects scope is the local daemon's, so no paired host ever has. */
-export function unreadHosts(): string[] {
-  return useHostConfigStore.getState().hosts.map((host) => host.id)
-}
-
 function heldProject(projectId: string): boolean {
-  return heldProjects()?.some((p) => p.id === projectId) ?? false
+  return heldProjects().some((p) => p.id === projectId)
 }
 
 /** True once a loaded list holds no row of `projectId` and every paired host has said what it
  *  has: nothing more can bring the project back. */
 export function isProjectGone(projectId: string): boolean {
-  if (heldProjects() === undefined || heldProject(projectId)) return false
+  if (!loaded() || heldProject(projectId)) return false
   return unreadHosts().length === 0
 }
 
