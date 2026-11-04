@@ -9,6 +9,7 @@ import {
   useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
 import { holdScope } from '@/core/stream/stream'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { usePublishFocusedWorkspaceContext } from './use-publish-focused-workspace-context'
 
 export interface IdeShellWorkspaceRetention {
@@ -71,9 +72,13 @@ export function useIdeShellWorkspaceRetention(
     null
   // Holding the viewed workspace's forge scope starts the daemon's provider poll, so a
   // branch with an open PR flips to its pr-open icon; the workspace frames carry it.
+  const forgeHost = useResolvedHost({ wsId: activeWorkspaceId ?? '' })
   useEffect(
-    () => (activeWorkspaceId ? holdScope(`forge:${activeWorkspaceId}`) : undefined),
-    [activeWorkspaceId],
+    () =>
+      activeWorkspaceId && forgeHost
+        ? holdScope(forgeHost, `forge:${activeWorkspaceId}`)
+        : undefined,
+    [activeWorkspaceId, forgeHost],
   )
   // The shell only needs one scalar from the sidebar tree. Subscribing to the
   // whole repos array made every live status/count frame rebuild the complete

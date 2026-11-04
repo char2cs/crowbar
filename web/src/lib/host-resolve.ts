@@ -107,6 +107,20 @@ export function hostIdForChat(chatId: string): string {
   return resolved.hostId
 }
 
+/** The host `chatId` resolves to, or null while it does not — never `'local'` as a guess. */
+export function chatHostOf(chatId: string): string | null {
+  const resolved = resolveChatHost(chatId)
+  return 'hostId' in resolved ? resolved.hostId : null
+}
+
+const subscribeChatResolution = (onChange: () => void) =>
+  subscribeHostResolution(undefined, onChange)
+
+/** {@link chatHostOf}, re-rendering as the host and project lists change. */
+export function useChatHost(chatId: string): string | null {
+  return useSyncExternalStore(subscribeChatResolution, () => chatHostOf(chatId))
+}
+
 /** The host `key` resolves to, or null while it does not — never `'local'` as a guess. */
 export function resolvedHostOf(key: HostKey): string | null {
   const resolved =

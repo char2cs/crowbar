@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { attachFeed } from '@/features/agent/stores/chat-feed'
+import { useChatHost } from '@/lib/host-resolve'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import {
   liveKey,
@@ -11,9 +12,11 @@ import { displayRows, type DisplayRow } from '@/features/agent/transcript/lib/to
 
 const EMPTY_IDS: string[] = []
 
-/** Holds the chat's feed open for as long as the calling view is mounted. */
+/** Holds the chat's feed open, on its host once that resolves, for as long as the calling
+ *  view is mounted. */
 export function useChatFeed(chatId: string | undefined) {
-  useEffect(() => (chatId ? attachFeed(chatId) : undefined), [chatId])
+  const hostId = useChatHost(chatId ?? '')
+  useEffect(() => (chatId && hostId ? attachFeed(hostId, chatId) : undefined), [chatId, hostId])
 }
 
 const feedOf = (feeds: Record<string, ChatFeed>, chatId: string | undefined) =>

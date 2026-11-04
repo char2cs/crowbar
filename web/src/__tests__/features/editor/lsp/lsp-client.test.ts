@@ -43,7 +43,7 @@ const signal = (scope: string, data: unknown) =>
   streamDaemon.deliver({ t: 'signal', scope, kind: 'diagnostics', data })
 const lspHeld = () =>
   ['lsp:chat-1', 'lsp:chat-2', 'lsp:chat-3', 'lsp:chat-9', 'lsp:home-ws'].filter((scope) =>
-    holding(scope),
+    holding('local', scope),
   )
 
 const diag = (filePath: string) => ({
@@ -358,7 +358,7 @@ describe('LspClient.request', () => {
 async function synced(scope: string) {
   let stop = () => {}
   await new Promise<void>((resolve) => {
-    stop = watchScope(scope, { synced: resolve })
+    stop = watchScope('local', scope, { synced: resolve })
   })
   stop()
 }
@@ -430,17 +430,17 @@ describe('LspClient on a remote host', () => {
     await expect(client.documentOpen(ws, 'a.ts', () => text, 'typescript')).resolves.toBeUndefined()
     expect(() => recordWorkspaceScope(remoteScope)).not.toThrow()
     expect(apiFetch).not.toHaveBeenCalled()
-    expect(holding(REMOTE_SCOPE)).toBe(false)
+    expect(holding('host-1', REMOTE_SCOPE)).toBe(false)
 
     loadProjects(remoteProject())
 
-    expect(holding(REMOTE_SCOPE)).toBe(true)
+    expect(holding('host-1', REMOTE_SCOPE)).toBe(true)
     expect(posts()).toEqual([`${REMOTE_BASE}/didOpen`])
     recordWorkspaceScope(remoteScope)
     expect(postsTo('/didOpen')).toHaveLength(1)
 
     removeHost()
-    expect(holding(REMOTE_SCOPE)).toBe(false)
+    expect(holding('host-1', REMOTE_SCOPE)).toBe(false)
     text = 'y'
     client.scheduleChange(ws, 'a.ts', () => text)
     await client.flushChange(ws, 'a.ts')
@@ -470,16 +470,16 @@ describe('LspClient on a remote host', () => {
     loadProjects(remoteProject())
     recordWorkspaceScope(remoteScope)
     client.onDiagnosticsUpdate(ws, () => {})
-    expect(holding(REMOTE_SCOPE)).toBe(true)
+    expect(holding('host-1', REMOTE_SCOPE)).toBe(true)
 
     removeHost()
-    expect(holding(REMOTE_SCOPE)).toBe(false)
+    expect(holding('host-1', REMOTE_SCOPE)).toBe(false)
     loadProjects() // the re-read that no longer holds the host's rows
 
     const later = vi.fn()
     subscribeToWorkspaceScope(ws, later)
     expect(() => recordWorkspaceScopeFromPath(`/ide/p-r/r2/${ws}`)).not.toThrow()
     expect(later).toHaveBeenCalledTimes(1)
-    expect(holding(REMOTE_SCOPE)).toBe(false)
+    expect(holding('host-1', REMOTE_SCOPE)).toBe(false)
   })
 })

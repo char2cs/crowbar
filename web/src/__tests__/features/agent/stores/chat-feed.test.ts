@@ -10,7 +10,7 @@ const push = (frame: object, scope = SCOPE) => streamDaemon.deliver({ scope, ...
 const subs = (scope = SCOPE) => streamDaemon.sent.filter((r) => r.op === 'sub' && r.scope === scope)
 const held: (() => void)[] = []
 const attachFeed = (chatId: string) => {
-  const detach = attachReal(chatId)
+  const detach = attachReal('local', chatId)
   held.push(detach)
   return detach
 }

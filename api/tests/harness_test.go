@@ -36,6 +36,7 @@ import (
 type harness struct {
 	t         *testing.T
 	server    *httptest.Server
+	handler   http.Handler
 	url       string
 	home      string
 	app       *app.Container
@@ -63,6 +64,13 @@ func newHarnessAt(
 	home string,
 ) *harness {
 	t.Helper()
+	return bootHarness(t, home, "")
+}
+
+// bootHarness boots the backend at home; a fingerprint makes it network-exposed,
+// so it mints pairing codes.
+func bootHarness(t *testing.T, home, fingerprint string) *harness {
+	t.Helper()
 	// The lifecycle ctx is the one production cancels on a shutdown signal to
 	// stop the background loops app.New starts (provider sweep, terminal-wait
 	// detector); every teardown path below cancels it, or each harness leaks
@@ -87,15 +95,16 @@ func newHarnessAt(
 	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
-	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, "", time.Minute)
+	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, fingerprint, time.Minute)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer.Handler())
 
 	h := &harness{
-		t:    t,
-		home: home,
-		app:  appContainer,
+		t:       t,
+		home:    home,
+		app:     appContainer,
+		handler: apiContainer.Handler(),
 	}
 	h.server = srv
 	h.url = srv.URL
@@ -140,6 +149,41 @@ func newHarnessAt(
 	t.Cleanup(h.shutdown)
 
 	return h
+}
+
+// pairedHarness is a daemon reached as a paired remote host reaches it: over
+// TLS with a bearer. The plaintext server beside it is the daemon's own socket.
+type pairedHarness struct {
+	*harness
+	tls      *httptest.Server
+	token    string
+	clientID string
+}
+
+// newPairedHarness boots a daemon, mints a code over plaintext as the local
+// socket would, and redeems it over TLS.
+func newPairedHarness(t *testing.T) *pairedHarness {
+	t.Helper()
+	h := bootHarness(t, t.TempDir(), "SHA256:test-daemon")
+	tlsSrv := httptest.NewTLSServer(h.handler)
+	t.Cleanup(tlsSrv.Close)
+	var minted struct{ Code string }
+	h.post("/v0/pair/code", nil, http.StatusOK, &minted)
+	body, err := json.Marshal(map[string]string{"code": minted.Code, "name": "test client"})
+	require.NoError(t, err)
+	resp, err := tlsSrv.Client().Post(tlsSrv.URL+"/v0/pair", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var env struct {
+		Data struct {
+			Token    string `json:"token"`
+			ClientID string `json:"clientId"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	require.NotEmpty(t, env.Data.Token)
+	return &pairedHarness{harness: h, tls: tlsSrv, token: env.Data.Token, clientID: env.Data.ClientID}
 }
 
 // drain runs the daemon's graceful-shutdown DRAIN and stops there, exactly once:

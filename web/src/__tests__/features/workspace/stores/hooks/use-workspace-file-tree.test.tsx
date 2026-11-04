@@ -10,6 +10,7 @@ import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspac
 import type { AppFile } from '@/features/file-system/types/app'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { holding } from '@/core/stream/stream'
 import { ApiError } from '@/lib/errors/api-error'
 import {
   loadProjects,
@@ -140,7 +141,7 @@ describe('useWorkspaceFileTree', () => {
 
   it('loads the tree while the stream is down', async () => {
     streamDaemon.drop()
-    onTestFinished(reconnectStream)
+    onTestFinished(() => reconnectStream())
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
     expect(store.getState().files).toEqual(rootTree)
@@ -270,7 +271,8 @@ describe('on an install that has paired a remote host', () => {
 
     await waitFor(() => expect(remote.store.getState().fileTreeStatus).toBe('ready'))
     await waitFor(() => expect(local.store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(held().sort()).toEqual(['files:ws-local', 'files:ws-remote']))
+    await waitFor(() => expect(held()).toEqual(['files:ws-local']))
+    expect(heldScopes('files:', 'host-1')).toEqual(['files:ws-remote'])
   })
 
   it('does not fetch an expanded folder before the host is known', () => {
@@ -305,7 +307,8 @@ describe('on an install that has paired a remote host', () => {
     current = 'ws-remote'
     rerender()
     await waitFor(() => expect(stores['ws-remote'].getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(held()).toEqual(['files:ws-remote']))
+    await waitFor(() => expect(heldScopes('files:', 'host-1')).toEqual(['files:ws-remote']))
+    expect(held()).toEqual([])
 
     fetchFileTree.mockClear()
     streamDaemon.deliver({
@@ -321,12 +324,12 @@ describe('on an install that has paired a remote host', () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     const { store } = setup('ws-remote')
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(held()).toEqual(['files:ws-remote']))
+    await waitFor(() => expect(heldScopes('files:', 'host-1')).toEqual(['files:ws-remote']))
     fetchFileTree.mockClear()
 
     act(() => useHostConfigStore.getState().removeHost('host-1'))
 
-    expect(held()).toEqual([])
+    expect(holding('host-1', 'files:ws-remote')).toBe(false)
     expect(fetchFileTree).not.toHaveBeenCalled()
   })
 

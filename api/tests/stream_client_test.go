@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -359,4 +361,27 @@ func (f *sidebarFeed) awaitAfter(chatID, what string, first, then func(map[strin
 		}
 		return false
 	})
+}
+
+// dialStreamAs opens /v0/stream over h's TLS listener, carrying token as its
+// bearer when it is not empty. It returns the upgrade's status.
+func dialStreamAs(t *testing.T, h *pairedHarness, token string) (*streamClient, int) {
+	t.Helper()
+	tlsConfig := h.tls.Client().Transport.(*http.Transport).TLSClientConfig
+	dialer := websocket.Dialer{TLSClientConfig: tlsConfig}
+	header := http.Header{}
+	if token != "" {
+		header.Set("Authorization", "Bearer "+token)
+	}
+	conn, resp, err := dialer.Dial("wss"+strings.TrimPrefix(h.tls.URL, "https")+"/v0/stream", header)
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return nil, status
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return &streamClient{conn: conn}, status
 }

@@ -8,6 +8,7 @@ import {
   submitAgentPrompt,
 } from '@/features/agent/api/agent-chat-commands'
 import { attachFeed } from '@/features/agent/stores/chat-feed'
+import { chatHostOf } from '@/lib/host-resolve'
 import { chatStore, setStopping, type ChatStoreState } from '@/features/agent/stores/chat-store'
 import { entityStore, patchEntities } from '@/core/entities/entity-store'
 import {
@@ -59,7 +60,8 @@ function update(chatId: string, change: (items: OutboxItem[]) => OutboxItem[]) {
   if (next === before) return
   const { [chatId]: _old, ...rest } = chatStore.getState().outbox
   chatStore.setState({ outbox: next.length > 0 ? { ...rest, [chatId]: next } : rest })
-  if (next.length > 0 && !feedHolds.has(chatId)) feedHolds.set(chatId, attachFeed(chatId))
+  const hostId = next.length > 0 && !feedHolds.has(chatId) ? chatHostOf(chatId) : null
+  if (hostId) feedHolds.set(chatId, attachFeed(hostId, chatId))
   if (next.length === 0) {
     feedHolds.get(chatId)?.()
     feedHolds.delete(chatId)

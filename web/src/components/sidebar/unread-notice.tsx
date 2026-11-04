@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { entityStore, type EntityState } from '@/core/entities/entity-store'
 import { selectRepos, useSelect } from '@/core/entities/select'
 import { resubscribe } from '@/core/stream/stream'
+import { useResolvedHost } from '@/lib/host-resolve'
 
 const NONE: readonly string[] = []
 
@@ -19,7 +20,8 @@ interface Line {
 export function UnreadNotice({ projectId }: { projectId: string }) {
   const unread = useStore(entityStore, selectUnread)
   const repos = useSelect(selectRepos)
-  if (unread.length === 0) return null
+  const hostId = useResolvedHost({ projectId })
+  if (unread.length === 0 || !hostId) return null
   const ids = new Set(unread)
   const lines: Line[] = []
   if (ids.has(projectId)) lines.push({ key: projectId, text: "Couldn't load this project's chats" })
@@ -43,7 +45,7 @@ export function UnreadNotice({ projectId }: { projectId: string }) {
           </span>
         ))}
       </div>
-      <Button variant="ghost" size="xs" onClick={() => resubscribe('projects')}>
+      <Button variant="ghost" size="xs" onClick={() => resubscribe(hostId, 'projects')}>
         Retry
       </Button>
     </div>

@@ -246,7 +246,7 @@ describe('chat outbox', () => {
     send('one')
     send('two')
     expect(attach).toHaveBeenCalledTimes(1)
-    expect(attach).toHaveBeenCalledWith('c1')
+    expect(attach).toHaveBeenCalledWith('local', 'c1')
     expect(detach).not.toHaveBeenCalled()
 
     discardUnsent('c1')

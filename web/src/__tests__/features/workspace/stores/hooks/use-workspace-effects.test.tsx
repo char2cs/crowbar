@@ -181,5 +181,13 @@ it('holds no scope of a workspace until the project list says whose it is', asyn
 
   act(() => loadProjects(projectOn('p-remote', 'host-1')))
 
-  await waitFor(() => expect(held().sort()).toEqual(['files:ws-R', 'git:ws-R', 'ws:ws-R']))
+  await waitFor(() =>
+    expect(heldScopes('', 'host-1').sort()).toEqual([
+      'files:ws-R',
+      'git:ws-R',
+      'projects',
+      'ws:ws-R',
+    ]),
+  )
+  expect(held()).toEqual([])
 })

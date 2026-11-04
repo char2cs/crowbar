@@ -255,34 +255,43 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
   })
 }
 
-// No daemon answers a test: `/v0/stream` is the fake in `__fixtures__/stream-daemon`, which
-// answers every sub with its synced unless the test says otherwise, so a chat's ledger scope
-// replays nothing and shows what the test seeded into chatStore. Every other endpoint keeps the
-// real manager.
+// No daemon answers a test: each host's `/v0/stream` is its fake in `__fixtures__/stream-daemon`,
+// which answers every sub with its synced unless the test says otherwise, so a chat's ledger
+// scope replays nothing and shows what the test seeded into chatStore. Every other endpoint keeps
+// the real manager.
 const setupManager = vi.hoisted(() => ({ current: null as unknown }))
 vi.mock('@/lib/ws/manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
-  const { streamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
+  const { streamDaemonFor } = await import('@/__tests__/__fixtures__/stream-daemon')
+  const { splitHostPath } = await import('@/lib/host-path')
   const real = actual.wsManager
-  const stream = (endpoint: string) => endpoint === '/v0/stream'
+  const daemonOf = (endpoint: string) => {
+    const { hostId, path } = splitHostPath(endpoint)
+    return path === '/v0/stream' ? streamDaemonFor(hostId) : null
+  }
   const wsManager: typeof real = {
     subscribe: (endpoint, cb) => {
-      if (!stream(endpoint)) return real.subscribe(endpoint, cb)
-      streamDaemon.deliver = cb
+      const daemon = daemonOf(endpoint)
+      if (!daemon) return real.subscribe(endpoint, cb)
+      daemon.deliver = cb
       queueMicrotask(() => cb({ t: 'ready', epoch: 'test' }))
-      return () => {}
+      return () => {
+        if (daemon.deliver === cb) daemon.deliver = () => {}
+      }
     },
     send: (endpoint, data) => {
-      if (!stream(endpoint)) return real.send(endpoint, data)
+      const daemon = daemonOf(endpoint)
+      if (!daemon) return real.send(endpoint, data)
       const req = data as { op: string; scope: string }
-      streamDaemon.sent.push(req)
-      const frames = streamDaemon.answer(req)
-      queueMicrotask(() => frames.forEach((f) => streamDaemon.deliver(f)))
+      daemon.sent.push(req)
+      const frames = daemon.answer(req)
+      queueMicrotask(() => frames.forEach((f) => daemon.deliver(f)))
     },
-    opened: (endpoint) => (stream(endpoint) ? Promise.resolve() : real.opened(endpoint)),
+    opened: (endpoint) => (daemonOf(endpoint) ? Promise.resolve() : real.opened(endpoint)),
     onDrop: (endpoint, listener) => {
-      if (!stream(endpoint)) return real.onDrop(endpoint, listener)
-      streamDaemon.drop = listener
+      const daemon = daemonOf(endpoint)
+      if (!daemon) return real.onDrop(endpoint, listener)
+      daemon.drop = listener
       return () => {}
     },
   }

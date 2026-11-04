@@ -8,6 +8,7 @@ import { resubscribe, watchScope } from '@/core/stream/stream'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import { HostProjectsPending } from '@/features/hosts/components/host-projects-pending'
 import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import type { Project } from '@/lib/types'
 
@@ -45,7 +46,7 @@ export function ShellLanding() {
   const migrating = useConnectionStore((s) => s.migrating)
   const [failures, setFailures] = useState(0)
   const navigate = useNavigate()
-  useEffect(() => watchScope('projects', { failed: setFailures }), [])
+  useEffect(() => watchScope(LOCAL_HOST.id, 'projects', { failed: setFailures }), [])
   if (!awaitsProjectsScope(synced)) {
     const landing = landingFor(projects, activeId)
     if (landing) return <Navigate {...landing} replace />
@@ -69,7 +70,7 @@ export function ShellLanding() {
   if (failures < PERSISTENT) return null
   const retry = () => {
     setFailures(0)
-    resubscribe('projects')
+    resubscribe(LOCAL_HOST.id, 'projects')
   }
   return <InlineError error={NOT_LOADED} onRetry={retry} title="Could not load your projects" />
 }

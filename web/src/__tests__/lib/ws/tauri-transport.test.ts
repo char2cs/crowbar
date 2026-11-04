@@ -487,13 +487,13 @@ describe('the stream over the desktop transport', () => {
     const stream = await import('@/core/stream/stream')
     const frames: string[] = []
     const releases = [
-      stream.registerScopeKind('projects', { frame: (f) => void frames.push(f.t) }),
+      stream.registerScopeKind('projects', { frame: (_h, f) => void frames.push(f.t) }),
       stream.registerScopeKind('ws', { frame: () => {} }),
-      stream.holdScope('projects'),
-      stream.holdScope('ws:w1'),
+      stream.holdScope('local', 'projects'),
+      stream.holdScope('local', 'ws:w1'),
     ]
     const synced = vi.fn()
-    releases.push(stream.watchScope('projects', { synced }))
+    releases.push(stream.watchScope('local', 'projects', { synced }))
 
     const first = gateOpen()
     releases.push(stream.startStream())

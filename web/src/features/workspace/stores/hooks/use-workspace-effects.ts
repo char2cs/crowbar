@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { holdScope } from '@/core/stream/stream'
-import { useHostResolved } from '@/lib/host-resolve'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { useOwningChatId } from '@/lib/workspace-scope'
 import { useWorkspaceFileTree } from './use-workspace-file-tree'
@@ -19,8 +19,8 @@ export function useWorkspaceEffects(wsId: string, active: boolean) {
   // has recorded one there is nothing a fetch or subscription could address.
   const chatScopeReady = homeWorkspace || owningChatId !== null
 
-  const hostResolved = useHostResolved({ wsId })
-  useEffect(() => (hostResolved ? holdScope(`ws:${wsId}`) : undefined), [wsId, hostResolved])
+  const hostId = useResolvedHost({ wsId })
+  useEffect(() => (hostId ? holdScope(hostId, `ws:${wsId}`) : undefined), [wsId, hostId])
   useWorkspaceFileTree(wsId, active, chatScopeReady)
   useWorkspaceGit(wsId, active, owningChatId, homeWorkspace)
 }

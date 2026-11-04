@@ -1,5 +1,6 @@
 import { createStore } from 'zustand'
 import { registerScopeKind } from '@/core/stream/stream'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import type { Frame } from '@/core/stream/frames'
 import { forgetLocalOperation, forgetUnstreamedReplies } from '@/lib/store/local-operations'
 import type { EntityRef, Operation } from '@/core/entities/operations'
@@ -207,10 +208,18 @@ function resetForEpoch(epoch: string): void {
   })
 }
 
+// Only the local daemon's rows are held until the store keys them by host.
+const isLocal = (hostId: string) => hostId === LOCAL_HOST.id
+
 registerScopeKind('projects', {
-  subscribed: beginSnapshot,
-  epoch: resetForEpoch,
-  frame(f) {
+  subscribed(hostId, scope) {
+    if (isLocal(hostId)) beginSnapshot(scope)
+  },
+  epoch(hostId, epoch) {
+    if (isLocal(hostId)) resetForEpoch(epoch)
+  },
+  frame(hostId, f) {
+    if (!isLocal(hostId)) return
     if (f.t === 'entity') heardEntity(f)
     else if (f.t === 'synced') {
       applySynced(f.scope, f.unread)
@@ -220,8 +229,11 @@ registerScopeKind('projects', {
 })
 
 registerScopeKind('ws', {
-  subscribed: beginSnapshot,
-  frame(f) {
+  subscribed(hostId, scope) {
+    if (isLocal(hostId)) beginSnapshot(scope)
+  },
+  frame(hostId, f) {
+    if (!isLocal(hostId)) return
     if (f.t === 'entity') heardEntity(f)
     else if (f.t === 'synced') applySynced(f.scope)
   },

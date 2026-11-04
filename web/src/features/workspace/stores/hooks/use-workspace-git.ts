@@ -8,7 +8,7 @@ import {
 } from '@/features/git/stores/git-refresh'
 import { holdScope, onSignal } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
-import { useHostResolved } from '@/lib/host-resolve'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
@@ -37,8 +37,8 @@ export function useWorkspaceGit(
 ) {
   const store = useWorkspaceStore()
   const loaded = useStore(store, (s) => s.gitLoad === 'ready')
-  const hostResolved = useHostResolved({ wsId })
-  const canAddress = !homeWorkspace && owningChatId !== null && hostResolved
+  const hostId = useResolvedHost({ wsId })
+  const canAddress = !homeWorkspace && owningChatId !== null && hostId !== null
 
   useEffect(() => {
     if (!active || !canAddress) return
@@ -46,7 +46,7 @@ export function useWorkspaceGit(
   }, [store, active, canAddress])
 
   useEffect(() => {
-    if (!canAddress || !loaded) return
+    if (!canAddress || !hostId || !loaded) return
 
     // Coalescing (non-resetting) timer. The backend can stream git frames more
     // often than the debounce window; a resetting debounce would starve forever
@@ -73,12 +73,12 @@ export function useWorkspaceGit(
     // keeps that frame (and any identical repeat) from reloading.
     let lastFrame: unknown = store.getState().gitStatus
     const scope = `git:${wsId}`
-    const stopSignals = onSignal(scope, 'git_status', (frame) => {
+    const stopSignals = onSignal(hostId, scope, 'git_status', (frame) => {
       if (framesEqual(lastFrame, frame)) return
       lastFrame = frame
       scheduleStatusReload()
     })
-    const release = holdScope(scope)
+    const release = holdScope(hostId, scope)
     // Local actions that know THIS workspace's status is stale (an editor save,
     // push/pull) request a refresh without waiting for the backend watcher.
     const stopRefreshRequests = onGitRefreshRequested(wsId, scheduleStatusReload)
@@ -96,5 +96,5 @@ export function useWorkspaceGit(
       release()
       stopSignals()
     }
-  }, [store, wsId, canAddress, loaded])
+  }, [store, wsId, canAddress, hostId, loaded])
 }

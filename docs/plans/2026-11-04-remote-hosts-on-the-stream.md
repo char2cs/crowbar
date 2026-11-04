@@ -92,12 +92,12 @@ Each task lands alone and green, its failing test first. Go tasks T1–T3 are in
 
 **Files:** `api/tests/harness_test.go` (`newPairedHarness(t)`: `httptest.NewTLSServer(apiContainer.Handler())`, mint and redeem a code through `POST /v0/pair/code` and `POST /v0/pair`, and keep the bearer), `api/tests/stream_client_test.go` (`dialStreamAs(t, h, token)` sets `Authorization: Bearer`).
 
-- [ ] **Step 1: tests.** `TestRemoteStream_ServesProjectsAndWorkspaceScopes`, `TestRemoteStream_RefusesWithoutABearer` (401 at upgrade), `TestRemoteStream_RefusesADocScope` (`admitHostDocument` with `TransportRemote`), `TestRemoteStream_RevokingTheClientClosesTheStream` (`DELETE /v0/clients/:id`, then the reader sees EOF; `revocableWriter` must hold the hijacked conn).
-- [ ] **Step 2:** run. If all pass at once, this task is the daemon half of T4 and lands with it rather than alone (no coverage-only commit). A red revoke test is a real bug: fix it in `api/internal/api/v0/client_conns.go`.
+- [x] **Step 1: tests.** `TestRemoteStream_ServesProjectsAndWorkspaceScopes`, `TestRemoteStream_RefusesWithoutABearer` (401 at upgrade), `TestRemoteStream_RefusesADocScope` (`admitHostDocument` with `TransportRemote`), `TestRemoteStream_RevokingTheClientClosesTheStream` (`DELETE /v0/clients/:id`, then the reader sees EOF; `revocableWriter` must hold the hijacked conn).
+- [x] **Step 2:** run. All passed at once, so this lands with T4. `bootHarness` takes the daemon fingerprint: minting a pairing code refuses an empty one. If all pass at once, this task is the daemon half of T4 and lands with it rather than alone (no coverage-only commit). A red revoke test is a real bug: fix it in `api/internal/api/v0/client_conns.go`.
 
 ### T4: One stream per host (web core)
 
-**Files:** create `web/src/core/stream/host-scope.ts`, `host-stream.ts`; slim `stream.ts`. API (all take the host explicitly; nothing defaults to local):
+**Files:** create `host-stream.ts`; slim `stream.ts` (`host-scope.ts` lands with T5, its first user). API (all take the host explicitly; nothing defaults to local):
 
 ```ts
 export interface ScopeKindHandler {
@@ -116,10 +116,10 @@ export function streamOpened(hostId: string): Promise<void>
 export function startStream(): () => void          // local when hasLocalDaemon(), plus startHostStreams()
 ```
 
-`startHostStreams` follows `useHostConfigStore` (one `HostStream` per configured host, each holding its `projects`) and `onHostRemoved` (stop the stream, then call every handler's `forget?(hostId)`, which T5 implements). Callers (`use-workspace-effects.ts:23`, `use-workspace-git.ts:81`, `use-workspace-file-tree.ts:96`, `lsp-client.ts:155`, `external-buffer-sync.ts:126`, `use-ide-shell-workspace-retention.ts:75`, `chat-feed.ts:131`, `unread-notice.tsx`, `shell-landing.tsx`) switch from `useHostResolved` to `useResolvedHost`, and pass the host they already gate on. Fixture `__tests__/__fixtures__/stream-daemon.ts`: `streamDaemonFor(hostId)` and `heldScopes(prefix, hostId = 'local')`; `remote-host.ts` `pairRemoteHost` also readies that host's daemon.
+`startHostStreams` follows `useHostConfigStore` (one `HostStream` per configured host, each holding its `projects`) and `onHostRemoved` (stop the stream, then call every handler's `forget?(hostId)`, which T5 implements). Callers (`use-workspace-effects.ts:23`, `use-workspace-git.ts:81`, `use-workspace-file-tree.ts:96`, `lsp-client.ts:155`, `external-buffer-sync.ts:126`, `use-ide-shell-workspace-retention.ts:75`, `chat-feed.ts:131`, `unread-notice.tsx`, `shell-landing.tsx`) switch from `useHostResolved` to `useResolvedHost`, and pass the host they already gate on. Fixture `__tests__/__fixtures__/stream-daemon.ts`: `streamDaemonFor(hostId)` and `heldScopes(prefix, hostId = 'local')`; `setup.ts`'s socket routes each `<host>/v0/stream` to that host's daemon, which says ready on subscribe, so `pairRemoteHost` needs no change. Until T5 the entity store ignores a remote host's frames.
 
-- [ ] **Step 1: failing tests** (`__tests__/core/stream/stream.test.ts`, extend): `a scope held on host-1 is subscribed on crowbar://host-1/v0/stream, bare`, `a frame from host-1 reaches the kind handler with host-1`, `a drop of host-1 leaves local scopes synced`, `host-1's ready resubscribes only host-1's holds`, `removing host-1 stops its socket and tells every handler to forget it`, `no local socket opens when the install has no local daemon`, `a parked host's holds go out when it comes up` (status driven through `getOrCreateHostRuntime`).
-- [ ] **Step 2:** red; **Step 3:** implement; tsc, eslint, knip, `lint:doctor`.
+- [ ] **Step 1: failing tests** (`__tests__/core/stream/stream.test.ts`, extend): `a scope held on host-1 is subscribed on crowbar://host-1/v0/stream, bare`, `a frame from host-1 reaches the kind handler with host-1`, `a drop of host-1 leaves local scopes synced`, `host-1's ready resubscribes only host-1's holds`, `removing host-1 stops its socket and tells every handler to forget it`, `no local socket opens when the install has no local daemon`, `a hold taken before host-1's ready goes out on it` (parking is the socket manager's; the stream sees only the ready that follows `up`).
+- [x] **Step 2:** red; **Step 3:** implement; tsc, eslint, knip, `lint:doctor`.
 
 ### T5: The entity store across hosts (web core)
 

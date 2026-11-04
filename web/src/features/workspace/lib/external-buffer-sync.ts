@@ -7,6 +7,7 @@ import {
   type DocumentRef,
 } from '@/lib/api/documents'
 import type { Problem } from '@/lib/errors/problem'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import {
   documentName,
   documentRefOf,
@@ -95,6 +96,7 @@ const changesText = (frame: unknown) => {
   return type === 'modified' || type === 'created'
 }
 
+// A host document is the local daemon's alone: no remote serves its doc: scope.
 const docScope = (ref: HostRef) => `doc:${ref.path}`
 
 /**
@@ -106,10 +108,10 @@ export function followHostDocument(ref: HostRef): Promise<() => void> {
   const scope = docScope(ref)
   return new Promise((resolve, reject) => {
     let armed = false
-    const stopSignals = onSignal(scope, 'file_change', (frame) => {
+    const stopSignals = onSignal(LOCAL_HOST.id, scope, 'file_change', (frame) => {
       if (changesText(frame)) void syncBufferWithDisk(ref)
     })
-    const stopWatch = watchScope(scope, {
+    const stopWatch = watchScope(LOCAL_HOST.id, scope, {
       synced: () => {
         // A later synced is a re-armed watch: what changed while it was down is read once.
         if (armed) return void syncBufferWithDisk(ref)
@@ -123,7 +125,7 @@ export function followHostDocument(ref: HostRef): Promise<() => void> {
         reject(new WatchRefusal(problem ?? { code: 'internal', message: `${scope} was refused` }))
       },
     })
-    const release = holdScope(scope)
+    const release = holdScope(LOCAL_HOST.id, scope)
     let stopped = false
     function stop() {
       if (stopped) return
@@ -159,7 +161,7 @@ function heldUnwatched(buffer: EditorContent): boolean {
   return (
     ref.authority === 'host' &&
     !!getEditorHost()?.documents.has(documentUri(ref)) &&
-    !streamHolds(docScope(ref))
+    !streamHolds(LOCAL_HOST.id, docScope(ref))
   )
 }
 

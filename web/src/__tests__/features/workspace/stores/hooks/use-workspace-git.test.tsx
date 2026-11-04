@@ -19,6 +19,7 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { holding } from '@/core/stream/stream'
 import {
   loadProjects,
   pairRemoteHost,
@@ -251,7 +252,8 @@ describe('on an install that has paired a remote host', () => {
 
     act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
     await waitFor(() => expect(local.store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(held().sort()).toEqual(['git:ws-local', 'git:ws-remote']))
+    await waitFor(() => expect(held()).toEqual(['git:ws-local']))
+    expect(heldScopes('git:', 'host-1')).toEqual(['git:ws-remote'])
   })
 
   it('switching local to remote releases the old scope and a late signal on it reloads nothing', async () => {
@@ -263,7 +265,8 @@ describe('on an install that has paired a remote host', () => {
 
       local.unmount()
       const remote = mount('ws-remote')
-      await vi.waitFor(() => expect(held()).toEqual(['git:ws-remote']))
+      await vi.waitFor(() => expect(heldScopes('git:', 'host-1')).toEqual(['git:ws-remote']))
+      expect(held()).toEqual([])
 
       signal('ws-local', { ...status, ahead: 9 })
       await vi.advanceTimersByTimeAsync(500)
@@ -277,12 +280,12 @@ describe('on an install that has paired a remote host', () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     const { store } = mount('ws-remote')
     await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(held()).toEqual(['git:ws-remote']))
+    await waitFor(() => expect(heldScopes('git:', 'host-1')).toEqual(['git:ws-remote']))
     fetchGitData.mockClear()
 
     act(() => useHostConfigStore.getState().removeHost('host-1'))
 
-    expect(held()).toEqual([])
+    expect(holding('host-1', 'git:ws-remote')).toBe(false)
     expect(fetchGitData).not.toHaveBeenCalled()
   })
 })

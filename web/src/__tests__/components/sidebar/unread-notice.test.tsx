@@ -54,7 +54,7 @@ function snapshot(unread?: string[], repos: RepoDTO[] = [repo]) {
 
 beforeAll(() => {
   startStream()
-  holdScope('projects')
+  holdScope('local', 'projects')
 })
 
 beforeEach(() => {

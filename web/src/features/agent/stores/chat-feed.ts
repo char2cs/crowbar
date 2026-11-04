@@ -18,6 +18,7 @@ import {
 } from '@/features/agent/stores/chat-store'
 
 interface Attachment {
+  hostId: string
   refs: number
   release: () => void
   pending: FeedDelta[]
@@ -27,8 +28,8 @@ interface Attachment {
 }
 
 const attachments = new Map<string, Attachment>()
-/** The daemon run the stream's ready named: a feed synced under another drops its live tail. */
-let epoch = ''
+/** host → the daemon run its stream's ready named: a feed synced under another drops its live tail. */
+const epochs = new Map<string, string>()
 
 const scopeOf = (chatId: string) => `chat:${chatId}`
 
@@ -48,12 +49,12 @@ function release(chatId: string, attachment: Attachment) {
 }
 
 /** The stream's frame as the chat store folds it; a delta or a refusal is not one. */
-function feedFrameOf(f: Frame): FeedFrame | undefined {
+function feedFrameOf(hostId: string, f: Frame): FeedFrame | undefined {
   switch (f.t) {
     case 'row':
       return { type: 'row', row: f.row as unknown as LedgerRow }
     case 'synced':
-      return { type: 'ready', epoch }
+      return { type: 'ready', epoch: epochs.get(hostId) ?? '' }
     case 'closed':
       return f.reason === 'resync' ? { type: 'resync', seq: f.seq } : undefined
   }
@@ -70,7 +71,7 @@ function onFrame(chatId: string, attachment: Attachment, f: Frame) {
     return
   }
   flush(chatId, attachment)
-  const frame = feedFrameOf(f)
+  const frame = feedFrameOf(attachment.hostId, f)
   if (frame) applyFeedFrame(chatId, frame)
   if (f.t === 'synced') checkHead(chatId, attachment, f.seq)
 }
@@ -85,31 +86,37 @@ function checkHead(chatId: string, attachment: Attachment, head: number | undefi
   }
   if (attachment.reasked) return failFeed(chatId, 'This chat’s history did not line up')
   attachment.reasked = true
-  resubscribe(scopeOf(chatId))
+  resubscribe(attachment.hostId, scopeOf(chatId))
 }
 
 registerScopeKind('chat', {
-  since: (chatId) => chatStore.getState().feeds[chatId]?.seq ?? 0,
-  epoch: (next) => {
-    epoch = next
+  since: (hostId, chatId) =>
+    attachments.get(chatId)?.hostId === hostId ? (chatStore.getState().feeds[chatId]?.seq ?? 0) : 0,
+  epoch: (hostId, next) => {
+    epochs.set(hostId, next)
   },
-  frame(f) {
+  forget: (hostId) => {
+    epochs.delete(hostId)
+  },
+  frame(hostId, f) {
     if (!('scope' in f)) return
-    // The chat's usage report rides its scope as an entity the entity store holds.
-    if (f.t === 'entity') return applyEntityFrame(f)
     const chatId = f.scope.slice('chat:'.length)
     const attachment = attachments.get(chatId)
-    if (attachment) onFrame(chatId, attachment, f)
+    if (attachment?.hostId !== hostId) return
+    // The chat's usage report rides its scope as an entity the entity store holds.
+    if (f.t === 'entity') return applyEntityFrame(f)
+    onFrame(chatId, attachment, f)
   },
 })
 
-/** Holds the chat's ledger scope while anything attached to it is mounted; the
+/** Holds the chat's ledger scope on `hostId` while anything attached to it is mounted; the
  *  last detach drops its state, and the next attach replays from since=0. */
-export function attachFeed(chatId: string): () => void {
+export function attachFeed(hostId: string, chatId: string): () => void {
   let attachment = attachments.get(chatId)
   if (!attachment) {
     const scope = scopeOf(chatId)
     const fresh: Attachment = {
+      hostId,
       refs: 0,
       release: () => {},
       pending: [],
@@ -120,7 +127,7 @@ export function attachFeed(chatId: string): () => void {
     attachments.set(chatId, fresh)
     openFeed(chatId)
     // A deleted chat's scope is closed as gone, an unknown one's as refused.
-    const stopWatch = watchScope(scope, {
+    const stopWatch = watchScope(hostId, scope, {
       refused(problem) {
         if (attachments.get(chatId) !== fresh) return
         if (problem) return failFeed(chatId, problem.message)
@@ -128,13 +135,13 @@ export function attachFeed(chatId: string): () => void {
         dropFeed(chatId)
       },
     })
-    const letGo = holdScope(scope)
+    const letGo = holdScope(hostId, scope)
     fresh.release = () => {
       stopWatch()
       letGo()
     }
     // An unreachable stream keeps retrying, so the feed says so without a reason.
-    streamOpened().catch(() => {
+    streamOpened(hostId).catch(() => {
       if (attachments.get(chatId) === fresh) failFeed(chatId)
     })
   }

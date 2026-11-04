@@ -65,7 +65,7 @@ beforeEach(() => {
   epochs++
   entityStore.setState(entityStore.getInitialState(), true)
   useLocalOperationsStore.setState({ ops: {} })
-  release = holdScope('projects')
+  release = holdScope('local', 'projects')
   reconnect(`e${epochs}`)
   synced()
 })
@@ -178,7 +178,7 @@ describe('entity store', () => {
         ...(gone ? { gone } : { data: { id, workspaceId: 'w1', body } }),
       })
     const threads = () => entityStore.getState().byKind.review_thread
-    const stop = holdScope('ws:w1')
+    const stop = holdScope('local', 'ws:w1')
     reconnect(`e${epochs}`)
     thread('t1', 2, 'first')
     thread('t2', 2, 'second')

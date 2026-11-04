@@ -10,7 +10,7 @@ import {
 import { workspaceRef } from '@/lib/api/documents'
 import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
-import { useHostResolved } from '@/lib/host-resolve'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 
@@ -52,7 +52,8 @@ function reconcileDocuments(wsId: string): void {
  */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
   const store = useWorkspaceStore()
-  const addressable = useHostResolved({ wsId }) && chatScopeReady
+  const hostId = useResolvedHost({ wsId })
+  const addressable = hostId !== null && chatScopeReady
   const status = useStore(store, (s) => s.fileTreeStatus)
   const files = useStore(store, (s) => s.files)
   const expandedPaths = useFileTreeStore(
@@ -66,9 +67,9 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
   // Holds the scope and applies its file changes. Every synced after the tree
   // is loaded may follow missed writes, so it re-reads the tree and open buffers.
   useEffect(() => {
-    if (!wanted) return
+    if (!wanted || !hostId) return
     const scope = `files:${wsId}`
-    const stopWatch = watchScope(scope, {
+    const stopWatch = watchScope(hostId, scope, {
       synced: () => {
         syncs.current++
         if (store.getState().fileTreeStatus !== 'ready') return
@@ -82,7 +83,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
         })
       },
     })
-    const stopSignals = onSignal<FileChangeEvent>(scope, 'file_change', (evt) => {
+    const stopSignals = onSignal<FileChangeEvent>(hostId, scope, 'file_change', (evt) => {
       if (!evt?.path) return
       // An external write to an open buffer must reconcile it (silent reload
       // when clean, conflict flag when dirty); own-save echoes are filtered inside.
@@ -93,13 +94,13 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       void refreshDirectory(wsId, store, parentDir(evt.path))
       if (evt.newPath) void refreshDirectory(wsId, store, parentDir(evt.newPath))
     })
-    const release = holdScope(scope)
+    const release = holdScope(hostId, scope)
     return () => {
       release()
       stopSignals()
       stopWatch()
     }
-  }, [store, wsId, wanted])
+  }, [store, wsId, wanted, hostId])
 
   // The first read never waits on the stream, which may be down.
   useEffect(() => {

@@ -7,7 +7,7 @@
 import { apiFetch } from '@/lib/api/fetch'
 import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
-import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
+import { hostIdForWorkspace, isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId } from '@/lib/workspace-scope'
 
@@ -136,14 +136,16 @@ class WorkspaceSession {
     this.releaseScope()
     if (!base) return
     const scope = `lsp:${getOwningChatId(this.wsId)}`
+    // The base resolved its host, and names it: a host change is a base change.
+    const hostId = hostIdForWorkspace(this.wsId)
     const hold = { base, close: () => {} }
-    const stopSignals = onSignal<DiagnosticsEvent>(scope, 'diagnostics', (event) =>
+    const stopSignals = onSignal<DiagnosticsEvent>(hostId, scope, 'diagnostics', (event) =>
       this.dispatch(event),
     )
     // The first synced finds what went out as it was held; any later one (after a drop,
     // a resync or a failed snapshot) follows the daemon letting the scope go.
     let firstSync = true
-    const stopWatch = watchScope(scope, {
+    const stopWatch = watchScope(hostId, scope, {
       synced: () => {
         if (!firstSync) this.openDocuments(base)
         firstSync = false
@@ -152,7 +154,7 @@ class WorkspaceSession {
         firstSync = false
       },
     })
-    const release = holdScope(scope)
+    const release = holdScope(hostId, scope)
     hold.close = () => {
       release()
       stopWatch()
