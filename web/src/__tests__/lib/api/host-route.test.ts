@@ -6,7 +6,7 @@ const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
 import { assetURL } from '@/lib/api'
-import { API_BASE, apiFetch, apiFetchRaw, apiUrl } from '@/lib/api/fetch'
+import { apiBaseFor, apiFetch, apiFetchRaw, apiUrl } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
 import { routeToHost } from '@/lib/api/host-route'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -107,7 +107,10 @@ describe('apiFetch host routing', () => {
 
     await apiFetch('/v0/projects', undefined, noRetry)
 
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${API_BASE}/v0/projects`, undefined)
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      `${apiBaseFor('local')}/v0/projects`,
+      undefined,
+    )
   })
 
   it('routes a qualified path to that host with the prefix stripped', async () => {
@@ -208,7 +211,7 @@ describe('apiFetch host routing', () => {
     ]
 
     expect(fetchMock.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
-      `${API_BASE}/v0/projects`,
+      `${apiBaseFor('local')}/v0/projects`,
       'crowbar://h1/v0/projects',
       'crowbar://h2/v0/projects',
     ])
@@ -266,8 +269,8 @@ describe('ApiError.hostId', () => {
 
 describe('apiUrl and assetURL', () => {
   it('resolves an unqualified path against the local base, byte for byte as before', () => {
-    expect(apiUrl('/v0/projects/p/icon')).toBe(`${API_BASE}/v0/projects/p/icon`)
-    expect(assetURL('/v0/projects/p/icon')).toBe(`${API_BASE}/v0/projects/p/icon`)
+    expect(apiUrl('/v0/projects/p/icon')).toBe(`${apiBaseFor('local')}/v0/projects/p/icon`)
+    expect(assetURL('/v0/projects/p/icon')).toBe(`${apiBaseFor('local')}/v0/projects/p/icon`)
   })
 
   it('resolves a qualified path against that host’s base', () => {

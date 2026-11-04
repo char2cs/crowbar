@@ -5,7 +5,6 @@ import {
 } from '@/features/hosts/stores/host-runtime-registry'
 import {
   hostUnavailability,
-  isHostResolved,
   subscribeHostResolution,
   unplacedProject,
   unreadHosts,
@@ -38,19 +37,4 @@ export function useHostUnavailable(key: HostKey | null): HostUnavailable | null 
     [wsId],
   )
   return useSyncExternalStore(subscribe, () => (key === null ? null : paneUnavailability(key)))
-}
-
-/** Settles with whether `key`'s host resolved: true as soon as it does, false once
- *  it is unavailable. No timer; it listens only until it has an answer. */
-export function awaitHost(key: HostKey): Promise<boolean> {
-  return new Promise((resolve) => {
-    const settle = () => {
-      const resolved = isHostResolved(key)
-      if (!resolved && hostUnavailability(key) === null) return
-      stop()
-      resolve(resolved)
-    }
-    const stop = subscribeHostResolution(key.wsId, settle)
-    settle()
-  })
 }

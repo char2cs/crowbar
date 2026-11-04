@@ -28,7 +28,12 @@ import {
 import { toastManager } from '@/lib/toast-manager'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
-import { selectEntityProblem, operationsState, type Operation } from '@/core/entities/operations'
+import {
+  newestProblem,
+  operationsState,
+  selectFailedOps,
+  type Operation,
+} from '@/core/entities/operations'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
@@ -422,7 +427,7 @@ describe('committing a repo removal', () => {
     streamOperation(removeOp(sentOpId(), 2, { state: 'failed', error: reason }))
 
     await vi.waitFor(() => expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(false))
-    expect(selectEntityProblem(operationsState(), 'r1')).toEqual(reason)
+    expect(newestProblem(selectFailedOps(operationsState()), ['r1'])).toEqual(reason)
     // The operations watcher tells it, once.
     expect(toastError).not.toHaveBeenCalled()
   })

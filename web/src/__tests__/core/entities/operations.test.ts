@@ -4,7 +4,6 @@ import { useLocalOperationsStore } from '@/lib/store/local-operations'
 import {
   putLocalOperation,
   selectEntityBusy,
-  selectEntityProblem,
   selectFailedOps,
   newestProblem,
   operationsState,
@@ -29,6 +28,7 @@ function op(over: Partial<Operation>): Operation {
 }
 
 const state = () => operationsState()
+const problemOf = (entityId: string) => newestProblem(selectFailedOps(state()), [entityId])
 
 beforeEach(() => resetOperations())
 
@@ -75,13 +75,13 @@ describe('operations store', () => {
     expect(state().ops.mine.local).toBe(true)
   })
 
-  it('selectEntityProblem returns the newest failed operation naming the entity, cleared by a later success', () => {
+  it('newestProblem answers the newest failed operation naming the entity, cleared by a later success', () => {
     const held = { code: 'conflict' as const, message: 'held' }
     streamOperation(op({ state: 'failed', error: held }))
-    expect(selectEntityProblem(state(), 'ws1')).toEqual(held)
+    expect(problemOf('ws1')).toEqual(held)
 
     streamOperation(op({ id: 'op2', state: 'succeeded', createdAt: '2026-10-28T12:01:00Z' }))
-    expect(selectEntityProblem(state(), 'ws1')).toBeNull()
+    expect(problemOf('ws1')).toBeNull()
   })
 
   // Shallow-equal across frames that change no reason, so the sidebar does not re-derive.
@@ -118,7 +118,7 @@ describe('operations store', () => {
     expect(newestProblem(selectFailedOps(state()), [null, undefined])).toBeNull()
   })
 
-  it('selectEntityProblem returns a failed item error for the item ref', () => {
+  it('newestProblem answers a failed item error for the item ref', () => {
     const taken = { code: 'id_conflict' as const, message: 'taken' }
     streamOperation(
       op({
@@ -131,9 +131,9 @@ describe('operations store', () => {
       }),
     )
 
-    expect(selectEntityProblem(state(), 'c2')).toEqual(taken)
-    expect(selectEntityProblem(state(), 'c1')).toBeNull()
-    expect(selectEntityProblem(state(), 'ws1')?.code).toBe('partial')
+    expect(problemOf('c2')).toEqual(taken)
+    expect(problemOf('c1')).toBeNull()
+    expect(problemOf('ws1')?.code).toBe('partial')
   })
 
   it('selectEntityBusy is true only while an operation naming the entity is accepted or running', () => {
@@ -170,6 +170,6 @@ describe('operations store', () => {
         error: { code: 'internal', message: 'gone' },
       }),
     )
-    expect(selectEntityProblem(state(), 'ws1')).toBeNull()
+    expect(problemOf('ws1')).toBeNull()
   })
 })

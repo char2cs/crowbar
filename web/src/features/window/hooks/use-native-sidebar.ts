@@ -217,12 +217,12 @@ function useHostStatusVersion(hostIds: readonly string[]): number {
 
 /** The rows whose chat is mid-turn, the live fact the desktop tree subscribes per row. */
 function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
-  const key = useSelect((s) =>
-    rows
-      .filter((r) => r.kind !== 'folder' && selectAgentChat(s, r.id)?.working)
-      .map((r) => r.id)
-      .join('\n'),
-  )
+  const key = useSelect((s) => {
+    const working: string[] = []
+    for (const r of rows)
+      if (r.kind !== 'folder' && selectAgentChat(s, r.id)?.working) working.push(r.id)
+    return working.join('\n')
+  })
   return useMemo(() => new Set(key.split('\n')), [key])
 }
 

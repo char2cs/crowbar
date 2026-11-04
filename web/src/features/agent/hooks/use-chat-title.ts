@@ -3,17 +3,10 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { selectAgentChat, useSelect } from '@/core/entities/select'
 
 /**
- * What a surface shows where a name would go while this store holds no record
- * to name. Never a word a chat could actually be called, so a load gap reads as
- * a gap instead of as a title.
- */
-export const CHAT_TITLE_PENDING_LABEL = '—'
-
-/**
  * The chat's display name, or `null` when no record is held: a missing record
  * must not borrow the untitled label, or a load gap reads as a name.
  */
-export function chatTitleOf(chat: AgentChat | undefined): string | null {
+function chatTitleOf(chat: AgentChat | undefined): string | null {
   if (!chat) return null
   return chat.title || UNTITLED_CHAT_LABEL
 }

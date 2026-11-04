@@ -273,7 +273,7 @@ describe.each([
       agent: await import('@/features/agent/api/agent-chat-creates'),
     }
     ;(await import('@/lib/workspace-scope')).recordWorkspaceScope(SCOPE)
-    expect((await import('@/lib/api/fetch')).API_BASE).toBe(base)
+    expect((await import('@/lib/api/fetch')).apiBaseFor('local')).toBe(base)
     expect(await requested(() => call(mods))).toEqual([`${base}${path}`, method])
   })
 })
@@ -325,7 +325,7 @@ describe.each([
     ;(window as { __CROWBAR__?: unknown }).__CROWBAR__ = { api: apiBase }
     await import(/* @vite-ignore */ entry)
     const urls = await import('@/lib/project-url')
-    expect((await import('@/lib/api/fetch')).API_BASE).toBe(apiBase)
+    expect((await import('@/lib/api/fetch')).apiBaseFor('local')).toBe(apiBase)
     expect(urls.projectBase(P)).toBe('/v0/projects/p1')
     expect(urls.repoBase(P, R)).toBe('/v0/projects/p1/repos/r1')
     expect(urls.projectAssetURL(P, '/v0/projects/p1/icon')).toBe(`${apiBase}/v0/projects/p1/icon`)
