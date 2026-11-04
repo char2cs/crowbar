@@ -3,7 +3,6 @@ package tree
 import (
 	"context"
 	"fmt"
-
 )
 
 // Busy answers whether a chat is working.

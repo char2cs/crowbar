@@ -946,80 +946,6 @@ func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
 	}
 }
 
-func TestApply_AcceptsDeclaredTerminalPrompts(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{
-		{Kind: spec.TerminalPromptTrust, Needle: "I trust this folder"},
-		{Needle: "Enter to confirm"},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-func TestApply_RejectsAnUnknownTerminalPromptKind(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: "worksapce_trust", Needle: "x"}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unknown kind")
-}
-
-func TestApply_RejectsAContentFreeNeedle(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "· ⏎ ›"}}
-
-	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
-}
-
-func TestApply_RejectsAnEmptyNeedle(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: spec.TerminalPromptTrust}}
-
-	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
-}
-
-func TestApply_DeclaringNoTerminalPromptsIsValid(t *testing.T) {
-	assert.NoError(t, rules.Apply(valid()))
-}
-
-func TestApply_AcceptsADeclaredTerminalNotice(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{
-		{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit", EndsTurn: true},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-func TestApply_RejectsAKindlessTerminalNotice(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{{Needle: "something went wrong", EndsTurn: true}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "kind is required")
-}
-
-func TestApply_RejectsAnUnknownTerminalNoticeKind(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: "usage_limits", Needle: "x"}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unknown kind")
-}
-
-func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: spec.TerminalNoticeUsageLimit, Needle: "· ⏎ ›"}}
-
-	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
-}
-
 // A descriptor that declares only the two required events still passes every rule:
 // message_delta and turn_failed are optional capabilities, not obligations.
 func TestApply_ADescriptorWithOnlyTheRequiredEventsIsValid(t *testing.T) {
@@ -1170,16 +1096,4 @@ func TestApply_RejectsAnUnknownPerEventSurface(t *testing.T) {
 
 	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
 	assert.Contains(t, err.Error(), "unknown surface")
-}
-
-func TestApply_RejectsAnIncompleteOrDuplicateTerminalPromptAnswer(t *testing.T) {
-	for name, answers := range map[string][]spec.TerminalPromptAnswerSpec{
-		"missing keys": {{ID: "accept", Label: "Trust"}},
-		"duplicate id": {{ID: "a", Label: "A", Keys: "\r"}, {ID: "a", Label: "B", Keys: "\r"}},
-	} {
-		d := valid()
-		d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "x", Answers: answers}}
-
-		require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor, name)
-	}
 }

@@ -329,14 +329,7 @@ func (c *countingChats) reset() {
 // inside that window.
 type perfRenamer struct{}
 
-func (perfRenamer) RenameByRunner(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-) error {
-	return nil
-}
+func (perfRenamer) RenameByRunner(context.Context, string, string, string) error { return nil }
 
 // queryCounter counts SELECTs and rows materialised on one GORM handle. It is
 // registered on the chat read model because ListByWorkspace filters in Go after

@@ -222,11 +222,7 @@ func (u *configurableListGetUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (configurableListGetUsecase) SpawnChat(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, string, error) {
+func (configurableListGetUsecase) SpawnChat(context.Context, string, string) (string, string, error) {
 	return "", "", nil
 }
 
@@ -324,64 +320,29 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 	return u.conversations[chatID], nil
 }
 
-func (configurableListGetUsecase) SwitchProvider(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, error) {
+func (configurableListGetUsecase) SwitchProvider(context.Context, string, string) (string, error) {
 	return "", nil
 }
 
-func (configurableListGetUsecase) ResumeChat(
-	_ context.Context,
-	_ string,
-) (string, error) {
+func (configurableListGetUsecase) ResumeChat(context.Context, string) (string, error) { return "", nil }
+
+func (configurableListGetUsecase) Compact(context.Context, string) error { return nil }
+
+func (configurableListGetUsecase) StopChat(context.Context, string) error { return nil }
+
+func (configurableListGetUsecase) KillChat(context.Context, string) error { return nil }
+
+func (configurableListGetUsecase) SwitchToTerminal(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (configurableListGetUsecase) Compact(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) StopChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) KillChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) SwitchToTerminal(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "", nil
-}
-
-func (configurableListGetUsecase) SwitchToNative(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (configurableListGetUsecase) SwitchToNative(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return "", false
 }
 
-func (configurableListGetUsecase) AssembleHandoff(
-	_ context.Context,
-	_ string,
-) (string, error) {
+func (configurableListGetUsecase) AssembleHandoff(context.Context, string) (string, error) {
 	return "", nil
 }
 
@@ -411,12 +372,7 @@ func (configurableListGetUsecase) DispatchMCP(
 	return nil, false, nil
 }
 
-func (configurableListGetUsecase) PurgeChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (configurableListGetUsecase) PurgeChat(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) DescriptorReports(
 	context.Context,
@@ -428,9 +384,7 @@ func (configurableListGetUsecase) InstallDescriptor(context.Context, []byte) (de
 	return descriptorcheck.Report{}, nil
 }
 
-func (configurableListGetUsecase) ResolveProviders(
-	_ context.Context,
-) ([]domain.AgentProvider, error) {
+func (configurableListGetUsecase) ResolveProviders(context.Context) ([]domain.AgentProvider, error) {
 	return nil, nil
 }
 
@@ -441,29 +395,19 @@ func (configurableListGetUsecase) ReplaceProviderPreferences(
 	return nil, nil
 }
 
-func (configurableListGetUsecase) DefaultPermissionLevel(
-	_ context.Context,
-) (string, error) {
+func (configurableListGetUsecase) DefaultPermissionLevel(context.Context) (string, error) {
 	return agentusecase.PermissionFullAuto, nil
 }
 
-func (configurableListGetUsecase) SetDefaultPermissionLevel(
-	_ context.Context,
-	_ string,
-) error {
+func (configurableListGetUsecase) SetDefaultPermissionLevel(context.Context, string) error {
 	return nil
 }
 
-func (configurableListGetUsecase) ModelManifestFetchEnabled(
-	_ context.Context,
-) (bool, error) {
+func (configurableListGetUsecase) ModelManifestFetchEnabled(context.Context) (bool, error) {
 	return true, nil
 }
 
-func (configurableListGetUsecase) SetModelManifestFetchEnabled(
-	_ context.Context,
-	_ bool,
-) error {
+func (configurableListGetUsecase) SetModelManifestFetchEnabled(context.Context, bool) error {
 	return nil
 }
 

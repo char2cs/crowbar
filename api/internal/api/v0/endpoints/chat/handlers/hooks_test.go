@@ -199,24 +199,15 @@ func (f *fakeAgentUsecase) Hook(
 	return agentusecase.HookReply{Body: []byte(f.hookReply), Ask: f.hookAsk}, f.ingestErr
 }
 
-func (f *fakeAgentUsecase) ListChatsByWorkspace(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
+func (f *fakeAgentUsecase) ListChatsByWorkspace(context.Context, string) ([]domain.Chat, error) {
 	return nil, nil
 }
 
-func (f *fakeAgentUsecase) ListChatsInRepo(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
+func (f *fakeAgentUsecase) ListChatsInRepo(context.Context, string) ([]domain.Chat, error) {
 	return nil, nil
 }
 
-func (f *fakeAgentUsecase) CwdWorkspaceID(
-	_ context.Context,
-	_ string,
-) (string, bool, error) {
+func (f *fakeAgentUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
 
@@ -278,10 +269,7 @@ func (f *fakeAgentUsecase) SlashCatalog(
 // ConversationsForChat backs the chat DTOs' derived facts, which only the List/Get
 // read handlers compose; this double answers "no history" for the mutation
 // handlers it serves.
-func (f *fakeAgentUsecase) ConversationsForChat(
-	_ context.Context,
-	_ string,
-) ([]engineagents.ChatConversation, error) {
+func (f *fakeAgentUsecase) ConversationsForChat(context.Context, string) ([]engineagents.ChatConversation, error) {
 	return nil, nil
 }
 
@@ -424,9 +412,7 @@ func (f *fakeAgentUsecase) InstallDescriptor(_ context.Context, raw []byte) (des
 	return f.installReport, f.installErr
 }
 
-func (f *fakeAgentUsecase) ResolveProviders(
-	_ context.Context,
-) ([]domain.AgentProvider, error) {
+func (f *fakeAgentUsecase) ResolveProviders(context.Context) ([]domain.AgentProvider, error) {
 	return f.resolveProviders, f.resolveErr
 }
 
@@ -441,9 +427,7 @@ func (f *fakeAgentUsecase) ReplaceProviderPreferences(
 	return f.replaceResult, nil
 }
 
-func (f *fakeAgentUsecase) DefaultPermissionLevel(
-	_ context.Context,
-) (string, error) {
+func (f *fakeAgentUsecase) DefaultPermissionLevel(context.Context) (string, error) {
 	return f.defaultLevel, f.defaultLevelErr
 }
 
