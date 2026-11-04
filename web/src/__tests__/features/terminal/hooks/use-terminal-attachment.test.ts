@@ -96,6 +96,16 @@ import {
 
 type Props = Parameters<typeof useTerminalAttachment>[0]
 
+const scope = (projectId: string, wsId: string, owningChatId: string) =>
+  recordWorkspaceScope({ projectId, repoId: 'r', wsId, owningChatId })
+
+/** Holds a bridge call until the returned release runs. */
+function hold(install: (gate: Promise<void>) => void): () => void {
+  let release = () => {}
+  install(new Promise<void>((r) => (release = r)))
+  return () => release()
+}
+
 function render(initial: Partial<Props> = {}) {
   const onEnded = vi.fn()
   const props: Props = {
@@ -127,7 +137,7 @@ beforeEach(() => {
   resetHostWorld()
   useTerminalStore.setState({ sessions: new Map() })
   __resetWorkspaceScopesForTest()
-  recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
+  scope('p', 'ws-1', 'chat-1')
   useConnectionStore.setState({ status: 'connected' })
 })
 
@@ -145,32 +155,11 @@ describe('useTerminalAttachment', () => {
     expect(useTerminalStore.getState().getSession('tab-1')?.connectionId).toBe('fresh-1')
   })
 
-  // An explicit chat owns the PTY; a sibling chat is no workspace's recorded owner, so only the workspace it is
-  // opened in can say which daemon its PTY lives on.
-  it('addresses an explicit chat on the host of the workspace it is opened in', async () => {
-    pairRemoteHost('host-1')
-    loadProjects(projectOn('p', 'host-1'), projectOn('p-l', 'local'))
-    recordWorkspaceScope({
-      projectId: 'p-l',
-      repoId: 'r',
-      wsId: 'ws-local',
-      owningChatId: 'chat-l',
-    })
-
-    const remote = render({ sessionId: 'pty-1', chatId: 'chat-9', attachOnly: true })
-    await remote.settle()
-    const local = render({
-      sessionId: 'pty-1',
-      workspaceId: 'ws-local',
-      chatId: 'chat-8',
-      attachOnly: true,
-    })
-    await local.settle()
-
-    expect(bridge.opened.map((c) => c.base)).toEqual([
-      'crowbar://host-1/v0/chats/chat-9/terminals',
-      '/v0/chats/chat-8/terminals',
-    ])
+  // Which host the chat's terminals live on is workspace-scope-url's to say.
+  it('addresses the PTY of an explicit chat under that chat', async () => {
+    const { settle } = render({ sessionId: 'pty-1', chatId: 'chat-8', attachOnly: true })
+    await settle()
+    expect(bridge.opened.map((c) => c.base)).toEqual(['/v0/chats/chat-8/terminals'])
   })
 
   it('does nothing until enabled (a never-shown tab, or no owning chat yet)', async () => {
@@ -233,10 +222,7 @@ describe('useTerminalAttachment', () => {
   })
 
   it('racing swaps converge on the LATEST session; a superseded attempt opens nothing', async () => {
-    let release = () => {}
-    bridge.listGate = new Promise<void>((r) => {
-      release = r
-    })
+    const release = hold((gate) => (bridge.listGate = gate))
     const { rerender, props, result, settle } = render({ sessionId: 'pty-A', attachOnly: true })
     rerender({ ...props, sessionId: 'pty-B' })
     rerender({ ...props, sessionId: 'pty-C' })
@@ -249,10 +235,7 @@ describe('useTerminalAttachment', () => {
   // The daemon made the PTY the moment it answered; forgetting it because the view left
   // meanwhile would have the next mount make a second and leave this one running unseen.
   it('unmount while the daemon creates the PTY remembers it, so a remount attaches it rather than making another', async () => {
-    let created = () => {}
-    bridge.createGate = new Promise<void>((r) => {
-      created = r
-    })
+    const created = hold((gate) => (bridge.createGate = gate))
     const first = render()
     await first.settle()
 
@@ -336,22 +319,11 @@ describe('on an install that has paired a remote host', () => {
   const REMOTE_CHANNEL = 'crowbar://host-1/v0/chats/chat-r/ws'
 
   beforeEach(() => {
-    resetHostWorld()
     pairRemoteHost('host-1')
     resetConnectionState()
     __resetWorkspaceScopesForTest()
-    recordWorkspaceScope({
-      projectId: 'p-remote',
-      repoId: 'r',
-      wsId: 'ws-remote',
-      owningChatId: 'chat-r',
-    })
-    recordWorkspaceScope({
-      projectId: 'p-local',
-      repoId: 'r',
-      wsId: 'ws-local',
-      owningChatId: 'chat-l',
-    })
+    scope('p-remote', 'ws-remote', 'chat-r')
+    scope('p-local', 'ws-local', 'chat-l')
     // A tab already bound to a PTY, so every attach has to ask the daemon.
     useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
   })
@@ -459,10 +431,7 @@ describe('on an install that has paired a remote host', () => {
 
   it('opens nothing for a host revoked while the daemon was being asked', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
-    let release = () => {}
-    bridge.listGate = new Promise<void>((r) => {
-      release = r
-    })
+    const release = hold((gate) => (bridge.listGate = gate))
     const { result, settle } = render({ workspaceId: 'ws-remote' })
     await settle()
     expect(bridge.listCalls).toEqual([REMOTE_TERMINALS])
@@ -480,10 +449,7 @@ describe('on an install that has paired a remote host', () => {
   it('remembers a PTY created as the host was revoked, and re-attaches it when paired back', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     useTerminalStore.setState({ sessions: new Map() })
-    let created = () => {}
-    bridge.createGate = new Promise<void>((r) => {
-      created = r
-    })
+    const created = hold((gate) => (bridge.createGate = gate))
     const { result, settle } = render({ workspaceId: 'ws-remote' })
     await settle()
 
