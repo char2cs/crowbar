@@ -1,14 +1,12 @@
 // `editor.api` is the same singleton as bare 'monaco-editor' without its eager
-// import of every built-in language; the bare specifier anywhere would defeat
-// language-contributions' on-demand loading.
+// imports. The languages register here, before any model this module creates names one.
 import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import '@/features/editor/monaco/language-contributions'
 import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
 import type { IModelLike, MonacoModelApi } from '@/features/editor/documents/document-registry'
 import { refFromUri } from '@/features/editor/documents/document-ref'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { toMonacoLanguageId } from '@/features/editor/monaco/language'
-import { loadLanguageForPath } from '@/features/editor/monaco/language-contributions'
-import { report } from '@/lib/errors/report'
 
 /**
  * Structural create options; settings-derived ones (font, theme, readOnly) are
@@ -47,16 +45,9 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
   },
 }
 
-/**
- * Monaco language id for a model URI. Starts the language's on-demand load without
- * awaiting it, so the model is created at once and retokenized when it lands.
- */
+/** Monaco language id for a model URI. */
 export function langForUri(uri: string): string {
-  const fsPath = refFromUri(uri)?.path ?? ''
-  void loadLanguageForPath(fsPath).catch((err: unknown) =>
-    report(err, { action: 'Load language support' }),
-  )
-  return toMonacoLanguageId(getLanguageIdFromPath(fsPath))
+  return toMonacoLanguageId(getLanguageIdFromPath(refFromUri(uri)?.path ?? ''))
 }
 
 /** Wrap a real Monaco text model so it satisfies `IModelLike` (string `uri`). */
