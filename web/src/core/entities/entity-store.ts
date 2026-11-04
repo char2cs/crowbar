@@ -279,7 +279,9 @@ registerScopeKind('projects', {
     if (f.t === 'entity') heardEntity(hostId, f)
     else if (f.t === 'synced') {
       applySynced(hostId, f.scope, f.unread)
-      forgetUnstreamedReplies((id) => id in entityStore.getState().byKind.operation)
+      const ops = Object.keys(entityStore.getState().byKind.operation)
+      const streamed = new Set(ops.map((key) => splitHostKey(key).id))
+      forgetUnstreamedReplies((id) => streamed.has(id))
     }
   },
 })

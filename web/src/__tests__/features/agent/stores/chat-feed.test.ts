@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachFeed as attachReal } from '@/features/agent/stores/chat-feed'
 import { chatStore } from '@/features/agent/stores/chat-store'
-import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { heldScopes, streamDaemon, streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 
 const SCOPE = 'chat:chat-1'
@@ -212,5 +213,30 @@ describe('attachFeed', () => {
     expect(feed()?.live['answer:m1']).toBe('abc')
     expect(feed()?.order).toEqual(['m:turn-1:m1'])
     stop()
+  })
+})
+
+describe("a paired host's chat", () => {
+  const host1 = streamDaemonFor('host-1')
+  const subsOn = () => host1.sent.filter((r) => r.op === 'sub' && r.scope === SCOPE)
+  afterEach(() => resetHostWorld())
+
+  it('subs on its host and resumes from its seq when that host reconnects, not when local does', async () => {
+    pairRemoteHost('host-1')
+    await Promise.resolve()
+    host1.answer = () => []
+    held.push(attachReal('host-1', 'chat-1'))
+    expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE }])
+    expect(subs()).toEqual([])
+    const l = ledger()
+    host1.deliver({ t: 'row', scope: SCOPE, row: l.prompt('r1', 'hi') })
+    host1.deliver({ t: 'synced', scope: SCOPE, seq: 1 })
+
+    streamDaemon.drop()
+    streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
+    expect(subs()).toEqual([])
+    host1.drop()
+    host1.deliver({ t: 'ready', epoch: 'h1' })
+    expect(subsOn().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1 })
   })
 })

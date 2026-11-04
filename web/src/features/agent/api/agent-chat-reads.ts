@@ -1,7 +1,7 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { apiFetch, apiFetchRaw } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
-import { chatBase as chatRoute, repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { chatBaseOn, repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // Agentic-chat REST client. A chat is no longer addressed through its
 // workspace (Task 17 rescope, model spec §5.1): a non-home workspace's chats
@@ -271,11 +271,12 @@ export function mapShift(raw: Partial<FolderShift> | null): AgentChatFolder[] {
 
 /** One content-addressed payload a row names (`sha256:…`); null once swept. */
 export async function readBlob(
+  hostId: string,
   chatId: string,
   ref: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const url = `${chatRoute(chatId)}/blobs/${encodeURIComponent(ref)}`
+  const url = `${chatBaseOn(hostId, chatId)}/blobs/${encodeURIComponent(ref)}`
   try {
     return await (await apiFetchRaw(url, { signal })).text()
   } catch (err: unknown) {

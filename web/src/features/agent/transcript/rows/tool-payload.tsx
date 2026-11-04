@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { readBlob } from '@/features/agent/api/agent-chat-reads'
+import { useChatHost } from '@/lib/host-resolve'
 
 type Read = { state: 'loading' } | { state: 'read'; text: string | null } | { state: 'failed' }
 
@@ -24,18 +25,21 @@ function PayloadSide({
 }) {
   const [attempt, setAttempt] = useState(0)
   const [read, setRead] = useState<Read & { key: string }>({ state: 'loading', key: '' })
-  const key = `${blobRef}#${attempt}`
+  const hostId = useChatHost(chatId)
+  const key = `${hostId}#${blobRef}#${attempt}`
 
+  // The blob is its chat's host's: nothing is read until that host is known.
   useEffect(() => {
+    if (!hostId) return
     const controller = new AbortController()
-    readBlob(chatId, blobRef, controller.signal).then(
+    readBlob(hostId, chatId, blobRef, controller.signal).then(
       (text) => setRead({ state: 'read', text, key }),
       () => {
         if (!controller.signal.aborted) setRead({ state: 'failed', key })
       },
     )
     return () => controller.abort()
-  }, [chatId, blobRef, key])
+  }, [hostId, chatId, blobRef, key])
 
   const current: Read = read.key === key ? read : { state: 'loading' }
   return (

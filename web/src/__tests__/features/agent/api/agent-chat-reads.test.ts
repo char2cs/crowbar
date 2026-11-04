@@ -56,18 +56,26 @@ describe('agent-chat-reads', () => {
       .mockResolvedValueOnce(new Response('full output'))
       .mockRejectedValueOnce(new ApiError('gone', 404))
     const controller = new AbortController()
-    await expect(api.readBlob('chat/1', 'sha256:ab', controller.signal)).resolves.toBe(
+    await expect(api.readBlob('local', 'chat/1', 'sha256:ab', controller.signal)).resolves.toBe(
       'full output',
     )
     expect(apiFetchRaw).toHaveBeenCalledWith('/v0/chats/chat%2F1/blobs/sha256%3Aab', {
       signal: controller.signal,
     })
-    await expect(api.readBlob('c1', 'sha256:gone')).resolves.toBeNull()
+    await expect(api.readBlob('local', 'c1', 'sha256:gone')).resolves.toBeNull()
+  })
+
+  it("reads a blob from its chat's host", async () => {
+    apiFetchRaw.mockResolvedValueOnce(new Response('remote output'))
+    await expect(api.readBlob('host-1', 'c1', 'sha256:ab')).resolves.toBe('remote output')
+    expect(apiFetchRaw).toHaveBeenCalledWith('crowbar://host-1/v0/chats/c1/blobs/sha256%3Aab', {
+      signal: undefined,
+    })
   })
 
   it('throws on a blob read that failed for any other reason', async () => {
     apiFetchRaw.mockRejectedValueOnce(new ApiError('boom', 500))
-    await expect(api.readBlob('c1', 'sha256:ab')).rejects.toThrow('boom')
+    await expect(api.readBlob('local', 'c1', 'sha256:ab')).rejects.toThrow('boom')
   })
 
   it('loads a cancellable slash catalog with no read retry/cache layer', async () => {

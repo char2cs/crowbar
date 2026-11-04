@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { treeInputFor, useTreeInput } from '@/features/workspace/tree/input'
@@ -10,6 +10,14 @@ import type { Chat, Folder } from '@/core/entities/repo-types'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { HOME_ROW_ID, homeRows } from '@/__tests__/__fixtures__/tree-rows'
 import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+import {
+  chatEntity,
+  putEntities,
   resetEntities,
   seedHome,
   seedHomeTree,
@@ -413,5 +421,23 @@ describe('a project home', () => {
     const row = rows.find((r) => r.id === 'c-1')
     expect(row?.kind).toBe('chat')
     expect(row?.parentId).toBeNull()
+  })
+})
+
+describe('an operation a paired host ran', () => {
+  afterEach(() => resetHostWorld())
+
+  it('counts its item present once that host streams the row it names', () => {
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p1', 'host-1'))
+    const failed = importOp({
+      state: 'failed',
+      items: [item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR })],
+    })
+    streamOperation(failed, 'host-1')
+    expect(rows([]).map((r) => r.id)).toEqual(['chat-a'])
+
+    putEntities('chat', [chatEntity({ id: 'chat-a', repoId: 'r1' })], 'host-1')
+    expect(rows([])).toEqual([])
   })
 })

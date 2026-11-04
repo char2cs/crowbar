@@ -3,7 +3,9 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Repo } from '@/core/entities/repo-types'
 import { readSelect, selectHomeTrees, selectRepos, useSelect } from '@/core/entities/select'
 import type { HomeTree } from '@/core/entities/views-from-entities'
-import { entityStore, holdsEntity } from '@/core/entities/entity-store'
+import { entityStore, holdsEntity, type EntityState } from '@/core/entities/entity-store'
+import { entityKey } from '@/core/stream/host-scope'
+import { resolvedHostOf } from '@/lib/host-resolve'
 import { treeUiStore, useTreeUi, type CreateDraft, type RemovalEntry } from './tree-ui-store'
 import {
   newestProblem,
@@ -68,6 +70,11 @@ function inputFrom(src: Sources, projectId: string): TreeInput {
 
 const refKey = (ref: EntityRef): string => `${ref.kind}:${ref.id}`
 
+// An operation's items are rows of the host it ran on, named by raw id.
+function heldOn(s: EntityState, hostId: string | null, ref: EntityRef): boolean {
+  return hostId !== null && holdsEntity(s, { ...ref, id: entityKey(hostId, ref.id) })
+}
+
 const problemsIn =
   (failed: Readonly<Record<string, Operation>>): ProblemLookup =>
   (...ids) =>
@@ -94,7 +101,7 @@ export function treeInputFor(
       operations: Object.values(ops.ops),
       draft: treeUiStore.getState().draft,
       problemOf: problemsIn(selectFailedOps(ops)),
-      isPresent: (ref) => holdsEntity(entityStore.getState(), ref),
+      isPresent: (ref) => heldOn(entityStore.getState(), resolvedHostOf({ projectId }), ref),
     },
     projectId,
   )
@@ -112,12 +119,19 @@ export function useTreeInput(): (projectId: string) => TreeInput {
   // Shallow: rows re-derive only when some failure changes, not on every frame.
   const failed = useOperations(useShallow(selectFailedOps))
   const operations = useMemo(() => Object.values(ops), [ops])
-  const refs = useMemo(() => createItemRefs(operations), [operations])
+  const refs = useMemo(
+    () => operations.map((op) => ({ op, refs: createItemRefs([op]) })),
+    [operations],
+  )
   // The held refs as one key: the input re-derives when one lands or leaves, not on every frame.
   const presentKey = useSyncExternalStore(entityStore.subscribe, () => {
     const s = entityStore.getState()
+    const { hostOf } = operationsState()
     const held: string[] = []
-    for (const ref of refs) if (holdsEntity(s, ref)) held.push(refKey(ref))
+    for (const { op, refs: items } of refs) {
+      const hostId = hostOf[op.id] ?? resolvedHostOf({ projectId: op.projectId })
+      for (const ref of items) if (heldOn(s, hostId, ref)) held.push(refKey(ref))
+    }
     return held.join('\n')
   })
   const present = useMemo(() => new Set(presentKey.split('\n')), [presentKey])

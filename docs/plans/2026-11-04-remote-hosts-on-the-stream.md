@@ -45,7 +45,7 @@
 
 **D8. Kill is flat.** `POST /v0/chats/:chatId/kill` answers 204 on the `chatScoped` group (`api/internal/api/v0/router.go:117`, guarded by `resolveChatWorktree`). The nested `repoScoped.POST("/chats/:id/kill")` (`endpoints/chat/routes.go:130`) and `home.POST("/chats/:id/kill")` (`endpoints/home/routes.go:136`) are deleted. The web calls `killChat(hostId, chatId)`.
 
-**D9. Operations per host.** `OperationStart` gains `hostId` (from `hostIdForProject(start.projectId)`). The POST goes to that host with the same `Idempotency-Key`, and the local operation is filed under `entityKey(hostId, opId)`, so the streamed one from that host replaces it (`forgetLocalOperation` takes the key). `dismissOperation` reads the host from the held operation.
+**D9. Operations per host.** An operation id is client-minted (the `Idempotency-Key`, a uuid), so the operations view stays keyed by it: `operationsState()` folds every host's streamed rows by raw id, so the one a host streams replaces the local one (`forgetLocalOperation(id)`) and `whenSettled(id)` settles on it, and records `hostOf[id]`, the host that streamed it. `dismissOperation` sends the DELETE there. The POST already goes to its entity's host through the caller's URL builder, so `OperationStart` needs no host. A created item counts as present once a row with its id is held on the operation's host.
 
 ## Line budgets (source, all < 500 after)
 
@@ -137,10 +137,10 @@ export function startStream(): () => void          // local when hasLocalDaemon(
 
 ### T7: Chat scopes and chat REST per host (web)
 
-**Files:** `features/agent/stores/chat-feed.ts` keys attachments by `entityKey(hostId, chatId)`, holds `hostScope`, and its `since` reads the host's ledger head. `readBlob(hostId, chatId, ref)` passes the host to `apiFetchRaw`. Its callers (`chat-asset-resolver.ts`, `chat-attachment-file-card.tsx`, `chat-markdown-asset-provider.tsx`) take the host from `useResolvedHost`, and so do `agent-chat-commands.ts` (`chatBase` call sites) and `upload-chat-attachment.ts`. Operations as in D9 (`core/entities/run-operation.ts`, `lib/store/local-operations.ts`, `components/layout/thread-create.ts`, `lib/api.ts:65-80`).
+**Files:** `features/agent/stores/chat-feed.ts` holds the chat scope on its attachment's host and its `since` answers only that host (T4); feeds stay keyed by raw chat id, since a twin chat id resolves to no host and so attaches nowhere. `readBlob(hostId, chatId, ref)` builds its URL with `chatBaseOn`, and `tool-payload.tsx` reads nothing until `useChatHost` names the host. The other chat REST callers (`chatBase`, `upload-chat-attachment.ts`, the asset resolvers) already resolve through `hostIdForChat`, which reads the chat's row since T6. Operations as in D9 (`core/entities/operations.ts`, `run-operation.ts`, `entity-store.ts`'s unstreamed-reply prune, `features/workspace/tree/input.ts`).
 
-- [ ] **Step 1: failing tests:** `__tests__/features/agent/stores/chat-feed.test.ts` (`a host-1 chat's feed subs on host-1 and resumes from host-1's seq after host-1 reconnects; a local chat with the same id is a separate feed`), `agent-chat-reads.test.ts` (`readBlob goes to crowbar://host-1/v0/chats/c1/blobs/…`), `__tests__/core/entities/run-operation.test.ts` (`an operation on a host-1 project posts to host-1 and its streamed twin from host-1 replaces the local one; local's frame with that id does not`).
-- [ ] **Step 2:** red; **Step 3:** implement.
+- [x] **Step 1: failing tests:** `__tests__/features/agent/stores/chat-feed.test.ts` (`a host-1 chat subs on its host and resumes from its seq when that host reconnects, not when local does`), `agent-chat-reads.test.ts` (`readBlob goes to crowbar://host-1/v0/chats/c1/blobs/…`), `__tests__/core/entities/run-operation.test.ts` (`settles on host-1's frame for it, which replaces the local one`, `dismissing it asks host-1`), `features/workspace/tree/input.test.ts` (`counts its item present once that host streams the row it names`).
+- [x] **Step 2:** red; **Step 3:** implement.
 
 ### T8: Offline and removed hosts in the sidebar; the phone (web)
 

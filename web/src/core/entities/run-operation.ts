@@ -97,12 +97,14 @@ export function whenSettled(opId: string): Promise<Operation> {
   })
 }
 
-/** Clears a settled operation's reason; the daemon records the dismissal. */
+/** Clears a settled operation's reason; the daemon that streamed it records the dismissal. */
 export async function dismissOperation(opId: string): Promise<void> {
-  const held = operationsState().ops[opId]
+  const { ops, hostOf } = operationsState()
+  const held = ops[opId]
   if (held?.local) {
     putLocalOperation({ ...held, dismissed: true })
     return
   }
-  putLocalOperation(await apiFetch<Operation>(`/v0/operations/${opId}`, { method: 'DELETE' }))
+  const path = `/v0/operations/${opId}`
+  putLocalOperation(await apiFetch<Operation>(path, { method: 'DELETE' }, undefined, hostOf[opId]))
 }

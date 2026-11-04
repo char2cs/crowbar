@@ -1,13 +1,15 @@
 import { entityStore } from '@/core/entities/entity-store'
+import { entityKey } from '@/core/stream/host-scope'
 import { forgetLocalOperation, useLocalOperationsStore } from '@/lib/store/local-operations'
 import type { Operation } from '@/core/entities/operations'
 
 let v = 0
 
-/** The daemon's row for `op` as a live projects-scope frame leaves it. */
-export function streamOperation(op: Operation): void {
+/** `hostId`'s row for `op` as a live projects-scope frame leaves it. */
+export function streamOperation(op: Operation, hostId = 'local'): void {
+  const key = entityKey(hostId, op.id)
   entityStore.setState((s) => ({
-    byKind: { ...s.byKind, operation: { ...s.byKind.operation, [op.id]: { v: ++v, data: op } } },
+    byKind: { ...s.byKind, operation: { ...s.byKind.operation, [key]: { v: ++v, data: op } } },
   }))
   forgetLocalOperation(op.id, op.version)
 }

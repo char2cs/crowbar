@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/errors/api-error'
+import * as fetchApi from '@/lib/api/fetch'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState, subscribeOperations, type Operation } from '@/core/entities/operations'
@@ -170,5 +171,35 @@ describe('dismissOperation', () => {
       expect.objectContaining({ method: 'DELETE' }),
     )
     expect(ops()['op-x']).toMatchObject({ dismissed: true, version: 4 })
+  })
+})
+
+describe('an operation a paired host runs', () => {
+  it("settles on host-1's frame for it, which replaces the local one", async () => {
+    const reply = deferred()
+    const op = runOperation(push, () => reply.promise)
+    streamOperation(server(op.id, { state: 'succeeded', version: 2 }), 'host-1')
+
+    expect(ops()[op.id]).toMatchObject({ state: 'succeeded', version: 2 })
+    expect(ops()[op.id]?.local).toBeUndefined()
+    await expect(whenSettled(op.id)).resolves.toMatchObject({ state: 'succeeded' })
+  })
+
+  it('dismissing it asks host-1, the daemon that streamed it', async () => {
+    const failed = server('op-h1', { state: 'failed', version: 3 })
+    streamOperation(failed, 'host-1')
+    const fetched = vi
+      .spyOn(fetchApi, 'apiFetch')
+      .mockResolvedValue({ ...failed, dismissed: true, version: 4 })
+
+    await dismissOperation('op-h1')
+
+    expect(fetched).toHaveBeenCalledWith(
+      '/v0/operations/op-h1',
+      { method: 'DELETE' },
+      undefined,
+      'host-1',
+    )
+    expect(ops()['op-h1']).toMatchObject({ dismissed: true, version: 4 })
   })
 })

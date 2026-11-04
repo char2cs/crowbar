@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { entityStore, type EntityState } from '@/core/entities/entity-store'
+import { entityKey, splitHostKey } from '@/core/stream/host-scope'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
 import type { Problem } from '@/lib/errors/problem'
 
@@ -40,7 +41,10 @@ export interface Operation {
 }
 
 export interface OperationsState {
+  /** By operation id: a client-minted uuid, so one host's never meets another's. */
   ops: Record<string, Operation>
+  /** Operation id → the host that streamed it; a local one has none until it does. */
+  hostOf: Record<string, string>
   /** Entity id → the newest operation naming it. */
   latestFor: Record<string, string>
 }
@@ -75,12 +79,15 @@ export function operationsState(): OperationsState {
   const local = useLocalOperationsStore.getState().ops
   if (memo?.server === server && memo.local === local) return memo.view
   const ops: Record<string, Operation> = { ...local }
-  for (const [id, held] of Object.entries(server)) {
+  const hostOf: Record<string, string> = {}
+  for (const [key, held] of Object.entries(server)) {
+    const { hostId, id } = splitHostKey(key)
+    hostOf[id] = hostId
     const reply = local[id]
     // A daemon reply newer than the stream's row (a dismiss) shows until its frame arrives.
     if (!reply || reply.local || reply.version <= held.data.version) ops[id] = held.data
   }
-  memo = { server, local, view: { ops, latestFor: newestFor(ops) } }
+  memo = { server, local, view: { ops, hostOf, latestFor: newestFor(ops) } }
   return memo.view
 }
 
@@ -104,7 +111,10 @@ export function useOperations<T>(selector: (s: OperationsState) => T): T {
 /** Writes an operation the stream has not delivered: a local one, or a daemon
  *  reply newer than what is held. */
 export function putLocalOperation(op: Operation): void {
-  const streamed = entityStore.getState().byKind.operation[op.id]
+  const hostId = operationsState().hostOf[op.id]
+  const streamed = hostId
+    ? entityStore.getState().byKind.operation[entityKey(hostId, op.id)]
+    : undefined
   if (streamed && (op.local || streamed.data.version >= op.version)) return
   useLocalOperationsStore.setState((s) => {
     const held = s.ops[op.id]
