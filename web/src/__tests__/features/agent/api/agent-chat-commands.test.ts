@@ -77,6 +77,12 @@ describe('agent-chat-commands', () => {
     )
   })
 
+  it('killChat POSTs to the flat chat route on the host it names', async () => {
+    apiFetch.mockResolvedValue(undefined)
+    await api.killChat('host-1', 'c1')
+    expect(apiFetch).toHaveBeenCalledWith('crowbar://host-1/v0/chats/c1/kill', { method: 'POST' })
+  })
+
   it('switchProvider POSTs to /switch and returns the NEW RUNNER id', async () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
     const runnerId = await api.switchProvider('w1', 'c1', 'claude')

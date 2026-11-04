@@ -148,7 +148,7 @@ func TestKill_Success(
 	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/kill", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+	ctx.Params = gin.Params{{Key: "chatId", Value: "chat-1"}}
 
 	h.Kill(ctx)
 

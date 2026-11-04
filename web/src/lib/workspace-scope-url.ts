@@ -31,7 +31,12 @@ export class OwningChatNotRecordedError extends Error {
  * chat no recorded scope owns (a sibling, say) throws rather than guessing.
  */
 export function chatBase(chatId: string): string {
-  return qualify(hostIdForChat(chatId), chatPath(chatId))
+  return chatBaseOn(hostIdForChat(chatId), chatId)
+}
+
+/** {@link chatBase} for a caller that already knows the chat's host. */
+export function chatBaseOn(hostId: string, chatId: string): string {
+  return qualify(hostId, chatPath(chatId))
 }
 
 function chatPath(chatId: string): string {

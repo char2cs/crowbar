@@ -55,7 +55,7 @@ func newProviderServer(
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
-	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, nil, nil, nil, nil)
+	chat.Register(wsScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, nil, nil, nil, nil)
 	return r
 }
 

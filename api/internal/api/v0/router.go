@@ -226,6 +226,7 @@ func (c *Container) Register(
 	// route (/settings/chat/providers).
 	chat.Register(
 		repoScoped,
+		chatScoped,
 		rg,
 		c.app.Usecases.AgentChat,
 		c.app.Usecases.AgentTurn,

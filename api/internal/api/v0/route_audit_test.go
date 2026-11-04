@@ -387,9 +387,10 @@ func extraRoutes() []string {
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
 		"POST " + repo + "/chats/:id/stop",
-		//   kill: the explicit force-end. Unlike stop it never interrupts in
-		//   place; the CLI is retired and the chat stays dormant.
-		"POST " + repo + "/chats/:id/kill",
+		//   kill: the explicit force-end, on the flat chat prefix alone. Unlike
+		//   stop it never interrupts in place; the CLI is retired and the chat
+		//   stays dormant.
+		"POST " + chat + "/kill",
 		//   terminal-wait/answer: answers the provider's own prompt (trust, login,
 		//   permission) from the chat instead of the terminal.
 		"POST " + repo + "/chats/:id/terminal-wait/answer",
@@ -504,7 +505,6 @@ func extraRoutes() []string {
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
-		"POST " + home + "/chats/:id/kill",
 		"POST " + home + "/chats/:id/terminal-wait/answer",
 		"POST " + home + "/chats/:id/compact",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the

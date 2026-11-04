@@ -91,23 +91,16 @@ func (h *Handlers) Stop(
 	libs.WriteNoContent(ctx)
 }
 
-// Kill handles POST .../repos/:repoId/chats/:id/kill: the explicit force-kill of
-// the chat's CLI, even mid-turn (Stop interrupts in place and may leave it
-// running). The chat entry stays, dormant and resumable. 404s (via
-// requireChatInWorkspace) on an unknown id.
+// Kill handles POST /v0/chats/:chatId/kill: the explicit force-kill of the
+// chat's CLI, even mid-turn (Stop interrupts in place and may leave it
+// running). The chat entry stays, dormant and resumable. The chat-scoped
+// group's own guard has already 404'd an unknown id.
 //
 // Permission: any paired client may kill any chat's agent, viewers or not.
 func (h *Handlers) Kill(
 	ctx *gin.Context,
 ) {
-	rctx := ctx.Request.Context()
-	id := ctx.Param("id")
-
-	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
-		return
-	}
-
-	if err := h.runners.KillChat(rctx, id); err != nil {
+	if err := h.runners.KillChat(ctx.Request.Context(), ctx.Param("chatId")); err != nil {
 		libs.Fail(ctx, err)
 		return
 	}

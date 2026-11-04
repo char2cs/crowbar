@@ -1,9 +1,10 @@
 import { killChat } from '@/features/agent/api/agent-chat-commands'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { report } from '@/lib/errors/report'
+import { hostIdForChat } from '@/lib/host-resolve'
 import type { ActiveSession } from '@/lib/store/active-sessions'
 
-type KillableAgent = Pick<ActiveSession, 'chatId' | 'workspaceId' | 'title' | 'attached'>
+type KillableAgent = Pick<ActiveSession, 'chatId' | 'title' | 'attached'>
 
 /** What to ask before ending `session`'s agent; the phone asks it in a native alert. */
 export function killAgentConfirmation(session: KillableAgent): { title: string; message: string } {
@@ -20,7 +21,7 @@ export function killAgentConfirmation(session: KillableAgent): { title: string; 
 /** Force-kills `session`'s agent, reporting a refusal. Resolves to whether it went through. */
 export async function killAgent(session: KillableAgent): Promise<boolean> {
   try {
-    await killChat(session.workspaceId, session.chatId)
+    await killChat(hostIdForChat(session.chatId), session.chatId)
     return true
   } catch (err) {
     report(err, { action: `Couldn't kill the agent on ${session.title}` })

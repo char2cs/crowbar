@@ -273,7 +273,7 @@ func TestRegisterMountsRoutes(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	const base = "/v0/projects/p1/repos/r1"
 	cases := []struct {
@@ -289,6 +289,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/chats/c1/attachments"},
 		{http.MethodGet, base + "/chats/c1/attachments/f1.png"},
 		{http.MethodPost, base + "/chats/c1/switch"},
+		{http.MethodPost, "/v0/chats/c1/kill"},
 		{http.MethodPost, base + "/chats/c1/rename"},
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
@@ -329,7 +330,7 @@ func TestChatRoutes_OldWorkspaceScopedPathGone(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/w1/chats", http.NoBody)
@@ -355,7 +356,7 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{dispatch: got}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	const path = "/v0/projects/p1/repos/r1/chats/runners/seg-42/mcp"
 	req := httptest.NewRequest(http.MethodPost, path,

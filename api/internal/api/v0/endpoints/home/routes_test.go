@@ -31,7 +31,8 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 		// settingsRG carries only the GLOBAL /settings/chat/providers write route,
 		// which is deliberately NOT a home capability — agentSubRoutes filters it out
 		// (it is not a /chats path), so home parity is unaffected by it.
-		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		// Kill mounts on the flat chat group alone, which home has no twin of.
+		agentroutes.Register(scope, r.Group("/v0/chats/:chatId"), scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
@@ -64,7 +65,8 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 func TestRoutes_ServeNoTranscriptReads(t *testing.T) {
 	wsRoutes := agentSubRoutes(t, func(r *gin.Engine) {
 		scope := r.Group("/scope")
-		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		// Kill mounts on the flat chat group alone, which home has no twin of.
+		agentroutes.Register(scope, r.Group("/v0/chats/:chatId"), scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}, "/scope")
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
 		home.Register(r.Group("/scope"), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

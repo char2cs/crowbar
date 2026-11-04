@@ -64,6 +64,9 @@ import (
 // outside the entity hierarchy — mirroring /settings/terminal/profiles. The
 // global GET lets Settings load providers with no active workspace; the PUT
 // updates preferences. The home group re-mounts only the repo-scoped GET.
+//
+// chatScoped is the flat /v0/chats/:chatId group: kill mounts there alone, so
+// a client ends any chat's runner knowing only its id.
 // worktrees resolves the git state a worktree-owning chat carries on its own
 // DTO (spec §5): the workspace it owns, that workspace's repo siblings, and the
 // merge overlay resolved over them. It is what lets ONE read of the chat list
@@ -82,6 +85,7 @@ import (
 // not just the git fields worktrees above already resolves.
 func Register(
 	repoScoped *gin.RouterGroup,
+	chatScoped *gin.RouterGroup,
 	settingsRG *gin.RouterGroup,
 	chats agenthandlers.ChatUsecase,
 	turns agenthandlers.TurnUsecase,
@@ -98,6 +102,7 @@ func Register(
 		WithWorktrees(worktrees).
 		WithNodes(nodes)
 
+	chatScoped.POST("/kill", h.Kill)
 	repoScoped.POST("/chats", h.Create)
 	repoScoped.GET("/chats", h.List)
 	// Every workspace row in this repo, chat or no chat — restores the
@@ -127,7 +132,6 @@ func Register(
 	repoScoped.POST("/chats/:id/compact", h.Compact)
 	repoScoped.POST("/chats/:id/stop", h.Stop)
 	repoScoped.POST("/chats/:id/prompts/:requestId/retract", h.Retract)
-	repoScoped.POST("/chats/:id/kill", h.Kill)
 	repoScoped.POST("/chats/:id/switch-to-terminal", h.SwitchToTerminal)
 	repoScoped.POST("/chats/:id/switch-to-native", h.SwitchToNative)
 	repoScoped.POST("/chats/:id/rename", h.Rename)

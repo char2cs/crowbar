@@ -8,12 +8,16 @@ import { confirmAndKillAgent, killAgentConfirmation } from '@/features/agent/lib
 import { killChat } from '@/features/agent/api/agent-chat-commands'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { report } from '@/lib/errors/report'
+import * as hostResolve from '@/lib/host-resolve'
 
-const session = { chatId: 'c1', workspaceId: 'ws-1', title: 'Fix login', attached: 0 }
+const session = { chatId: 'c1', title: 'Fix login', attached: 0 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(killChat).mockResolvedValue(undefined)
+  vi.spyOn(hostResolve, 'hostIdForChat').mockImplementation((id) =>
+    id === 'c1' ? 'host-1' : 'local',
+  )
 })
 
 describe('confirmAndKillAgent', () => {
@@ -22,7 +26,7 @@ describe('confirmAndKillAgent', () => {
 
     await expect(confirmAndKillAgent(session)).resolves.toBe(true)
 
-    expect(killChat).toHaveBeenCalledExactlyOnceWith('ws-1', 'c1')
+    expect(killChat).toHaveBeenCalledExactlyOnceWith('host-1', 'c1')
   })
 
   it('kills nothing when the user keeps it running', async () => {
@@ -42,6 +46,21 @@ describe('confirmAndKillAgent', () => {
       expect.stringContaining('2 clients are attached'),
       expect.objectContaining({ destructive: true }),
     )
+  })
+
+  it('says so when the chat’s host cannot be told', async () => {
+    vi.mocked(primitiveConfirm).mockResolvedValue(true)
+    const unresolved = new Error('chat c1 is on no host')
+    vi.mocked(hostResolve.hostIdForChat).mockImplementation(() => {
+      throw unresolved
+    })
+
+    await expect(confirmAndKillAgent(session)).resolves.toBe(false)
+
+    expect(killChat).not.toHaveBeenCalled()
+    expect(report).toHaveBeenCalledWith(unresolved, {
+      action: expect.stringContaining('Fix login'),
+    })
   })
 
   it('says so when the kill is refused', async () => {

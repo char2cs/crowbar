@@ -8,6 +8,7 @@ import {
   type FolderShift,
 } from '@/features/agent/api/agent-chat-reads'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import { chatBaseOn } from '@/lib/workspace-scope-url'
 
 export interface AgentPromptResult {
   runnerId: string
@@ -188,13 +189,11 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// killChat force-ends the chat's live vendor CLI, mid-turn included — unlike
-// stopChat, which interrupts a turn in place. Closing a view only detaches; the
-// chat entry stays, dormant and resumable.
-export async function killChat(wsId: string, id: string): Promise<void> {
-  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/kill`, {
-    method: 'POST',
-  })
+// killChat force-ends the chat's live vendor CLI on hostId, mid-turn included —
+// unlike stopChat, which interrupts a turn in place. The chat entry stays,
+// dormant and resumable.
+export async function killChat(hostId: string, chatId: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBaseOn(hostId, chatId)}/kill`, { method: 'POST' })
 }
 
 // switchToTerminal moves the chat onto its provider's own TUI: the daemon hands

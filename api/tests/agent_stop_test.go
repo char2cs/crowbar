@@ -70,10 +70,10 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 	require.True(t, found, "a stopped chat must still appear in List — closing the tab does not delete it")
 }
 
-// TestRegression_AgentKillEndsTheLiveRunnerAndKeepsTheChat is the force-kill
-// route end to end: POST .../chats/:id/kill leaves no runner on the chat, which
-// stays listed and keeps its bound conversation.
-func TestRegression_AgentKillEndsTheLiveRunnerAndKeepsTheChat(t *testing.T) {
+// POST /v0/chats/:chatId/kill is the force-kill: it answers 204, the projects
+// scope hears the chat lose its runner, and the chat stays listed with its
+// bound conversation.
+func TestKill_FlatRouteEndsTheRunnerAndAnswers204(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
@@ -82,17 +82,39 @@ func TestRegression_AgentKillEndsTheLiveRunnerAndKeepsTheChat(t *testing.T) {
 	postHook(t, h, repoBase(imported), "livestub", runnerID, "session_start", `{"session_id":"sess-kill-1"}`)
 	postHook(t, h, repoBase(imported), "livestub", runnerID, "turn_stop", `{"session_id":"sess-kill-1","last_assistant_message":"hello"}`)
 	h.Quiesce()
+	feed := recordSidebar(t, h)
 
 	live := getAgentChat(t, h, repoBase(imported), chatID)
 	require.NotEmpty(t, live.LiveRunnerID, "precondition: the chat has a live runner to kill")
 
-	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/kill", nil, http.StatusNoContent)
+	resp := h.raw(http.MethodPost, "/v0/chats/"+chatID+"/kill", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
-	h.Quiesce()
+	feed.awaitRunnerGone(chatID, live.LiveRunnerID)
 
 	post := getAgentChat(t, h, repoBase(imported), chatID)
 	assert.Empty(t, post.LiveRunnerID, "a kill must leave no runner on the chat")
 	assert.Equal(t, []string{"sess-kill-1"}, post.sessionIDs(), "a kill ends the process, never the conversation")
+}
+
+func TestKill_AnUnknownChatIs404(t *testing.T) {
+	h := newHarness(t)
+
+	resp := h.raw(http.MethodPost, "/v0/chats/"+uuid.NewString()+"/kill", nil, http.StatusNotFound)
+	_ = resp.Body.Close()
+}
+
+// Kill has one route: the repo and home mounts no longer answer it.
+func TestKill_TheNestedRouteIsGone(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+	chatID, _ := createLiveStubChat(t, h, imported)
+
+	for _, base := range []string{repoBase(imported), "/v0/projects/" + imported.projectID + "/home"} {
+		resp := h.raw(http.MethodPost, base+"/chats/"+chatID+"/kill", nil, http.StatusNotFound)
+		_ = resp.Body.Close()
+	}
+	assert.NotEmpty(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID, "nothing killed the runner")
 }
 
 // A replacement launches only once the CLI it replaces is gone: the wait is on
