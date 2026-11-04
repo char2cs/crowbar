@@ -39,7 +39,9 @@ function invoke<T = void>(cmd: string, args?: Record<string, unknown>): Promise<
 }
 
 // The event API loads with the first listener, keeping it out of the entry bundle.
+// Outside the desktop app no webview exists to report, and Tauri's listen would throw.
 async function listenTo<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  if (!isDesktopApp()) return () => {}
   const { listen } = await import('@tauri-apps/api/event')
   return listen<T>(event, (e) => handler(e.payload))
 }
