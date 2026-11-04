@@ -419,7 +419,7 @@ export function AgentChatPaneBody({
               {queuedPromptCount} {queuedPromptCount === 1 ? 'prompt' : 'prompts'} pending in Chat
             </span>
             <div className="flex items-center gap-1">
-              <Button size="xs" variant="ghost" onClick={() => setPresentation('chat')}>
+              <Button size="xs" variant="ghost" onClick={() => escort.chooseSurface('chat')}>
                 Return to Chat
               </Button>
               {cancelablePromptCount > 0 && (

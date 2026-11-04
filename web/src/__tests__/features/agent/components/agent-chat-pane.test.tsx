@@ -280,9 +280,7 @@ function unseededWorkspace(wsId = 'w1') {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-// `_name` is vestigial — it was the fake buffer's tab label, and a chat has no
-// buffer to label any more (ChatHead reads the title straight off the store).
-// Kept in the signature so the ~50 call sites below stay unchanged.
+// `_name` is vestigial (a chat has no buffer to label); kept so the call sites stay unchanged.
 function openChatPane(
   _store: Store,
   chatId: string,
@@ -425,12 +423,6 @@ describe('AgentChatPane', () => {
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
   })
 
-  // DELETED (final fix wave): 'relabels to the untitled placeholder when the runner
-  // /clears into a fresh chat'. The behaviour it pinned — mirroring the shown chat's
-  // title onto a companion BUFFER's tab label — no longer exists: a chat is not a
-  // buffer, and ChatHead reads the live title by chat id, so there is no snapshot to
-  // go stale and no placeholder to fall back to.
-
   // Losing your runner because it MOVED is not your CLI dying. The old pane could
   // not tell those apart, so it offered a Resume button that spawned a SECOND CLI
   // on the old conversation while the first kept running.
@@ -524,12 +516,8 @@ describe('AgentChatPane', () => {
       expect(screen.getByText(/no terminal view attached/i)).toBeTruthy()
     })
 
-    // TestRegression_SwitchToTerminal coverage gap: every other test in this file
-    // clicks the Terminal tab on a HOTSWAP provider (the fixture default), which
-    // takes chooseSurface's `hotswap` branch and never calls the endpoint at all.
-    // Codex is the one shipped provider that is NOT hotswap, and nothing exercised
-    // its actual click-to-switch path — see runner/attach_internal_test.go for the
-    // backend half of this same gap.
+    // The fixture default is hotswap, which never calls the endpoint; a non-hotswap
+    // provider must ask the daemon for its terminal view.
     it('calls switchToTerminal (never a direct presentation flip) when an idle non-hotswap provider is asked for its terminal', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       setProviders([providers[0], { ...providers[1], hotswap: false }])
@@ -1251,6 +1239,17 @@ describe('AgentChatPane', () => {
       fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
       expect(submitPromptFn.mock.calls[0]?.[2]).toBe('queued while busy')
+    })
+
+    it('takes a non-hotswap chat back to its chat channel before sending what waited', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      await act(async () => fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i })))
+      typeAndSend('held for the chat channel')
+      fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+      expect(switchToNativeFn).toHaveBeenCalledWith('w1', 'c1')
     })
 
     // The dropdown lives on the terminal's status strip, and it must keep
