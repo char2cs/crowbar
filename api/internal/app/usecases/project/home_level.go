@@ -193,3 +193,101 @@ func homeIndex(
 	}
 	return slots
 }
+
+// placeRepoAmongHomeSiblings gives subject the asked Order within (projectID, folderID), shifting
+// repos, home chats and home folders alike; subject is included authoritatively (see densifyRepos),
+// and a row with no Node yet is minted where it lands.
+func (u *projectUsecase) placeRepoAmongHomeSiblings(
+	ctx context.Context,
+	projectID string,
+	folderID string,
+	subject tree.Node,
+	target int,
+) ([]tree.Node, error) {
+	siblings, err := u.homeLevel(ctx, projectID, folderID, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	rows := append(siblings, homeRow{Node: subject})
+	slots := homeIndex(rows)
+	reparented := subject.ParentID != folderID
+	decided, written, err := u.writeHomeLevel(ctx, rows, place(slots, subject.ID, &target),
+		folderID, subject.ID, reparented)
+	if err != nil {
+		return nil, err
+	}
+	n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, reparented, folderID, &target, written)
+	if err != nil {
+		return nil, err
+	}
+	if n != nil {
+		decided = append(decided, *n)
+	}
+	return decided, nil
+}
+
+// densifyHomeLevel closes the gap a departed repo left over the level's full member set; exclude is
+// the row known to have left even if Node's read model has not folded it yet.
+func (u *projectUsecase) densifyHomeLevel(
+	ctx context.Context,
+	projectID string,
+	folderID string,
+	exclude string,
+) ([]tree.Node, error) {
+	rows, err := u.homeLevel(ctx, projectID, folderID, exclude)
+	if err != nil {
+		return nil, err
+	}
+	decided, _, err := u.writeHomeLevel(ctx, rows, place(homeIndex(rows), "", nil),
+		folderID, "", false)
+	return decided, err
+}
+
+// writeHomeLevel writes every move a home-level pass decided, mints the
+// fresh rows the level touched; the Tree's own announce publishes each move.
+func (u *projectUsecase) writeHomeLevel(
+	ctx context.Context,
+	rows []homeRow,
+	moves []move,
+	folderID string,
+	subjectID string,
+	reparented bool,
+) ([]tree.Node, map[string]bool, error) {
+	written := make(map[string]bool, len(rows))
+	var decided []tree.Node
+	for _, moved := range moves {
+		row := rows[moved.at]
+		written[row.ID] = true
+		decided = append(decided, tree.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
+		if err := u.writeHomeRow(ctx, row, folderID, moved.order, row.ID == subjectID && reparented); err != nil {
+			return nil, nil, err
+		}
+	}
+	// A legacy root chat whose slot did not move (place reports no change, so
+	// its order IS its final index) still becomes Node-backed: the level was
+	// touched, and the next read must find every row on one surface.
+	for _, row := range rows {
+		if !row.fresh || written[row.ID] || row.ID == subjectID {
+			continue
+		}
+		written[row.ID] = true
+		if err := u.mintNode(ctx, row.ID, row.Kind, folderID, row.Order); err != nil {
+			return nil, nil, err
+		}
+	}
+	return decided, written, nil
+}
+
+// writeHomeRow mints a row with no Node yet where it lands, and moves any other.
+func (u *projectUsecase) writeHomeRow(
+	ctx context.Context,
+	row homeRow,
+	folderID string,
+	order int,
+	reparenting bool,
+) error {
+	if row.fresh {
+		return u.mintNode(ctx, row.ID, row.Kind, folderID, order)
+	}
+	return u.writeNode(ctx, row.ID, folderID, order, reparenting)
+}
