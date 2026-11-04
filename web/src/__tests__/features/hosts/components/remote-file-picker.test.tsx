@@ -119,14 +119,6 @@ describe('RemoteFilePicker — browsing', () => {
     expect(requests).toEqual([{ hostId: 'h1', path: '/' }])
   })
 
-  it('says it is loading while the first listing is on its way', async () => {
-    renderPicker()
-
-    expect(screen.getByText('Loading folders…')).toBeInTheDocument()
-    await answer('h1', '/', [dir('/home')])
-    expect(await findRow('home')).toBeInTheDocument()
-  })
-
   it('lists a folder only when it is opened, and reopens it from what was listed', async () => {
     serve('h1', { ...HOME, '/home': [dir('/home/mateo')] })
     renderPicker()

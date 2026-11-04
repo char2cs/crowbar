@@ -1,17 +1,5 @@
-/**
- * THE SPLIT VIEW IS AN INSTRUMENT, NOT A FEATURE.
- *
- * Crowbar reconstructs a conversation from hooks; the CLI's own TUI is the ground
- * truth. Every gap between them — a turn that never closed, an assistant message
- * silently dropped, a prompt the chat could not see — is obvious the moment the
- * two can be read against each other and close to invisible otherwise. Split puts
- * them side by side so that comparison is a glance.
- *
- * Which makes the FIRST suite below the one that matters most. A diagnostic that
- * changed the two surfaces everybody actually uses would have cost more than it
- * found, so with its switch off the pane has to be the pane it has always been:
- * two buttons, one live surface, the other dormant under `display:none`.
- */
+// Split is a diagnostic that sets the chat beside the CLI's own TUI. With its switch
+// off the pane must stay what it always was: two surfaces, one live, one dormant.
 import { createElement, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -60,17 +48,9 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
           'data-visible': String(visible),
         },
         createElement('textarea', { 'data-testid': 'composer' }),
-        // The pane's trust/reviving/idle signpost is no longer a sibling of this
-        // view — it is handed DOWN and rendered inside AgentEmptyDocument's own
-        // control-bar slot (agent-chat-view.tsx's `blank` branch,
-        // `banner={blankSignpost}`). Every chat this file seeds is blank, so the
-        // stub takes that branch unconditionally; dropping the prop instead
-        // would hide the wait banner from a suite whose whole subject is what
-        // the banner does in a split.
+        // Every seeded chat is blank, so the pane's wait banner renders inside the view.
         blankSignpost,
-        // The surface switcher lives in the chat's provider bar now, so the stub
-        // carries the real one: it is a pane control, and this file is the pane's
-        // contract for it.
+        // The real switcher: it is a pane control, and this file is its contract.
         presentation === 'terminal'
           ? null
           : createElement(ViewSwitcher, {
@@ -171,26 +151,23 @@ function setSplitEnabled(enabled: boolean) {
   })
 }
 
-async function renderPane(
-  store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean } = {},
-) {
-  await act(async () =>
-    render(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(AgentChatPane, {
-          chatId: 'c1',
-          runnerId: 'r1',
-          wsId: 'w1',
-          paneId: 'b1',
-          isActivePane: opts.isActivePane ?? true,
-          isVisible: opts.isVisible ?? true,
-        }),
-      ),
-    ),
+function pane(store: Store, opts: { isActivePane?: boolean; isVisible?: boolean } = {}) {
+  return createElement(
+    WorkspaceStoreContext.Provider,
+    { value: store },
+    createElement(AgentChatPane, {
+      chatId: 'c1',
+      runnerId: 'r1',
+      wsId: 'w1',
+      paneId: 'b1',
+      isActivePane: opts.isActivePane ?? true,
+      isVisible: opts.isVisible ?? true,
+    }),
   )
+}
+
+async function renderPane(store: Store, opts?: { isActivePane?: boolean; isVisible?: boolean }) {
+  await act(async () => render(pane(store, opts)))
 }
 
 /** A string `name` is matched against the WHOLE accessible name, which is what
@@ -286,18 +263,7 @@ describe('AgentChatPane — terminal controls', () => {
           ChatHeaderSlotProvider,
           null,
           createElement('header', { 'data-testid': 'header' }, createElement(ChatHeaderSlot)),
-          createElement(
-            WorkspaceStoreContext.Provider,
-            { value: seed() },
-            createElement(AgentChatPane, {
-              chatId: 'c1',
-              runnerId: 'r1',
-              wsId: 'w1',
-              paneId: 'b1',
-              isActivePane: true,
-              isVisible: true,
-            }),
-          ),
+          pane(seed()),
         ),
       ),
     )
@@ -380,8 +346,7 @@ describe('AgentChatPane — a split nobody is looking at', () => {
   // A hidden tab is still MOUNTED, for keep-alive. Nothing structural stops it
   // rendering, so the props have to.
   it('goes dormant with the tab that holds it', async () => {
-    const store = seed()
-    await renderPane(store, { isVisible: false })
+    await renderPane(seed(), { isVisible: false })
     await choose('Split')
 
     expect(showing()).toBe('split')
@@ -449,8 +414,7 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   // is on screen already, so moving anybody would mean taking away the chat half
   // they are deliberately watching.
   it('does not collapse the split when the CLI blocks on a prompt', async () => {
-    const store = seed()
-    await renderPane(store)
+    await renderPane(seed())
     await choose('Split')
 
     await setWait({ kind: 'workspace_trust' })
@@ -462,8 +426,7 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   // And having moved nobody, it owes nobody a way back: the "return to chat"
   // offer over a surface with the chat already on it would be nonsense.
   it('offers no way back once the prompt clears, because it took nobody anywhere', async () => {
-    const store = seed()
-    await renderPane(store)
+    await renderPane(seed())
     await choose('Split')
 
     await setWait({ kind: 'workspace_trust' })
@@ -476,8 +439,7 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   // The banner's button still has to do SOMETHING useful. There is nowhere to
   // send anybody, so it sends the caret.
   it('points the banner’s button at the terminal’s caret instead', async () => {
-    const store = seed()
-    await renderPane(store)
+    await renderPane(seed())
     await choose('Split')
     await setWait({ kind: 'workspace_trust' })
 
