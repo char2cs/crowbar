@@ -3,7 +3,6 @@ import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/hos
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { HostNotResolvedError } from '@/lib/host-path'
 import { entityStore } from '@/core/entities/entity-store'
-import { readSelect } from '@/core/entities/select'
 import type { Project } from '@/lib/types'
 import {
   getWorkspaceIdOwnedByChat,
@@ -15,9 +14,12 @@ type Resolution = { hostId: string } | { reason: string; projectId?: string }
 
 const unresolved = (reason: string, projectId?: string): Resolution => ({ reason, projectId })
 
-// Before the projects scope has synced, an absent row is unknown, not gone.
+// Before the projects scope has synced, an absent row is unknown, not gone. Read off the
+// records, not the sidebar views: deriving those resolves each repo icon's host through here.
 function heldProjects(): Project[] | undefined {
-  return readSelect((s) => (s.synced ? s.projects : undefined))
+  const s = entityStore.getState()
+  if (!s.loaded.projects) return undefined
+  return Object.values(s.byKind.project).map((r) => ({ hostId: LOCAL_HOST.id, ...r.data }))
 }
 
 // The only proof that an unknown id is local: no remote was ever paired and no

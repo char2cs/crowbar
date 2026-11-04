@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
+import { useChatTelemetry } from '@/features/agent/hooks/use-chat-entity'
 import { Button } from '@/components/ui/button'
 import { hasNativeChrome } from '@/lib/native-chrome'
 import { CHAT_TITLE_TEXT } from '@/components/ui/chat-title-text'
@@ -39,11 +39,7 @@ export function MobileTopBar({ trailing }: { trailing?: CornerButton }) {
 
 function useFocusedChatReportsUsage(): boolean {
   const chatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? '')
-  const wsId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.workspaceId ?? '')
-  return useWorkspaceStoreById(
-    wsId,
-    (s) => s.agentChats.telemetry[chatId]?.context?.usedPercent !== undefined,
-  )
+  return useChatTelemetry(chatId)?.context?.usedPercent !== undefined
 }
 
 function Corner({ label, icon, disabled, onClick }: CornerButton) {

@@ -2,23 +2,14 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
-import { useProjectDataStore } from '@/lib/store/projects'
-import {
-  getInitialRemovalState,
-  useRemovalTrayStore,
-  type RemovalDraft,
-} from '@/lib/store/sidebar-removal'
-import { success } from '@/lib/loadable'
+import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
 import type { Project } from '@/lib/types'
-import type { AgentChat } from '@/features/agent/api/agent-api'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const router = vi.hoisted(() => ({ pathname: '/ide/p1/r1/ws-1', navigate: vi.fn() }))
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
@@ -64,7 +55,8 @@ beforeEach(() => {
   router.pathname = '/ide/p1/r1/ws-1'
   useMobileScreenStore.setState({ screen: 'chat', chatListOpen: false })
   useUIState.setState({ isSettingsOpen: false })
-  useProjectDataStore.setState({ data: success([project]) })
+  resetEntities()
+  seedProjects([project])
 })
 
 describe('MobileShell', () => {
@@ -102,10 +94,7 @@ describe('MobileShell', () => {
   // Title only: the desktop's identity row, view switch and provider picker stay off the phone.
   it('titles the screen with the focused chat', () => {
     resetWindowPaneStoreForTests()
-    const store = getOrCreateWorkspaceStore('ws-1')
-    store.setState((s) => ({
-      agentChats: { ...s.agentChats, chats: [{ id: 'c1', title: 'Fix login' } as AgentChat] },
-    }))
+    writeChat({ id: 'c1', workspaceId: 'ws-1', title: 'Fix login' })
     act(() =>
       windowPaneStore
         .getState()
@@ -113,7 +102,6 @@ describe('MobileShell', () => {
     )
     render(<MobileShell />)
     expect(screen.getByRole('heading', { level: 1, name: 'Fix login' })).toBeInTheDocument()
-    destroyWorkspaceStore('ws-1')
     resetWindowPaneStoreForTests()
   })
 
@@ -136,13 +124,13 @@ describe('MobileShell', () => {
     useMobileScreenStore.setState({ chatListOpen: true })
     render(<MobileShell />)
     act(() => {
-      useRemovalTrayStore.getState().hold([DOOMED])
+      treeUiStore.getState().hold([DOOMED])
       const { panes, paneActions } = windowPaneStore.getState()
       for (const [id, pane] of Object.entries(panes))
         if (pane.chatId === 'c-doomed') paneActions.closePane(id)
     })
     expect(useMobileScreenStore.getState().chatListOpen).toBe(true)
-    act(() => useRemovalTrayStore.setState(getInitialRemovalState()))
+    act(() => treeUiStore.setState(treeUiStore.getInitialState(), true))
     resetWindowPaneStoreForTests()
   })
 

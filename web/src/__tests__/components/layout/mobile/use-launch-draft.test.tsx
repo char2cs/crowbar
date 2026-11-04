@@ -2,8 +2,8 @@ import { renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { createChat } = vi.hoisted(() => ({ createChat: vi.fn(() => Promise.resolve('chat-1')) }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
 }))
 

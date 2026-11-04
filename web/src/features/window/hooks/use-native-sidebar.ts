@@ -1,14 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useStore } from 'zustand'
-import { applyPendingRemovals } from '@/components/layout/removal-plan'
-import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
-import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
-import {
-  hideRowsForInFlightCreates,
-  rowsFromPending,
-} from '@/components/sidebar/lib/rows-from-pending'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import {
   rowIsLocked,
@@ -26,6 +18,7 @@ import { hostNetStateOf } from '@/components/layout/build-readout-lines'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
+import { readSelect, selectAgentChat, selectRepos, useSelect } from '@/core/entities/select'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import type { HostDotState } from '@/features/hosts/types'
@@ -34,10 +27,9 @@ import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-sto
 import { toast } from '@/features/window/stores/toast-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
-import {
-  readChatWorking,
-  subscribeChatWorking,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { useTreeInput } from '@/features/workspace/tree/input'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import {
   nativePrompt,
   onNativeChromeIntent,
@@ -47,11 +39,6 @@ import {
   type NativeSidebar,
 } from '@/lib/native-chrome'
 import { useActiveSessionsStore, type LiveSession } from '@/lib/store/active-sessions'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import type { Project } from '@/lib/types'
 import { isHostResolved } from '@/lib/host-resolve'
@@ -127,7 +114,7 @@ type Attached = Record<string, { count: number }>
 
 /** The rows with an agent running, as the desktop's Active section picks them. */
 function activeRows(rows: readonly SidebarRow[], sessions: Record<string, LiveSession>) {
-  return rows.filter((r) => r.kind !== 'folder' && !r.pending && sessions[r.id])
+  return rows.filter((r) => r.kind !== 'folder' && !r.operation && sessions[r.id])
 }
 
 function nativeRowActions(
@@ -139,7 +126,7 @@ function nativeRowActions(
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
     // A row not yet created has no menu.
-    if (row.pending) {
+    if (row.operation) {
       actions[row.id] = []
       continue
     }
@@ -167,57 +154,19 @@ function nativeRowActions(
 
 const closeChatList = () => useMobileScreenStore.getState().setChatListOpen(false)
 
-/** The active project's rows, from the same derivers the desktop tree draws. */
+// A failed create is toasted in the shell, and a removal confirmed on the phone commits at once:
+// neither leaves a row behind the way the desktop tree draws one. The phone names a fork first,
+// so no naming input is drawn either.
+const drawnNatively = (row: SidebarRow) =>
+  !row.removal && !row.draft && row.operation?.state !== 'failed'
+
+/** The active project's rows, from the same deriver the desktop tree draws. */
 function useActiveProjectRows(projectId: string | null): SidebarRow[] {
-  const allRepos = useSidebarStore((s) => s.repos)
-  // A removal confirmed on the phone commits at once, so the row goes with what it takes: no
-  // countdown row stays behind the way the desktop tree draws one.
-  const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
-  const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
-  const seeded = useFolderSignalStore((s) => s.seededRepoIds)
-  const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
-  const homeTree = useHomeTreeStore((s) => (projectId ? s.trees[projectId] : undefined))
-  const home = useHomeWorkspaceState(projectId)
-  // The desktop tree's own view of a create in flight (space-scroller.tsx): the pending row
-  // stands in for the real one. A failed create is toasted in the shell, and its row's Dismiss
-  // would act on the list page's own empty store, so only a create still running is drawn.
-  const pendingEntries = usePendingCreatesStore((s) => s.entries)
-  return useMemo(() => {
-    if (!projectId) return []
-    const treeRepos = repos.filter((r) => seeded.has(r.id) || seededWorkspaces.has(r.id))
-    const homeRows =
-      home.wsId && homeTree
-        ? rowsFromHome(
-            home.wsId,
-            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
-            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
-            home.owningChatId ?? undefined,
-          )
-        : []
-    const projectRows = rowsForProject(treeRepos, projectId)
-    const rowRepoId = rowRepoScope(allRepos.filter((r) => r.projectId === projectId))
-    const real = hideRowsForInFlightCreates(
-      [...homeRows, ...projectRows],
-      pendingEntries,
-      projectId,
-      rowRepoId,
-    )
-    const inFlight = pendingEntries.filter(
-      (e) => e.projectId === projectId && e.status === 'creating',
-    )
-    return [...real, ...rowsFromPending(inFlight)]
-  }, [
-    allRepos,
-    pendingEntries,
-    projectId,
-    repos,
-    seeded,
-    seededWorkspaces,
-    homeTree,
-    home.wsId,
-    home.owningChatId,
-    hiddenIds,
-  ])
+  const inputFor = useTreeInput()
+  return useMemo(
+    () => (projectId ? deriveRows(inputFor(projectId)).filter(drawnNatively) : []),
+    [projectId, inputFor],
+  )
 }
 
 export const isImageUrl = (url: string | undefined): url is string =>
@@ -251,26 +200,30 @@ function useIconsAsData(rows: readonly SidebarRow[], projects: readonly Project[
   }
 }
 
-/** Re-renders when any listed host's status or workspace's turn state changes. */
-function useLiveFacts(hostIds: readonly string[], wsIds: readonly string[]): number {
+/** Re-renders when any listed host's status changes. */
+function useHostStatusVersion(hostIds: readonly string[]): number {
   const [version, setVersion] = useState(0)
   const hostKey = hostIds.join('\n')
-  const wsKey = wsIds.join('\n')
   useEffect(() => {
     const bump = () => setVersion((v) => v + 1)
-    const stops = [
-      ...hostKey
-        .split('\n')
-        .filter(Boolean)
-        .map((id) => subscribeHostStatusOf(id, bump)),
-      ...wsKey
-        .split('\n')
-        .filter(Boolean)
-        .map((id) => subscribeChatWorking(id, bump)),
-    ]
+    const stops = hostKey
+      .split('\n')
+      .filter(Boolean)
+      .map((id) => subscribeHostStatusOf(id, bump))
     return () => stops.forEach((stop) => stop())
-  }, [hostKey, wsKey])
+  }, [hostKey])
   return version
+}
+
+/** The rows whose chat is mid-turn, the live fact the desktop tree subscribes per row. */
+function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
+  const key = useSelect((s) =>
+    rows
+      .filter((r) => r.kind !== 'folder' && selectAgentChat(s, r.id)?.working)
+      .map((r) => r.id)
+      .join('\n'),
+  )
+  return useMemo(() => new Set(key.split('\n')), [key])
 }
 
 /**
@@ -285,17 +238,14 @@ export function useNativeSidebar({
   const navigate = useNavigate()
   const projectId = activeProjectId ?? null
   const rows = useActiveProjectRows(projectId)
-  const collapsed = useSidebarStore((s) => s.collapsedChatRows)
+  const collapsed = useTreeUi((s) => s.collapsed)
   const focusedChatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
   const sessions = useActiveSessionsStore((s) => s.sessions)
   const attached = useActiveSessionsStore((s) => s.attached)
   const hostConfigs = useHostConfigStore((s) => s.hosts)
   const hostStreams = useConnectionStore((s) => s.hostStreams)
   const homeWsId = useHomeWorkspaceState(projectId).wsId
-  const wsIds = useMemo(
-    () => [...new Set(rows.flatMap((r) => (r.workspaceId ? [r.workspaceId] : [])))],
-    [rows],
-  )
+  const workingIds = useWorkingRowIds(rows)
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
   const [dragSubjectId, setDragSubjectId] = useState<string | null>(null)
   const drop = useMemo(
@@ -304,20 +254,13 @@ export function useNativeSidebar({
   )
   const icons = useIconsAsData(rows, projects)
   const readout = useNativeReadout()
-  const live = useLiveFacts(
-    hostConfigs.map((h) => h.id),
-    wsIds,
-  )
+  const hostVersion = useHostStatusVersion(hostConfigs.map((h) => h.id))
 
   useEffect(() => {
     const hostState = (id: string): HostDotState => {
       const status = hostStatusOf(id)
       return status === 'up' && hostStreams[id] === 'disconnected' ? 'no-live-stream' : status
     }
-    // The two live facts the desktop tree subscribes per row (sidebar-tree.tsx), resolved here:
-    // the page that draws these rows watches nothing.
-    const chatWorking = (row: SidebarRow) =>
-      row.kind !== 'folder' && row.workspaceId ? readChatWorking(row.workspaceId, row.id) : false
     setNativeSidebar({
       focusedChatId,
       activeProjectId: projectId,
@@ -325,7 +268,8 @@ export function useNativeSidebar({
       hosts: hostConfigs.map((h) => ({ id: h.id, name: h.name, state: hostState(h.id) })),
       rows: rows.map((row) => ({
         ...icons.row(row),
-        working: row.working || chatWorking(row),
+        // The page that draws these rows watches nothing: the live facts are resolved here.
+        working: row.working || workingIds.has(row.id),
         hasView: row.id === focusedChatId,
       })),
       active: activeRows(rows, sessions).map((r) => ({ id: r.id })),
@@ -347,7 +291,8 @@ export function useNativeSidebar({
     projects,
     hostConfigs,
     hostStreams,
-    live,
+    hostVersion,
+    workingIds,
     icons,
     sessions,
     attached,
@@ -358,7 +303,7 @@ export function useNativeSidebar({
   const onIntent = useEffectEvent((intent: NativeChromeIntent) => {
     switch (intent.type) {
       case 'selectRow':
-        if (handleOpen(intent.id, useSidebarStore.getState().repos, navigate, { fold: false })) {
+        if (handleOpen(intent.id, readSelect(selectRepos), navigate, { fold: false })) {
           closeChatList()
         }
         return
@@ -373,7 +318,7 @@ export function useNativeSidebar({
         onSelectProject(intent.id)
         return
       case 'toggleFold':
-        useSidebarStore.getState().toggleChatRow(intent.id)
+        treeUiStore.getState().toggleChatRow(intent.id)
         return
       case 'rowAction': {
         const row = rows.find((r) => r.id === intent.rowId)
