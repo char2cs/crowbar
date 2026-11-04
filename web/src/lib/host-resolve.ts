@@ -25,10 +25,11 @@ const listed = (s: EntityState, hostId: string) => !!s.loaded[hostScope(hostId, 
 /** Configured hosts whose projects scope has not synced yet: a project in no row may be on any. */
 export function unreadHosts(): string[] {
   const s = entityStore.getState()
-  return useHostConfigStore
-    .getState()
-    .hosts.map((host) => host.id)
-    .filter((hostId) => !listed(s, hostId))
+  const unread: string[] = []
+  for (const host of useHostConfigStore.getState().hosts) {
+    if (!listed(s, host.id)) unread.push(host.id)
+  }
+  return unread
 }
 
 // The lists are in once this install's own daemon (if it has one) and every host that is up

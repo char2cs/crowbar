@@ -38,7 +38,12 @@ import {
   type NativeRowAction,
   type NativeSidebar,
 } from '@/lib/native-chrome'
-import { useActiveSessionsStore, type LiveSession } from '@/lib/store/active-sessions'
+import {
+  selectActiveSession,
+  useActiveSessionList,
+  type ActiveSession,
+} from '@/core/entities/active-sessions'
+import { entityStore } from '@/core/entities/entity-store'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import type { Project } from '@/lib/types'
 import { isHostResolved } from '@/lib/host-resolve'
@@ -110,18 +115,14 @@ function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['conf
 
 const KILL_AGENT = 'kill-agent'
 
-type Attached = Record<string, { count: number }>
+type Running = ReadonlyMap<string, ActiveSession>
 
 /** The rows with an agent running, as the desktop's Active section picks them. */
-function activeRows(rows: readonly SidebarRow[], sessions: Record<string, LiveSession>) {
-  return rows.filter((r) => r.kind !== 'folder' && !r.operation && sessions[r.id])
+function activeRows(rows: readonly SidebarRow[], running: Running) {
+  return rows.filter((r) => r.kind !== 'folder' && !r.operation && running.has(r.id))
 }
 
-function nativeRowActions(
-  rows: SidebarRow[],
-  sessions: Record<string, LiveSession>,
-  attached: Attached,
-) {
+function nativeRowActions(rows: SidebarRow[], running: Running) {
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
@@ -138,14 +139,14 @@ function nativeRowActions(
         destructive: action.destructive,
         confirm: confirmFor(action.id, row),
       }))
-    const session = sessions[row.id]
+    const session = running.get(row.id)
     if (row.kind !== 'folder' && session) {
       actions[row.id].push({
         id: KILL_AGENT,
         title: 'Kill agent',
         symbol: 'xmark.octagon',
         destructive: true,
-        confirm: killAgentConfirmation({ ...session, attached: attached[row.id]?.count ?? 0 }),
+        confirm: killAgentConfirmation(session),
       })
     }
   }
@@ -217,12 +218,12 @@ function useHostStatusVersion(hostIds: readonly string[]): number {
 
 /** The rows whose chat is mid-turn, the live fact the desktop tree subscribes per row. */
 function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
-  const key = useSelect((s) =>
-    rows
-      .filter((r) => r.kind !== 'folder' && selectAgentChat(s, r.id)?.working)
-      .map((r) => r.id)
-      .join('\n'),
-  )
+  const key = useSelect((s) => {
+    const working: string[] = []
+    for (const r of rows)
+      if (r.kind !== 'folder' && selectAgentChat(s, r.id)?.working) working.push(r.id)
+    return working.join('\n')
+  })
   return useMemo(() => new Set(key.split('\n')), [key])
 }
 
@@ -240,8 +241,8 @@ export function useNativeSidebar({
   const rows = useActiveProjectRows(projectId)
   const collapsed = useTreeUi((s) => s.collapsed)
   const focusedChatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
-  const sessions = useActiveSessionsStore((s) => s.sessions)
-  const attached = useActiveSessionsStore((s) => s.attached)
+  const sessions = useActiveSessionList()
+  const running = useMemo(() => new Map(sessions.map((s) => [s.chatId, s])), [sessions])
   const hostConfigs = useHostConfigStore((s) => s.hosts)
   const hostStreams = useConnectionStore((s) => s.hostStreams)
   const homeWsId = useHomeWorkspaceState(projectId).wsId
@@ -272,9 +273,9 @@ export function useNativeSidebar({
         working: row.working || workingIds.has(row.id),
         hasView: row.id === focusedChatId,
       })),
-      active: activeRows(rows, sessions).map((r) => ({ id: r.id })),
+      active: activeRows(rows, running).map((r) => ({ id: r.id })),
       collapsed: [...collapsed],
-      actions: nativeRowActions(rows, sessions, attached),
+      actions: nativeRowActions(rows, running),
       drop,
       readout: readout && {
         ...readout,
@@ -294,8 +295,7 @@ export function useNativeSidebar({
     hostVersion,
     workingIds,
     icons,
-    sessions,
-    attached,
+    running,
   ])
 
   useEffect(() => () => setNativeSidebar(EMPTY), [])
@@ -334,9 +334,8 @@ export function useNativeSidebar({
           removeAtOnce: true,
         }
         if (intent.actionId === KILL_AGENT) {
-          const { sessions: live, attached: counts } = useActiveSessionsStore.getState()
-          const session = live[row.id]
-          if (session) void killAgent({ ...session, attached: counts[row.id]?.count ?? 0 })
+          const session = selectActiveSession(entityStore.getState(), row.id)
+          if (session) void killAgent(session)
           return
         }
         const actionId = intent.actionId as RowMenuActionId

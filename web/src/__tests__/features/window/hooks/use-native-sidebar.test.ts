@@ -15,7 +15,8 @@ import type { Project } from '@/lib/types'
 import * as api from '@/lib/api'
 import * as placement from '@/lib/api/sidebar-placement'
 import * as killAgent from '@/features/agent/lib/kill-agent'
-import { useActiveSessionsStore } from '@/lib/store/active-sessions'
+import { entityStore } from '@/core/entities/entity-store'
+import { streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { useSettingsStore } from '@/features/settings/store'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { projectDTO, seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
@@ -85,7 +86,6 @@ beforeEach(() => {
   seedRepos([repo])
   useMobileScreenStore.setState({ screen: 'chat', chatListOpen: true })
   useUIState.setState({ isSettingsOpen: false })
-  useActiveSessionsStore.setState({ sessions: {}, attached: {} })
   kill.mockClear()
 })
 
@@ -302,11 +302,27 @@ describe('useNativeSidebar', () => {
   })
 
   describe('running agents', () => {
+    // The daemon's frames: the chat's runner starts, and two connections view it.
     const run = () =>
       act(() => {
-        useActiveSessionsStore.setState({
-          sessions: { 'c-a': { chatId: 'c-a', workspaceId: 'ws-a', title: 'Alpha', scope: 'r1' } },
-          attached: { 'c-a': { scope: 'r1', count: 2 } },
+        const held = entityStore.getState().byKind.chat['c-a']!
+        const data = { ...held.data, liveRunnerId: 'run-a' }
+        streamDaemon.deliver({
+          t: 'entity',
+          scope: 'projects',
+          kind: 'chat',
+          id: 'c-a',
+          v: held.v + 1,
+          data,
+        })
+        const viewers = { viewers: 2 }
+        streamDaemon.deliver({
+          t: 'entity',
+          scope: 'projects',
+          kind: 'presence',
+          id: 'c-a',
+          v: 1,
+          data: viewers,
         })
       })
 
@@ -327,7 +343,12 @@ describe('useNativeSidebar', () => {
       run()
       send({ type: 'rowAction', rowId: 'c-a', actionId: 'kill-agent' })
       expect(kill).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ chatId: 'c-a', workspaceId: 'ws-a', attached: 2 }),
+        expect.objectContaining({
+          hostId: 'local',
+          chatId: 'c-a',
+          workspaceId: 'ws-a',
+          viewers: 2,
+        }),
       )
     })
   })

@@ -12,7 +12,8 @@ vi.mock('@/components/sidebar/sidebar-tree', () => ({
 }))
 
 import { ActiveSessionsSection } from '@/components/sidebar/active-sessions-section'
-import { useActiveSessionsStore } from '@/lib/store/active-sessions'
+import { runChat } from '@/__tests__/__fixtures__/running-chats'
+import { resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 const row = (id: string, kind: SidebarRow['kind'] = 'chat'): SidebarRow => ({
@@ -27,12 +28,7 @@ const row = (id: string, kind: SidebarRow['kind'] = 'chat'): SidebarRow => ({
   hasView: false,
 })
 
-const run = (id: string) =>
-  useActiveSessionsStore.getState().applyFrame('repo:r1', {
-    chatId: id,
-    kind: 'started',
-    chat: { id, workspaceId: 'ws-1', title: id, liveRunnerId: 'run' },
-  })
+const run = (id: string) => runChat(id)
 
 const renderSection = (rows: SidebarRow[]) =>
   render(
@@ -41,16 +37,13 @@ const renderSection = (rows: SidebarRow[]) =>
 
 beforeEach(() => {
   touch.value = true
-  useActiveSessionsStore.setState({ sessions: {}, attached: {} })
+  resetEntities()
 })
 
 describe('ActiveSessionsSection', () => {
   it('lists the tree’s own rows for the chats whose agents are running, with their viewers', () => {
-    run('c1')
+    runChat('c1', { viewers: 2 })
     run('c2')
-    useActiveSessionsStore
-      .getState()
-      .applyFrame('repo:r1', { chatId: 'c1', kind: 'attached', attached: 2 })
 
     renderSection([row('c1'), row('c2'), row('c3')])
 
