@@ -47,6 +47,46 @@ describe('useChatPresentation — on the phone', () => {
   })
 })
 
+// A provider without hot-swap has one view; the daemon's, not a pick or a preference.
+describe('useChatPresentation — a view the daemon holds', () => {
+  const withSplit = (enabled: boolean) =>
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), chatSplitPresentationEnabled: enabled },
+    })
+  afterEach(() => {
+    platform.mobile = false
+    resetChatPresentationMemoryForTests()
+    withSplit(false)
+  })
+  const render = (held: 'chat' | 'terminal') =>
+    renderHook(() => useChatPresentation('chat-h', { current: null }, held)).result
+
+  it('shows the terminal it holds over any pick, split included', () => {
+    withSplit(true)
+    presetChatLandingPresentation('chat-h', 'chat')
+    const result = render('terminal')
+    expect(result.current.presentation).toBe('terminal')
+    act(() => result.current.setPresentation('split'))
+    expect(result.current.presentation).toBe('terminal')
+  })
+
+  it('shows the chat it holds over a terminal pick, and a split only while split exists', () => {
+    withSplit(true)
+    presetChatLandingPresentation('chat-h', 'terminal')
+    const result = render('chat')
+    expect(result.current.presentation).toBe('chat')
+    act(() => result.current.setPresentation('split'))
+    expect(result.current.presentation).toBe('split')
+    act(() => withSplit(false))
+    expect(result.current.presentation).toBe('chat')
+  })
+
+  it('shows the chat on the phone, its one surface, wherever the daemon holds it', () => {
+    platform.mobile = true
+    expect(render('terminal').current.presentation).toBe('chat')
+  })
+})
+
 function ref(size: { clientWidth?: number; clientHeight?: number }) {
   return { current: size as unknown as HTMLElement }
 }

@@ -24,7 +24,7 @@ interface EscortOptions {
 }
 
 /** An unknown provider is hotswap: the synchronous behaviour every surface relies on. */
-function isHotswap(providers: AgentProvider[], providerId: string) {
+export function isHotswap(providers: AgentProvider[], providerId: string) {
   const provider = providers.find((candidate) => candidate.id === providerId)
   return { provider, hotswap: provider ? provider.hotswap === true : true }
 }

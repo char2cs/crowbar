@@ -38,10 +38,7 @@ const {
   switchToNativeFn: vi.fn(),
 }))
 
-// The pane resolves its toggle-view chord through the keymap (so it stays
-// rebindable); pin it here rather than standing up the settings store.
-// 'agent.cycleProvider' is deliberately absent — it now ships unbound by
-// default, and an absent key resolves the same way (falsy) as its real ''.
+// The keymap pinned rather than the settings store; an unbound chord is simply absent.
 import * as useEffectiveKeymapMod from '@/features/keymaps/hooks/use-effective-keymap'
 vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() => ({
   'agent.toggleViewMode': 'mod+/',
@@ -177,9 +174,7 @@ function liveChat(o: {
   pty: string
   title?: string
   provider?: string
-  /** The chat's own durable landing surface (design spec 2.5). Omitted is the
-   *  provider's default face, which is every fixture here but the terminal-born
-   *  one below. */
+  /** The view the daemon holds the chat on; omitted is the provider's default face. */
   surface?: 'chat' | 'terminal'
 }): AgentChat {
   return {
@@ -522,9 +517,11 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       setProviders([providers[0], { ...providers[1], hotswap: false }])
       // The daemon's snapshot frame carries the forked PTY; the pane reads nothing back.
-      switchToTerminalFn.mockImplementation(() => {
-        writeChat(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty-attached', provider: 'codex' }))
-        return Promise.resolve('pty-attached')
+      switchToTerminalFn.mockImplementation(async () => {
+        await Promise.resolve()
+        writeChat(
+          liveChat({ id: 'c1', runnerId: 'r1', pty: 'p', provider: 'codex', surface: 'terminal' }),
+        )
       })
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
@@ -537,7 +534,7 @@ describe('AgentChatPane', () => {
         'false',
       )
       await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
-      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'p')
       await vi.waitFor(() =>
         expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
           'aria-selected',
@@ -1008,9 +1005,11 @@ describe('AgentChatPane', () => {
         writeChat(liveChatNoTerminal({ id: 'c1', runnerId: 'r2' }))
         return Promise.resolve('r2')
       })
-      switchToTerminalFn.mockImplementation(() => {
-        writeChat(liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty-attached', provider: 'codex' }))
-        return Promise.resolve('pty-attached')
+      switchToTerminalFn.mockImplementation(async () => {
+        await Promise.resolve()
+        writeChat(
+          liveChat({ id: 'c1', runnerId: 'r2', pty: 'p', provider: 'codex', surface: 'terminal' }),
+        )
       })
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
@@ -1019,17 +1018,10 @@ describe('AgentChatPane', () => {
       })
 
       await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
-      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'p')
       expect(screen.queryByText(/no terminal view attached/i)).not.toBeInTheDocument()
     })
   })
-
-  // ── Tab title ──────────────────────────────────────────────────────
-  // DELETED (final fix wave): 'tab title tracks the chat title' (2 tests). They
-  // asserted `renameBuffer` mirrored the chat title onto the pane's companion
-  // buffer's tab label. A chat has had no buffer since Task 1, and Task 17's
-  // ChatHead subscribes to the chat's own `title` directly, so there is nothing
-  // left to mirror — chat-head.tsx's own tests cover what the head shows.
 
   // ── ⌘/ toggles the chat/terminal view, like the ViewSwitcher tabs ─────
   describe('toggle chat/terminal view chord', () => {
@@ -1244,6 +1236,10 @@ describe('AgentChatPane', () => {
     it('takes a non-hotswap chat back to its chat channel before sending what waited', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       setProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockImplementation(async () =>
+        writeChat({ id: 'c1', surface: 'terminal' }),
+      )
+      switchToNativeFn.mockImplementation(async () => writeChat({ id: 'c1', surface: undefined }))
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
       await act(async () => fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i })))
       typeAndSend('held for the chat channel')

@@ -35,7 +35,7 @@ import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
-import { useTerminalEscort } from '@/features/agent/components/use-terminal-escort'
+import { isHotswap, useTerminalEscort } from '@/features/agent/components/use-terminal-escort'
 import { useWindowChord } from '@/features/agent/components/use-window-chord'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
@@ -103,6 +103,9 @@ export function AgentChatPaneBody({
   // What the live runner spawned as: the current launch, never the next one's request.
   const launchModel = useChatField(shownChatId, (c) => c?.launchModel ?? '')
   const providers = usePaneProviders(wsId, hostId)
+  // Without hot-swap the daemon has one view of this chat, and the pane shows that one.
+  const heldView = onTerminalSurface ? 'terminal' : 'chat'
+  const heldSurface = isHotswap(providers, activeProviderId).hotswap ? null : heldView
 
   // A prompt Crowbar cannot answer: undefined is none, '' is unidentified.
   const waitKind = useChatField(shownChatId, (c) => c?.terminalWait?.kind)
@@ -124,7 +127,7 @@ export function AgentChatPaneBody({
     splitSizes,
     setSplitSizes,
     splitStacked,
-  } = useChatPresentation(shownChatId, splitContainerRef)
+  } = useChatPresentation(shownChatId, splitContainerRef, heldSurface)
   // Chat's prompts wait while the Terminal alone shows: one typed into the PTY garbles the TUI.
   const terminalOnly = presentation === 'terminal' && !splitting
   useEffect(

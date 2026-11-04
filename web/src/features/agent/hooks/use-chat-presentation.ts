@@ -75,14 +75,27 @@ export function presetChatLandingPresentation(
   lastChosenByChatId.set(chatId, presentation)
 }
 
-/** Seeded from the preference, never subscribed, so an open chat keeps its
- *  surface when the setting changes; split availability is subscribed because
- *  the switcher gains and loses that segment live. */
+/** What shows: the daemon's view when it holds only one, else the user's pick. The phone has
+ *  no TUI surface, and a split whose switch went away falls back to the chat. */
+function shownPresentation(
+  chosen: ChatPresentation,
+  held: LandingChatPresentation | null,
+  splitEnabled: boolean,
+): ChatPresentation {
+  if (IS_MOBILE) return 'chat'
+  if (held === 'terminal') return 'terminal'
+  const wanted = held === 'chat' && chosen === 'terminal' ? 'chat' : chosen
+  return wanted === 'split' && !splitEnabled ? 'chat' : wanted
+}
+
+/** Seeded from the preference, never subscribed, so an open chat keeps its surface when the
+ *  setting changes. `held` is the daemon's view when it has only one (no hot-swap), else null. */
 export function useChatPresentation(
   shownChatId: string,
   splitContainerRef: {
     current: HTMLElement | null
   },
+  held: LandingChatPresentation | null = null,
 ) {
   const [chosen, setChosenRaw] = useState<ChatPresentation>(
     () => lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation(),
@@ -97,10 +110,9 @@ export function useChatPresentation(
     [shownChatId],
   )
   const splitEnabled = useSplitPresentationEnabled()
-  // Derived, not corrected, so disabling split cannot strand a chat on a
-  // surface whose button just disappeared. The phone has no TUI surface.
-  const presentation: ChatPresentation =
-    IS_MOBILE || (chosen === 'split' && !splitEnabled) ? 'chat' : chosen
+  // Derived, not corrected: a reload, a disabled split or the daemon moving the chat can
+  // never leave the pane on a surface that is not there.
+  const presentation = shownPresentation(chosen, held, splitEnabled)
   const splitting = presentation === 'split'
 
   // Offered when Crowbar moved the user to the terminal and cannot move them

@@ -13,10 +13,7 @@ const { slashCatalogFn, switchToTerminalFn, switchToNativeFn } = vi.hoisted(() =
   switchToNativeFn: vi.fn(),
 }))
 
-// The 44px header-clearance assertion below is a macOS value — force it
-// rather than depend on whatever navigator.userAgent the test happens to run
-// on (jsdom's UA bakes in the CI runner's own host platform, which is Linux
-// on GitHub Actions).
+// The header clearance below is a macOS value; jsdom's UA is the runner's own platform.
 vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
 import { chatPane, renderChatPane, stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
@@ -53,6 +50,7 @@ import {
   seedChats,
   setChatTerminalWait,
   setProviders,
+  writeChat,
 } from '@/__tests__/__fixtures__/agent-chat'
 
 // Hotswap keeps a chat/terminal move synchronous; without it the move goes
@@ -118,9 +116,13 @@ beforeEach(() => {
   })
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
-  switchToTerminalFn.mockResolvedValue('term-session-1')
+  // Each switch's answer is the daemon's frame moving the chat's surface.
+  switchToTerminalFn.mockImplementation(async () => {
+    writeChat({ id: 'c1', surface: 'terminal', terminalSessionId: 'term-session-1' })
+    return 'term-session-1'
+  })
   switchToNativeFn.mockReset()
-  switchToNativeFn.mockResolvedValue(undefined)
+  switchToNativeFn.mockImplementation(async () => writeChat({ id: 'c1', surface: undefined }))
   slashCatalogFn.mockResolvedValue({
     providerId: 'claude',
     completeness: 'model_visible',
@@ -365,16 +367,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('8px')
   })
 
-  // The chat surface's className is built as `hidden`-when-not-
-  // `presentation==='chat'`, full stop — there is no longer a second class to
-  // reconcile it with (`flex flex-col` used to apply here too, only while
-  // the wait banner was up, back when the banner was a sibling row this
-  // container had to stack alongside AgentChatView). Reachable through the
-  // banner's own primary CTA: `openTerminalFromBanner` flips `presentation`
-  // to 'terminal' but does NOT clear `waiting` (that only clears once the CLI
-  // actually answers) — so a user clicking "Open Terminal" while the prompt
-  // is still pending is exactly `splitting=false, presentation='terminal',
-  // waiting=true`.
+  // Open Terminal moves the surface but leaves `waiting` up until the CLI answers.
   it('keeps the chat surface hidden after Open Terminal, even while still waiting', async () => {
     const store = seed()
     await renderPane(store, { isVisible: false })
@@ -384,9 +377,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
     expect(showing()).toBe('terminal')
 
-    // Deliberately NOT calling setWait(null) here — the daemon has not
-    // answered, `waiting` is still true, which is the exact case the bug
-    // needs to reproduce.
+    // The prompt is still pending: `waiting` stays true.
     const chatSurface = screen.getByTestId('agent-chat-surface')
     expect(chatSurface.className).toMatch(/\bhidden\b/)
     expect(chatSurface.className).not.toMatch(/\bflex\b/)
@@ -394,9 +385,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
   // ── The quiet case ─────────────────────────────────────────────────
 
-  // A chat nothing is blocking must be untouched by all of this: no banner, no
-  // navigation, no offer. This is every chat of every provider that declares no
-  // needles, forever.
+  // A chat nothing is blocking gets no banner, no navigation and no offer.
   it('does nothing at all to a chat that is not waiting', async () => {
     const store = seed()
 
@@ -408,13 +397,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   })
 })
 
-// Regression: a non-hotswap api-transport provider (codex) has no terminal
-// session live until switchToTerminal forks one — every path onto the
-// terminal surface used to call setPresentation('terminal') directly, which
-// left the pane showing a terminal with nothing behind it and, from the
-// user's side, no way to ever reach the provider's real TUI. The suite above
-// only ever exercises claude (hotswap:true), where that shortcut happens to
-// be correct — see its own `providers` fixture comment.
+// A non-hotswap provider (codex) has no terminal view until switchToTerminal forks one.
 describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () => {
   it('calls switchToTerminal before showing the terminal on the automatic escort', async () => {
     const store = seedNonHotswap()
@@ -455,10 +438,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     expect(switchToNativeFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
-  // A refused switch (a turn in flight) must leave
-  // the user on chat rather than stranding them on an empty terminal view —
-  // the same "left where they were" contract chooseSurface's own click path
-  // already had.
+  // A refused switch (a turn in flight) leaves the user on the chat, not an empty terminal.
   it('leaves the user on chat when switchToTerminal is refused', async () => {
     switchToTerminalFn.mockRejectedValue(new Error('agent: provider cannot hand a live turn'))
     const store = seedNonHotswap()
@@ -468,5 +448,40 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     await waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
 
     expect(showing()).toBe('chat')
+  })
+})
+
+// A reload keeps no surface of its own: a codex chat's view is the one its daemon holds.
+describe('AgentChatPane — a non-hotswap chat after a reload', () => {
+  const landOn = (presentation: 'chat' | 'terminal') =>
+    useSettingsStore.setState({
+      settings: {
+        ...getDefaultSettingsSnapshot(),
+        chatIsDefaultPresentation: presentation === 'chat',
+      },
+    })
+
+  it('opens on the chat its daemon holds, even where new chats land on the terminal', async () => {
+    landOn('terminal')
+    const store = seedNonHotswap()
+    await renderPane(store)
+
+    expect(showing()).toBe('chat')
+    expect(switchToTerminalFn).not.toHaveBeenCalled()
+    expect(switchToNativeFn).not.toHaveBeenCalled()
+  })
+
+  it('opens on the terminal view its daemon holds, even where new chats land on the chat', async () => {
+    landOn('chat')
+    const store = seedOne(nonHotswapProviders, {
+      ...nonHotswapChat(),
+      terminalSessionId: 'pty-1',
+      surface: 'terminal',
+    })
+    await renderPane(store)
+
+    expect(showing()).toBe('terminal')
+    expect(switchToTerminalFn).not.toHaveBeenCalled()
+    expect(switchToNativeFn).not.toHaveBeenCalled()
   })
 })
