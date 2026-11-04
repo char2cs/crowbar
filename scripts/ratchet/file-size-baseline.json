@@ -63,7 +63,7 @@
   "web/src/__tests__/components/sidebar/row-context-menu.test.tsx": 579,
   "web/src/__tests__/components/sidebar/sidebar-row.test.tsx": 1063,
   "web/src/__tests__/components/sidebar/space-scroller.test.tsx": 702,
-  "web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx": 1356,
+  "web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx": 1350,
   "web/src/__tests__/features/agent/composer/composer-choice.test.tsx": 665,
   "web/src/__tests__/features/agent/composer/plate/chat-markdown-editor.test.tsx": 519,
   "web/src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx": 702,
