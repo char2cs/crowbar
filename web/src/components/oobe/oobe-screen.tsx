@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Navigate } from '@tanstack/react-router'
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'framer-motion'
 import {
   ArrowClockwise,
@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
 import { useProjectStore } from '@/core/entities/active-project'
+import { selectProjects, useSelect } from '@/core/entities/select'
+import { landingFor } from '@/components/layout/shell-landing'
 import { fetchPrerequisites } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
 import { OOBE_TAGLINE, OobeGradient } from './oobe-frame'
@@ -228,7 +230,8 @@ export function OobeScreen() {
   const [prereqs, setPrereqs] = useState<Prerequisites | null>(null)
   const [retryCount, setRetryCount] = useState(0)
   const [importOpen, setImportOpen] = useState(false)
-  const navigate = useNavigate()
+  const projects = useSelect(selectProjects)
+  const activeId = useProjectStore((s) => s.activeProjectId)
 
   useEffect(() => {
     if (step !== 'prerequisites') return
@@ -252,11 +255,15 @@ export function OobeScreen() {
     }
   }, [step, retryCount])
 
+  // The import lands when its project is listed; the list leaves this screen, as it does the app's.
   function handleImport(project: Project) {
     useProjectStore.getState().setActiveProject(project.id)
     setImportOpen(false)
-    void navigate({ to: '/' })
   }
+
+  // Whoever added it (this dialog, the CLI, another client): a listed space ends the first run.
+  const landing = landingFor(projects, activeId)
+  if (landing && landing.to !== '/oobe') return <Navigate {...landing} replace />
 
   return (
     // Single LazyMotion boundary for the whole screen: it covers OobeGradient,

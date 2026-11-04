@@ -1,15 +1,24 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { OobeScreen } from '@/components/oobe/oobe-screen'
-import { vi, describe, it, expect } from 'vitest'
+import { vi, describe, it, expect, beforeEach } from 'vitest'
+import {
+  markProjectsSynced,
+  projectDTO,
+  resetEntities,
+  seedProjects,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 // The OOBE is a multi-step gradient flow: presentation → prerequisites →
 // add-project. The add-project step's "Choose a folder" CTA opens the import
 // modal (subscribe-before-POST). We drive the steps and assert the headline/CTA
 // and that the CTA opens the dialog.
 
-vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
-vi.mock('@/core/entities/active-project', () => ({
-  useProjectStore: { getState: () => ({ setActiveProject: vi.fn() }) },
+const landedOn = vi.hoisted(() => vi.fn())
+vi.mock('@tanstack/react-router', () => ({
+  Navigate: (props: unknown) => {
+    landedOn(props)
+    return null
+  },
 }))
 vi.mock('@/lib/api', () => ({
   fetchPrerequisites: vi.fn().mockResolvedValue({
@@ -39,7 +48,27 @@ async function advanceToAddProject() {
   fireEvent.click(screen.getByRole('button', { name: /continue/i }))
 }
 
+beforeEach(() => {
+  resetEntities()
+  markProjectsSynced()
+  landedOn.mockReset()
+})
+
 describe('OobeScreen', () => {
+  // The project list decides, as the app's landing does: a space added from the dialog,
+  // the API or another client takes the user to it.
+  it('leaves for the first space as soon as the project list holds one', async () => {
+    render(<OobeScreen />)
+    await advanceToAddProject()
+    expect(landedOn).not.toHaveBeenCalled()
+
+    act(() => seedProjects([projectDTO({ id: 'p1', name: 'Space' })]))
+
+    expect(landedOn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ to: '/ide/$projectId/home', params: { projectId: 'p1' } }),
+    )
+  })
+
   it('renders the presentation headline and CTA', () => {
     render(<OobeScreen />)
     expect(screen.getByText(/the ide where agents do the heavy lifting/i)).toBeInTheDocument()
