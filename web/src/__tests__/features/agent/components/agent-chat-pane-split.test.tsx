@@ -92,6 +92,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import {
   nextVersion,
+  provider,
   resetChatStore,
   seedChats,
   setChatTerminalWait,
@@ -102,22 +103,7 @@ import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 // Both real descriptors declare hotswap:true — see
 // TestShippedDescriptors_DeclareHotswapTrue on the backend — which is what
 // offers split at all; this suite is about split's OWN behaviour, not the gate.
-const providers: AgentProvider[] = [
-  {
-    id: 'claude',
-    displayName: 'Claude',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    hasTerminal: true,
-    hotswap: true,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    terminalStartHere: false,
-  },
-]
+const providers: AgentProvider[] = [provider('claude', 'Claude')]
 
 function liveChat(): AgentChat {
   return {

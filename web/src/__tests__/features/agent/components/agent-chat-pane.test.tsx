@@ -46,12 +46,8 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
   'agent.toggleViewMode': 'mod+/',
 }))
 
-// The toggle-chord tests below dispatch metaKey (Cmd) keydowns, and
-// HEADER_ROW_HEIGHT_PX is platform-dependent — both resolve through IS_MAC
-// (chord.ts's eventMatchesChord checks metaKey on macOS, ctrlKey elsewhere).
-// Force macOS regardless of whatever OS the test happens to run on (jsdom's
-// UA bakes in the CI runner's own host platform, which is Linux on GitHub
-// Actions).
+// The chord tests dispatch Cmd keydowns and HEADER_ROW_HEIGHT_PX is per platform,
+// both through IS_MAC; pin macOS whatever OS the runner's UA reports.
 const platform = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@/utils/platform', () => ({
   IS_MAC: true,
@@ -148,6 +144,7 @@ import {
   writeChat,
   resetChatStore,
   setProviders,
+  provider,
 } from '@/__tests__/__fixtures__/agent-chat'
 
 /**
@@ -164,40 +161,9 @@ function landOnTerminal() {
   }))
 }
 
-// Both real descriptors declare hotswap:true and keep a real terminal — see
-// TestShippedDescriptors_DeclareHotswapTrue on the backend — so these fixtures
-// match that rather than exercising the (currently provider-less) false branch,
-// which has its own dedicated coverage in agent-chat-view.test.tsx.
-const providers: AgentProvider[] = [
-  {
-    id: 'claude',
-    displayName: 'Claude',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    hasTerminal: true,
-    hotswap: true,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    terminalStartHere: false,
-  },
-  {
-    id: 'codex',
-    displayName: 'Codex',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    hasTerminal: true,
-    hotswap: true,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    terminalStartHere: false,
-  },
-]
+// Both real descriptors declare hotswap:true and keep a real terminal; the false
+// branch has its own coverage in agent-chat-view.test.tsx.
+const providers: AgentProvider[] = [provider('claude', 'Claude'), provider('codex', 'Codex')]
 
 // ── Wire fixtures ────────────────────────────────────────────────────
 // A chat is LIVE exactly while a runner is placed on it. liveRunnerId is the whole
