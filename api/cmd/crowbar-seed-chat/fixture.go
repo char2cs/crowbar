@@ -95,7 +95,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 		return "", fmt.Errorf("crowbar-seed-chat: chat read model: %w", err)
 	}
 	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(),
-		agentchat.StripRetiredPlacementFields, agentchat.Subscriber(readModel))
+		agentchat.RetiredFields, agentchat.Subscriber(readModel))
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: asynx agent chat: %w", err)
 	}

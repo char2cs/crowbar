@@ -98,8 +98,9 @@ func ReadLegacy(ctx context.Context, src LegacySources) (LegacyHome, error) {
 }
 
 func readChats(ctx context.Context, log asynxModels.Store) ([]LegacyChat, []string, error) {
-	ax, err := asynx.New[legacyChat]().WithEventStore(log).WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithSchemaVersion(agentchat.SchemaVersion).WithUpcaster(1, keepAll).Build()
+	b := asynx.New[legacyChat]().WithEventStore(log).WithSnapshotStore(asynxstore.NewSnapshots())
+	agentchat.KeepPlacement(b)
+	ax, err := b.Build()
 	if err != nil {
 		return nil, nil, fmt.Errorf("migratetree: chat reader: %w", err)
 	}
@@ -203,12 +204,6 @@ func eachAggregate(ctx context.Context, log asynxModels.Store, each func(id stri
 		}
 	}
 	return nil
-}
-
-// keepAll reads a schema-1 event as written: the legacy document still has
-// the fields the current chat dropped.
-func keepAll(_ context.Context, _ string, patches []byte) ([]byte, error) {
-	return patches, nil
 }
 
 func shutdown[T any](ctx context.Context, ax asynx.Asynx[T]) {

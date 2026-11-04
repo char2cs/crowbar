@@ -103,14 +103,31 @@ func writeAll[T any](t *testing.T, log asynxModels.Store, docs map[string][]T) {
 	}
 }
 
-// chat writes c's history: its creation at the root, then its placement, so
-// the log holds real /parentId and /order patches.
+// schema1Chat is the whole chat document schema 1 wrote: its placement and
+// the turn state the ledger now folds.
+type schema1Chat struct {
+	legacyChat
+	Working            bool       `json:"working"`
+	CurrentTurnStarted *time.Time `json:"currentTurnStarted,omitempty"`
+	LastActivityAt     time.Time  `json:"lastActivityAt"`
+	AsyncWork          int        `json:"asyncWork"`
+	LedgerCursor       int        `json:"ledgerCursor"`
+}
+
+// chat writes c's history: its creation at the root, its placement, then a
+// turn, so the log holds real /parentId, /order and turn-state patches.
 func (l *legacy) chat(t *testing.T, id, workspaceID, parentID string, order int) {
 	t.Helper()
-	born := legacyChat{Chat: domain.Chat{ID: id, WorkspaceID: workspaceID, Type: domain.ChatTypeChat}}
+	born := schema1Chat{legacyChat: legacyChat{Chat: domain.Chat{ID: id, WorkspaceID: workspaceID, Type: domain.ChatTypeChat}}}
+	born.LastActivityAt = time.Unix(100, 0).UTC()
 	placed := born
 	placed.ParentID, placed.Order = parentID, order
-	writeAll(t, l.chatLog, map[string][]legacyChat{id: {born, placed}})
+	started := placed
+	at := time.Unix(200, 0).UTC()
+	started.Working, started.CurrentTurnStarted, started.LastActivityAt, started.AsyncWork = true, &at, at, 1
+	stopped := started
+	stopped.Working, stopped.CurrentTurnStarted, stopped.AsyncWork, stopped.LedgerCursor = false, nil, 0, 3
+	writeAll(t, l.chatLog, map[string][]schema1Chat{id: {born, placed, started, stopped}})
 }
 
 func (l *legacy) nodes(t *testing.T, nodes ...legacyNode) {
@@ -142,6 +159,7 @@ func TestReadLegacy_ReadsEveryRetiredRecordAsWritten(t *testing.T) {
 	got, err := ReadLegacy(context.Background(), l.sources())
 
 	require.NoError(t, err)
+	assert.Empty(t, got.UnreadChats, "a turn's patches do not stop a history replaying")
 	assert.Equal(t, []LegacyChat{{ID: "c-1", WorkspaceID: "ws-1", Placement: tree.Placement{ParentID: "f-1", Order: 3}}},
 		got.Chats, "a schema-1 history still carries the placement it patched")
 	assert.ElementsMatch(t, []tree.Node{

@@ -83,9 +83,9 @@ func newAggregates(
 		workspace.Subscriber(rm.Workspace)); err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
-	// The upcaster strips the placement patches: placement lives in the Tree.
+	// The upcaster strips the patches of fields domain.Chat no longer has.
 	if ax.agentChat, err = newAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), parked.agentChat,
-		agentchat.StripRetiredPlacementFields,
+		agentchat.RetiredFields,
 		agentchat.Subscriber(rm.AgentChat)); err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
