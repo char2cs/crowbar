@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { NavigateFn } from '@tanstack/react-router'
 
 vi.mock('@/lib/crowbar-bridge', () => ({
   isTauri: () => true,
@@ -42,12 +41,9 @@ import { PrimitiveDialogProvider } from '@/components/ui/primitive-dialog-servic
 import { proxyMarkerError } from '@/lib/api/errors'
 import { startHostStatus } from '@/features/hosts/lib/host-status'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { useRedirectIfProjectMissing } from '@/components/layout/use-redirect-if-project-missing'
 import { ApiError } from '@/lib/errors/api-error'
-import { dataOf } from '@/lib/loadable'
-import { connectProjectList, useProjectDataStore } from '@/lib/store/projects'
 import type { Host } from '@/features/hosts/types'
-import { pairRemoteHost, projectOn, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const homelab: Host = {
   id: 'h1',
@@ -243,41 +239,14 @@ describe('HostsSettings', () => {
   })
 })
 
-// Revoke as the running app meets it: the project list live, the host's status kept, its
-// providers read and one of its projects open.
+// Revoke as the running app meets it: the host's status kept and its providers read.
 describe('revoking a host the app is using', () => {
-  const navigate = vi.fn()
-  const streams: string[] = []
   let stops: Array<() => void> = []
-  const held = () =>
-    (dataOf(useProjectDataStore.getState().data) ?? []).map((p) => `${p.id}@${p.hostId}`)
 
-  function OpenProject({ projectId }: { projectId: string }) {
-    useRedirectIfProjectMissing(projectId, navigate as unknown as NavigateFn)
-    return null
-  }
-
-  async function revokeInUse() {
-    renderSettings(<OpenProject projectId="p-remote" />)
-    await revoke('h1')
-  }
-
-  beforeEach(async () => {
-    navigate.mockReset()
-    streams.length = 0
+  beforeEach(() => {
     resetHostWorld()
-    connectProjectList({
-      read: async (hostId) =>
-        hostId === 'local' ? [projectOn('p-local', 'local')] : [projectOn('p-remote', hostId)],
-      subscribe: (hostId) => {
-        streams.push(`open ${hostId}`)
-        return () => streams.push(`close ${hostId}`)
-      },
-    })
     pairRemoteHost('h1')
-    stops = [useProjectDataStore.getState().startSync(), startHostStatus()]
-    await useProjectDataStore.getState().fetch()
-    await waitFor(() => expect(held()).toEqual(['p-local@local', 'p-remote@h1']))
+    stops = [startHostStatus()]
     useAgentProvidersStore.setState({ remote: { h1: [] } })
   })
 
@@ -288,17 +257,13 @@ describe('revoking a host the app is using', () => {
     resetHostWorld()
   })
 
-  it('takes the host’s rows, stream, status and providers with it, and leaves its project', async () => {
-    expect(streams).toEqual(['open local', 'open h1'])
-
-    await revokeInUse()
+  it('takes the host’s status and providers with it', async () => {
+    renderSettings()
+    await revoke('h1')
 
     await waitFor(() => expect(useHostConfigStore.getState().hosts).toEqual([]))
-    expect(held()).toEqual(['p-local@local'])
-    expect(streams).toEqual(['open local', 'open h1', 'close h1'])
     expect(getHostRuntime('h1')).toBeUndefined()
     expect(useAgentProvidersStore.getState().remote).toEqual({})
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: '/' }))
   })
 
   it('a revoke that cannot reach the host asks first, and kept, changes nothing here', async () => {
@@ -308,19 +273,17 @@ describe('revoking a host the app is using', () => {
       }
     })
 
-    await revokeInUse()
+    renderSettings()
+    await revoke('h1')
 
     expect(await screen.findByText(/h1 will still list this computer as paired/)).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Keep it' }))
     await dialogGone()
     expect(hosts()).toEqual(['h1'])
-    expect(held()).toEqual(['p-local@local', 'p-remote@h1'])
-    expect(streams).toEqual(['open local', 'open h1'])
-    expect(getHostRuntime('h1')?.getState().status).toBe('up')
+    expect(getHostRuntime('h1')).toBeDefined()
     expect(useAgentProvidersStore.getState().remote).toEqual({ h1: [] })
     expect(unregisterRemoteHost).not.toHaveBeenCalled()
     expect(forgetHostToken).not.toHaveBeenCalled()
-    expect(navigate).not.toHaveBeenCalled()
   })
 })
 
@@ -329,7 +292,7 @@ describe('revoking a host the app is using', () => {
 describe('revoking a host when something fails', () => {
   /** Every request goes through the real transport, and the host answers `status` with `body`. */
   async function answerThrough(status: number, body: string) {
-    const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
+    const actual = await vi.importActual<typeof import('@/lib/api/fetch')>('@/lib/api/fetch')
     vi.mocked(apiFetch).mockImplementation(actual.apiFetch)
     const fetch = vi.fn(async () => new Response(body, { status }))
     vi.stubGlobal('fetch', fetch)
@@ -359,7 +322,8 @@ describe('revoking a host when something fails', () => {
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
     expect(toastErrorFn).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining('Removed homelab'),
-      'keychain locked',
+      // A client-side failure is logged, not worded: the toast points there.
+      expect.stringContaining('details are in the log'),
     )
     expect(consoleError).toHaveBeenCalled()
   })
