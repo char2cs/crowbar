@@ -1,5 +1,6 @@
 import { sendPrompt } from '@/features/agent/stores/chat-outbox'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 /** Where a draft thread lives, and where its chat will be created. */
 export interface DraftSpec {
@@ -33,6 +34,15 @@ export function draftOfPane(paneId: string): DraftSpec | null {
     workspaceId: pane.workspaceId,
     parentId: pane.draftParentId ?? '',
   }
+}
+
+/** Where a draft's chat starts: on Chat, which sends the prompt (Terminal holds it unsent),
+ *  and on the agent the prompt was written for. */
+export function draftLanding(prompt: DraftPrompt): {
+  presentation: LandingChatPresentation
+  providerId: string
+} {
+  return { presentation: 'chat', providerId: prompt.provider }
 }
 
 /**

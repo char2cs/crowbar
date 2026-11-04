@@ -153,7 +153,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
       'ws-locked',
       'claude',
       'develop-row',
-      undefined,
+      'chat',
     )
   })
 

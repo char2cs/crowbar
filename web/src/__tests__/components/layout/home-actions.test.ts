@@ -202,14 +202,7 @@ describe('handleCreateHomeThread', () => {
 
     await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'home-ws-1',
-      'claude',
-      '',
-      undefined,
-    )
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'home-ws-1', 'claude', '', 'chat')
   })
 
   it('opens straight into a pane when the home workspace is already active', async () => {

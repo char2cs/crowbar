@@ -18,7 +18,7 @@ import {
 } from './open-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { newDraftChatId } from '@/features/agent/lib/draft-chat'
-import { finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
+import { draftLanding, finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startHomeRowThread } from './home-actions'
 import {
   createInFlight,
@@ -207,6 +207,7 @@ export function promoteRepoDraft(draft: DraftSpec, prompt: DraftPrompt): Promise
     projectId,
     workspaceId,
     parentId: draft.parentId || workspaceId,
+    ...draftLanding(prompt),
     onCreated: (chatId) => finishDraftThread(draft, chatId, prompt),
   })
 }
