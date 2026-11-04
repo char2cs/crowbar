@@ -72,8 +72,7 @@ describe('on-demand language contributions', () => {
 // `monaco/language.ts` fails here until `language-contributions.ts` grows the
 // loader (or the id is consciously added to an exclusion below).
 describe('loader map covers every monaco id the app resolver can produce', () => {
-  // Registered synchronously by language-contributions.ts's custom Monarch
-  // section (ensureLanguage + setMonarchTokensProvider) — no loader needed.
+  // Registered synchronously by monarch-languages.ts — no loader needed.
   const CUSTOM_MONARCH_IDS = new Set([
     'diff',
     'gitignore',
