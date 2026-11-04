@@ -464,17 +464,8 @@ describe('performSidebarDrop — clearing a stale folder edge', () => {
   })
 })
 
-// TestRegression: `makeRepo()`'s own fixture wires no workspace's
-// `owningChatId`, so the two tests above never exercise the branch that
-// actually resolves one — `directFolderId`'s old `?? ''` fallback and its
-// correct resolved value are indistinguishable there. A real fork's own
-// locked-branch parent DOES carry one (every workspace mints its Node the
-// instant it's created — place_workspace.go's own doc), and Node.ParentID
-// for a row sitting directly under it is that OWNING CHAT's id, never bare
-// ''. Sending '' filed the row at the true project root — a different level
-// entirely — caught live: dragging a fork past a sibling fork under the
-// SAME locked branch PATCHed 200, the write landed, and the panel never
-// showed the reorder because the row had just left that branch's own level.
+// A row directly under a locked branch has that branch's OWNING CHAT as its Node
+// parent, never bare '' (the project root, a different level the row would leave).
 describe('performSidebarDrop — folder edge for a workspace container that owns a chat', () => {
   it("landing directly under a workspace container writes that workspace's OWNING CHAT id, never bare ''", async () => {
     seedRepos([
@@ -501,18 +492,9 @@ describe('performSidebarDrop — folder edge for a workspace container that owns
   })
 })
 
-// TestRegression: a FOLDER's own `parentId` carries the SAME owning-chat id
-// the case above pins for a bare workspace container — `performCreateFolder`
-// sends the row id (a locked branch's, or an ordinary fork's, own CHAT id) as
-// `parentId` when a folder is filed directly under one. `workspaceAnchor`
-// (the fork-lineage walk `planTreeRowDrop` runs before every workspace/branch
-// drop) only ever checked a container id against raw workspace ids and other
-// folder ids, so a folder nested directly under such a row broke that walk:
-// `cursor` became the owning chat's id, matched neither set, and the walk
-// fell straight through to "" (bare root) instead of the real workspace. A
-// fork already living under that exact branch, dropped into a folder nested
-// under it, therefore read as leaving its fork parent and was silently
-// REBASED onto the repo's default checkout before the placement even ran.
+// A folder filed directly under a branch row carries that row's owning-chat id as
+// `parentId`; the fork-lineage walk must resolve it to the workspace, not fall to
+// the root and rebase the fork onto the default checkout.
 describe('performSidebarDrop — folder nested under a workspace container that owns a chat', () => {
   it('filing a fork into a folder under its OWN locked fork parent is a placement only — no reparent', async () => {
     seedRepos([
@@ -539,19 +521,8 @@ describe('performSidebarDrop — folder nested under a workspace container that 
   })
 })
 
-// Live-reported: dragging a folder to the top of its OWN sibling list (no
-// change of parent/nesting intended) 400'd with "a folder cannot move to a
-// different context" — the backend's real, checked-server-side ErrCrossContext
-// (usecases/chat/internal/tree/validate.go's checkFolderContextMove). The
-// backend itself never trips this for a PURE reorder: `MoveInput.ParentID` is
-// `*string`, and a nil field is left exactly as it is (Go's own
-// TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted already reorders
-// a folder to index 0 with no `parentId` field at all and asserts no error).
-// The bug was frontend-only: `planTreeRowDrop` always re-sent a freshly
-// COMPUTED `parentId` on every folder move, even one that landed the folder
-// right back in the container it already had — and that recomputed value
-// compared its own anchor against the backend's stored one instead of
-// skipping the context check outright the way omitting the field does.
+// A pure reorder of a folder within its own siblings sends no `parentId`: a
+// recomputed one can disagree with the stored anchor and 400 as a context move.
 describe('performSidebarDrop — reordering a folder within its own current container', () => {
   it('sends no parentId at all when the folder is not actually changing container', async () => {
     seedRepos([
@@ -1020,14 +991,8 @@ describe('performSidebarDrop — chats', () => {
     })
   })
 
-  // Reported live as "can't parent a chat into a folder": the PATCH always
-  // succeeded (confirmed live — the daemon had the chat under its new
-  // parent, survived a reload) but nothing on screen ever moved, because
-  // `setChatPlacement`'s own response used to be discarded here entirely —
-  // the sidebar tree's own `repos` (what `deriveRows` actually reads,
-  // separate from the ChatStore the other tests in
-  // this block seed) was never told. Pins the fix: the response is now
-  // applied straight to the entity store.
+  // `setChatPlacement`'s response is applied to the entity store `deriveRows`
+  // reads; discarded, the PATCH landed but nothing on screen moved.
   it('applies its own setChatPlacement response directly to the sidebar tree store', async () => {
     seedRepos([
       ...readSelect(selectRepos),
@@ -1144,17 +1109,8 @@ describe('performSidebarDrop — chats', () => {
     })
   })
 
-  // 2026-09-09, caught live as "can't put a chat right at the bottom of
-  // the tree list": a chat reordering PAST a BRANCH row (a repo's own
-  // header, a locked branch, or an ordinary fork) used to be refused
-  // outright by the drop policy, and even once allowed there, planChatDrop
-  // had no way to see a branch row at all — it comes from a different
-  // aggregate than Chat/Folder, invisible to the workspace-scoped
-  // {chats, folders} read this describe block's other tests use. Both
-  // halves are fixed together: the policy now allows before/after (never
-  // "into" — a branch is still not a chat's thread parent), and
-  // `planChatDropOntoBranch` computes the index over the same combined
-  // tree that actually renders this level.
+  // A chat may reorder before/after a branch row (never into: a branch is no
+  // thread parent), indexed over the combined tree this level renders.
   describe('reordering past a branch row', () => {
     /** repo-1's header row as `deriveRows` draws it: `repoIcon` marks it. */
     const repoHeader = (id: string) =>
@@ -1446,14 +1402,8 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
   })
 })
 
-// A REPO's own header row as the dragged subject — caught live: dragging it
-// did nothing at all, since `planTreeRowDrop` (Repo-shaped) had no call to
-// construct for a row that is not a member of `repo.workspaces`, and its real
-// placement lives on a whole different aggregate (`domain.Repository`). Its
-// one legal destination is project home — reordered among that project's
-// home chats/folders/other repos, or filed into one of that project's home
-// folders — never a repo-internal target (refused earlier, by
-// `SIDEBAR_DROP_POLICY`).
+// A repo header as the dragged subject: its one legal destination is project home
+// (reordered among home rows or filed into a home folder), placed via `placeRepo`.
 describe('performSidebarDrop — a repo header row as the dragged subject', () => {
   // Same reasoning as the home-folder-subject block above: `resolveHomeOwnerId`
   // resolves the row that owns the project's home workspace off
@@ -1559,13 +1509,8 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
     expectReported('locked')
   })
 
-  // Caught live: a home folder nested inside a CHAT (a legal spot for a
-  // folder) still let a repo reorder "past" it, constructing a `placeRepo`
-  // call whose folderId named that CHAT — refused by the daemon with a raw
-  // 400. `SIDEBAR_DROP_POLICY` refuses this before a drop is ever offered
-  // (its own regression test), and this pins the defensive backstop in
-  // `planRepoHomeDrop` itself for the same case, same as every other plan
-  // function in this file keeps one.
+  // The policy refuses a repo beside a home folder nested in a CHAT; this pins
+  // `planRepoHomeDrop`'s own backstop for the same case.
   it('refuses (no placeRepo call) reordering past a home folder nested inside a CHAT', async () => {
     seedHomeTree('proj-1', {
       chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
@@ -1585,12 +1530,7 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
 })
 
 // ── performSidebarPaneDrop — spec §8.1's other two targets ──
-//
-// Task 26: panes are window-level now (`windowPaneStore`, one flat store for
-// every workspace — see window-pane-store.ts), not one of the many
-// per-workspace `getOrCreateWorkspaceStore(wsId)` stores. Every assertion
-// below moved from `getOrCreateWorkspaceStore('ws-1').getState()` to
-// `windowPaneStore.getState()` for that reason.
+// Panes are window-level (`windowPaneStore`), not per-workspace stores.
 
 describe('performSidebarPaneDrop — rows that name no chat', () => {
   it('ignores folder/workflow rows — a folder only folds, and nothing produces a workflow row yet', () => {
@@ -1619,17 +1559,8 @@ describe('performSidebarPaneDrop — rows that name no chat', () => {
   })
 })
 
-/**
- * A WORKSPACE row dropped onto a pane — "we should support splits if users
- * drag either a single chat-view, or a workspace row into the pane system".
- *
- * It used to be refused with every other non-chat kind ("no pane has an
- * 'open into' meaning for them yet"), which is precisely why dragging a
- * workspace row onto the pane area did nothing at all. It has a meaning, and
- * it is the same one a chat row has: `deriveRows` gives every
- * workspace-owning row the id of the CHAT that owns its worktree, so a
- * workspace row IS a chat row wearing a workspace's clothes.
- */
+/** A WORKSPACE row dropped onto a pane: `deriveRows` ids a workspace-owning row by
+ *  the chat that owns its worktree, so it opens and splits like a chat row. */
 describe('performSidebarPaneDrop — a workspace row', () => {
   /** A row exactly as `deriveRows` builds one for a fork: id'd from the
    *  owning chat, carrying the workspace it owns. */
@@ -1675,22 +1606,8 @@ describe('performSidebarPaneDrop — a workspace row', () => {
   })
 })
 
-/**
- * THE SPLIT THE PRODUCT OWNER COULD NOT MAKE.
- *
- * Once every chat got a view of its own (`openChatInOwnPane`) and only the
- * showing view occupies the screen, every chat the user had ever opened
- * already had a pane — parked, off screen, but a pane. `openChatIntoPane`'s
- * dedup read "already up anywhere → go TO it" as a blanket refusal, so a drop
- * onto a pane's EDGE switched views instead of splitting. Every Recents row is
- * exactly such a chat, so dragging one onto the pane area could never produce
- * a split at all.
- *
- * §8.2's "it never opens twice" is a rule against DUPLICATION, and it still
- * holds here: the pane the chat is already in MOVES (`mergePaneIntoView`),
- * carrying its own live state with it. Never a second pane for one chat, and
- * never a close-and-reopen either.
- */
+/** A drop onto a pane's EDGE splits even when the chat already has a (parked)
+ *  pane: that pane MOVES with its live state, never a second pane for one chat. */
 describe('performSidebarPaneDrop — a chat that already has a view of its own', () => {
   /** The state a Recents row for a single-chat view describes: `chatId` is up
    *  in a view of its own, currently parked behind `showing`. */
@@ -1888,17 +1805,8 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
   })
 })
 
-/**
- * `openChatInOwnPane` — spec §8.4's CLICK, and the point of it being its own
- * function rather than a `openChatIntoPane(…, activePaneId, 'center')` call.
- *
- * Measured live before the split: clicking four sidebar rows in turn produced
- * ONE Recents entry holding all four chats (the drop's `groupIntoArrangement`
- * merge) and a 50/25/12.5/12.5 cascade of splits nested inside the first pane
- * (the drop's `splitPane` on the target). That is what "clicking a new row
- * appends a chat to the current view" was. Merging two views is a
- * drag-and-drop gesture and only that.
- */
+/** `openChatInOwnPane` is the CLICK: a row opens into its own view. Merging two
+ *  views is a drag-and-drop gesture only. */
 describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => {
   beforeEach(() => setActiveWorkspaceId('ws-1'))
 
@@ -2033,24 +1941,9 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
   })
 })
 
-/**
- * CROSS-WORKSPACE drops.
- *
- * This used to be refused outright: `openChatIntoPane` compared the row's
- * workspace against `getActiveWorkspaceId()` and silently did nothing
- * otherwise. The reason was real — the RENDER side resolved a pane's chat
- * through the AMBIENT `WorkspaceStoreContext` of whichever `WorkspaceView`
- * happened to draw it, so a chat from another workspace rendered permanently
- * blank and (since `setPaneChat` persists) survived reload — but the refusal
- * covered a very common case: the sidebar shows a whole PROJECT, and Recents
- * spans every workspace in it, so most rows on screen at any moment belong to
- * a workspace other than the routed one. Dropping any of them did nothing at
- * all.
- *
- * The mechanism the refusal stood in for is now built — `resolveChatWorkspaceId`
- * (features/panes/lib/pane-chat-workspace.ts), read by `PaneContainer` through
- * the member's recorded workspace — so the drop is a drop.
- */
+/** CROSS-WORKSPACE drops: Recents spans a whole project, so most rows belong to a
+ *  workspace other than the routed one; a pane resolves its chat's workspace
+ *  through `resolveChatWorkspaceId`, so the drop is a drop. */
 describe('performSidebarPaneDrop — cross-workspace', () => {
   it('splits for a chat whose workspace is not the routed one', () => {
     setActiveWorkspaceId('ws-visible') // ws-visible is what's on screen
@@ -2075,16 +1968,8 @@ describe('performSidebarPaneDrop — cross-workspace', () => {
   })
 })
 
-/**
- * The FOURTH id-space consumer of a branch row's id, after
- * `resolveChatRow`/`resolveRow`/`performRenameRow`. A branch row is addressed
- * by the chat that owns its workspace (`deriveRows`), and everything
- * this file computes with — `legacyTreeIndex`'s nodes, `placeWorkspace`,
- * `reparentWorkspace` — is in the WORKSPACE id space. Untranslated,
- * `resolveRowRepo` returned null for the repo-home row and every locked
- * branch, `planTreeRowDrop` returned `[]`, and the drop the indicator had just
- * promised fired no request at all.
- */
+/** A branch row is addressed by its workspace's owning chat; everything planned
+ *  here is in the workspace id space, so the id is translated first. */
 // ── targetInRecents (spec §8.1's Recents-row targets — Task 2b) ──
 
 function makeChatRepo(): Repo {
@@ -2204,12 +2089,8 @@ describe('performSidebarDrop — targetInRecents', () => {
     )
   })
 
-  // REGRESSION (live-reported: "rows on recents cannot be reorder"). Recents
-  // draws a workspace-owning chat with the tree's real branch/lock glyph, and
-  // `chatIconIndex`'s fields carry `kind: 'branch'` into the row with them —
-  // so the band's rows are NOT all `kind: 'chat'`. Filtering for that kind
-  // dropped every such row on the floor, as subject and as target alike, with
-  // no toast and no write: the drag animated and the band never moved.
+  // Recents draws workspace-owning chats with `kind: 'branch'`, so the band's rows
+  // are not all `kind: 'chat'` and none may be filtered out by kind.
   describe('a Recents row whose chat owns a workspace (kind: branch)', () => {
     /** `ws-x` with its owning chat recorded, so a branch-kind row for
      *  `chat-b` resolves to that chat the same way the tree's own copy does. */
@@ -2418,17 +2299,8 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
   })
 })
 
-/**
- * RECENTS IS THE VIEW SWITCHER — spec §8.1's "into that view, opened", now
- * that the view in question is usually NOT the one on screen.
- *
- * The band already draws exactly one row per view, so it is the switcher
- * rather than a second, parallel tab strip listing the same views again. That
- * makes its rows drop targets for a view that is off screen, which before
- * views owned their own trees could not work at all: the split machinery
- * looked the target pane up in `rootLayout` only, found nothing, and silently
- * dropped the merge on the floor.
- */
+/** Recents is the view switcher: its rows are drop targets for views that are
+ *  usually off screen, merged into that view's own tree. */
 describe('performSidebarDrop — dropping onto a Recents row (spec §8.1)', () => {
   beforeEach(() => setActiveWorkspaceId('ws-1'))
 

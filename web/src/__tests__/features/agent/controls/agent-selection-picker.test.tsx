@@ -53,6 +53,19 @@ const codex: AgentProvider = {
   terminalStartHere: false,
 }
 
+type PickerProps = Parameters<typeof AgentSelectionPicker>[0]
+const draw = (props: Partial<PickerProps> = {}) =>
+  render(
+    <AgentSelectionPicker
+      provider={claude}
+      providers={[claude, codex]}
+      model="opus"
+      effort="high"
+      onSelectionChange={vi.fn()}
+      {...props}
+    />,
+  )
+
 function openMenu() {
   fireEvent.click(screen.getByRole('button', { name: /Agent:/ }))
 }
@@ -60,28 +73,17 @@ function openMenu() {
 describe('AgentSelectionPicker', () => {
   it('renders nothing when no offered provider declares a model catalogue', () => {
     const noCatalogue: AgentProvider = { ...claude, modelSelect: false, models: [] }
-    const { container } = render(
-      <AgentSelectionPicker
-        provider={noCatalogue}
-        providers={[noCatalogue]}
-        model=""
-        effort=""
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    const { container } = draw({
+      provider: noCatalogue,
+      providers: [noCatalogue],
+      model: '',
+      effort: '',
+    })
     expect(container).toBeEmptyDOMElement()
   })
 
   it('shows the current provider icon, model and effort on the trigger', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw()
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveTextContent('opus')
     expect(trigger).toHaveTextContent('High')
@@ -89,44 +91,18 @@ describe('AgentSelectionPicker', () => {
 
   // A blank draft has neither: "Default · Default" said the same word twice.
   it('names an unpicked model and effort once', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude]}
-        model=""
-        effort=""
-        unsetLabel="Default"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ providers: [claude], model: '', effort: '', unsetLabel: 'Default' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveTextContent(/^Default$/)
   })
 
   it('still names the effort when only the model is unpicked', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude]}
-        model=""
-        effort="low"
-        unsetLabel="Default"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ providers: [claude], model: '', effort: 'low', unsetLabel: 'Default' })
     expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('Default·Low')
   })
 
   it('groups models under their own provider section, one section per offered provider', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw()
     openMenu()
     expect(screen.getByText('Claude')).toBeInTheDocument()
     expect(screen.getByText('Codex')).toBeInTheDocument()
@@ -136,33 +112,17 @@ describe('AgentSelectionPicker', () => {
 
   it('picking a model on the SAME provider stages provider, model and effort together', () => {
     const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
+    draw({ onSelectionChange })
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
 
     // sonnet declares high — the current effort survives the pick unchanged.
-    expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'high')
+    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith('claude', 'sonnet', 'high')
   })
 
   it('picking a model whose declared efforts do not include the current one falls back to its own first level', () => {
     const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="xhigh"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
+    draw({ effort: 'xhigh', onSelectionChange })
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
 
@@ -170,41 +130,20 @@ describe('AgentSelectionPicker', () => {
     expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'low')
   })
 
-  // THE REGRESSION this session fixed. The picker used to call a LIVE
-  // onSwitchProvider (killing the outgoing CLI and spawning the new one) the
-  // instant a cross-provider row was clicked — before the user ever sent
-  // anything. The picker now has no such prop at all: a cross-provider pick
-  // stages exactly like a same-provider one, and the switch (if any) happens
-  // server-side, atomically with the next actual send.
+  // A cross-provider pick stages like any other; the switch happens server-side
+  // with the next send, never live on the click.
   it('picking a model on a DIFFERENT provider only stages it — no live switch, nothing async', () => {
     const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
+    draw({ onSelectionChange })
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'gpt-5.6-sol' }))
 
-    // gpt-5.6-sol declares high too — the current effort survives the pick
-    // unchanged, same rule as a same-provider model pick.
+    // gpt-5.6-sol declares high too, so the current effort survives the pick.
     expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-sol', 'high')
   })
 
   it('typing a provider name surfaces every model under it', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw()
     openMenu()
     fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'codex' } })
 
@@ -215,15 +154,7 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('filters to matching models only when the query names no provider', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw()
     openMenu()
     fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'haiku' } })
 
@@ -233,68 +164,29 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('renders the effort slider for the CURRENT model, not the whole provider', () => {
-    render(
-      <AgentSelectionPicker
-        provider={codex}
-        providers={[claude, codex]}
-        model="gpt-5.6-sol"
-        effort="high"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ provider: codex, model: 'gpt-5.6-sol' })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
     const effortSection = slider.parentElement?.parentElement as HTMLElement
     expect(within(effortSection).getByText('Ultra')).toBeInTheDocument()
   })
 
-  // Regression: an unconfirmed effort ("Default", or any string absent from
-  // the model's own levels) used to clamp to index 0 and draw the thumb
-  // sitting on "Low" — a level nobody picked or the provider ever reported,
-  // read live as the slider looking pre-filled when nothing was known.
+  // An undeclared effort must not clamp to "Low": nobody picked that level.
   it('draws no thumb/fill for an effort the current model does not declare', () => {
-    render(
-      <AgentSelectionPicker
-        provider={codex}
-        providers={[claude, codex]}
-        model="gpt-5.6-sol"
-        effort="Default"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ provider: codex, model: 'gpt-5.6-sol', effort: 'Default' })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
     expect(slider).not.toHaveAttribute('aria-valuenow')
     expect(slider.querySelector('.bg-primary')).not.toBeInTheDocument()
-    // The tick row and its labels still render — a real pick is still
-    // possible, only nothing is highlighted as already chosen.
+    // A real pick is still possible; only nothing is highlighted as chosen.
     expect(screen.getByRole('button', { name: 'Low' })).toBeInTheDocument()
   })
 
-  // Regression: the first cut of this control only responded to a click on
-  // the track or a tick label underneath it — it LOOKED like a slider but
-  // could not be dragged, which is not a slider. Pressing and moving across
-  // the track must track continuously, not just jump once per click.
-  //
-  // Tracking is done with plain `window` pointermove/pointerup listeners,
-  // NOT the element Pointer Capture API — confirmed live against the real
-  // desktop app's WKWebView that `setPointerCapture` throws NotFoundError
-  // even for a genuine user pointerdown, which silently ate the press-to-
-  // jump too (it aborted the handler before the value was ever set). So
-  // this fires move/up on `window`, matching where the component actually
-  // listens, and never stubs Pointer Capture at all — a capture-throwing
-  // environment is exactly what this must keep working under.
+  // Tracking rides `window` pointer listeners, not Pointer Capture, which throws
+  // in WKWebView; so moves fire on `window` and capture is never stubbed.
   it('is an actually-draggable slider, not just a click-to-jump bar', () => {
     const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="low"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
+    draw({ effort: 'low', onSelectionChange })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
     // opus: low, medium, high, xhigh, max — 5 stops across the track width.
@@ -317,67 +209,22 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('hides the effort slider entirely for a model with no declared levels', () => {
-    render(
-      <AgentSelectionPicker
-        provider={codex}
-        providers={[claude, codex]}
-        model="gpt-5.6-luna"
-        effort=""
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ provider: codex, model: 'gpt-5.6-luna', effort: '' })
     openMenu()
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()
   })
 
   it('clicking an effort tick changes only the effort, keeping the model', () => {
     const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
+    draw({ onSelectionChange })
     openMenu()
     fireEvent.click(screen.getByRole('button', { name: 'Max' }))
 
     expect(onSelectionChange).toHaveBeenCalledWith('claude', 'opus', 'max')
   })
 
-  it('is a pure local pick — never calls any network API itself', () => {
-    // No wsId/chatId prop exists on this component at all, and no
-    // onSwitchProvider prop either: the type surface itself is the
-    // regression guard against a committing call — or a live provider
-    // switch — creeping back in. This test documents that intent for a
-    // reader who only sees the rendered behavior.
-    const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
-    openMenu()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
-    expect(onSelectionChange).toHaveBeenCalledTimes(1)
-  })
-
   it('marks the current model as picked (a checkmark) and no other row', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw()
     openMenu()
     const opusRow = screen.getByRole('menuitem', { name: 'opus' })
     const sonnetRow = screen.getByRole('menuitem', { name: 'sonnet' })
@@ -386,15 +233,7 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('shows nothing selected when model/effort are unset — the "unfired hook" state, not a bug', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model=""
-        effort=""
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ model: '', effort: '' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveAccessibleName('Agent: Claude, model unset, effort unset')
     openMenu()
@@ -403,28 +242,19 @@ describe('AgentSelectionPicker', () => {
     }
   })
 
-  // agent-providers-api.ts's own doc on `AgentProvider.efforts`: "Read it as
-  // efforts[model] where model is '' when the chat has no selection" — a
-  // real, backend-resolved entry, not a gap. `effortLevelsFor` does exactly
-  // that lookup with no special-casing of '' at all, so a caller handing the
-  // picker the RAW unset value ('') finds it and draws the slider, unlike a
-  // label ("Default") baked into the value instead — see AgentChatView's own
-  // `model`/`effectiveEffort`, which is the whole bug this test file's
-  // sibling (agent-chat-view.test.tsx) regression-tests.
+  // `efforts['']` is the backend's levels for an unselected model, so the raw
+  // unset model ('') must find it, where a baked-in label would not.
   it("finds the provider's own '' entry and draws the slider when no model is confirmed yet", () => {
     const withDefaultEfforts: AgentProvider = {
       ...claude,
       efforts: { ...claude.efforts, '': ['low', 'medium'] },
     }
-    render(
-      <AgentSelectionPicker
-        provider={withDefaultEfforts}
-        providers={[withDefaultEfforts, codex]}
-        model=""
-        effort=""
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({
+      provider: withDefaultEfforts,
+      providers: [withDefaultEfforts, codex],
+      model: '',
+      effort: '',
+    })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
     const effortSection = slider.parentElement?.parentElement as HTMLElement
@@ -432,39 +262,16 @@ describe('AgentSelectionPicker', () => {
     expect(within(effortSection).getByText('Medium')).toBeInTheDocument()
   })
 
-  // The mirror case: a provider with NO '' entry (every fixture above except
-  // the one just added) offers no effort levels at all until a real model is
-  // picked — absence, not a disabled slider, same house rule as the whole
-  // control follows for a provider with no catalogue.
+  // Without an '' entry there are no levels until a model is picked: absent, not disabled.
   it('renders no slider for an unconfirmed model when the provider declares no own-default entry', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model=""
-        effort=""
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ model: '', effort: '' })
     openMenu()
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()
   })
 
-  // The user-reported bug: a completed turn leaves the trigger reading
-  // "Default" forever, with no clue which model actually answered, even
-  // though the provider told Crowbar. `reportedModel` is display-only — it
-  // must show up on the trigger without becoming the SELECTION.
+  // `reportedModel` names which model answered; it is display-only, never the selection.
   it('shows the provider-reported model next to the unset label when nothing is explicitly picked', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model=""
-        effort=""
-        reportedModel="Claude Sonnet 4.5"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ model: '', effort: '', reportedModel: 'Claude Sonnet 4.5' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveTextContent('unset')
     expect(trigger).toHaveTextContent('(Claude Sonnet 4.5)')
@@ -474,42 +281,29 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('an explicit model selection ignores a reported model entirely', () => {
-    render(
-      <AgentSelectionPicker
-        provider={claude}
-        providers={[claude, codex]}
-        model="opus"
-        effort="high"
-        reportedModel="Claude Sonnet 4.5"
-        onSelectionChange={vi.fn()}
-      />,
-    )
+    draw({ reportedModel: 'Claude Sonnet 4.5' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveTextContent('opus')
     expect(trigger).not.toHaveTextContent('Sonnet')
     expect(trigger).toHaveAccessibleName('Agent: Claude, model opus, effort high')
   })
 
-  // THE REGRESSION this area already broke once: a label baked into `model`
-  // stopped `efforts['']` from resolving. `reportedModel` must not repeat
-  // that mistake — the slider still has to find the provider's own ''
-  // entry, and a pick still has to stage the RAW '' model, never the report.
+  // The report must not stand in for the '' model: the slider still finds
+  // `efforts['']`, and a pick stages the raw '' model.
   it("a reported model does not break the unset model's own efforts[''] slider or leak into a pick", () => {
     const withDefaultEfforts: AgentProvider = {
       ...claude,
       efforts: { ...claude.efforts, '': ['low', 'medium'] },
     }
     const onSelectionChange = vi.fn()
-    render(
-      <AgentSelectionPicker
-        provider={withDefaultEfforts}
-        providers={[withDefaultEfforts, codex]}
-        model=""
-        effort=""
-        reportedModel="Claude Sonnet 4.5"
-        onSelectionChange={onSelectionChange}
-      />,
-    )
+    draw({
+      provider: withDefaultEfforts,
+      providers: [withDefaultEfforts, codex],
+      model: '',
+      effort: '',
+      reportedModel: 'Claude Sonnet 4.5',
+      onSelectionChange,
+    })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
     const effortSection = slider.parentElement?.parentElement as HTMLElement
@@ -530,15 +324,7 @@ describe('AgentSelectionPicker', () => {
     })
     const renderPhone = (onSelectionChange = vi.fn()) => {
       chrome.on = true
-      render(
-        <AgentSelectionPicker
-          provider={claude}
-          providers={[claude, codex]}
-          model="sonnet"
-          effort="medium"
-          onSelectionChange={onSelectionChange}
-        />,
-      )
+      draw({ model: 'sonnet', effort: 'medium', onSelectionChange })
       return onSelectionChange
     }
 

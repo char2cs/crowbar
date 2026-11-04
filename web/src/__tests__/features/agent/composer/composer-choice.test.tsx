@@ -198,10 +198,8 @@ describe('ComposerChoice that cannot be answered from here', () => {
 })
 
 describe('ComposerChoice failures', () => {
-  // The backend declares no answer template for claude's permission_suggestions,
-  // so a 400 means retrying the same controls would only repeat it. The controls
-  // come down and the one thing left is the place an answer can still land —
-  // not a paragraph explaining why this one couldn't.
+  // A 400 means retrying the same controls would only repeat it, so they come down
+  // and the one thing left is the place an answer can still land.
   it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
     const onOpenTerminal = vi.fn()
@@ -279,11 +277,8 @@ describe('ComposerChoice failures', () => {
 })
 
 describe('ComposerChoice suggestions', () => {
-  // DEFECT 5. These used to be a row of DISABLED BUTTONS, which still reads as a
-  // control — something greyed out now that will work in a moment — and there is no
-  // declared answer template for a suggestion, so pressing one could only ever
-  // produce a 400. A note cannot be pressed, which is how that failure stops being
-  // reachable from the UI at all.
+  // No answer template exists for a suggestion, so pressing one could only 400; a
+  // disabled button still reads as a control, and a note cannot be pressed.
   it('writes suggestions down as a plain list, with nothing on them to press', () => {
     draw({
       options: [
@@ -302,9 +297,7 @@ describe('ComposerChoice suggestions', () => {
     expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
   })
 
-  // The reason Crowbar can't send a suggestion isn't written down any more — the
-  // Terminal button beside Allow/Deny is the answer to that, when there's a
-  // handler to make it real.
+  // The Terminal button beside Allow/Deny is the answer, when a handler exists.
   it('offers a terminal button in the bar alongside the real controls', () => {
     const onOpenTerminal = vi.fn()
     const options: AgentChoice['options'] = [
@@ -346,10 +339,8 @@ describe('ComposerChoice suggestions', () => {
   })
 })
 
-// DEFECT 4. A user asked claude to "ask me 3 questions at the same time". Claude
-// issued ONE AskUserQuestion carrying three, Crowbar drew the first, and answering
-// it left claude saying "still waiting on: your answers to questions 2 & 3" — a
-// state this surface could never leave.
+// One ask can carry several questions; drawing only the first left the agent
+// waiting on answers this surface could never send.
 describe('ComposerChoice with several questions', () => {
   const threeQuestions = {
     kind: 'question',
@@ -450,10 +441,8 @@ describe('ComposerChoice with several questions', () => {
     )
   })
 
-  // The pane this card lives in is RETAINED across chat selection, so a re-render
-  // can hand it a different prompt without unmounting it. Picks carried into that
-  // prompt would be submitted against option ids it never offered — the partial
-  // answer this whole card exists to prevent, arrived at from the other side.
+  // The pane is retained across chat selection, so a re-render can hand it another
+  // prompt; picks carried over would name option ids that prompt never offered.
   it('starts empty when a different prompt is rendered into the same card', () => {
     const { rerender } = draw(threeQuestions)
     fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
@@ -566,9 +555,7 @@ describe('ComposerChoice elicitation', () => {
   })
 })
 
-// The per-chat permission-level dial (Task 8): a quick way to raise or lower
-// how much of THIS chat's tool-call approval is answered automatically, sitting
-// beside whatever answer controls are already showing.
+// The per-chat permission-level dial sits beside whatever answer controls show.
 describe('ComposerChoice permission-level switcher', () => {
   it('sits beside the answer controls on a real, answerable prompt', () => {
     draw()
@@ -576,9 +563,7 @@ describe('ComposerChoice permission-level switcher', () => {
     expect(screen.getByTestId('chat-permission-level-trigger')).toBeInTheDocument()
   })
 
-  // terminalOnly: nothing here can answer it, so the dial does not appear. A real
-  // `onOpenTerminal` is required to reach that branch, or this passes for the
-  // wrong reason.
+  // terminalOnly needs a real `onOpenTerminal`, or this passes for the wrong reason.
   it('does not appear when the prompt cannot be answered from here', () => {
     const onOpenTerminal = vi.fn()
     show({ answerable: false }, { onOpenTerminal })
@@ -587,10 +572,7 @@ describe('ComposerChoice permission-level switcher', () => {
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
   })
 
-  // Absent capability, absent UI — the same rule AgentModelPicker follows for
-  // a provider declaring no model/effort catalogue. A level the CURRENT
-  // provider does not declare is not offered at all, so offering none of the
-  // three unconditionally would put up a control the write would 400 on.
+  // Absent capability, absent UI: a level the provider does not declare would 400.
   it('does not appear for a provider whose descriptor declares no levels', () => {
     render(
       <ComposerChoice wsId="w1" chatId="c1" choice={choice()} pending={1} providerLabel="Claude" />,
@@ -600,9 +582,8 @@ describe('ComposerChoice permission-level switcher', () => {
   })
 })
 
-// resolveComposerState always shows the OLDEST pending choice; a second one
-// (a parallel subagent's own ask, most measured) used to vanish with no sign
-// it existed at all.
+// The oldest pending choice is shown; a second (a parallel subagent's ask) must
+// still be signalled.
 describe('ComposerChoice in a stack of pending asks', () => {
   it('counts pending asks as i of n', () => {
     show({}, { pending: 3, position: 2 })

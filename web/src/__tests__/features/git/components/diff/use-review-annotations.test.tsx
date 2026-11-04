@@ -299,15 +299,9 @@ async function waitForCode(container: HTMLElement, marker: string): Promise<void
   )
 }
 
-/**
- * The annotation slots the renderer actually opened, read from the SHADOW side.
- *
- * The light-DOM `<div slot="annotation-…">` is portalled for every annotation on
- * an item whether or not its line exists, and an unassigned one simply never
- * renders. So the honest question — is this thread anchored to a line? — is
- * answered by the `<slot name="annotation-…">` inside the shadow root, which the
- * renderer emits only next to a line it drew.
- */
+/** The annotation slots the renderer opened, read from the shadow root: it emits a
+ *  `<slot name="annotation-…">` only beside a line it drew, while the light-DOM
+ *  slotted div is portalled for every annotation whether or not its line exists. */
 function projectedAnnotationSlots(container: HTMLElement): string[] {
   return [...container.querySelectorAll('diffs-container')].flatMap((host) =>
     [
@@ -345,10 +339,6 @@ describe('threadToAnnotation / annotationToThread', () => {
     expect(annotation.lineNumber).toBe(42)
     expect(annotation.side).toBe('additions')
     expect(annotation.metadata).toBe(thread)
-  })
-
-  it('places an old-side thread on the deletions half', () => {
-    expect(threadToAnnotation(makeThread({ side: 'old' })).side).toBe('deletions')
   })
 
   it('round-trips a thread through an annotation and back, on both sides', () => {

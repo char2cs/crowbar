@@ -46,16 +46,28 @@ async function terminalWith(data: string, cols = 80, rows = 6): Promise<Terminal
   return terminal
 }
 
-function linkProvider(terminal: Terminal, options: Partial<TerminalLinksOptions> = {}) {
+function register(terminal: Terminal, options: TerminalLinksOptions): ILinkProvider {
   let provider: ILinkProvider | undefined
   const registerLinkProvider = (p: ILinkProvider) => ((provider = p), { dispose: () => {} })
-  registerTerminalLinks(
-    { buffer: terminal.buffer, element: terminal.element, registerLinkProvider },
-    { getRoot: () => '/repo', openFile: vi.fn(), onUrl: vi.fn(), ...options },
+  registrations.push(
+    registerTerminalLinks(
+      { buffer: terminal.buffer, element: terminal.element, registerLinkProvider },
+      options,
+    ),
   )
   if (!provider) throw new Error('no link provider registered')
   return provider
 }
+
+const withDefaults = (options: Partial<TerminalLinksOptions>): TerminalLinksOptions => ({
+  getRoot: () => '/repo',
+  openFile: vi.fn(),
+  onUrl: vi.fn(),
+  ...options,
+})
+
+const linkProvider = (terminal: Terminal, options: Partial<TerminalLinksOptions> = {}) =>
+  register(terminal, withDefaults(options))
 
 const linksAt = (provider: ILinkProvider, row: number) =>
   new Promise<ILink[] | undefined>((resolve) => provider.provideLinks(row, resolve))
@@ -71,34 +83,37 @@ async function click(
   data: string,
   { row = 1, cols = 80, getRoot = () => '/repo' as string | undefined },
 ) {
-  const openFile = vi.fn()
-  const onUrl = vi.fn()
-  const onUnresolved = vi.fn()
-  const provider = linkProvider(await terminalWith(data, cols), {
-    getRoot,
-    openFile,
-    onUrl,
-    onUnresolved,
-  })
+  const spies = { openFile: vi.fn(), onUrl: vi.fn(), onUnresolved: vi.fn() }
+  const provider = linkProvider(await terminalWith(data, cols), { getRoot, ...spies })
   const [link] = (await linksAt(provider, row)) ?? []
   link?.activate(primaryClick(), link.text)
-  return { openFile, onUrl, onUnresolved }
+  return spies
 }
 
 describe('link tokens', () => {
-  it('links a URL without its sentence-ending period or brackets', async () => {
-    expect(await textsOf('see https://x.dev/a.')).toEqual(['https://x.dev/a'])
-    expect(await textsOf('(https://x.dev/a)')).toEqual(['https://x.dev/a'])
-  })
-
-  it('links only http and https URLs that parse', async () => {
-    expect(await textsOf('ftp://x or www.x.dev')).toEqual([])
-    expect(await textsOf('see https://[oops')).toEqual([])
-  })
-
-  it('does not link a URL whose host the parser rewrites', async () => {
-    expect(await textsOf('see https://0x7f.1/a')).toEqual([])
-    expect(await textsOf('see https://bücher.de/a')).toEqual([])
+  it.each([
+    ['a URL without its sentence-ending period', 'see https://x.dev/a.', ['https://x.dev/a']],
+    ['a URL without its brackets', '(https://x.dev/a)', ['https://x.dev/a']],
+    ['no URL but http and https', 'ftp://x or www.x.dev', []],
+    ['no URL that does not parse', 'see https://[oops', []],
+    ['no URL whose numeric host the parser rewrites', 'see https://0x7f.1/a', []],
+    ['no URL whose unicode host the parser rewrites', 'see https://bücher.de/a', []],
+    ['an absolute path', 'see /tmp/crowbar-daemon.log now', ['/tmp/crowbar-daemon.log']],
+    ['a dot-relative path', 'open ./scripts/build.sh please', ['./scripts/build.sh']],
+    ['a parent-relative path', 'cat ../other/file.txt', ['../other/file.txt']],
+    ['a quoted, parenthesised path', 'failed ("web/src/main.tsx")', ['web/src/main.tsx']],
+    ['no bare filename', 'run package.json scripts', []],
+    ['no prose', 'plain words only here', []],
+    [
+      'each path on a row',
+      'diff a/web/index.ts b/web/index.ts',
+      ['a/web/index.ts', 'b/web/index.ts'],
+    ],
+    ['a path without its period', 'Spec in docs/specs/design.md. Please', ['docs/specs/design.md']],
+    ['a line suffix before a period', 'see web/src/foo.ts:12. done', ['web/src/foo.ts:12']],
+    ['a path ending at a URL', 'see out/https://x.dev/a', ['https://x.dev/a', 'out/https']],
+  ])('links %s', async (_, data, texts) => {
+    expect(await textsOf(data)).toEqual(texts)
   })
 
   it('a path inside a URL is part of the URL, never a file link of its own', async () => {
@@ -135,10 +150,6 @@ describe('link tokens', () => {
     expect(await textsOf('see xwww.dev/a/b.ts')).toEqual(['xwww.dev/a/b.ts'])
   })
 
-  it('only a path that starts inside an address run is dropped', async () => {
-    expect(await textsOf('see out/https://x.dev/a')).toEqual(['https://x.dev/a', 'out/https'])
-  })
-
   it('a www. inside a path never starts an address run', async () => {
     const paths = [
       'bin/www.js:12',
@@ -169,37 +180,11 @@ describe('link tokens', () => {
     )
   })
 
-  it('links absolute, dot-relative, quoted and parenthesised paths', async () => {
-    expect(await textsOf('see /tmp/crowbar-daemon.log now')).toEqual(['/tmp/crowbar-daemon.log'])
-    expect(await textsOf('open ./scripts/build.sh please')).toEqual(['./scripts/build.sh'])
-    expect(await textsOf('cat ../other/file.txt')).toEqual(['../other/file.txt'])
-    expect(await textsOf('failed ("web/src/main.tsx")')).toEqual(['web/src/main.tsx'])
-  })
-
   it('reads cells the cursor skipped before content as spaces', async () => {
     const [link] =
       (await linksAt(linkProvider(await terminalWith('see\x1b[3C/tmp/a.log')), 1)) ?? []
     expect(link?.text).toBe('/tmp/a.log')
     expect(link?.range.start).toEqual({ x: 7, y: 1 })
-  })
-
-  it('does not link bare filenames or prose', async () => {
-    expect(await textsOf('run package.json scripts')).toEqual([])
-    expect(await textsOf('plain words only here')).toEqual([])
-  })
-
-  it('links every path on a row', async () => {
-    expect(await textsOf('diff a/web/index.ts b/web/index.ts')).toEqual([
-      'a/web/index.ts',
-      'b/web/index.ts',
-    ])
-  })
-
-  it('drops a sentence-ending period but keeps a line suffix before it', async () => {
-    expect(await textsOf('Spec in docs/specs/design.md. Please review it')).toEqual([
-      'docs/specs/design.md',
-    ])
-    expect(await textsOf('see web/src/foo.ts:12. done')).toEqual(['web/src/foo.ts:12'])
   })
 })
 
@@ -207,22 +192,13 @@ describe('file link resolution', () => {
   const getRoot = () => '/Users/dev/project'
 
   it('keeps absolute paths and joins relative ones onto the root', async () => {
-    expect((await click('see /tmp/x.log', { getRoot })).openFile).toHaveBeenCalledWith(
-      '/tmp/x.log',
-      undefined,
-    )
-    expect((await click('see web/src/a.ts', { getRoot })).openFile).toHaveBeenCalledWith(
-      '/Users/dev/project/web/src/a.ts',
-      undefined,
-    )
-    expect((await click('see ./web/a.ts', { getRoot })).openFile).toHaveBeenCalledWith(
-      '/Users/dev/project/web/a.ts',
-      undefined,
-    )
-    expect((await click('see ../sibling/f.ts', { getRoot })).openFile).toHaveBeenCalledWith(
-      '/Users/dev/sibling/f.ts',
-      undefined,
-    )
+    const opened = async (data: string) => (await click(data, { getRoot })).openFile.mock.calls
+    expect(await opened('see /tmp/x.log')).toEqual([['/tmp/x.log', undefined]])
+    expect(await opened('see web/src/a.ts')).toEqual([
+      ['/Users/dev/project/web/src/a.ts', undefined],
+    ])
+    expect(await opened('see ./web/a.ts')).toEqual([['/Users/dev/project/web/a.ts', undefined]])
+    expect(await opened('see ../sibling/f.ts')).toEqual([['/Users/dev/sibling/f.ts', undefined]])
   })
 
   it('reports a path it cannot resolve instead of opening a wrong file', async () => {
@@ -319,25 +295,9 @@ async function openedTerminal(data: string, options: Partial<TerminalLinksOption
   const container = document.createElement('div')
   document.body.appendChild(container)
   terminal.open(container)
-  let provider: ILinkProvider | undefined
-  const all: TerminalLinksOptions = {
-    getRoot: () => '/repo',
-    openFile: vi.fn(),
-    onUrl: vi.fn(),
-    ...options,
-  }
-  registrations.push(
-    registerTerminalLinks(
-      {
-        buffer: terminal.buffer,
-        element: terminal.element,
-        registerLinkProvider: (p) => ((provider = p), { dispose() {} }),
-      },
-      all,
-    ),
-  )
-  if (!provider) throw new Error('no link provider registered')
-  return { terminal, options: all, links: async () => (await linksAt(provider!, 1)) ?? [] }
+  const all = withDefaults(options)
+  const provider = register(terminal, all)
+  return { terminal, options: all, links: async () => (await linksAt(provider, 1)) ?? [] }
 }
 
 describe('link activation', () => {
@@ -485,20 +445,11 @@ describe('terminalLinksFor', () => {
 
   /** Clicks the first link xterm would draw on a row reading `text`. */
   async function clickIn(text: string, workspaceId: string | undefined) {
-    const terminal = await terminalWith(text)
-    let provider: ILinkProvider | undefined
-    registerTerminalLinks(
-      {
-        buffer: terminal.buffer,
-        element: terminal.element,
-        registerLinkProvider: (p) => ((provider = p), { dispose() {} }),
-      },
-      terminalLinksFor(
-        () => 'tab-1',
-        () => ({ workspaceId, paneId: workspaceId && 'pane-1' }),
-      ),
+    const options = terminalLinksFor(
+      () => 'tab-1',
+      () => ({ workspaceId, paneId: workspaceId && 'pane-1' }),
     )
-    const [link] = (provider && (await linksAt(provider, 1))) || []
+    const [link] = (await linksAt(register(await terminalWith(text), options), 1)) ?? []
     link?.activate(primaryClick(), link.text)
   }
 
