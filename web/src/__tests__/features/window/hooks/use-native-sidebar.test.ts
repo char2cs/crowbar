@@ -39,7 +39,7 @@ const kill = vi.spyOn(killAgent, 'killAgent').mockResolvedValue(true)
 const setWorkspaceLock = vi.spyOn(api, 'setWorkspaceLock').mockResolvedValue()
 const placeWorkspace = vi
   .spyOn(placement, 'placeWorkspace')
-  .mockResolvedValue({ workspace: { id: 'ws-a', order: 1 }, shifted: [] })
+  .mockResolvedValue({ workspace: { id: 'ws-a', parentId: '', order: 1 }, shifted: [] })
 const navigate = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@tanstack/react-router')>()),
