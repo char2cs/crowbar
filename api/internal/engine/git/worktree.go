@@ -8,6 +8,114 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
+// worktrees is the worktree surface of Engine: adding, listing, moving and removing
+// checkouts, and counting what a removal would lose.
+type worktrees interface {
+	// WorktreeAdd adds a git worktree for branch at path (04 write ops / 07).
+	WorktreeAdd(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+	) error
+
+	// WorktreeRemove removes a git worktree. Without force git refuses a dirty worktree, the only safe way
+	// to remove one whose work is not Crowbar's to throw away.
+	WorktreeRemove(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		force bool,
+	) error
+
+	// WorktreeRepair repoints the repo's admin files at a worktree already moved on disk, so git follows
+	// a branch rename that relocated the workspace root.
+	WorktreeRepair(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+	) error
+
+	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
+	// (`git worktree prune`). Used by the startup recovery sweep to clean up
+	// orphaned worktrees left behind by a crash mid-teardown (H19).
+	WorktreePrune(
+		ctx context.Context,
+		repoPath string,
+	) error
+
+	// UncommittedFiles counts the paths git status reports in the worktree at
+	// worktreePath — staged, unstaged and untracked, never ignored: exactly what
+	// `git worktree remove --force` would throw away.
+	UncommittedFiles(
+		ctx context.Context,
+		worktreePath string,
+	) (int, error)
+
+	// UnmergedCommits counts commits from tips that nothing but dropBranch reaches (no other branch,
+	// remote branch or tag): what is lost once dropBranch and its worktree go. Missing tips are ignored.
+	UnmergedCommits(
+		ctx context.Context,
+		dir string,
+		tips []string,
+		dropBranch string,
+	) (int, error)
+
+	// WorktreeList lists all git worktrees in a repo (04 / 07).
+	WorktreeList(
+		ctx context.Context,
+		repoPath string,
+	) ([]WorktreeEntry, error)
+
+	// DetachWorktree detaches HEAD of the worktree at worktreePath (keeping its
+	// files), freeing the branch it had checked out so another worktree can take
+	// it (07 — managed-worktree import of the unmanaged main folder's branch).
+	DetachWorktree(
+		ctx context.Context,
+		worktreePath string,
+	) error
+
+	// CheckoutBranch switches the worktree at worktreePath onto branch,
+	// re-attaching a detached HEAD (rollback / restore the main folder).
+	CheckoutBranch(
+		ctx context.Context,
+		worktreePath string,
+		branch string,
+	) error
+
+	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
+	// created branch starting at startPoint, returning the resolved start SHA so
+	// callers can record it as forkPointSha (07 §1).
+	WorktreeAddBranch(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+		startPoint string,
+	) (string, error)
+
+	// WorktreeAddAtRef checks branch out into a fresh worktree with the ref RESET to startRef
+	// (`git worktree add -B`), returning the start SHA, so an import holds startRef's commits even
+	// when a diverged local branch of that name exists.
+	WorktreeAddAtRef(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+		startRef string,
+	) (string, error)
+}
+
+// WorktreeEntry is a single worktree from `git worktree list`. Prunable is true
+// when git reports the worktree's working directory as missing (a dangling
+// registration left by a deleted checkout); such entries are not usable.
+type WorktreeEntry struct {
+	Path     string
+	Branch   string
+	Head     string
+	Prunable bool
+}
+
 func (e *engine) WorktreeAdd(
 	ctx context.Context,
 	repoPath string,
