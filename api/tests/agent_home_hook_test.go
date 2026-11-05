@@ -37,7 +37,7 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 	feed.awaitListed(created.ID)
 
-	h.Quiesce()
+	startChat(t, h, homeBase, created.ID)
 	// The runner placed on the chat: its id is what these hooks are posted as.
 	detail := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
@@ -76,8 +76,7 @@ func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
 		ID string `json:"id"`
 	}
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
-	h.QuiesceReactors()
-	l := stubLaunch(t, h, "livestub", getAgentChat(t, h, homeBase, created.ID).LiveRunnerID)
+	l := stubLaunch(t, h, "livestub", startChat(t, h, homeBase, created.ID))
 	require.NoError(t, h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusOK).Body.Close())
 	h.QuiesceReactors()
 	before := chatDeadLetters(t, h)

@@ -9,8 +9,8 @@ import (
 )
 
 // SpawnChatWithOwnWorktree fills a just-minted chat's empty workspace slot with a
-// fresh worktree forked from its resolved fork parent and starts providerID's first
-// CLI in it. Unlike Promote there is no live CLI to respawn.
+// fresh worktree forked from its resolved fork parent and opens providerID on it
+// (OpenChat: a CLI now only on the terminal). Unlike Promote there is no live CLI to respawn.
 func (u *Usecase) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
@@ -32,10 +32,10 @@ func (u *Usecase) SpawnChatWithOwnWorktree(
 		return "", "", u.discardUnclaimedWorkspace(ctx, ws.ID,
 			fmt.Errorf("create chat: set workspace: %w", err))
 	}
-	runnerID, err := u.runners.StartRunner(ctx, chatID, providerID)
+	runnerID, err := u.runners.OpenChat(ctx, chatID, providerID)
 	if err != nil {
 		return "", "", u.discardMintedWorkspace(ctx, chatID, ws.ID,
-			fmt.Errorf("create chat: start runner: %w", err))
+			fmt.Errorf("create chat: open: %w", err))
 	}
 	return ws.ID, runnerID, nil
 }

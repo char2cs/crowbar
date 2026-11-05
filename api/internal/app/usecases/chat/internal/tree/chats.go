@@ -43,7 +43,7 @@ func (u *chatFolderUsecase) CreateChat(
 	); pErr != nil {
 		return CreatedChat{}, u.discard(ctx, chatID, pErr)
 	}
-	runnerID, err := u.agent.StartRunner(ctx, chatID, in.ProviderID)
+	runnerID, err := u.agent.OpenChat(ctx, chatID, in.ProviderID)
 	if err != nil {
 		return CreatedChat{}, u.discard(ctx, chatID, err)
 	}

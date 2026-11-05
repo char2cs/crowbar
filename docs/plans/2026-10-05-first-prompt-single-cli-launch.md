@@ -89,13 +89,8 @@ spawns:
 
 ## Status (2026-11-05)
 
-Not implemented; the double launch is still there for every restart_tui
-provider (claude), and it does not depend on the prompt's selection: with no
-pick, the same pick, or a new one, `SpawnChat` then the first `SubmitPrompt`
-fork two CLIs (measured in the chat usecase fixture with the shipped claude
-descriptor). Passing the selection at create would not remove it, since
-restart_tui delivers every prompt through a new CLI's argv. Option A remains
-the fix. Its cost beyond this plan: 18 black-box tests create a claude-fake
-chat through `createFakeChat` and wait for the create's launch, and
-`createStubChat` requires a live runner after create; both helpers change with
-the contract.
+Option A implemented. A create launches nothing unless the chat lands on its
+terminal (`Runners.OpenChat`, called by every create path); the first prompt
+revives the dormant chat with one launch carrying it. `SwitchToTerminal` on a
+chat no CLI ever ran on launches there; "Start session" is the existing resume.
+The bbx helpers start a chat explicitly where a test needs a live runner.

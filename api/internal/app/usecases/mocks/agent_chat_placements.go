@@ -54,11 +54,11 @@ type AgentChatPlacements struct {
 	MintErr         error
 	StartErr        error
 	// SpawnOwnWorktreeErr fails SpawnChatWithOwnWorktree, the same way StartErr
-	// fails StartRunner.
+	// fails OpenChat.
 	SpawnOwnWorktreeErr error
 	// SpawnImportedWorktreeErr fails SpawnChatWithImportedWorktree, and
 	// AttachWorkspaceErr fails AttachWorkspace, the same way StartErr fails
-	// StartRunner.
+	// OpenChat.
 	SpawnImportedWorktreeErr error
 	AttachWorkspaceErr       error
 	// ImportedWorkspace is the workspace SpawnChatWithImportedWorktree hands

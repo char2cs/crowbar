@@ -58,15 +58,16 @@ type Agent interface {
 		providerID string,
 		surface string,
 	) (string, error)
-	// StartRunner launches a vendor CLI on a chat that already exists — the second
-	// half of the create MintChat opens, run once the row is where it belongs.
-	StartRunner(
+	// OpenChat is the second half of the create MintChat opens, run once the row is
+	// where it belongs: it refuses a provider no launch could start, and launches the
+	// CLI only for a chat landing on its terminal ("" otherwise: its first prompt does).
+	OpenChat(
 		ctx context.Context,
 		chatID string,
 		providerID string,
 	) (string, error)
 	// SpawnChatWithOwnWorktree fills an already minted and placed chat's empty workspace slot with a worktree
-	// forked from its resolved fork parent, then starts providerID's CLI; ErrNoForkParent when it resolves
+	// forked from its resolved fork parent, then opens it as OpenChat does; ErrNoForkParent when it resolves
 	// none. A blank branch gets a server-generated name.
 	SpawnChatWithOwnWorktree(
 		ctx context.Context,
@@ -76,7 +77,7 @@ type Agent interface {
 	) (workspaceID, runnerID string, err error)
 	// SpawnChatWithImportedWorktree fills a minted, placed chat's slot with an existing branch (discarded if
 	// anything after fails), returning the workspace so the caller can judge the row's kind. An empty
-	// providerID starts no runner: a batch import must not launch a CLI per branch.
+	// providerID opens nothing: a batch import must not launch a CLI per branch.
 	SpawnChatWithImportedWorktree(
 		ctx context.Context,
 		chatID string,

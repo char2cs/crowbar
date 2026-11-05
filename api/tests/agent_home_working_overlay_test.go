@@ -60,7 +60,7 @@ func TestRegression_HomeWorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	}
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	feed.awaitListed(created.ID)
-	h.Quiesce()
+	startChat(t, h, homeBase, created.ID)
 
 	detail := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")

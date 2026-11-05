@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -24,7 +25,14 @@ func seedPlacedBubble(
 	parentID string,
 ) string {
 	t.Helper()
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
+	return seedPlacedBubbleOn(t, f, parentID, "", "")
+}
+
+// seedPlacedBubbleOn is seedPlacedBubble minted as CreateChat mints it, for
+// providerID on surface: a terminal one is the create that launches its CLI.
+func seedPlacedBubbleOn(t *testing.T, f testFixture, parentID, providerID, surface string) string {
+	t.Helper()
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", providerID, surface)
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, parentID, 0)
 	require.NoError(t, err)
@@ -32,18 +40,17 @@ func seedPlacedBubble(
 	return bubbleID
 }
 
-// TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI mirrors
-// TestPromote_FillsWorkspaceKeepsIdentity, minus the identity-preservation
-// assertions that only make sense for an EXISTING chat: this bubble never had
-// a runner, so there is no "old" CLI to compare against — just a fresh one.
-func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
+// TestSpawnChatWithOwnWorktree_FillsWorkspaceAndLeavesTheChatDormant mirrors
+// TestPromote_FillsWorkspaceKeepsIdentity for a chat that never had a runner: on
+// the chat surface none is started, its first prompt launches the one CLI.
+func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndLeavesTheChatDormant(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	forks := f.term.callCount()
 
 	wsID, runnerID, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 	require.NoError(t, err)
-	require.NotEmpty(t, runnerID)
 
 	assert.Equal(t, []string{"ws1"}, f.wt.calls(),
 		"must fork the NEW workspace from the resolved fork parent, ws1 (rootChatID's own workspace)")
@@ -51,6 +58,23 @@ func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
 	after := f.chat(t, bubbleID)
 	assert.NotEmpty(t, after.WorkspaceID, "the slot must be filled")
 	assert.Equal(t, after.WorkspaceID, wsID, "the workspace it answers is the one it filled the slot with")
+
+	assert.Empty(t, runnerID)
+	assert.Equal(t, forks, f.term.callCount(), "no CLI is launched before the chat's first prompt")
+	_, err = f.liveRunnerFor(t, bubbleID)
+	require.Error(t, err, "the new chat is dormant")
+}
+
+// A chat created on the terminal has nothing to show without its CLI, so the
+// create launches it, on the REQUESTED provider.
+func TestSpawnChatWithOwnWorktree_OnTheTerminalStartsTheCLI(t *testing.T) {
+	f := newFixture(t)
+	rootChatID, _ := f.spawn(t, "claude")
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, "claude", "terminal")
+
+	_, runnerID, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, runnerID)
 
 	live, err := f.liveRunnerFor(t, bubbleID)
 	require.NoError(t, err)
@@ -124,13 +148,13 @@ func TestSpawnChatWithOwnWorktree_SetWorkspaceFailure_DiscardsTheOrphanedWorkspa
 // A CLI that fails to start leaves the chat pointing at a brand-new worktree
 // with nothing running in it — rolled all the way back (clear the slot, then
 // discard the workspace) so the retry the caller makes is the same call they
-// just made. Mirrors TestPromote_RespawnFailure_RollsTheWholePromotionBack,
+// just made (a terminal chat: the one a create launches). Mirrors TestPromote_RespawnFailure_RollsTheWholePromotionBack,
 // with the CLI failure forced at the create site (f.term.err) rather than at
 // the outgoing-CLI teardown Promote's respawn has and this path does not.
-func TestSpawnChatWithOwnWorktree_StartRunnerFailure_RollsTheWholeCreateBack(t *testing.T) {
+func TestSpawnChatWithOwnWorktree_LaunchFailure_RollsTheWholeCreateBack(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
-	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, "claude", "terminal")
 	f.term.err = errOwnWorktreeBoom
 
 	_, _, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
@@ -142,8 +166,8 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailure_RollsTheWholeCreateBack(t *
 		"the workspace a failed create made must not survive it")
 }
 
-// TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscardsTheWorkspace
-// is the fix for the double fault a review caught: on a StartRunner failure,
+// TestSpawnChatWithOwnWorktree_LaunchFailureAndClearFailure_StillDiscardsTheWorkspace
+// is the fix for the double fault a review caught: on a launch failure,
 // Promote's own unpromote (promote.go) deliberately KEEPS the workspace when
 // the slot-clear write itself also fails, because Promote's chat SURVIVES a
 // failed promotion and that surviving row still names it. This path has no
@@ -154,10 +178,10 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailure_RollsTheWholeCreateBack(t *
 // exactly this way: nothing could ever reach it again, since the only door to
 // a workspace is the row that owns it, and that row was about to be gone
 // either way.
-func TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscardsTheWorkspace(t *testing.T) {
+func TestSpawnChatWithOwnWorktree_LaunchFailureAndClearFailure_StillDiscardsTheWorkspace(t *testing.T) {
 	f, chats := newFaultFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
-	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, "claude", "terminal")
 	f.term.err = errOwnWorktreeBoom
 	chats.failClearWorkspace = errors.New("own worktree: the slot-clear also failed")
 
@@ -167,4 +191,78 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscard
 	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
 		"the workspace must be discarded even when the slot-clear itself fails — "+
 			"nothing survives this path to still claim it")
+}
+
+// createDormantChat is CreateChat's fork path for providerID on the chat
+// surface, returning the chat and the forks made before it.
+func createDormantChat(t *testing.T, f testFixture, providerID string) (string, int) {
+	t.Helper()
+	rootChatID, _ := f.spawn(t, "claude")
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, providerID, "")
+	forks := f.term.callCount()
+	_, runnerID, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, providerID, "")
+	require.NoError(t, err)
+	require.Empty(t, runnerID, "a chat-surface create launches nothing")
+	f.wait()
+	return bubbleID, forks
+}
+
+// The first prompt of a new chat launches its CLI exactly once, carrying the
+// prompt: the create no longer forks an idle one for the prompt to displace.
+func TestRegression_FirstPromptLaunchesCLIOnce(t *testing.T) {
+	for _, provider := range []string{"claude", "codex"} {
+		t.Run(provider, func(t *testing.T) {
+			f := newFixture(t)
+			chatID, forks := createDormantChat(t, f, provider)
+			require.Equal(t, forks, f.term.callCount(), "the new chat is dormant until used")
+
+			submitted, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello there", uuid.NewString(), "", nil)
+			require.NoError(t, err)
+
+			require.Equal(t, forks+1, f.term.callCount(), "create plus first prompt is one launch")
+			assert.Contains(t, f.term.calls[forks].argv, "hello there", "that launch carries the prompt")
+			live, err := f.liveRunnerFor(t, chatID)
+			require.NoError(t, err)
+			assert.Equal(t, submitted.RunnerID, live.ID)
+			_, exited := f.lastExit(t, chatID)
+			assert.False(t, exited, "no runner was displaced")
+		})
+	}
+}
+
+// Opening the terminal of a chat nothing ever ran on launches its CLI there,
+// once; a second open is the same view.
+func TestRegression_TerminalOpenedBeforeAnyPromptLaunchesThere(t *testing.T) {
+	f := newFixture(t)
+	chatID, forks := createDormantChat(t, f, "claude")
+
+	termSessID, err := f.usecase.SwitchToTerminal(f.ctx, chatID)
+	require.NoError(t, err)
+	require.NotEmpty(t, termSessID)
+	again, err := f.usecase.SwitchToTerminal(f.ctx, chatID)
+	require.NoError(t, err)
+
+	assert.Equal(t, termSessID, again)
+	assert.Equal(t, forks+1, f.term.callCount())
+	assert.Equal(t, "terminal", f.chat(t, chatID).Surface)
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, termSessID, live.TerminalSession)
+}
+
+// A dormant chat that already ran only records the move: its CLI comes back
+// with a send or an explicit start, as before.
+func TestSwitchToTerminal_ADormantChatThatRanOnlyRecordsTheMove(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	require.False(t, f.isLive(runnerID))
+	forks := f.term.callCount()
+
+	termSessID, err := f.usecase.SwitchToTerminal(f.ctx, chatID)
+	require.NoError(t, err)
+
+	assert.Empty(t, termSessID)
+	assert.Equal(t, forks, f.term.callCount())
+	assert.Equal(t, "terminal", f.chat(t, chatID).Surface)
 }

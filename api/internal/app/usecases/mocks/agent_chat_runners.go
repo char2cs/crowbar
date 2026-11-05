@@ -8,7 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// StartCall is one recorded StartRunner call. ParentAtStart, read at call time, is what
+// StartCall is one recorded OpenChat call. ParentAtStart, read at call time, is what
 // tells place-then-start from start-then-place: the spawn reads it to decide inheritance.
 type StartCall struct {
 	ChatID        string
@@ -82,7 +82,7 @@ func (s *AgentChatPlacements) MintChat(
 	return chatID, nil
 }
 
-func (s *AgentChatPlacements) StartRunner(
+func (s *AgentChatPlacements) OpenChat(
 	ctx context.Context,
 	chatID string,
 	providerID string,

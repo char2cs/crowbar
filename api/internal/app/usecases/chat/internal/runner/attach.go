@@ -90,7 +90,8 @@ var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to i
 
 // SwitchToTerminal moves chatID onto its provider's TUI and returns its terminal
 // session: an own PTY just moves surface, a turned api session hands over to an `attach`
-// of it, else the TUI is relaunched. A dormant chat only records the move.
+// of it, else the TUI is relaunched. A dormant chat records the move, and launches
+// there only if no CLI ever ran on it.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
@@ -103,7 +104,7 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 		return "", fmt.Errorf("agent: switch to terminal: %w", err)
 	}
 	if !ok {
-		return "", rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceTerminal)
+		return rs.openDormantTerminal(ctx, chatID)
 	}
 	// Idempotent: a retry racing its own earlier success gets the same view.
 	if already, ok := rs.attached.get(live.ID); ok {
@@ -204,6 +205,32 @@ func (rs *Runners) respawnOnSurface(
 	runner, ok := rs.live.byRunner(runnerID)
 	if !ok {
 		return "", fmt.Errorf("agent: move chat to %s: new runner: %w", surface, ErrNoLiveRunner)
+	}
+	return runner.TerminalSession, nil
+}
+
+// openDormantTerminal moves a dormant chat to its terminal. One no CLI ever ran on
+// launches there, as a create on that surface does (OpenChat): its first view of
+// the provider needs a process. One that ran waits for a send or a resume.
+func (rs *Runners) openDormantTerminal(ctx context.Context, chatID string) (string, error) {
+	chat, err := rs.chats.SetSurface(ctx, chatID, engineagents.SurfaceTerminal)
+	if err != nil {
+		return "", fmt.Errorf("agent: move chat to %s: record surface: %w", engineagents.SurfaceTerminal, err)
+	}
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch to terminal: %w", err)
+	}
+	if _, ran := st.LastExit(); ran || chat.ProviderID == "" {
+		return "", nil
+	}
+	runnerID, err := rs.openLocked(ctx, chat, chat.ProviderID)
+	if err != nil || runnerID == "" {
+		return "", err
+	}
+	runner, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		return "", fmt.Errorf("agent: switch to terminal: new runner: %w", ErrNoLiveRunner)
 	}
 	return runner.TerminalSession, nil
 }

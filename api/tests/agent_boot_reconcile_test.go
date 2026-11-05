@@ -53,7 +53,7 @@ func bootReconcileFixture(
 	require.NotEmpty(t, created.ID)
 	feed.awaitListed(created.ID)
 
-	h.Quiesce()
+	startChat(t, h, homeBase, created.ID)
 	spawned := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, spawned.LiveRunnerID, "precondition: the freshly spawned chat has a runner placed on it")
 	require.NotEmpty(t, spawned.TerminalSessionID, "precondition: that runner has a PTY")
@@ -325,4 +325,23 @@ func chatBusy(t *testing.T, h *harness, chatID string) bool {
 	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 	require.NoError(t, err)
 	return snap.Ledger.Busy
+}
+
+// A chat created before a restart and never prompted comes back dormant with
+// nothing to reconcile, and its first prompt is its one launch.
+func TestRegression_ANewChatAcrossARestartLaunchesOnceOnItsFirstPrompt(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID := createChat(t, h, imported, fake.ID)
+
+	h.shutdown()
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	assert.Empty(t, readChatSession(t, h2, imported, chatID).LiveRunnerID)
+	assert.Empty(t, exitReason(t, h2, imported, chatID), "no runner ever ran, so none ended")
+	l := promptLaunch(t, h2, imported, fake, chatID, "after the restart", "")
+	requireOneLaunch(t, fake, l)
 }

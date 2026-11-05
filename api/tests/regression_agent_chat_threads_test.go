@@ -109,17 +109,7 @@ func newThreadChat(
 	imported importedRepo,
 ) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": "threadstub", "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "a freshly created chat has a runner on it")
-	return created.ID, detail.LiveRunnerID
+	return createStubChat(t, h, imported, "threadstub")
 }
 
 // newThreadChatUnder creates a chat BORN under parentID — the "New thread" and
@@ -140,10 +130,8 @@ func newThreadChatUnder(
 		map[string]string{"provider": "threadstub", "parentId": parentID, "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "a freshly created chat has a runner on it")
-	return created.ID, detail.LiveRunnerID
+	h.QuiesceReactors()
+	return created.ID, startChat(t, h, repoBase(imported), created.ID)
 }
 
 // runnerFile reads one file out of a runner's per-spawn directory — the {tmp} its

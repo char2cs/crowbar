@@ -163,7 +163,7 @@ func TestRegression_ThreadUnderChatlessLockedBranch(t *testing.T) {
 	detail := getAgentChat(t, h, base, chatID)
 	assert.Equal(t, lockedID, detail.ParentID)
 	assert.Equal(t, lockedID, detail.WorkspaceID)
-	assert.NotEmpty(t, detail.LiveRunnerID)
+	startChat(t, h, base, chatID)
 }
 
 // TestRegression_CreateUnderLegacyWorkspaceWithoutNodeRow is the pre-Task-7

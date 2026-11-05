@@ -51,8 +51,49 @@ func (rs *Runners) StartRunner(
 	if err != nil {
 		return "", fmt.Errorf("agent: start runner: chat: %w", err)
 	}
-	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
-	return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, spawnInput{}, false)
+	return rs.startLocked(ctx, chat, providerID)
+}
+
+// OpenChat is a just-created chat's launch. Only a chat landing on its terminal
+// gets its CLI now, that view being nothing without one; any other stays dormant
+// ("") until its first prompt, whose launch carries it: one CLI, not two.
+func (rs *Runners) OpenChat(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: open chat: %w", err)
+	}
+	defer h.release()
+
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: open chat: chat: %w", err)
+	}
+	return rs.openLocked(ctx, chat, providerID)
+}
+
+// openLocked refuses what a launch would refuse, so no chat is made that no
+// prompt could start, then launches only a chat that lands on its terminal.
+func (rs *Runners) openLocked(ctx context.Context, chat domain.Chat, providerID string) (string, error) {
+	if err := rs.providers.RequireProviderEnabled(ctx, providerID); err != nil {
+		return "", err
+	}
+	descriptor, _, err := rs.promptAgent(ctx, chat, providerID)
+	if err != nil {
+		return "", err
+	}
+	if surfaceForSpawn(descriptor, chat.Surface) != engineagents.SurfaceTerminal {
+		return "", nil
+	}
+	return rs.startLocked(ctx, chat, providerID)
+}
+
+func (rs *Runners) startLocked(ctx context.Context, chat domain.Chat, providerID string) (string, error) {
+	defer rs.enterPhase(ctx, chat.ID, snapshot.PhaseStarting)()
+	return rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, providerID, spawnInput{}, false)
 }
 
 func (rs *Runners) discardSpawnedChat(

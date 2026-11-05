@@ -4,7 +4,6 @@ package tests
 
 import (
 	"encoding/json"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -101,20 +100,12 @@ runtime:
     format: json
 `
 
+// createStubChat creates and starts a chat on stub provider, returning the
+// runner its hooks are posted as.
 func createStubChat(t *testing.T, h *harness, imported importedRepo, provider string) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": provider, "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
-	return created.ID, detail.LiveRunnerID
+	chatID = createChat(t, h, imported, provider)
+	return chatID, startChat(t, h, repoBase(imported), chatID)
 }
 
 type recordedMessage = kit.Message

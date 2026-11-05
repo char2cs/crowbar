@@ -24,19 +24,18 @@ func importedBranch() agentusecase.ImportSpec {
 	}
 }
 
-// TestSpawnChatWithImportedWorktree_FillsWorkspaceAndStartsTheCLI is the import
-// mirror of TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI, and the
-// one assertion that differs is the one that matters: the worktree port is
-// asked for a BRANCH, not for a fork parent to branch from.
-func TestSpawnChatWithImportedWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
+// TestSpawnChatWithImportedWorktree_FillsWorkspaceAndLeavesTheChatDormant is the
+// import mirror of the fork path's own, and the one assertion that differs is the
+// one that matters: the worktree port is asked for a BRANCH, not for a fork parent.
+func TestSpawnChatWithImportedWorktree_FillsWorkspaceAndLeavesTheChatDormant(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	forks := f.term.callCount()
 
 	ws, runnerID, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "claude", importedBranch())
 	require.NoError(t, err)
-	require.NotEmpty(t, runnerID)
 	require.NotEmpty(t, ws.ID)
 
 	assert.Equal(t, []string{"feature/pricing-rounding"}, f.wt.imports(),
@@ -46,6 +45,21 @@ func TestSpawnChatWithImportedWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.
 
 	after := f.chat(t, bubbleID)
 	assert.Equal(t, ws.ID, after.WorkspaceID, "the slot must be filled with the imported workspace")
+
+	assert.Empty(t, runnerID)
+	assert.Equal(t, forks, f.term.callCount(), "no CLI is launched before the chat's first prompt")
+}
+
+// An import created on the terminal launches its CLI with the create.
+func TestSpawnChatWithImportedWorktree_OnTheTerminalStartsTheCLI(t *testing.T) {
+	f := newFixture(t)
+	rootChatID, _ := f.spawn(t, "claude")
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, "claude", "terminal")
+
+	_, runnerID, err := f.usecase.own.SpawnChatWithImportedWorktree(
+		f.ctx, bubbleID, "claude", importedBranch())
+	require.NoError(t, err)
+	require.NotEmpty(t, runnerID)
 
 	live, err := f.liveRunnerFor(t, bubbleID)
 	require.NoError(t, err)
@@ -112,13 +126,13 @@ func TestSpawnChatWithImportedWorktree_SetWorkspaceFailure_DiscardsTheOrphan(t *
 	assert.Empty(t, f.chat(t, bubbleID).WorkspaceID)
 }
 
-// A CLI that fails to start leaves the chat pointing at a freshly imported
+// A CLI that fails to start (a terminal chat's, which a create launches) leaves the chat pointing at a freshly imported
 // worktree with nothing running in it — rolled all the way back, so the retry
 // the caller makes is the same call they just made.
-func TestSpawnChatWithImportedWorktree_StartRunnerFailure_RollsTheWholeImportBack(t *testing.T) {
+func TestSpawnChatWithImportedWorktree_LaunchFailure_RollsTheWholeImportBack(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
-	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, "claude", "terminal")
 	f.term.err = errImportedWorktreeBoom
 
 	_, _, err := f.usecase.own.SpawnChatWithImportedWorktree(
@@ -131,14 +145,14 @@ func TestSpawnChatWithImportedWorktree_StartRunnerFailure_RollsTheWholeImportBac
 		"the workspace a failed import made must not survive it")
 }
 
-// The double fault: StartRunner fails AND the slot-clear that precedes the
+// The double fault: the create's launch (a terminal chat's) fails AND the slot-clear that precedes the
 // discard fails too. The workspace must STILL be discarded, for the reason
 // discardMintedWorkspace's own doc gives — the caller purges this chat outright
 // on any error from here, so "leave it, a row still points at it" is false.
 func TestSpawnChatWithImportedWorktree_StartAndClearFailure_StillDiscardsTheWorkspace(t *testing.T) {
 	f, chats := newFaultFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
-	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	bubbleID := seedPlacedBubbleOn(t, f, rootChatID, "claude", "terminal")
 	f.term.err = errImportedWorktreeBoom
 	chats.failClearWorkspace = errors.New("imported worktree: the slot-clear also failed")
 

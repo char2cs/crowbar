@@ -153,22 +153,40 @@ func newFakeClaudeChat(
 	return chatID, launch, h.url + repoBase(imported)
 }
 
-// createFakeChat creates a chat on an installed fake provider and returns it
-// with the launch of the CLI placed on it.
+// createFakeChat creates a chat on an installed fake provider, starts it, and
+// returns it with the launch of the CLI placed on it.
 func createFakeChat(t *testing.T, h *harness, imported importedRepo, fake kit.FakeProvider) (string, kit.Launch) {
+	t.Helper()
+	chatID := createChat(t, h, imported, fake.ID)
+	return chatID, fake.AwaitLaunch(t, startChat(t, h, repoBase(imported), chatID))
+}
+
+// createChat creates a chat on provider, on the chat surface: dormant, no CLI
+// launched until its first prompt or a start.
+func createChat(t *testing.T, h *harness, imported importedRepo, provider string) string {
 	t.Helper()
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": fake.ID, "workspaceId": imported.workspaceID},
+		map[string]string{"provider": provider, "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.QuiesceReactors()
+	return created.ID
+}
 
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the fake CLI must be placed on the new chat")
-	return created.ID, fake.AwaitLaunch(t, detail.LiveRunnerID)
+// startChat is the pane's Start session on chatID, under base: the explicit
+// launch of a chat no prompt has started. It returns the runner placed.
+func startChat(t *testing.T, h *harness, base, chatID string) string {
+	t.Helper()
+	var started struct {
+		ID string `json:"id"`
+	}
+	h.post(base+"/chats/"+chatID+"/resume", nil, http.StatusOK, &started)
+	require.NotEmpty(t, started.ID, "a start places a runner on the chat")
+	h.QuiesceReactors()
+	return started.ID
 }
 
 func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
@@ -242,4 +260,96 @@ func TestFakeProvider_KillEndsTheRunnerWithNoHook(t *testing.T) {
 
 	assert.Empty(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID,
 		"a CLI that exits with no hook leaves the chat dormant")
+}
+
+// newChatView is what a client reads of a chat before its first prompt.
+type newChatView struct {
+	LiveRunnerID      string `json:"liveRunnerId"`
+	TerminalSessionID string `json:"terminalSessionId"`
+	Phase             string `json:"phase"`
+	Surface           string `json:"surface"`
+}
+
+func readNewChat(t *testing.T, h *harness, imported importedRepo, chatID string) newChatView {
+	t.Helper()
+	var view newChatView
+	h.get(repoBase(imported)+"/chats/"+chatID, &view)
+	return view
+}
+
+// requireOneLaunch is the fake CLI having launched exactly once, as l.
+func requireOneLaunch(t *testing.T, fake kit.FakeProvider, l kit.Launch) {
+	t.Helper()
+	assert.Equal(t, []string{l.RunnerID}, fake.LaunchedRunners(t), "exactly one CLI was launched")
+}
+
+// A new chat is dormant until used; its first prompt launches its one CLI,
+// carrying the prompt, with no idle CLI from the create to displace.
+func TestFakeProvider_CreateThenFirstPromptLaunchesOnce(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID := createChat(t, h, imported, fake.ID)
+
+	view := readNewChat(t, h, imported, chatID)
+	assert.Empty(t, view.LiveRunnerID)
+	assert.Equal(t, "dormant", view.Phase)
+	assert.Empty(t, fake.LaunchedRunners(t), "the create launches nothing")
+
+	l := promptLaunch(t, h, imported, fake, chatID, "first words", "")
+	assert.Contains(t, l.Argv, "first words")
+	requireOneLaunch(t, fake, l)
+	assert.Empty(t, exitReason(t, h, imported, chatID), "no runner was displaced")
+}
+
+// A client that re-reads the new chat and the chat list first still finds a
+// dormant chat, and its prompt is still the one launch.
+func TestFakeProvider_CreateThenReloadThenPromptLaunchesOnce(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID := createChat(t, h, imported, fake.ID)
+
+	var listed []agentChatDTO
+	h.get(repoBase(imported)+"/chats", &listed)
+	list := conversationsOnly(listed)
+	require.Len(t, list, 1)
+	assert.Empty(t, list[0].LiveRunnerID)
+	assert.Equal(t, fake.ID, list[0].ActiveProviderID, "a dormant new chat still names its provider")
+	assert.Empty(t, readNewChat(t, h, imported, chatID).LiveRunnerID)
+
+	l := promptLaunch(t, h, imported, fake, chatID, "after a reload", "")
+	requireOneLaunch(t, fake, l)
+}
+
+// Opening the terminal of a chat nothing ever ran on launches its CLI there,
+// once; a chat created on the terminal launches with its create.
+func TestFakeProvider_TerminalFirstLaunchesOnTheTerminal(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+
+	chatID := createChat(t, h, imported, fake.ID)
+	var opened struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(imported)+"/chats/"+chatID+"/switch-to-terminal", nil, http.StatusOK, &opened)
+	h.QuiesceReactors()
+	view := readNewChat(t, h, imported, chatID)
+	require.NotEmpty(t, view.LiveRunnerID, "opening the terminal launched the CLI")
+	assert.Equal(t, opened.ID, view.TerminalSessionID, "the open answers the PTY it launched")
+	assert.Equal(t, "terminal", view.Surface)
+	requireOneLaunch(t, fake, fake.AwaitLaunch(t, view.LiveRunnerID))
+
+	other := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude", ID: "termfake"})
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(imported)+"/chats", map[string]string{
+		"provider": other.ID, "workspaceId": imported.workspaceID, "surface": "terminal",
+	}, http.StatusCreated, &created)
+	h.QuiesceReactors()
+	born := readNewChat(t, h, imported, created.ID)
+	require.NotEmpty(t, born.LiveRunnerID, "a terminal create launches with the create")
+	requireOneLaunch(t, other, other.AwaitLaunch(t, born.LiveRunnerID))
 }

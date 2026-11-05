@@ -46,6 +46,7 @@ function attachmentOf(
   chat: Pick<AgentChat, 'liveRunnerId' | 'phase' | 'terminalSessionId'> | null,
   exitReason: string,
   providerName: string,
+  neverStarted: boolean,
 ): TerminalAttachment {
   if (!chat) return { state: 'pending' }
   // The attach-only view is bound to the PTY it names; a replacement is a swap.
@@ -53,6 +54,9 @@ function attachmentOf(
   if (chat.phase === 'starting' || chat.phase === 'switching') {
     return { state: 'reviving', message: `Starting ${providerName}…` }
   }
+  // A new chat's CLI starts with its first message: not yet started is no ended session.
+  if (neverStarted)
+    return { state: 'idle', message: `${providerName} starts with your first message.` }
   return { state: 'idle', message: describeDormant(exitReason) }
 }
 
@@ -72,11 +76,16 @@ export function usePaneAttachment({
   const terminalSessionId = useChatField(chatId, (c) => c?.terminalSessionId ?? '')
   const phase = useChatField(chatId, (c) => c?.phase ?? 'dormant')
   const exitReason = useChatStore((s) => s.feeds[chatId]?.facts.lastExit?.reason ?? '')
+  // A loaded ledger with no row: no CLI ever ran on the chat.
+  const neverStarted = useChatStore(
+    (s) => s.feeds[chatId]?.status === 'live' && s.feeds[chatId]?.seq === 0,
+  )
 
   const attachment = attachmentOf(
     known ? { liveRunnerId, phase, terminalSessionId } : null,
     exitReason,
     providerName,
+    neverStarted,
   )
   const chatSide = presentation !== 'terminal' && !promptReplacing
   const revival: ComposerRevival | undefined =

@@ -299,11 +299,7 @@ func TestRegression_FolderRenameSucceedsWithAWorkingChatFiledUnderIt(t *testing.
 	sprint := createChatFolder(t, h, base, "sprint", "")
 	chat := createAgentChat(t, h, imported)
 	placeChat(t, h, base, chat, map[string]any{"parentId": sprint.ID})
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, base, chat)
-	require.NotEmpty(t, detail.LiveRunnerID, "precondition: the chat must be live to go working")
-	postHook(t, h, base, "livestub", detail.LiveRunnerID, "user_prompt", `{"prompt":"still going"}`)
+	postHook(t, h, base, "livestub", startChat(t, h, base, chat), "user_prompt", `{"prompt":"still going"}`)
 	h.Quiesce()
 
 	deleteMsg := h.mutationError(http.MethodDelete, base+"/chats/folders/"+sprint.ID, nil, http.StatusConflict)

@@ -87,7 +87,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	h.post(repoBase+"/chats",
 		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
-	h.Quiesce()
+	startChat(t, h, repoBase, created.ID)
 
 	detail := getAgentChat(t, h, repoBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
@@ -122,18 +122,7 @@ func createLiveStubChat(
 	imported importedRepo,
 ) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
-	return created.ID, detail.LiveRunnerID
+	return createStubChat(t, h, imported, "livestub")
 }
 
 // TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce pins BOTH halves of

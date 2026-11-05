@@ -348,3 +348,12 @@ func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
 	u.feed.Store(&feed)
 	u.runners.StartTerminalWaitSweep(ctx)
 }
+
+// OpenChat is a just-created chat's launch: a CLI now only on the terminal.
+func (u *Usecase) OpenChat(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	return u.runners.OpenChat(ctx, chatID, providerID)
+}

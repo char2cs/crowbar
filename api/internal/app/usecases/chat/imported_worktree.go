@@ -9,8 +9,8 @@ import (
 )
 
 // SpawnChatWithImportedWorktree fills chatID's empty workspace slot with an EXISTING
-// branch and starts providerID's CLI in it. Unlike the fork path, spec already names
-// the fork parent, so no walk is taken. An empty providerID starts no CLI (batch import).
+// branch and opens providerID on it (OpenChat). Unlike the fork path, spec already names
+// the fork parent, so no walk is taken. An empty providerID opens nothing (batch import).
 func (u *Usecase) SpawnChatWithImportedWorktree(
 	ctx context.Context,
 	chatID string,
@@ -28,10 +28,10 @@ func (u *Usecase) SpawnChatWithImportedWorktree(
 	if providerID == "" {
 		return ws, "", nil
 	}
-	runnerID, err := u.runners.StartRunner(ctx, chatID, providerID)
+	runnerID, err := u.runners.OpenChat(ctx, chatID, providerID)
 	if err != nil {
 		return domain.Workspace{}, "", u.discardMintedWorkspace(ctx, chatID, ws.ID,
-			fmt.Errorf("import chat: start runner: %w", err))
+			fmt.Errorf("import chat: open: %w", err))
 	}
 	return ws, runnerID, nil
 }

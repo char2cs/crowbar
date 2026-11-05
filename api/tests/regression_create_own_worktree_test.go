@@ -62,6 +62,7 @@ func TestRegression_CreateChatWithOwnWorktreeIsAtomicOverHTTP(t *testing.T) {
 	base := repoBase(imported)
 
 	ancestorID := createChatWithProvider(t, h, base, "promotestub", imported.workspaceID, "")
+	startChat(t, h, base, ancestorID)
 	ancestorCwd := readSpawnCwd(t, h, imported, ancestorID)
 	require.NotEmpty(t, ancestorCwd, "the ancestor's own spawn must report a real cwd")
 
@@ -74,8 +75,7 @@ func TestRegression_CreateChatWithOwnWorktreeIsAtomicOverHTTP(t *testing.T) {
 	require.NotEmpty(t, detail.WorkspaceID, "ownWorktree must fill the workspace slot in the SAME call")
 	assert.NotEqual(t, imported.workspaceID, detail.WorkspaceID,
 		"the workspace must be a FRESH one forked from the resolved fork parent, not the ancestor's own")
-	require.NotEmpty(t, detail.LiveRunnerID,
-		"the atomic create must also start a live CLI, not merely mint a workspace")
+	startChat(t, h, base, newChatID)
 
 	newCwd := readSpawnCwd(t, h, imported, newChatID)
 	require.NotEmpty(t, newCwd, "the new chat's CLI must report a real cwd — a real worktree on disk")

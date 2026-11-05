@@ -144,7 +144,7 @@ func TestRegression_SidebarThreadWithWorkspaceIdAsParent(t *testing.T) {
 	detail := getAgentChat(t, h, repoBase(imported), env.Data.ID)
 	assert.Equal(t, imported.workspaceID, detail.ParentID)
 	assert.Equal(t, imported.workspaceID, detail.WorkspaceID)
-	assert.NotEmpty(t, detail.LiveRunnerID)
+	startChat(t, h, repoBase(imported), env.Data.ID)
 	// and the row must be visible in the repo's chat list
 	found := false
 	for _, c := range listChats(t, h, imported.projectID, imported.repoID) {

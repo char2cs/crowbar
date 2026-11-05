@@ -250,6 +250,22 @@ func (f FakeProvider) AwaitLaunch(tb testing.TB, runnerID string) Launch {
 	return l
 }
 
+// LaunchedRunners is every runner the fake CLI has recorded a launch for, sorted.
+func (f FakeProvider) LaunchedRunners(tb testing.TB) []string {
+	tb.Helper()
+	entries, err := os.ReadDir(f.Dir)
+	require.NoError(tb, err)
+	var runners []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasSuffix(name, ".json") && !strings.HasPrefix(name, "onquit-") {
+			runners = append(runners, strings.TrimSuffix(name, ".json"))
+		}
+	}
+	sort.Strings(runners)
+	return runners
+}
+
 // RefuseResume makes every later launch that resumes sessionID print line and
 // exit 1.
 func (f FakeProvider) RefuseResume(tb testing.TB, sessionID, line string) {

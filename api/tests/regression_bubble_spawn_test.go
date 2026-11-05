@@ -203,16 +203,16 @@ func TestRegression_BubbleChatSpawnsInAncestorWorktree(t *testing.T) {
 	base := repoBase(imported)
 
 	ancestorID := createChatWithProvider(t, h, base, "cwdstub", imported.workspaceID, "")
+	startChat(t, h, base, ancestorID)
 	ancestorCwd := readSpawnCwd(t, h, imported, ancestorID)
 	require.NotEmpty(t, ancestorCwd, "the ancestor's own spawn must report a real cwd")
 
 	folder := createChatFolder(t, h, base, "bubble-holder", ancestorID)
 
 	bubbleID := createChatWithProvider(t, h, base, "cwdstub", "", folder.ID)
-	detail := getAgentChat(t, h, base, bubbleID)
-	require.Empty(t, detail.WorkspaceID, "the new chat must actually be a bubble")
-	require.NotEmpty(t, detail.LiveRunnerID,
-		"a bubble nested under a worktree-owning chat's folder must spawn a live runner, not 500")
+	require.Empty(t, getAgentChat(t, h, base, bubbleID).WorkspaceID, "the new chat must actually be a bubble")
+	// A bubble nested under a worktree-owning chat's folder must start a live runner, not 500.
+	startChat(t, h, base, bubbleID)
 
 	bubbleCwd := readSpawnCwd(t, h, imported, bubbleID)
 	require.Equal(t, ancestorCwd, bubbleCwd,
@@ -243,12 +243,11 @@ func TestRegression_BubbleChatReceivesAPrompt(t *testing.T) {
 	base := repoBase(imported)
 
 	ancestorID := createChatWithProvider(t, h, base, "cwdstub", imported.workspaceID, "")
+	startChat(t, h, base, ancestorID)
 	ancestorCwd := readSpawnCwd(t, h, imported, ancestorID)
 
 	folder := createChatFolder(t, h, base, "prompt-bubble-holder", ancestorID)
 	bubbleID := createChatWithProvider(t, h, base, "cwdstub", "", folder.ID)
-	before := getAgentChat(t, h, base, bubbleID)
-	require.NotEmpty(t, before.LiveRunnerID, "the bubble must be live before it can take a prompt")
 
 	var submission struct {
 		RunnerID          string `json:"runnerId"`
@@ -261,10 +260,8 @@ func TestRegression_BubbleChatReceivesAPrompt(t *testing.T) {
 		"submitting a prompt to a bubble must place a runner to carry it, not 500/404 in promptTarget")
 	h.QuiesceReactors()
 
-	after := getAgentChat(t, h, base, bubbleID)
-	require.NotEmpty(t, after.LiveRunnerID, "the bubble must still be live after taking the prompt")
-	require.NotEqual(t, before.LiveRunnerID, after.LiveRunnerID,
-		"restart_tui delivery replaces the CLI, so a NEW runner is the one that actually carries the prompt")
+	require.Equal(t, submission.RunnerID, getAgentChat(t, h, base, bubbleID).LiveRunnerID,
+		"the dormant bubble's first prompt launched the runner that carries it")
 
 	afterCwd := readSpawnCwd(t, h, imported, bubbleID)
 	require.Equal(t, ancestorCwd, afterCwd,

@@ -64,6 +64,8 @@ func TestRegression_TerminalPromptIsAnswerableFromTheChat(t *testing.T) {
 		map[string]string{"provider": "truststub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
+	// The modal shows once the CLI runs, which a new chat's start (or first prompt) does.
+	startChat(t, h, repoBase(imported), created.ID)
 	answerURL := repoBase(imported) + "/chats/" + created.ID + "/terminal-wait/answer"
 
 	require.Eventually(t, func() bool {

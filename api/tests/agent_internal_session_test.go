@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,18 +48,7 @@ func writeMemStubProviderDescriptor(t *testing.T, h *harness) {
 // createMemStubChat is createLiveStubChat against the memstub provider.
 func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": "memstub", "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
-	return created.ID, detail.LiveRunnerID
+	return createStubChat(t, h, imported, "memstub")
 }
 
 // The payloads below are VERBATIM captures from codex 0.146.0 with

@@ -73,6 +73,7 @@ func TestRegression_PromoteFillsABubblesWorkspaceSlotOverHTTP(t *testing.T) {
 	base := repoBase(imported)
 
 	ancestorID := createChatWithProvider(t, h, base, "promotestub", imported.workspaceID, "")
+	startChat(t, h, base, ancestorID)
 	ancestorCwd := readSpawnCwd(t, h, imported, ancestorID)
 	require.NotEmpty(t, ancestorCwd, "the ancestor's own spawn must report a real cwd")
 
@@ -83,6 +84,7 @@ func TestRegression_PromoteFillsABubblesWorkspaceSlotOverHTTP(t *testing.T) {
 	// same disclosed reason.
 	folder := createChatFolder(t, h, base, "promote-holder", ancestorID)
 	bubbleID := createChatWithProvider(t, h, base, "promotestub", "", folder.ID)
+	startChat(t, h, base, bubbleID)
 
 	before := getAgentChat(t, h, base, bubbleID)
 	require.Empty(t, before.WorkspaceID, "the chat under promotion must actually be a bubble")
