@@ -16,8 +16,7 @@ import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-c
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
-// Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
-// enough for every test below, none of which exercises a live drag.
+// A null scrollRef and no-op commit callbacks suffice: no test below runs a live drag.
 const DRAG_PROPS = {
   scrollRef: { current: null } as React.RefObject<HTMLElement | null>,
   onDrop: vi.fn(),
@@ -79,11 +78,8 @@ describe('SidebarTree', () => {
         {...DRAG_PROPS}
       />,
     )
-    // The brief's own step-1 test reaches for `getByTestId('fold-folder-1')`,
-    // which does not exist: SidebarRow (Task 5, already committed) marks its
-    // fold button with `data-control="fold"` and an aria-label, never a
-    // per-row testid. Same intent, found for real: the fold button scoped to
-    // folder-1's own treeitem.
+    // SidebarRow marks its fold button with `data-control="fold"` and an aria-label, not a
+    // per-row testid, so find it within folder-1's treeitem.
     const folderRow = screen.getByText('Bugs').closest('[role="treeitem"]') as HTMLElement
     fireEvent.click(within(folderRow).getByRole('button', { name: /collapse bugs/i }))
     expect(screen.queryByText('Fix the thing')).not.toBeInTheDocument()
@@ -105,12 +101,7 @@ describe('SidebarTree', () => {
     expect(child?.getAttribute('style')).toContain('margin-inline-start: 14px')
   })
 
-  // User correction, live: the ghost/bootstrap row a childless folder used to
-  // render underneath itself (removed here) was itself the defect, not a
-  // missing worktree check on it — "it shouldn't exist" full stop. A folder's
-  // own row now carries its own Fork button directly (sidebar-row.tsx), the
-  // same place every other kind's already lived; there is nothing left to
-  // render beneath an empty folder at all.
+  // A folder's own row carries Thread and Fork; nothing renders beneath an empty one.
   it('an empty folder renders nothing beneath it — its own row carries Thread and Fork directly', () => {
     const onCreate = vi.fn()
     const repoFolder: SidebarRow = { ...rows[0], ownsWorktree: true }
@@ -174,14 +165,8 @@ describe('SidebarTree', () => {
     expect(document.querySelector('[data-control="fold"]')).not.toBeInTheDocument()
   })
 
-  // Addendum §5: revises the old expectation above (a nested split-control
-  // affordance row) now that every branch/chat row carries its own,
-  // always-present Fork+Thread buttons directly (sidebar-row.tsx). Rendering
-  // the nested AffordanceRow underneath an empty branch row too was pure
-  // duplication — a second, unlabeled icon-only row that read as broken —
-  // which is the exact "mystery blank row under every workspace" bug
-  // reported live. A childless branch row now renders nothing beneath it;
-  // its own Fork/Thread buttons are the only way in.
+  // Every branch/chat row carries its own Fork and Thread buttons, so a childless branch row
+  // renders nothing beneath it.
   it('an empty branch row does not render a nested affordance row — its own Fork/Thread buttons are the only affordance', () => {
     const branch: SidebarRow = {
       id: 'branch-1',
@@ -210,10 +195,7 @@ describe('SidebarTree', () => {
     expect(screen.getByRole('button', { name: /^thread main$/i })).toBeInTheDocument()
   })
 
-  // The literal user-visible bug: a real chat row with no thread yet used to
-  // grow a second, bare, unlabeled row underneath it — indistinguishable at a
-  // glance from a corrupt/empty entity. A chat row's own Thread button
-  // (sidebar-row.tsx) is already the way to add one.
+  // An empty chat row grows no bare child row; its own Thread button adds one.
   it('an empty chat row does not render a nested affordance row either', () => {
     const chat: SidebarRow = {
       id: 'chat-only',
@@ -265,14 +247,8 @@ describe('SidebarTree', () => {
     expect(hasDividerUtility).toBe(false)
   })
 
-  // User correction, live: a tree row with an open view read as DISABLED
-  // (muted-grey label) rather than active — "that row is active by
-  // definition, so it should be there." The tree now marks it the same way
-  // recents-band.tsx already marks its own dormant-SET member for the
-  // identical "open, not the one showing" state: the row's own ground
-  // (ROW_HAS_VIEW_IDLE, `bg-sidebar-element-idle`), full-strength label text.
-  // Recents' OWN muted-label mechanism is untouched — only the tree
-  // (`SidebarTreeRow`) opts into the new ground via `hasViewIdle`.
+  // An open view is active by definition: the tree gives the row the idle ground at full-strength
+  // label text, never the muted label Recents uses (only SidebarTreeRow sets `hasViewIdle`).
   it('gives a chat row whose chat is live open in a pane the idle ground, not a greyed label — even though the row prop itself always arrives hasView: false', () => {
     // Every row in `rows` is seeded with `hasView: false` (deriveRows
     // never seeds live state into the row object — see its own note). The

@@ -12,9 +12,8 @@ describe('InlineRenameInput', () => {
     expect(input.selectionEnd).toBe('feature-x'.length)
   })
 
-  // Regression: an empty naming input (a fork's create row) with no
-  // placeholder read as a chat box to type INTO rather than a name to give
-  // something — what got typed there became the branch's own name.
+  // Without a placeholder, an empty naming input (a fork's create row) reads as a chat box, and
+  // what gets typed there becomes the branch's name.
   it('shows the placeholder only while defaultValue is empty', () => {
     const { rerender } = render(
       <InlineRenameInput

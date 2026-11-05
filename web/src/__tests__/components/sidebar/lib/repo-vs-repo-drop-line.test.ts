@@ -4,19 +4,9 @@ import { NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-/**
- * Regression for "no reorder indicator between two repo header rows":
- * `use-sidebar-drag.ts`'s live per-frame hit test reconstructs its target
- * straight off DOM attributes (`tree-dnd/drop-dom.ts`'s `read()`), using only
- * the fields `SIDEBAR_DRAG_ROW_SPEC` declares — `kind`/`id`/`parentId` plus
- * `path`/`expanded`/`hasChildren`/`inRecents`. `repoIcon` is never one of
- * them, so a real drag's target NEVER carries it, unlike the full
- * `SidebarRow` object the sibling `sidebar-drop-policy.test.ts` file builds
- * by hand (which is why that suite never caught this: it always handed
- * `repoIcon` in). `sidebar-drop-policy.ts` used to trust `target.repoIcon`
- * for exactly this pairing, so the indicator always resolved to `NO_MODES`
- * live even though the same pairing "worked" in every hand-built test.
- */
+// A live drag's target is rebuilt from the DOM attributes SIDEBAR_DRAG_ROW_SPEC declares, which
+// never include `repoIcon` — so this builds targets that way, unlike the hand-built rows in
+// sidebar-drop-policy.test.ts.
 function liveDomTarget(id: string, parentId = ''): SidebarRow {
   return {
     kind: 'branch',

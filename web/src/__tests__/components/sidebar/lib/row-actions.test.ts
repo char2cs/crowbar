@@ -157,9 +157,8 @@ describe('row-actions', () => {
     expect(agentApi.renameChat).not.toHaveBeenCalled()
   })
 
-  // The URL is repo-scoped (Task 17), so any of the REPO's own recorded
-  // workspaces builds it — but never the chat's own `workspaceId`, which spec
-  // §9.2 allows to name a workspace in a different repo entirely.
+  // The URL is repo-scoped, so any of the repo's own recorded workspaces builds it — never the
+  // chat's `workspaceId`, which spec §9.2 lets name a workspace in another repo.
   it('builds the repo-scoped URL from the repo’s own workspace, not the chat’s', async () => {
     seedRepos([
       {
