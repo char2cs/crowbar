@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api/fetch'
-import { folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api/wire'
+import { folderDTOFromWire, partitionShifted, type ChatsFolderWireDTO } from '@/lib/api/wire'
 import { projectBase, repoBase } from '@/lib/project-url'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
@@ -90,16 +90,12 @@ function toFolderWriteResult(
   projectId: string,
   repoId: string,
 ): FolderWriteResult {
-  const shifted: FolderDTO[] = []
-  const shiftedRows: PlacedRow[] = []
-  for (const row of raw.shifted ?? []) {
-    if (row.type === undefined || row.type === 'folder') {
-      shifted.push(folderDTOFromWire(row, projectId, repoId))
-    } else {
-      shiftedRows.push(toPlacedRow(row))
-    }
+  const { folders, others } = partitionShifted(raw.shifted ?? [], projectId, repoId)
+  return {
+    folder: folderDTOFromWire(raw.folder, projectId, repoId),
+    shifted: folders,
+    shiftedRows: others.map(toPlacedRow),
   }
-  return { folder: folderDTOFromWire(raw.folder, projectId, repoId), shifted, shiftedRows }
 }
 
 // Create a folder; answers the row plus its collateral, which performCreateFolder applies at once
@@ -180,7 +176,7 @@ export async function deleteFolder(
   return apiFetch<{ shifted?: ChatsFolderWireDTO[] } | null>(
     `${repoBase(projectId, repoId)}/chats/folders/${folderId}`,
     { method: 'DELETE', ...init },
-  ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)))
+  ).then((raw) => partitionShifted(raw?.shifted ?? [], projectId, repoId).folders)
 }
 
 /** {@link deleteFolder}, for the project-home workspace instead of a repo. */
@@ -192,7 +188,7 @@ export async function deleteHomeFolder(
   return apiFetch<{ shifted?: ChatsFolderWireDTO[] } | null>(
     `${homeBase(projectId)}/chats/folders/${folderId}`,
     { method: 'DELETE', ...init },
-  ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, '')))
+  ).then((raw) => partitionShifted(raw?.shifted ?? [], projectId, '').folders)
 }
 
 /** A repo's index within its project's section, and the project-home folder

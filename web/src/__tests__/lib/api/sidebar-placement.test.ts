@@ -31,8 +31,8 @@ describe('createFolder', () => {
   it('POSTs .../chats/folders and reshapes {folder, shifted} into FolderDTOs', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        folder: { id: 'f9', parentId: '', title: 'New folder', order: 0 },
-        shifted: [{ id: 'f1', parentId: '', title: 'F1', order: 1 }],
+        folder: { id: 'f9', type: 'folder', parentId: '', title: 'New folder', order: 0 },
+        shifted: [{ id: 'f1', type: 'folder', parentId: '', title: 'F1', order: 1 }],
       }),
     )
     const { folder, shifted } = await createFolder('p1', 'r1', 'New folder', '')
@@ -55,7 +55,7 @@ describe('createFolder', () => {
 
   it('defaults shifted to [] when the backend omits the field', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ folder: { id: 'f9', parentId: '', title: 'X', order: 0 } }),
+      jsonResponse({ folder: { id: 'f9', type: 'folder', parentId: '', title: 'X', order: 0 } }),
     )
     const { shifted } = await createFolder('p1', 'r1', 'X', '')
     expect(shifted).toEqual([])
@@ -66,7 +66,7 @@ describe('placeFolder', () => {
   it('PATCHes .../chats/folders/:folderId and reshapes the response', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        folder: { id: 'f1', parentId: 'f2', title: 'Renamed', order: 3 },
+        folder: { id: 'f1', type: 'folder', parentId: 'f2', title: 'Renamed', order: 3 },
         shifted: [],
       }),
     )
@@ -86,7 +86,7 @@ describe('placeFolder', () => {
   it('splits a shifted locked-branch sibling out of the folder rows', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        folder: { id: 'f1', parentId: '', title: 'F1', order: 0 },
+        folder: { id: 'f1', type: 'folder', parentId: '', title: 'F1', order: 0 },
         shifted: [
           { id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 1 },
           { id: 'ws-locked', type: 'branch', parentId: '', title: '', order: 2 },
@@ -102,7 +102,9 @@ describe('placeFolder', () => {
 describe('deleteFolder', () => {
   it('DELETEs .../chats/folders/:folderId and returns the promoted-children shift', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ shifted: [{ id: 'f2', parentId: '', title: 'F2', order: 0 }] }),
+      jsonResponse({
+        shifted: [{ id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 0 }],
+      }),
     )
     const shifted = await deleteFolder('p1', 'r1', 'f1')
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
@@ -111,6 +113,20 @@ describe('deleteFolder', () => {
     expect(shifted).toEqual([
       { id: 'f2', repoId: 'r1', projectId: 'p1', parentId: '', name: 'F2', order: 0 },
     ])
+  })
+
+  // A promoted child can be a chat: it is never answered as a folder, or it would land as a ghost
+  // folder entity under the chat's id.
+  it('answers only the promoted folders, never a promoted chat', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        shifted: [
+          { id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 0 },
+          { id: 'c1', type: 'chat', parentId: '', title: 'A chat', order: 1 },
+        ],
+      }),
+    )
+    expect((await deleteFolder('p1', 'r1', 'f1')).map((f) => f.id)).toEqual(['f2'])
   })
 
   it('defaults to [] on a null body', async () => {
@@ -146,7 +162,7 @@ describe('placeWorkspace', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         workspace: { id: 'ws-1', parentId: 'f-rev', order: 2 },
-        shifted: [{ id: 'f1', parentId: 'f-rev', title: 'F1', order: 3 }],
+        shifted: [{ id: 'f1', type: 'folder', parentId: 'f-rev', title: 'F1', order: 3 }],
       }),
     )
 

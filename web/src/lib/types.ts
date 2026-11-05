@@ -137,9 +137,8 @@ export interface FolderDTO {
   status?: string
 }
 
-// A Chat row's kind (domain.ChatType). Locked branches and homes are workspace nodes read off
-// Workspace/Repository, and folders are domain.Folder; a cached row may still carry the old
-// 'branch'/'folder' values, so `ChatDTO.type` stays optional and nothing compares against them.
+// A Chat row's kind (domain.ChatType). Locked branches and homes are workspace nodes and folders
+// are FolderDTO entities; only the folder routes answer folder-typed rows, decoded in api/wire.ts.
 export type ChatType = 'chat' | 'workflow'
 
 // A conversation row of the sidebar forest (spec §3.1): a worktree chat owns `workspaceId`, a
