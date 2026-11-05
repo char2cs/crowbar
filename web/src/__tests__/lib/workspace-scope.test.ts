@@ -20,13 +20,9 @@ import {
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
-// Regression for the §14 add-repo failure: the workspace scope was recorded
-// only in the `$wsId` route component's post-render `useEffect`, but the IDE
-// shell renders `WorkspaceView` (whose subtree builds workspace-scoped URLs via
-// `workspaceBase`) DURING the same render — before that effect runs. The first
-// render therefore threw "no project/repo scope recorded for workspace …" and
-// tripped the ErrorBoundary permanently. The route is the canonical scope
-// source, so it must be recorded synchronously from the path during render.
+// The IDE shell renders WorkspaceView, whose subtree builds scoped URLs, during the same render
+// that reads the route — so the scope must be recorded synchronously from the path, not in an
+// effect, or the first render throws "no project/repo scope recorded".
 beforeEach(() => {
   __resetWorkspaceScopesForTest()
 })
@@ -70,10 +66,8 @@ describe('recordWorkspaceScopeFromPath', () => {
   })
 })
 
-// The context pill (and other read-only render paths) parse the active workspace
-// from the route WITHOUT recording it. Regression: the pill used the legacy
-// /workspaces/:wsId shape, which never matches the real /ide/:p/:r/:wsId route, so
-// it always fell back to the project name ("Rabbyte") instead of the repo/branch.
+// Read-only render paths (the context pill) parse the active workspace from the real
+// /ide/:p/:r/:wsId route without recording it.
 describe('parseWorkspaceScopeFromPath', () => {
   it('parses the scope from an /ide/:p/:r/:wsId path', () => {
     expect(parseWorkspaceScopeFromPath('/ide/p1/r1/ws1')).toEqual({
@@ -95,13 +89,8 @@ describe('parseWorkspaceScopeFromPath', () => {
   })
 })
 
-// Regression: a workspace's git/file effects (use-workspace-effects.ts) read
-// getOwningChatId(wsId) once at mount, before the sidebar's own async
-// chat-list fetch has necessarily recorded one — a race the route-derived
-// scope (recorded synchronously, with no chat id) does not resolve on its
-// own. subscribeToWorkspaceScope is what lets those effects wait for it
-// instead of crashing/hanging: it must fire on the write that ADDS the
-// owning chat id, not just on the first, chat-less write from the route.
+// Workspace effects can mount before the sidebar records the owning chat, so the subscription must
+// fire on the write that ADDS the chat id, not only the route's first chat-less write.
 describe('subscribeToWorkspaceScope', () => {
   it('notifies a listener when recordWorkspaceScope later adds an owning chat id', () => {
     recordWorkspaceScopeFromPath('/ide/p/r/ws1')
