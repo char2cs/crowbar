@@ -208,6 +208,7 @@ export function AgentChatPaneBody({
     providers,
     activeProviderId,
     onTerminalSurface,
+    recordedSurface,
     waiting,
     isActivePane,
     isVisible,

@@ -317,3 +317,55 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 	})
 	return rs, chats
 }
+
+// A hot-swap provider's one process serves both views, so the pane's tab IS the
+// surface: each switch moves where asks are answered and whether compact is offered.
+func TestHotswapChat_AsksAndCompactFollowEveryTabSwitch(t *testing.T) {
+	chats := &trackedSurfaceChats{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}
+	rs := &Runners{
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
+		surfaces: newSurfaceRegistry(), chatLock: newTestLock(), parks: newParks(),
+		live: liveWith(t, engineagents.Runner{
+			ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "claude", CurrentChatID: "chat-1", TerminalSession: "pty-1",
+		}),
+		chats:         chats,
+		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:        stubAgentsForInterrupt{agent: shippedAgent(t, "claude")},
+		conversations: stubConversationsForCompact{providerID: "claude"},
+	}
+	ctx := context.Background()
+	onTerminal := func() {
+		t.Helper()
+		session, err := rs.SwitchToTerminal(ctx, "chat-1")
+		require.NoError(t, err)
+		assert.Equal(t, "pty-1", session, "the same process: nothing is forked")
+		assert.True(t, rs.ShowingNativeView("runner-1"), "asks go to the TUI the user is on")
+		assert.ErrorIs(t, rs.Compact(ctx, "chat-1"), ErrCompactionOffSurface)
+	}
+	onChat := func() {
+		t.Helper()
+		require.NoError(t, rs.SwitchToNative(ctx, "chat-1"))
+		assert.False(t, rs.ShowingNativeView("runner-1"), "asks come back to Crowbar's chat")
+		assert.Equal(t, domain.SurfaceChat, chats.chat.Surface, "compact's gate reads this record")
+	}
+
+	onTerminal()
+	onChat()
+	onTerminal()
+}
+
+// trackedSurfaceChats keeps the last surface written, as the chat row does, so
+// Compact's gate reads what the switches recorded.
+type trackedSurfaceChats struct {
+	stubChatsForSpawn
+	chat domain.Chat
+}
+
+func (s *trackedSurfaceChats) GetChat(context.Context, string) (domain.Chat, error) {
+	return s.chat, nil
+}
+
+func (s *trackedSurfaceChats) SetSurface(_ context.Context, _, surface string) (domain.Chat, error) {
+	s.chat.Surface = surface
+	return s.chat, nil
+}

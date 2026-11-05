@@ -2,8 +2,12 @@ import { useEffect, useEffectEvent, useRef, type RefObject } from 'react'
 import { switchToNative, switchToTerminal } from '@/features/agent/api/agent-chat-commands'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import type {
+  ChatPresentation,
+  LandingChatPresentation,
+} from '@/features/settings/lib/chat-presentation'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { IS_MOBILE } from '@/utils/platform'
 
 interface EscortOptions {
   wsId: string
@@ -11,6 +15,8 @@ interface EscortOptions {
   providers: AgentProvider[]
   activeProviderId: string
   onTerminalSurface: boolean
+  /** Where the daemon recorded a hot-swap chat was last shown; null without hot-swap. */
+  recordedSurface: LandingChatPresentation | null
   /** The CLI is blocked on a prompt only its terminal can answer. */
   waiting: boolean
   isActivePane: boolean
@@ -44,6 +50,16 @@ export function useTerminalEscort(options: EscortOptions) {
       next === 'terminal' ? switchToTerminal(wsId, chatId) : switchToNative(wsId, chatId)
     void record.catch((err: unknown) => console.warn('crowbar: record the chat surface', err))
   }
+
+  // The phone shows only the chat, so opening there a hot-swap chat recorded on its TUI brings
+  // the chat's asks and compact back to the view the phone has. Only on opening: never a tug-of-war.
+  const recordedKnown = options.recordedSurface !== null
+  const takeChatOnPhone = useEffectEvent(() => {
+    if (IS_MOBILE && options.isVisible && options.recordedSurface === 'terminal') {
+      showHotswap('chat')
+    }
+  })
+  useEffect(() => takeChatOnPhone(), [chatId, options.isVisible, recordedKnown])
 
   const userIsWatching = useEffectEvent(
     () => options.isActivePane && options.isVisible && getActiveWorkspaceId() === wsId,
