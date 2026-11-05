@@ -2,31 +2,9 @@ import { selectHomeTrees, selectRepos, useSelect } from '@/core/entities/select'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/core/entities/home-rows'
 
-/**
- * Whether the sidebar tree POSITIVELY names `chatId` as a thread — a chat row
- * that owns no worktree of its own and merely runs on the one its parent owns.
- *
- * Branch chrome (the `GitBranch` mark, "Review this branch") belongs to the row
- * that OWNS a worktree, exactly as `RowGlyph` (sidebar-row.tsx) already gates it
- * in the tree. `Chat.workspaceId` cannot stand in for that test — a thread
- * carries its PARENT's, so every thread names a worktree it does not own — and
- * `Chat.type` never could either (see {@link ChatType}: nothing mints a
- * `'branch'`-typed chat any more). That inherited id is exactly how a thread's
- * own header came to draw a branch icon and offer a branch review
- * (live-reported).
- *
- * Absence from `repos` is NOT a "no". A repo whose chat seed has not landed, or
- * whose section is folded away and has no subscription open at all, carries no
- * `chats` (see `Repo.chats`) — a chat no repo in the tree can name yet answers
- * `false`, so a genuine branch's affordances stay put rather than blinking out
- * while the daemon catches up.
- *
- * A project-home chat is a different, PERMANENT case, not a loading gap: it
- * rides no repo at all, so it structurally can never own a worktree — there
- * is no "not yet" to wait out. Any chat found in `homeTrees` (the per-project
- * home map, entirely separate from `repos`) therefore answers `true` unconditionally, the moment it is found,
- * rather than falling through to the `repos`-only loading default.
- */
+/** Whether the tree positively names `chatId` a thread (owns no worktree; `workspaceId` is its
+ *  parent's, so it can't decide). Unseen in `repos` → false, so branch chrome doesn't blink while
+ *  chats load; a project-home chat can never own one → true. */
 export function chatIsThreadIn(
   repos: readonly Repo[],
   chatId: string | null,
@@ -40,15 +18,8 @@ export function chatIsThreadIn(
   return chatIsInAnyHomeTree(homeTrees, chatId)
 }
 
-/**
- * `chatId` among any project's home chats. Mirrors `resolveHomeRowScope`'s own
- * `Object.keys(trees)` scan (home-rows.ts) rather than importing it directly:
- * that resolver also matches folders, returns a `{ kind, projectId,
- * homeWorkspaceId }` shape this call site has no use for, and fails closed
- * (returns `null`) when `getHomeWorkspaceId` can't resolve — a strictness this
- * boolean has no room for, since a home chat is a thread regardless of whether
- * its home workspace id happens to be resolvable yet.
- */
+// Not resolveHomeRowScope: it fails closed while the home workspace id is unresolved, but a
+// home chat is a thread regardless.
 function chatIsInAnyHomeTree(homeTrees: Record<string, HomeTree>, chatId: string): boolean {
   for (const projectId of Object.keys(homeTrees)) {
     if (homeTrees[projectId].chats.some((c) => c.id === chatId)) return true
@@ -56,10 +27,8 @@ function chatIsInAnyHomeTree(homeTrees: Record<string, HomeTree>, chatId: string
   return false
 }
 
-/** Every authority `deriveRows` folds a worktree-owning row from: the
- *  chat's own claim (atomic with the row), the repo home's lifted
- *  `owningChatId` (home is never a member of `repo.workspaces`), and the
- *  `Workspace` record's own join for a row cached before `ownsWorktree`. */
+// The same owner authorities `deriveRows` reads: the chat's own claim, the repo home's
+// owningChatId (home is never in `repo.workspaces`), and the Workspace record's join.
 function ownsWorktree(repo: Repo, chat: Chat): boolean {
   if (chat.ownsWorktree) return true
   if (repo.defaultOwningChatId && repo.defaultOwningChatId === chat.id) return true

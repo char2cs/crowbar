@@ -1,11 +1,8 @@
 import type { DocumentRef } from '@/lib/api/documents'
 
 // ── Content type discriminant ───────────────────────────────────────
-//
-// A pane's chat is PaneGroup.chatId, never a member of this union: 'agentChat'
-// and 'newTab' left it entirely when the pane gained a dedicated chat slot —
-// see pane.ts. 'newTabPage' is a different, real tab; old layouts still carry
-// the retired 'newTab' placeholder, which must keep being dropped.
+// A pane's chat is PaneGroup.chatId, never a tab type. Saved layouts may still carry a
+// 'newTab' placeholder (not 'newTabPage'); the restore path must keep dropping it.
 
 export type EditorTabContentType =
   | 'editor'
@@ -17,12 +14,8 @@ export type EditorTabContentType =
   | 'browser'
   | 'newTabPage'
 
-/** Every content type this build can render.
- *
- *  A saved layout outlives the code that wrote it, so the restore path checks
- *  a persisted buffer's type against this set and drops what it no longer
- *  knows — see validateLoadedBuffers in persisted-layout.ts.
- */
+/** Every content type this build can render. A saved layout outlives the code that wrote it, so
+ *  validateLoadedBuffers (persisted-layout.ts) drops any persisted type not in this set. */
 export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
@@ -44,17 +37,9 @@ export interface EditorTabBase {
   isPinned?: boolean
   isPreview?: boolean
   isUncloseable?: boolean
-  /**
-   * The workspace this tab's content belongs to. Load-bearing since Task 26
-   * hoisted `buffers`/`panes` out of the per-workspace store registry into
-   * one window-level store: `path` is workspace-RELATIVE (a sibling worktree
-   * can hold a different file at the same path), so once every workspace's
-   * buffers share one flat list, this field is the only thing that keeps
-   * "src/foo.ts in workspace A" from being confused with "src/foo.ts in
-   * workspace B" — in dedup (`openContent`), disk reconciliation
-   * (`external-buffer-sync.ts`, `hydrate.ts`), and per-workspace teardown
-   * (`destroyWorkspaceStore`'s terminal-detach/blame-clear/history-cleanup).
-   */
+  /** The workspace this content belongs to. `path` is workspace-relative and every workspace's
+   *  buffers share one window-wide list, so dedup, disk reconciliation and per-workspace
+   *  teardown tell `src/foo.ts` in A from B only by this. */
   workspaceId: string
 }
 
@@ -72,16 +57,11 @@ export interface EditorContent extends EditorTabBase {
   authority: DocumentRef['authority']
   /** Mirrors the document's dirty flag, written only when it flips. */
   isDirty: boolean
-  /**
-   * The file changed on disk (externally) while the buffer had unsaved edits.
-   * The user's edits are kept; saving will overwrite the on-disk version.
-   * Cleared on the next successful save or external reload.
-   */
+  /** The file changed on disk while the buffer had unsaved edits; the edits are kept and a save
+   *  overwrites disk. Cleared by the next save or external reload. */
   hasExternalChange?: boolean
-  /**
-   * Why the document could not be loaded (its file is gone, or the read failed): the pane
-   * says so instead of showing an editor, and a reconcile or a reopen reads it again.
-   */
+  /** Why the document could not be loaded: the pane says so instead of showing an editor, and a
+   *  reconcile or reopen reads it again. */
   unavailable?: DocumentUnavailable
   isVirtual: boolean
   language?: string
@@ -95,10 +75,8 @@ export interface TerminalContent extends EditorTabBase {
   workingDirectory?: string
 }
 
-/** One commit's diff, rendered on the same windowed surface as the branch
- *  review. It carries the SHA, not the diff: the payload is fetched per file as
- *  the viewport reaches it, so a tab costs the same whether the commit changed
- *  three lines or a million. */
+/** One commit's diff on the branch review's windowed surface. It carries the SHA, not the diff:
+ *  files are fetched as the viewport reaches them, so a tab costs the same at any commit size. */
 export interface CommitDiffContent extends EditorTabBase {
   type: 'commitDiff'
   wsId: string
