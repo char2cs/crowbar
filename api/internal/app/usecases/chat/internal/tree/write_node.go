@@ -10,11 +10,9 @@ import (
 
 // The Node-backed write dispatch: minting, ordering or placing one row.
 
-// writeHomeNode is writeRow's Node-backed body (plan.go), against Nodes
-// instead of Chats. snapshot.freshIDs is a walk-discovery signal, not ground
-// truth — a row filed under an owning chat the BFS can't walk through reads
-// as fresh though its Node row exists — so a fresh id is verified with a
-// GetNode before deciding Create vs SetPlacement.
+// writeHomeNode is writeRow's Node-backed body. freshIDs only means the walk found no Node row, not that
+// none exists (a row under an unwalked owning chat reads as fresh), so a fresh id is checked with GetNode
+// before choosing Create over SetPlacement.
 func (u *chatFolderUsecase) writeHomeNode(
 	ctx context.Context,
 	snapshot *treeSnapshot,

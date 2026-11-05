@@ -287,10 +287,8 @@ func (u *chatFolderUsecase) ownsWorktree(
 	return ok && owner.ID == row.ID
 }
 
-// remintOwners gives each workspace a delete just left ownerless a fresh
-// owning row, placed where its git parent's row is. Best-effort: the delete
-// already happened, and the boot reconcile (reconcileOwningChats) mints any
-// owner still missing.
+// remintOwners gives each workspace a delete left ownerless a fresh owning row under its git parent's row.
+// Best-effort: the delete already happened, and the boot reconcile mints any owner still missing.
 func (u *chatFolderUsecase) remintOwners(
 	ctx context.Context,
 	workspaceIDs []string,
@@ -311,11 +309,8 @@ func (u *chatFolderUsecase) remintOwners(
 	}
 }
 
-// purgeAll erases each chat in order and drops it from the plan as it goes, so
-// the densify that follows counts only the rows that survived. A not-found
-// from PurgeChat is tolerated: a row can be real at the tree level (parented,
-// ordered, rendered) without ever having minted a conversation aggregate — a
-// thread whose create never got past placement, say.
+// purgeAll erases each chat and drops it from the plan, so the densify after counts only survivors. A
+// not-found is tolerated: a row can be placed without ever having minted a conversation aggregate.
 func (u *chatFolderUsecase) purgeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,

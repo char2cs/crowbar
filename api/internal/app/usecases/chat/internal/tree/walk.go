@@ -10,10 +10,8 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// RepoRoots answers a repo's default checkout: where a row that reaches the
-// panel root through a REPO-scoped folder runs — a repo-root folder applies
-// its parent's logic, and its parent is the repo header, i.e. that checkout.
-// nil degrades to the plain walk, which then answers nothing for such a row.
+// RepoRoots answers a repo's default checkout: where a row reaching the root through a repo-scoped folder
+// runs, since that folder's parent is the repo header. nil leaves such a row resolving nothing.
 type RepoRoots interface {
 	DefaultWorkspaceOf(
 		ctx context.Context,
@@ -66,21 +64,11 @@ func repoRootFallback(
 	return id, true
 }
 
-// CwdWorkspaceIDs answers CwdWorkspaceID for EVERY row in one pass, keyed by
-// row id, omitting the rows whose walk resolves nothing — a true orphan, whose
-// whole ancestry owns no workspace.
-//
-// It exists so a caller asking the question of a whole list builds the forest
-// once instead of once per row. The walk itself is the same one; nothing here
-// re-implements it.
-//
-// folders/nodes (2026-09-08 sidebar-placement-unification Task 8's own
-// review fix round) fold in every reachable Folder+Node row first — see
+// errNoNodes is readNodeTable's answer when no Node port is wired.
 var errNoNodes = errors.New("tree: no node port wired")
 
-// nodeTable is ONE read of the Node table, indexed by id and by parent. Every
-// level of a walk answers from it, because each read of the table decodes every
-// row and the walk asks about every level.
+// nodeTable is one read of the Node table, indexed by id and by parent: each read decodes every row, and a
+// walk asks about every level.
 type nodeTable struct {
 	byID     map[string]dtree.Node
 	byParent map[string][]dtree.Node
@@ -110,9 +98,9 @@ func readNodeTable(
 	return t, nil
 }
 
-// foldersReachableFromRoots — so a row whose walk passes through a folder
-// ancestor still resolves correctly. Either port may be nil, degrading to
-// the pre-Task-8, Chat-only walk.
+// CwdWorkspaceIDs answers the cwd walk for every row in one pass over one forest, omitting rows whose
+// ancestry owns no workspace. Reachable folders and anchors are folded in first so a walk passes through
+// them; either port may be nil, which skips that augmentation.
 func CwdWorkspaceIDs(
 	ctx context.Context,
 	folders Folders,
@@ -157,12 +145,8 @@ func buildForest(
 	return tree.New(treeNodes), byID
 }
 
-// workspaceAnchorsReachable discovers every workspace's own Node{Kind:
-// workspace} row some row in rows hangs off, directly or through other
-// anchors, rendered as the workspaceAnchorView the validation snapshot already
-// uses — a row placed under a chatless workspace (the frontend names the
-// workspace id itself, there being no chat to name) otherwise walks into an
-// id the forest has no node for and resolves nothing.
+// workspaceAnchorsReachable renders every workspace anchor Node some row hangs off, directly or through
+// other anchors: a row placed under a chatless workspace would otherwise walk into an unknown id.
 func workspaceAnchorsReachable(
 	table nodeTable,
 	rows []domain.Chat,
@@ -186,34 +170,9 @@ func workspaceAnchorsReachable(
 	return found
 }
 
-// freshForest reads every row the daemon knows and builds the tree.Tree plus
-// id->row map every Resolve* walk below needs, with rowID's OWN row corrected
-// from LoadChat's log fold first — exactly as globalSnapshotAround/
-// workspaceSnapshotAround already do for a placement plan (see corrected's own
-// doc, plan.go).
-//
-// rowID may have been minted AND placed microseconds ago in this SAME call —
-// CreateChat's ownWorktree path mints, places, then immediately resolves the
-// new row's fork parent, and Promote's caller resolved a chat some earlier,
-// already-settled request placed — so ListChats' asynchronous projection can
-// still be serving rowID's state from BEFORE that placement, or omit it
-// entirely. Every row ABOVE rowID came from an earlier, unrelated write and is
-// read from the list safely; only rowID itself needs the log-true answer.
-//
-// This is the one read+build step every Resolve* walk below needs and no
-// caller with its own in-progress plan does — PlaceChat and friends already
-// hold a snapshot to walk instead.
-//
-// folders/nodes fold in every reachable Folder+Node row (see
-// foldersReachableFromRoots below) — 2026-09-08 sidebar-placement-
-// unification Task 8's own review fix round: a folder is never a Chat row
-// any more (home-scoped since Task 5, repo-scoped too since Task 8), so
-// chats.ListChats' raw read no longer carries it at all, and a walk built
-// from that read alone stops dead the moment it reaches a folder ancestor —
-// even when a real fork parent/workspace sits one hop further up. Either
-// port may be nil (a caller with no Folders/Nodes wired at all, e.g. a
-// narrow test double) and the walk degrades to its old, Chat-only
-// behaviour rather than failing outright.
+// freshForest builds the forest a Resolve* walk needs from every row, with rowID's own row taken from the
+// log fold: it may have been placed moments ago, so the projection can still be stale or missing it.
+// Reachable folders and anchors are folded in; a nil Folders or Nodes port skips that.
 func freshForest(
 	ctx context.Context,
 	chats Chats,
@@ -233,9 +192,8 @@ func freshForest(
 	return t, byID, nil
 }
 
-// ResolveForkParent is the cwd walk started one row up, over freshForest's log-corrected read of
-// every row the daemon knows, for a caller with no snapshot of its own to walk
-// (Promote, own_worktree.go).
+// ResolveForkParent is the cwd walk started one row up, over freshForest's read, for a caller with no
+// snapshot of its own to walk (Promote, own_worktree.go).
 func ResolveForkParent(
 	ctx context.Context,
 	chats Chats,
@@ -280,20 +238,9 @@ func ResolveCwdWorkspaceID(
 	return id, ok, nil
 }
 
-// foldersReachableFromRoots discovers every Folder+Node row filed somewhere
-// between baseRows' own ids and the panel root, rendered as the same
-// Chat-shaped view PlaceChat itself uses — mirrors chat package's own
-// foldersReachableFrom (home_read.go) exactly (same BFS shape: seed the
-// queue with "" plus every id baseRows already names, so a folder nested
-// under an ordinary chat or a locked branch's own un-Noded owning row is
-// still discovered), duplicated rather than imported because this package
-// cannot import the outer chat package it is itself imported BY (no cross
-// -package call here — see Folders/Nodes' own docs, home_ports.go, for why
-// this package already carries these two ports for its own placement work).
-//
-// A nil folders or nodes port (a caller with neither wired) answers ("",
-// nil) immediately — the walk simply gets no folder augmentation, exactly
-// its pre-Task-8 behaviour.
+// foldersReachableFromRoots discovers every Folder+Node row below "" or any baseRows id (an owning chat has
+// no Node to be discovered through). It duplicates the chat package's foldersReachableFrom because this
+// package cannot import the package that imports it; a nil folders port finds nothing.
 func foldersReachableFromRoots(
 	ctx context.Context,
 	folders Folders,

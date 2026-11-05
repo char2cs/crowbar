@@ -6,26 +6,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Chats is the chat read surface a lineage read needs: the one row being asked
-// about, and the workspace it belongs to. Folders own no workspace, so the list
-// never carries them; the walk loads each one it steps through by id.
-//
-// LoadChat and ListByWorkspace are NOT the same read, and the difference is the
-// whole reason both are here. LoadChat folds the chat from the event log, so it
-// is current the instant a write returns. ListByWorkspace serves the read-model
-// projection, which is asynchronous — a chat placed a moment ago can still be
-// listed at the placement it had before.
-//
-// The subject chat is the one that must not be read from the projection, because
-// it is the row the operation that prompted this question just WROTE: a chat
-// created under a parent, or dragged under one, is asked what it inherits within
-// microseconds of its placement being written. Reading that from the projection
-// returned an empty parent and injected no lineage at all, so a brand-new thread
-// spent its first session not knowing it was one.
-//
-// The rows ABOVE it are read from the list, and safely: they are not what the
-// operation wrote. What is left is a chat whose own parent was dragged in the
-// same projection window as this read, which no single write can produce.
+// Chats is the read surface a lineage read needs. LoadChat folds from the event log and is current once a
+// write returns; ListByWorkspace is the async projection. The subject, just written by the operation that
+// asks, must come from LoadChat; its ancestors are safe to read from the list.
 type Chats interface {
 	LoadChat(
 		ctx context.Context,

@@ -4,16 +4,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/branchimport"
 )
 
-// WorktreeMode says how a new chat comes by the worktree it owns, if it owns
-// one at all.
-//
-// It replaces the ownWorktree bool CreateChat used to carry. A bool holds two
-// states and the create has three: a plain bubble owns nothing, a fork mints a
-// brand-new branch off its resolved fork parent, and an import adopts a branch
-// that already exists. The third was previously reached only by a workspace-first
-// path in another usecase that minted no chat at all, which is the whole bug
-// (spec §0): a workspace with no owning chat is unreachable, because the only
-// way to address a workspace is through the row that owns it.
+// WorktreeMode says how a new chat comes by the worktree it owns: none (a bubble or thread), a fresh fork,
+// or an import of an existing branch. Every worktree is created through a chat, because a workspace with
+// no owning chat cannot be addressed.
 type WorktreeMode int
 
 const (
@@ -28,29 +21,18 @@ const (
 	WorktreeImport
 )
 
-// WorktreeSpec is CreateChat's worktree half: which of the three ways the new
-// chat relates to a worktree, plus the details the import case needs.
-//
-// Import is read only when Mode is WorktreeImport and is ignored otherwise, so
-// the zero value is exactly "a plain chat" — the same default the removed bool
-// gave.
+// WorktreeSpec is CreateChat's worktree half. Import is read only when Mode is WorktreeImport, so the zero
+// value is a plain chat.
 type WorktreeSpec struct {
 	Mode WorktreeMode
-	// Branch is read only when Mode is WorktreeFork. Blank keeps today's
-	// server-generated name (CreateChildInput's own "spontaneous create leaves
-	// Branch blank" convention — the same collision-checked generator Promote's
-	// own fork already relies on); a caller-supplied name is used, and
-	// collision-checked, exactly like an explicit-create's already is.
+	// Branch is read only when Mode is WorktreeFork; blank gets a server-generated name. Either way
+	// the name is collision-checked.
 	Branch string
 	Import ImportSpec
 }
 
-// ImportSpec describes the existing branch a WorktreeImport create adopts.
-//
-// It is an alias rather than a declaration of its own: the shared test doubles
-// in usecases/mocks stand in for the Agent port this type appears on, and they
-// cannot import anything under this feature's internal tree. See the
-// branchimport package's own doc.
+// ImportSpec describes the existing branch a WorktreeImport create adopts. It is an alias so the shared
+// test doubles in usecases/mocks, which cannot import this internal tree, can name it.
 type ImportSpec = branchimport.Spec
 
 // CreateChatInput is one CreateChat. ID is the id the caller already draws the
