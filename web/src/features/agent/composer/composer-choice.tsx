@@ -32,7 +32,7 @@ import {
 } from '@/features/agent/composer/lib/ask-request'
 
 // MCP's own elicitation verbs, sent as `optionIds` since such a prompt has no options to read.
-// No `accept`: it must carry a filled-in form Crowbar cannot build, so a button would send it empty.
+// No `accept`: it must carry a filled-in form Crowbar can't build, so a button would send it empty.
 const ELICITATION_VERBS = [
   { id: 'decline', label: 'Decline' },
   { id: 'cancel', label: 'Cancel' },
@@ -70,7 +70,7 @@ function freshCard(choiceId: string): CardState {
 
 // A question the provider CLI is waiting on. Pending-but-not-answerable is drawn without
 // controls; a sent answer stays "sent" until the server resolves it (the terminal may race);
-// every question needs a pick before send; what only the terminal can answer gets a Terminal button.
+// every question needs a pick before send; terminal-only answers get a Terminal button.
 export function ComposerChoice({
   wsId,
   chatId,

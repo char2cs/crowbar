@@ -28,11 +28,8 @@ export async function killAgent(session: KillableAgent): Promise<boolean> {
   }
 }
 
-/**
- * The one way a client ends a running agent: ask first, then force-kill. Any
- * paired client may do this to any chat, whoever else is attached. Resolves to
- * whether the kill went through.
- */
+/** The one way a client ends a running agent: confirm, then force-kill. Any paired client may kill
+ *  any chat. Resolves to whether the kill went through. */
 export async function confirmAndKillAgent(session: KillableAgent): Promise<boolean> {
   const { title, message } = killAgentConfirmation(session)
   const confirmed = await primitiveConfirm(message, {

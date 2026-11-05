@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { togglePaneEditor } from '@/features/panes/utils/pane-command-actions'
 
 /** The chat-only header's way into the editor area; that header exists only while the editor is
- *  closed, so no gate is needed. Absent without a workspace: a new file would have nowhere to go. */
+ *  closed, so no gate is needed. Absent without a workspace: new files have nowhere to go. */
 export function OpenEditorButton({ paneId, wsId }: { paneId: string; wsId: string | null }) {
   if (!wsId) return null
   return (

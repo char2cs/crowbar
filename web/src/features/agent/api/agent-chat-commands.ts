@@ -15,27 +15,9 @@ export interface AgentPromptResult {
   terminalSessionId: string
 }
 
-/**
- * Answer a prompt the provider CLI is blocked on, from the chat.
- *
- * `optionIds` is ONE FLAT LIST across the whole prompt, however many questions it
- * asks: the ids say which question each pick answers, so a three-question prompt
- * is still one call. It must name at least one option (400 otherwise), the picks
- * must all be of ONE kind — "allow" and "deny" together are not an answer and no
- * template could render them — and they must COVER EVERY QUESTION. A partial
- * answer is refused with 400 rather than sent, because a CLI handed answers to two
- * of three questions goes on waiting for the third with nothing able to send it.
- *
- * A prompt that offers NO options is an elicitation, whose answer is the
- * provider's own verb — `accept`, `decline`, `cancel` — with the filled-in form in
- * `content`.
- *
- * Two failures are the caller's to SHOW rather than swallow. 400 is a decision
- * this provider cannot express (claude's `suggestion` options are the shipped
- * example: the backend declares no template for them rather than silently
- * narrowing one to a plain allow). 409 is no relay holding the gate any more — by
- * then the CLI is asking at its own terminal, and reporting success would be a lie.
- */
+// Answers a prompt the CLI is blocked on. `optionIds` is one flat list across all questions:
+// non-empty, one kind (never allow+deny) and covering every question, else 400. Elicitations
+// answer accept/decline/cancel + `content`. Show 400 and 409 (CLI now asking in its terminal).
 export async function answerChoice(
   wsId: string,
   chatId: string,
@@ -59,23 +41,9 @@ export async function answerChoice(
   )
 }
 
-/** Ask Crowbar to restart the same interactive provider TUI with a completed
- *  prompt. `clientRequestId` is stable across retries.
- *
- *  `provider`/`model`/`effort` are the composer's STAGED pick, if the picker
- *  has one. OMIT model/effort when nothing is staged, which leaves the chat's
- *  sticky selection exactly as it was; passing '' is NOT the same thing — it
- *  is a real pick of the provider's own default, and the daemon clears the
- *  chat back to it. (Provider has no such reading: a chat always runs some
- *  provider, so '' there simply means nothing staged.) The two travel as one
- *  pair, so a body carrying only one half clears the other.
- *  A staged pick is committed on THIS call, atomically with the prompt: the
- *  picker itself never writes selection or switches provider on its own, so
- *  choosing a row never mutates the chat until the user actually sends. A
- *  provider that differs from the chat's current one is switched to (killing
- *  the outgoing CLI and spawning the new one) as part of this same request —
- *  see the backend's Usecase.SubmitPrompt for the exact ordering. An invalid
- *  pair is a 400 (outside the provider's catalogue) or a 422 (no provider yet). */
+/** Restart the provider TUI with a completed prompt; `clientRequestId` is stable across retries.
+ *  Optional args are the composer's staged pick, committed atomically here (switching provider if
+ *  it differs). Omit model+effort to keep the sticky pick; '' resets it to the provider default. */
 export async function submitAgentPrompt(
   wsId: string,
   id: string,
@@ -110,9 +78,8 @@ export async function retractPrompt(
   )
 }
 
-/** Override ONE chat's own approval level, independent of the global default
- *  above. Write-only — there is no GET for a single chat's level, so a caller
- *  has nothing to reconcile against and must not pretend otherwise. */
+/** Override ONE chat's approval level. Write-only: there is no GET for a chat's level, so there is
+ *  nothing to reconcile against. */
 export async function setChatPermissionLevel(
   wsId: string,
   chatId: string,
@@ -137,14 +104,9 @@ export async function switchProvider(wsId: string, id: string, provider: string)
   return res.id
 }
 
-// resumeChat revives a DORMANT chat — one no runner points at, because its CLI
-// exited or died with the daemon (agent PTYs are never persisted, so a restart
-// always takes them). The backend brings the chat's last provider back into its
-// own native session, so the conversation continues exactly where it left off.
-//
-// Returns the id of the RUNNER now on the chat. A chat that is still live is a
-// no-op that hands back the runner already there, so this can never end up with
-// two CLIs on one conversation.
+// resumeChat revives a DORMANT chat (agent PTYs never survive a daemon restart), bringing its
+// last provider back into its own native session. Returns the runner now on it; a live chat is a
+// no-op returning its existing runner, so a conversation never gets two CLIs.
 export async function resumeChat(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
@@ -152,22 +114,15 @@ export async function resumeChat(wsId: string, id: string): Promise<string> {
   return res.id
 }
 
-// compactChat asks the chat's CLI to compact its OWN context. Crowbar cannot compact
-// anything itself — the context belongs to the provider — so this triggers whatever
-// gesture the provider declares: claude has no API for it and gets its /compact slash
-// command, an API-transport provider gets the equivalent call.
-//
-// A provider that declares no gesture answers 404. Gate the control on the provider's
-// `compaction` capability rather than letting the user press something that cannot work.
+// compactChat triggers the provider's declared compaction gesture (a slash command or an API
+// call); the context is the provider's, not Crowbar's. 404 when none is declared, so gate the
+// control on the provider's `compaction` capability.
 export async function compactChat(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/compact`, {
     method: 'POST',
   })
 }
 
-// stopChat is the chat's Stop button: it interrupts the running turn in place
-// where the provider allows it and otherwise ends the CLI, leaving the chat
-// DORMANT and resumable — the counterpart of resumeChat. This is NOT deleteChat.
 /** Type the descriptor-declared reply into the prompt a chat's CLI is parked on.
  *  The wait itself clears when the daemon next sees the prompt gone; a 409 means it already has. */
 export async function answerTerminalWait(
@@ -182,7 +137,8 @@ export async function answerTerminalWait(
   })
 }
 
-// A chat whose CLI is already gone is a backend no-op.
+// stopChat is the Stop button: it interrupts the turn in place where the provider allows,
+// otherwise ends the CLI, leaving the chat DORMANT and resumable. A CLI already gone is a no-op.
 export async function stopChat(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/stop`, {
     method: 'POST',
@@ -196,11 +152,9 @@ export async function killChat(hostId: string, chatId: string): Promise<void> {
   await apiFetch<unknown>(`${chatBaseOn(hostId, chatId)}/kill`, { method: 'POST' })
 }
 
-// switchToTerminal moves the chat onto its provider's own TUI: the daemon hands
-// the session over, or relaunches the TUI on the resume ladder (transcript when
-// the provider cannot load its own session yet). Returns the TUI's terminal
-// session ('' for a dormant chat, which only records the move). Rejects (409)
-// while a turn is in flight and (422) for a provider with no TUI to show.
+// switchToTerminal moves the chat onto its provider's TUI (handed over, or relaunched on the
+// resume ladder). Returns its terminal session ('' for a dormant chat, which only records the
+// move). 409 while a turn is in flight; 422 for a provider with no TUI.
 export async function switchToTerminal(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
     `${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-terminal`,
@@ -225,13 +179,9 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
   })
 }
 
-// Deleting a chat CASCADES to the threads hanging off it — a thread exists to
-// continue the conversation above it, and leaving it behind strands it reading a
-// context that no longer exists.
-//
-// `init` exists for one caller: the removal tray's pagehide flush, which sends
-// with `keepalive` so an eight-second undo window that ends in a reload still
-// posts the delete the user already walked away from.
+/** Deletes a chat and the threads hanging off it (a thread without its parent reads a context
+ *  that is gone); resolves with the chats its git cascade also took. `init` carries `keepalive`
+ *  for the removal tray's pagehide flush, so an undo window cut short by a reload still deletes. */
 /** Deletes a chat; resolves with the chats its git cascade took beyond it. */
 export async function deleteChat(wsId: string, id: string, init?: RequestInit): Promise<string[]> {
   const raw = await apiFetch<{ takenChatIds?: unknown } | undefined>(

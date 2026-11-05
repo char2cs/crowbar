@@ -84,7 +84,7 @@ function otherStashes(key: string): [string, string][] {
 }
 
 // A blob URL is an upload preview that cannot survive a reload, and a `chats/...` ref outside the
-// durable grammar is not a real attachment: both are kept as explicit notes, never as working links.
+// durable grammar is not a real attachment: both are kept as explicit notes, never working links.
 function makePromptStashMarkdown(markdown: string): string {
   return markdown.replace(
     /(!?)\[([^\]]*)\]\(([^)]+)\)/g,

@@ -8,7 +8,7 @@ export interface UseAttachmentUploadResult {
 }
 
 // Every attach entry point's upload: markdown goes to `onInsert` on success, a failure is reported
-// here and never rejects. With both pending-image callbacks, an image File (a host path has no bytes
+// here, never rejected. With both pending-image callbacks, an image File (a host path has no bytes
 // to preview) shows a local preview at once and settles it instead of calling `onInsert`.
 export function useAttachmentUpload(
   wsId: string,
