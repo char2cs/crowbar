@@ -5,14 +5,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
-
-	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	filehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
@@ -22,59 +20,8 @@ type HomeWorkspaces interface {
 	GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error)
 }
 
-// Files is the file usecase surface needed by home file handlers.
-type Files interface {
-	// Tree returns one level of the file tree for a workspace.
-	Tree(
-		ctx context.Context,
-		wsID string,
-		dirPath string,
-		provider fileusecase.FileStatusProvider,
-	) ([]domain.FileNode, error)
-
-	// CreateFile creates a file and resyncs the working tree.
-	CreateFile(
-		ctx context.Context,
-		wsID string,
-		filePath string,
-		now time.Time,
-	) error
-
-	// CreateDir creates a directory and resyncs the working tree.
-	CreateDir(
-		ctx context.Context,
-		wsID string,
-		dirPath string,
-		now time.Time,
-	) error
-
-	// Copy duplicates a file or directory byte-faithfully and resyncs the
-	// working tree.
-	Copy(
-		ctx context.Context,
-		wsID string,
-		sourcePath string,
-		destPath string,
-		now time.Time,
-	) error
-
-	// Rename renames a path and resyncs the working tree.
-	Rename(
-		ctx context.Context,
-		wsID string,
-		oldPath string,
-		newPath string,
-		now time.Time,
-	) error
-
-	// Delete removes a path and resyncs the working tree.
-	Delete(
-		ctx context.Context,
-		wsID string,
-		filePath string,
-		now time.Time,
-	) error
-}
+// Files is the files endpoint's own surface: home serves the same operations.
+type Files = filehandlers.Files
 
 // ChatResolver resolves the chat rows a workspace id owns, so GET /home can
 // fill WorkspaceDTO.OwningChatID the same way the workspaces handlers do.
