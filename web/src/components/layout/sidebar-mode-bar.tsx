@@ -8,10 +8,8 @@ import {
   useShownSidebarTab,
 } from './sidebar-panel-tabs'
 
-/**
- * The sidebar's mode switch: Chats / Files / Git as a segmented control with a sliding pill.
- * The active segment shows a filled icon and its label; the rest show their label once wide enough.
- */
+// The sidebar's mode switch: Chats / Files / Git as a segmented control with a sliding pill. The
+// active segment shows a filled icon and its label; the rest show labels once wide enough.
 export function SidebarModeBar({ className }: { className?: string }) {
   const shown = useShownSidebarTab()
   const setActiveTab = useTreeUi((s) => s.setActiveTab)

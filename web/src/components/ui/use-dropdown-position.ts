@@ -40,11 +40,9 @@ function getViewportBounds() {
   }
 }
 
-/**
- * Places an open menu against its anchor (or a point), flipping to the side with more room
- * and clamping to the visual viewport; it follows resizes, scrolls and its own size changes.
- * The menu's width is locked at its first measure so filtering does not make it jump.
- */
+// Places an open menu against its anchor (or a point), flipping to the roomier side and clamping
+// to the visual viewport; follows resizes, scrolls and its own size. Width locks at first measure
+// so filtering doesn't make it jump.
 export function useDropdownPosition({
   isOpen,
   menuRef,
@@ -180,10 +178,8 @@ export function useDropdownPosition({
     positionMenu()
   }, [isOpen, positionMenu, contentKey])
 
-  // The open menu's cleanup, not a reaction to `isOpen` going false: the
-  // measurements below belong to one opening of the menu, so releasing them
-  // when that opening ends is the same trigger expressed as ownership — and it
-  // now also covers unmounting while open.
+  // The measurements belong to one opening, so release them in that opening's cleanup (which
+  // also covers unmounting while open), not on `isOpen` going false.
   useEffect(() => {
     if (!isOpen) return
     const menu = menuRef.current

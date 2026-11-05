@@ -14,10 +14,8 @@ import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useWorkspaceIsLocal } from '@/lib/host-resolve'
 
-/**
- * The sidebar's Files panel — every file-system-store binding and the
- * `FileExplorerTree` they drive (selection, create/rename/delete/upload).
- */
+/** The sidebar's Files panel — every file-system-store binding and the
+ *  `FileExplorerTree` they drive (selection, create/rename/delete/upload). */
 export function SidebarFilesPanel({ onFileOpened }: { onFileOpened?: () => void } = {}) {
   const workspaceId = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)

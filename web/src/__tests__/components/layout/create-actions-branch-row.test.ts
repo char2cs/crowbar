@@ -68,14 +68,8 @@ function confirmArmedBranchName(name = 'typed-branch'): void {
   confirmCreateDraft(name, vi.fn())
 }
 
-/**
- * A `branch` row's id is the id of the CHAT that owns its workspace
- * (`deriveRows`), which puts it in the chat id space while making it no
- * chat at all. Every dispatcher here picks its behaviour by which space an id
- * falls in, so each one has to be able to tell the two apart — the bug this
- * closes is a locked branch's "+" going silently inert because `resolveChatRow`
- * matched its row and returned early.
- */
+// A branch row's id is its owning CHAT's id (`deriveRows`), yet the row is a workspace. Each
+// dispatcher must tell the two apart, or a locked branch's "+" goes inert.
 describe('a branch row is addressed by its owning chat, and is still a workspace', () => {
   const branchRow = (id: string, workspaceId: string): Chat => ({
     id,

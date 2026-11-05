@@ -12,10 +12,8 @@ type TreeRowProps = React.ComponentProps<'button'> & {
   baseIndent?: number
 }
 
-/**
- * A single selectable row in a tree. Indentation is applied as padding rather than a
- * spacer element so the row's hover and selection background span the full width.
- */
+/** A single selectable row in a tree. Indentation is applied as padding rather than a
+ *  spacer element so the row's hover and selection background span the full width. */
 export function TreeRow({
   active = false,
   depth = 0,

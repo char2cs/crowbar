@@ -19,16 +19,8 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
   apiFetch,
 }))
 
-/**
- * A repo's mark is ONE component across the repo home row, the context pill, the
- * workspace switcher, the removal tray and the New Tab heading.
- *
- * It used to be two. The row drew it through IconPopover (separate emoji/iconUrl
- * props, rounded-md, px-1, a full type step larger); everywhere else drew it
- * through RepoAvatar, which encodes the emoji INSIDE the url as an `emoji:`
- * sentinel and used rounded-sm, px-0.5 and a smaller emoji. Same repo, two
- * different marks — visibly so in the pill sitting directly above the row.
- */
+// A repo's mark is ONE component across the home row, context pill, switcher, removal tray and
+// New Tab heading, so the same repo never renders as two different marks.
 describe('RepoIconMark', () => {
   const repo: RepoIconSource = {
     name: 'crowbar',
@@ -98,13 +90,7 @@ describe('RepoIconMark', () => {
   })
 })
 
-/**
- * The repo home row's click-to-edit icon — the reconnection Task 5 (icon
- * personalization) restores. Built in cf422bc5 as `repo-icon-popover.tsx`,
- * deleted in the tree retirement along with the row that hosted it; this is
- * a fresh, thin wrapper against today's IconPopover/RepoIconMark, not a
- * resurrection of the deleted file.
- */
+// The repo home row's click-to-edit icon: a thin wrapper joining IconPopover to RepoIconMark.
 describe('EditableRepoIcon', () => {
   const repo: RepoIconSource = {
     name: 'crowbar',

@@ -171,10 +171,8 @@ function sanitizedIcon(svg: string): string {
   return clean
 }
 
-/**
- * Inline the SVG so its `currentColor` paths inherit the host row/tab's text
- * token — an <img> can't. Only the sanitised artwork is ever inlined.
- */
+/** Inline the SVG so its `currentColor` paths inherit the host row/tab's text
+ *  token — an <img> can't. Only the sanitised artwork is ever inlined. */
 export function ProviderIcon({ svg, className }: ProviderIconProps) {
   return (
     <span

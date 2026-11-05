@@ -12,13 +12,8 @@ import { buildFlickerStrip } from '@/components/ui/flicker-strip'
 // cascade hook rather than a class string we chose.
 const HOST_SIZING_OPT_OUT = '[class*="size-"]'
 
-/**
- * Regression: the context pill renders the agent spinner inside a <Button>, and
- * the Button's descendant-icon sizing crushed the N-frames-wide sprite strip
- * into a 16px square. The animation then translated the strip clean out of its
- * frame window, so the pill showed no glyph at all while an agent was working —
- * everywhere else (plain spans) the spinner was fine.
- */
+// Inside a <Button> (the context pill), the host's descendant-icon sizing must not crush the
+// N-frame strip to a 16px square, which slides the animation out of its window.
 describe('FlickerSpinner inside a themed host', () => {
   it('carries the size opt-out the host sizing rules key off', () => {
     const { container } = render(

@@ -2,15 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { Tab } from '@/components/ui/tabs'
 
-// Regression: a mouse click on a tab (ChatHead in particular, tab-bar.tsx)
-// left it visibly wearing the `:focus-visible` ring for as long as focus
-// stayed there — WebKit shows that ring on a plain click, Chromium doesn't,
-// so this only ever showed up live. Caught as "the chat head flashes with
-// something the instant I click another pane" — the ring appearing (and,
-// once you click elsewhere, disappearing) is a real UI artifact even though
-// no data/content ever changed. Fixed by preventing the DEFAULT
-// focus-follows-mousedown behavior on Tab's own button — keyboard Tab
-// navigation never goes through mousedown, so it is unaffected.
+// A mouse click must not leave a tab wearing the `:focus-visible` ring (WebKit shows it on a
+// click): Tab prevents the mousedown default, which keyboard navigation never goes through.
 describe('Tab — a mouse click never leaves it visibly focused', () => {
   it('prevents the mousedown default (the one thing that would move focus there)', () => {
     render(<Tab>Athas test</Tab>)

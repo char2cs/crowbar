@@ -37,13 +37,8 @@ export function useSidebar(): SidebarContextProps {
   return context
 }
 
-/**
- * The sidebar context, or null outside a provider.
- *
- * For consumers that merely ADJUST themselves to the sidebar rather than drive
- * it — a pane squaring off the window edge the sidebar stopped covering, say —
- * and so must stay renderable on their own.
- */
+/** The sidebar context, or null outside a provider: for consumers that only ADJUST to the
+ *  sidebar and must render on their own. */
 export function useSidebarOptional(): SidebarContextProps | null {
   return React.useContext(SidebarContext)
 }
@@ -253,12 +248,8 @@ export function SidebarHeader({
 }: React.ComponentProps<'div'>): React.ReactElement {
   return (
     <div
-      // No vertical padding — this header sits flush against its neighbours,
-      // same as any other row. `pl-3 pr-3` (12px each) matches a depth-0 tree
-      // row's own total inset: the container's own `px-1.5` (6px, the
-      // sidebar row's `mx-1.5` gutter) plus the row's own `px-1.5`/
-      // FILE_TREE_BASE_INDENT (6px, the sidebar row's own `px-1.5` content
-      // padding) — file-explorer-tree.tsx and file-explorer-tree-item.tsx.
+      // Flush, no vertical padding. `pl-3 pr-3` matches a depth-0 tree row's inset: the container's
+      // `px-1.5` plus the row's own `px-1.5` (FILE_TREE_BASE_INDENT).
       className={cn('flex flex-col gap-2 pl-3 pr-3 backdrop-blur-sm', className)}
       data-sidebar="header"
       data-slot="sidebar-header"

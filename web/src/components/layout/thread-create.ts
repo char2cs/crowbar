@@ -43,11 +43,9 @@ export interface ThreadCreate {
 
 const THREAD_LABEL = 'New thread'
 
-/**
- * THE thread create, for a repo workspace and a project home alike: a local
- * operation under a minted chat id, drawn until the chat arrives (or with the
- * daemon's reason if refused); the chat opens as soon as the daemon answers.
- */
+/** THE thread create, for a repo workspace and a project home alike: a local
+ *  operation under a minted chat id, drawn until the chat arrives (or with the
+ *  daemon's reason if refused); the chat opens as soon as the daemon answers. */
 export async function startThread(spec: ThreadCreate): Promise<void> {
   if (createInFlight.has(spec.inFlightKey)) return
   createInFlight.add(spec.inFlightKey)
@@ -92,11 +90,9 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
   await spec.onCreated?.(chatId)
 }
 
-/**
- * The provider a new chat in `projectId` starts with (`preferred` when enabled), or null
- * having said why — a click that is refused must be visible. It comes from the project's
- * own host's list, so a remote host's list must have been read: see {@link readUnreadHostProviders}.
- */
+/** The provider a new chat in `projectId` starts with (`preferred` when enabled), or null having
+ *  said why: a refused click must be visible. Reads the project's own host's list, which for a
+ *  remote host must have been read first ({@link readUnreadHostProviders}). */
 export function enabledProvider(projectId: string, preferred = ''): AgentProvider | null {
   const hostId = resolvedHostOf({ projectId })
   if (hostId === null) {
@@ -123,11 +119,9 @@ export function enabledProvider(projectId: string, preferred = ''): AgentProvide
   return null
 }
 
-/**
- * Reads the provider list of a remote host nobody has asked yet; null when there is
- * nothing to wait for, so a common click stays synchronous. False — the host named in
- * a toast — when it did not answer.
- */
+/** Reads the provider list of a remote host nobody has asked yet; null when there is
+ *  nothing to wait for, so a common click stays synchronous. False — the host named in
+ *  a toast — when it did not answer. */
 export function readUnreadHostProviders(projectId: string): Promise<boolean> | null {
   const hostId = resolvedHostOf({ projectId })
   const state = useAgentProvidersStore.getState()

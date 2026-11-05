@@ -16,20 +16,10 @@ export interface ProjectRow {
   name: string
 }
 
-/** The five movable classes. They do not mix. `chat` is additive (addendum
- *  §2) — the original four `workspace | folder | repo | project` are
- *  unchanged. */
+/** The five movable classes. They do not mix. */
 export type DropKind = 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
 
-/**
- * A row as a removal/drag subject — which class of thing it is, which one it
- * is, and enough of its placement to resolve its owning repo.
- *
- * Formerly `components/layout/drop-rules.ts`'s type (that module's policy
- * logic went with the unified sidebar's `sidebar-drop-policy.ts`, but this
- * shape lives on: `open-actions.ts`'s `resolveRow` still builds one
- * per row and hands it here to plan a removal).
- */
+/** A row as a removal/drag subject: its class, its id, and enough placement to find its repo. */
 export interface DragSubject extends DragSubjectBase {
   kind: DropKind
   /** Repo scope, for the same-repo rule. Absent on repos and projects. */
@@ -40,34 +30,9 @@ export interface DragSubject extends DragSubjectBase {
   parentId?: string
 }
 
-/**
- * What a removal means, worked out before anything is hidden.
- *
- * Pure, like `drop-plan.ts` next door and for the same reason: the whole of it —
- * which rows go and which rows go WITH them — is decided here and can be tested
- * without a pointer.
- *
- * The one rule worth stating: a hold is not a delete. Everything below computes
- * what to HIDE, and hiding is undone by putting the ids back. The destructive
- * half is one API call per entry, and it happens only when a hold is committed.
- */
-
-/**
- * The rows a removal hides, and the rows that go with them.
- *
- * Three kinds, three answers, and they differ because the daemon differs:
- *
- * - **A workspace** takes its whole subtree: the delete cascades server-side, so
- *   hiding only the row would promise less than is about to happen.
- * - **A folder** takes nothing. It holds no worktree, and deleting one reparents
- *   its children to the folder's own parent — which is why a folder needs no
- *   confirmation where a repo does.
- * - **A repo** takes every worktree under it, which is exactly why it waits on
- *   an answer rather than on a clock.
- * - **A project** takes every repo, and therefore every worktree under every one
- *   of them. It waits on an answer for the same reason, and on a modal after
- *   that.
- */
+// A hold is not a delete: this pure plan says what to HIDE, mirroring each daemon cascade — a
+// workspace or chat takes its subtree, a folder only itself (children reparent), a repo or project
+// every worktree under it. Undo puts the ids back; the API call happens only on commit.
 export function planRemoval(
   subjects: readonly DragSubject[],
   repos: readonly Repo[],
@@ -78,9 +43,7 @@ export function planRemoval(
 
   for (const subject of subjects) {
     const draft = draftFor(subject, repos, projects)
-    // A row already inside another subject's subtree is not a second removal —
-    // it is part of the first one, and holding it twice would put two rows in
-    // the tray for one disappearance.
+    // A row inside another subject's subtree is part of that removal, not a second tray row.
     if (!draft || claimed.has(draft.id)) continue
     drafts.push(draft)
     for (const id of draft.hiddenIds) claimed.add(id)
@@ -89,10 +52,7 @@ export function planRemoval(
   return drafts
 }
 
-/** Every chat hanging off `id`, transitively — the same subtree a
- *  `parentId` walk of the sidebar's own lightweight `Chat[]` already
- *  resolves for other purposes (`chat-rows.ts`'s tree), inlined here rather
- *  than imported since this only ever needs ids, not a rendered tree. */
+/** Every chat hanging off `id`, transitively, by `parentId` — ids only, no rendered tree. */
 function chatDescendantsOf(chats: readonly Chat[], id: string): string[] {
   const childrenOf = new Map<string, string[]>()
   for (const c of chats) {
@@ -132,13 +92,11 @@ function draftFor(
       projectId: project.id,
       // A project spans every repo under it, so there is no single owning one.
       repoId: '',
-      // Sidebar rows are not workspace-scoped — `wsId`/`providerIcon` are
-      // vestiges of the Chats panel's own drafts, gone with it (Task 22).
+      // Sidebar rows are not workspace-scoped: `wsId`/`providerIcon` stay empty.
       wsId: '',
       providerIcon: '',
-      // The project's own row AND every repo row inside it: the delete cascades
-      // server-side, so hiding only the header would leave its repos on screen
-      // with nothing above them.
+      // The project row AND every repo row in it: the delete cascades, so hiding only the
+      // header would leave its repos on screen with nothing above them.
       hiddenIds: [project.id, ...owned.map((r) => r.id)],
       extra: owned.reduce((n, r) => n + 1 + r.workspaces.length, 0),
       fallbackWsId: null,
@@ -162,10 +120,8 @@ function draftFor(
     }
   }
 
-  // A project-home chat or folder rides no repo at all (`resolveHomeRowScope`'s
-  // own doc) — checked BEFORE the repo lookup below, which would otherwise just
-  // find nothing for `subject.repoId` (never set for a home row) and return
-  // null, reported live as "Can't delete X yet" rather than an actual removal.
+  // A project-home chat or folder rides no repo, so it resolves BEFORE the repo lookup below,
+  // which would find nothing for its unset `repoId` and refuse the removal.
   if (subject.kind === 'chat' || subject.kind === 'folder') {
     const homeRow = resolveHomeRowScope(subject.id)
     if (homeRow) {
@@ -173,16 +129,14 @@ function draftFor(
       if (subject.kind === 'chat') {
         const chat = tree.chats.find((c) => c.id === subject.id)
         if (!chat) return null
-        // Same subtree rule as a repo chat's own branch below: reparenting
-        // and deleting both take every thread hanging off this one with it.
+        // Same subtree rule as a repo chat below: every thread off this one goes with it.
         const descendants = chatDescendantsOf(tree.chats, chat.id)
         return {
           kind: 'chat',
           id: chat.id,
           label: chat.title || UNTITLED_CHAT_LABEL,
           projectId: homeRow.projectId,
-          // '' — no owning repo; `wsId` (the DELETE route's own scope, see
-          // `deleteChat`'s contract) is the project's home workspace instead.
+          // No owning repo; the DELETE route is scoped by the project's home workspace.
           repoId: '',
           wsId: homeRow.homeWorkspaceId,
           providerIcon: '',
@@ -212,17 +166,11 @@ function draftFor(
   if (!repo?.projectId) return null
 
   if (subject.kind === 'chat') {
-    // NOT a branch row (`resolveChatRow`'s own rule — such a row is a
-    // WORKSPACE, addressed by `workspaceIdOfBranchRow` elsewhere, and has no
-    // business reaching this branch at all). Generalized the same way that
-    // rule is: a folded, non-locked fork's row lives in this same chat id
-    // space now too, not just a locked branch or a repo home.
+    // A branch row shares the chat id space but is a WORKSPACE (`resolveChatRow`'s rule).
     if (workspaceIdOfBranchRow(repos, subject.id) !== null) return null
     const chat = repo.chats?.find((c) => c.id === subject.id)
     if (!chat) return null
-    // The DELETE route is repo-scoped (`deleteChat`'s own contract) — any
-    // workspace of this repo resolves the URL, same as
-    // `row-actions.ts`'s `scopedWorkspaceIdOf`.
+    // The DELETE route is repo-scoped: any workspace of this repo resolves the URL.
     const wsId = repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
     if (!wsId) return null
     const descendants = chatDescendantsOf(repo.chats ?? [], chat.id)
@@ -234,8 +182,7 @@ function draftFor(
       repoId: repo.id,
       wsId,
       providerIcon: '',
-      // Reparenting and deleting both take the whole subtree (spec §8.3) —
-      // every thread hanging off this chat goes with it.
+      // Reparenting and deleting both take the whole subtree (spec §8.3).
       hiddenIds: [chat.id, ...descendants],
       extra: descendants.length,
       fallbackWsId: null,
@@ -266,20 +213,9 @@ function draftFor(
 
   // Its branches and folders as drawn; chats are collected below by the workspace they run in.
   const descendants = descendantIds(legacyTreeIndex([{ ...repo, chats: [] }], null), workspace.id)
-  // BOTH HALVES OF EVERY ROW THAT GOES, NOT JUST THE WORKSPACE HALF.
-  //
-  // A workspace row IS its owning chat (`deriveRows`) and the delete is
-  // literally `deleteChat` — so hiding the `Workspace` records alone left every
-  // one of those owning chats visible for the whole eight-second countdown.
-  // With its workspace gone from under it, such a chat has no workspace node to
-  // fold onto, and the row the user just deleted came straight back as a CHAT
-  // BUBBLE — a different glyph, a different label, a different set of verbs —
-  // which is exactly the "the branch row transformed into a conversation" the
-  // hold is supposed to make impossible.
-  //
-  // Threads go too, for the same reason `chatDescendantsOf` takes them on a
-  // chat removal: the daemon's delete cascades the whole subtree, and hiding
-  // less than what is about to go promises less than happens.
+  // Hide both halves of every row that goes: a workspace row IS its owning chat, and hiding only
+  // the Workspace leaves that chat to resurface as a bubble during the countdown. Its threads go
+  // too, since the daemon's delete cascades the whole subtree.
   const goingWorkspaceIds = new Set([workspace.id, ...descendants])
   const hiddenChatIds: string[] = []
   for (const chat of repo.chats ?? EMPTY_CHATS) {
@@ -289,14 +225,8 @@ function draftFor(
   return {
     kind: 'workspace',
     id: workspace.id,
-    // The row this held workspace actually renders as is keyed by its OWNING
-    // CHAT's id, not the raw workspace id above — `renderedHiddenIds` needs
-    // this to keep that chat un-hidden too (see this field's own doc), or the
-    // fold has nothing left to fold onto and the row re-keys the instant it's
-    // held, losing its DOM identity for no reason. Falls back to the
-    // workspace id itself for the rare beat where a workspace has landed
-    // with no owning chat resolved yet — nothing in `hiddenChatIds` would
-    // name that id anyway, so the fallback never hides anything real.
+    // The rendered row is keyed by its OWNING CHAT; `renderedHiddenIds` keeps it on screen so it
+    // transforms in place instead of re-keying. The workspace id covers a not-yet-owned workspace.
     primaryRowId: workspace.owningChatId ?? workspace.id,
     label: workspace.branch,
     projectId: repo.projectId,
@@ -304,27 +234,16 @@ function draftFor(
     wsId: '',
     providerIcon: '',
     hiddenIds: [workspace.id, ...descendants, ...new Set(hiddenChatIds)],
-    // Counts WORKSPACES only, unchanged: the tray row says how many more
-    // worktrees go with this one, and the chat ids above are the same rows
-    // counted once, not extra ones.
+    // WORKSPACES only: the chat ids above are the same rows, not extra worktrees.
     extra: descendants.length,
     // Resolved now, against a tree that still has the row in it.
     fallbackWsId: getPostDeleteNavigationTarget(repos as Repo[], workspace.id),
   }
 }
 
-/**
- * The sidebar as it reads with the tray's rows taken out.
- *
- * A held row is hidden, never deleted, so this is a projection over the repos
- * the store already holds — which is what makes Cancel a matter of dropping an
- * id rather than putting a subtree back together.
- *
- * A held FOLDER is the one case that rewrites rather than filters: deleting a
- * folder reparents its children to the folder's own parent, so the preview has
- * to show them there. Filtering the folder alone would re-root them, which is a
- * different place and a promise the commit would not keep.
- */
+// The repos as they read with held rows taken out — a projection, so Cancel just drops an id. A
+// held FOLDER rewrites rather than filters: its delete reparents children to its parent, and the
+// preview must show them there, not re-rooted.
 export function applyPendingRemovals(
   repos: readonly Repo[],
   hiddenIds: ReadonlySet<string>,
@@ -338,12 +257,8 @@ export function applyPendingRemovals(
     const folders = repo.folders ?? EMPTY_FOLDERS
     const heldFolders = folders.filter((f) => hiddenIds.has(f.id))
     const workspaces = repo.workspaces.filter((w) => !hiddenIds.has(w.id))
-    // A held CHAT (addendum §2's drag-to-trash) is never re-homed the way a
-    // held folder's children are — its own descendants are already part of
-    // this same hold (`chatDescendantsOf`, removal-plan.ts's `draftFor`), so
-    // there is never a survivor left under it to reparent. A plain filter is
-    // the whole story. `repo.chats` is optional (older frames simply omit
-    // it), so an untouched repo with none stays `undefined`, not `[]`.
+    // A held chat's descendants are in the same hold, so a plain filter suffices. An untouched
+    // repo keeps `chats` by identity (`undefined` stays `undefined`, not `[]`).
     const chats = repo.chats?.some((c) => hiddenIds.has(c.id))
       ? repo.chats.filter((c) => !hiddenIds.has(c.id))
       : repo.chats
@@ -361,9 +276,7 @@ export function applyPendingRemovals(
       continue
     }
 
-    // Walk each held folder's own parent up past any held ancestor, so a hold
-    // that takes a folder and its parent folder still lands the survivors at the
-    // outermost place that is actually still on screen.
+    // Walk past held ancestors so survivors of nested held folders land on a parent still shown.
     const byId = new Map(folders.map((f) => [f.id, f]))
     const survivingParentOf = (folderId: string): string => {
       let cursor = byId.get(folderId)?.parentId ?? ''
@@ -399,20 +312,9 @@ export function applyPendingRemovals(
   return out
 }
 
-/**
- * The tray store's own `hiddenIds` minus each live entry's PRIMARY row id(s),
- * which stay on screen transformed in place; a repo or project entry has no
- * such row, so it keeps its full set.
- *
- * The store's set outlives the tray row on purpose: a committed entry leaves
- * `entries` immediately while its rows stay hidden until the daemon's
- * tombstones arrive (see `sidebar-removal.ts`'s own doc), so a caller that
- * wants "what is on screen" cannot simply derive it from `entries`. But while
- * an entry IS live, its primary row is on screen — transformed in place — and
- * the raw set hides it, which for a held FOLDER means
- * {@link applyPendingRemovals} re-homes children the tree still draws nested
- * under it.
- */
+// The store's `hiddenIds` minus each live entry's primary row, which stays on screen transformed
+// in place (repo/project entries have none). The store set outlives `entries` until tombstones
+// land, so "on screen" cannot be derived from `entries` alone.
 export function renderedHiddenIds(
   hiddenIds: ReadonlySet<string>,
   entries: readonly RemovalEntry[],
@@ -427,21 +329,9 @@ export function renderedHiddenIds(
   return out
 }
 
-/**
- * Marks the row(s) matching a held entry with `row.removal`, so
- * `sidebar-row.tsx` can render it transformed in place.
- *
- * A 'workspace'-kind entry's own `id` is the RAW workspace id — but the
- * branch row it corresponds to is rendered/looked-up by its OWNING CHAT's
- * id (`deriveRows`'s fold), never the raw one. Matching on `row.id`
- * for that kind would silently find nothing. `row.workspaceId` is the one
- * field every branch row still carries the raw id on, so that is what a
- * 'workspace' entry matches against; a 'chat'/'folder' entry's `id` already
- * IS the rendered row's own id, no translation needed. 'repo'/'project'
- * entries never match anything here — a removal that takes a whole repo or
- * project has no single row of its own in this tree to transform (its own
- * gesture is the tree foot's Delete space, not a row).
- */
+// Stamps `row.removal` on rows matching a held entry so they render transformed in place. A
+// workspace entry holds the RAW workspace id, matched via the branch row's `workspaceId` (its row
+// id is the owning chat's); chat/folder ids match directly; repo/project have no row here.
 export function attachRemovalState(
   rows: readonly SidebarRow[],
   entries: readonly RemovalEntry[],

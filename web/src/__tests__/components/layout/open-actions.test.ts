@@ -14,10 +14,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
-// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
-// the real resolver needs an async fetch+cache round trip these tests have
-// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
-// this mock since they take `homeWorkspaceId` as a direct argument instead.
+// The real home resolver needs a fetch+cache round trip these tests don't exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -62,10 +59,8 @@ beforeEach(() => {
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   resetEntities()
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
+  // Creating a workspace starts a CLI, so it needs a provider from the global store (there is no
+  // workspace yet to scope a per-workspace read through).
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
@@ -157,22 +152,9 @@ describe('handleOpen', () => {
       })
     })
 
-    // Regression: a real deadlock, not a guess — live-reproduced by clicking
-    // a chat whose workspace was NOT the one an already-occupied pane
-    // belonged to. `navigateThenOpenChat` used to `navigate()` then POLL
-    // `getActiveWorkspaceId()` for up to 2s before opening a pane — but that
-    // global only ever changes from INSIDE `WorkspaceView`'s own effect, which
-    // only runs once `IDEShell`'s `effectiveActiveWorkspaceId` resolves to the
-    // new workspace, and that resolution prefers `activePaneWorkspaceId` (the
-    // ALREADY-occupied pane's own workspace) over the just-changed route by
-    // design (ide-shell.tsx, for the unrelated "switch focus between two
-    // panes of an existing split" case). With any pane already holding a
-    // foreign chat, the poll could never win — the click looked like it did
-    // nothing, live-reported as "clicking on a not opened row... simply
-    // anything happens." Panes are window-level (Task 26), so nothing here
-    // ever actually needed "active" to be true — this pins that a chat now
-    // lands in a pane immediately once `navigate()` resolves, not after some
-    // global that this suite never had to move to begin with.
+    // The pane opens right after `navigate()` resolves, never after waiting for "active": the shell
+    // prefers the occupied pane's workspace over the route, so with a foreign chat in the active
+    // pane that wait would deadlock (ide-shell.tsx).
     it('opens into a pane immediately after navigating, even while the active PANE already holds a chat from a DIFFERENT workspace', async () => {
       resetWindowPaneStoreForTests()
       setActiveWorkspaceId('ws-other') // some other workspace is "active"
@@ -194,13 +176,8 @@ describe('handleOpen', () => {
       resetWindowPaneStoreForTests()
     })
 
-    // Regression: a bubble at the repo root used to fold instead of opening
-    // — it owns no `Workspace` of its own, so `chat.workspaceId` is null, and
-    // that null used to be read as "this row opens nothing." It now falls
-    // back to its nearest ANCESTOR workspace (deriveRows's own
-    // `ancestorWorkspaceId`) — the repo's own home, for a bubble with no
-    // workspace/folder ancestor above it at all. Live-reported: "clicking on
-    // a not opened row... it should create a view on its own."
+    // A bubble owns no workspace (`chat.workspaceId` null), so it opens into its nearest ANCESTOR
+    // workspace (`deriveRows`' `ancestorWorkspaceId`) — the repo home at the root — not a fold.
     it('opens a BUBBLE into its nearest ancestor workspace (the repo home, at the root)', () => {
       const navigate = vi.fn()
       handleOpen('c1', [withChat({ id: 'c1' })], navigate)
@@ -230,14 +207,8 @@ describe('handleOpen', () => {
       expect(navigate).not.toHaveBeenCalled()
     })
 
-    /**
-     * Spec §8.4: "clicking a chat in the tree makes its own view." The click
-     * used to be routed straight through the DROP (`openChatIntoPane` with a
-     * synthetic `zone: 'center'` on the active pane), which meant an occupied
-     * active pane took the drop's MERGE branch: a split carved out of it, plus
-     * `groupIntoArrangement` filing both chats into one Recents entry. Clicking
-     * a second row therefore appended a chat to the view you were already in.
-     */
+    /** §8.4: a click makes the chat its OWN view; never the drop's merge, which would split the
+     *  active pane and group both chats into one Recents entry. */
     describe('opening it into a pane (the workspace is already on screen)', () => {
       beforeEach(() => {
         resetWindowPaneStoreForTests()

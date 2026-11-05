@@ -3,11 +3,8 @@ import { promoteRepoDraft } from './create-actions'
 import { draftOfPane, type DraftPrompt } from './draft-thread'
 import { promoteHomeDraft } from './home-actions'
 
-/**
- * The draft in `paneId` becomes a real chat carrying `prompt` as its first
- * message. Resolves when the create settles; a refused create toasts and
- * leaves the draft in place to be sent again.
- */
+// Turns the pane's draft into a real chat with `prompt` as its first message. A refused create
+// toasts and leaves the draft to send again.
 export function promoteDraftThread(paneId: string, prompt: DraftPrompt): Promise<void> {
   const draft = draftOfPane(paneId)
   if (!draft) return Promise.resolve()

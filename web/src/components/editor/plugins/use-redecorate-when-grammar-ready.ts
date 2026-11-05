@@ -13,11 +13,9 @@ function decoratedPlain(element: TCodeBlockElement): boolean {
   )
 }
 
-/**
- * Highlighting grammars load on demand (shiki-grammars.ts): a block decorated as plain text
- * before its language landed is re-decorated once it has. A version bump, not
- * `editor.api.redecorate`: Plate binds that after this effect on mount.
- */
+/** Highlighting grammars load on demand (shiki-grammars.ts): a block decorated as plain text
+ *  before its language landed is re-decorated once it has. A version bump, not
+ *  `editor.api.redecorate`: Plate binds that after this effect on mount. */
 export function useRedecorateWhenGrammarReady(
   editor: PlateEditor,
   element: TCodeBlockElement,

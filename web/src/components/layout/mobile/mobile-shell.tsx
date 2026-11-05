@@ -33,10 +33,8 @@ const IDE = {
   onClick: () => useMobileScreenStore.getState().open('ide'),
 }
 
-/**
- * The phone's shell: the focused chat, and its IDE (terminals, branch review) pushed full
- * screen over it with the chat staying mounted beneath. The chat list is native, fed from here.
- */
+/** The phone's shell: the focused chat, and its IDE (terminals, branch review) pushed full
+ *  screen over it with the chat staying mounted beneath. The chat list is native, fed from here. */
 export function MobileShell() {
   const route = useShellRouteState()
   const navigate = useNavigate()

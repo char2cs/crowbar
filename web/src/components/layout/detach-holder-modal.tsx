@@ -11,11 +11,8 @@ import { useDetachModalStore } from '@/features/window/stores/detach-modal-store
 import { detachHolder } from '@/lib/api/workspace'
 import { runOperation } from '@/core/entities/run-operation'
 
-// The consent modal for freeing a protected branch from a live holder. Framed as
-// disruptive-not-destructive: per the git engine's contract, detach never touches
-// the working tree — only moves HEAD — so uncommitted changes and commits are
-// preserved (spec §3.7). A detach blocked mid-merge/rebase fails its operation,
-// which the operations watcher toasts and the placeholder row explains.
+// Consent to free a protected branch from a live holder: disruptive, not destructive — detach only
+// moves HEAD, so work is preserved (§3.7). A detach blocked mid-merge fails its operation.
 export function DetachHolderModal() {
   const target = useDetachModalStore((s) => s.target)
   const close = useDetachModalStore((s) => s.close)
