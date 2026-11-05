@@ -1160,18 +1160,9 @@ func TestSetChatSelection_RefusesAValueOutsideTheDeclaredCatalogue(t *testing.T)
 	}
 }
 
-// TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange
-// guards the standalone PATCH .../selection route (Usecase.SetChatSelection)
-// against racing a SubmitPrompt call that stages its OWN model/effort change
-// on the same chat: the standalone route reads the chat's CURRENT selection,
-// writes its new one, then records which of model/effort actually differed —
-// entirely unguarded by rs.spawns, unlike every other mutating entry point on
-// this interface (SwitchProvider, StopChat, SwitchToTerminal, SwitchToNative,
-// SubmitPromptWithSwitch). Two concurrent writers can each read a "before"
-// snapshot taken before the OTHER's write has landed, so the interruption log
-// ends up narrating a transition to a value a concurrent write immediately
-// superseded — the chat settles on one caller's pick, but the log can still
-// carry a "changed to" entry for the OTHER caller's, never corrected.
+// The standalone selection route is not serialized with a SubmitPrompt staging its own pick, so
+// each could narrate a change against a "before" the other already superseded; the log must
+// never keep a "changed to" for the value the chat did not settle on.
 func TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")

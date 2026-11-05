@@ -3504,7 +3504,7 @@ func TestRegression_LongChatHandoffKeepsTheFirstAskAcrossTwoSwitches(t *testing.
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	doc := configValue(t, f.term.calls[f.term.callCount()-1].argv, "developer_instructions=")
-	assertHandoffOrder(t, doc, "FIRST ASK: build the parser", "earlier turns are omitted", "claude turn 29")
+	assert.Regexp(t, `(?s)FIRST ASK: build the parser.*earlier turns are omitted.*claude turn 29`, doc)
 
 	f.announce(t, codexRunner, "sid-codex-native")
 	for i := 0; i < 30; i++ {
@@ -3515,19 +3515,8 @@ func TestRegression_LongChatHandoffKeepsTheFirstAskAcrossTwoSwitches(t *testing.
 	require.NoError(t, err)
 	argv := f.term.calls[f.term.callCount()-1].argv
 	gap := argv[len(argv)-1]
-	assertHandoffOrder(t, gap, "earlier turns are omitted", "codex turn 29")
+	assert.Regexp(t, `(?s)earlier turns are omitted.*codex turn 29`, gap)
 	assert.NotContains(t, gap, "claude turn 29", "a resumed provider is not re-fed its own turns")
-}
-
-// assertHandoffOrder requires each part in doc, each after the one before.
-func assertHandoffOrder(t *testing.T, doc string, parts ...string) {
-	t.Helper()
-	at := -1
-	for _, p := range parts {
-		i := strings.Index(doc, p)
-		require.Greater(t, i, at, "%q must appear after the part before it in:\n%s", p, doc)
-		at = i
-	}
 }
 
 func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {
