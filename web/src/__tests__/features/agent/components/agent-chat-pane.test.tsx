@@ -481,14 +481,9 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
     })
 
-    // Regression: a non-hotswap api-transport runner (codex) is legitimately live
-    // with an empty terminalSessionId whenever it has never been switched to its
-    // native view — that used to be indistinguishable from dormant (both had an
-    // empty terminalSessionId), so this state fired a needless revive onto a chat
-    // that already had a perfectly healthy runner on it, and any failure of that
-    // SECOND, unwanted resume then latched the whole chat into `idle: failed`
-    // permanently — Resume re-running the exact same needless resume every time.
-    // Confirmed live. liveRunnerId is the only thing that may mean "no runner".
+    // An api-transport runner is live with an empty terminalSessionId until switched to its
+    // TUI. Only liveRunnerId may mean "no runner"; reviving here would race a healthy runner and
+    // a failed second resume would latch the chat into `idle: failed`.
     it('does not revive a live runner that simply has no terminal to attach', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
@@ -643,12 +638,8 @@ describe('AgentChatPane', () => {
   })
 
   // ── The "second input box" shape ────────────────────────────────────
-  // Regression: the reported crop — the banner's own text WRAPPED to more
-  // lines as the pane narrowed (a free-height card), which is what let it
-  // crop against AgentEmptyDocument's own handle underneath it. It is now
-  // ComposerSignpost's exact `.pill.halted` shape — the same one AgentComposer
-  // wears for this same state once the chat has messages — a single,
-  // ellipsis-truncated line with a height nothing else has to guess at.
+  // The signpost wears ComposerSignpost's `.pill.halted` shape (as AgentComposer does once the
+  // chat has messages): one truncated line, so it cannot wrap into the handle below it.
   describe('reviving signpost shape', () => {
     it('renders the reviving banner in the same pill shape', async () => {
       chatStore.setState({ feeds: {} })
@@ -816,13 +807,9 @@ describe('AgentChatPane', () => {
   })
 
   // ── Adopting a new runner on the same chat ─────────────────────────
-  // A runner replacement lands a new CLI IN PLACE: same chat, new PTY. The pane's
-  // old runner is gone from everywhere, so it adopts whoever is on its chat now —
-  // and it does so WITHOUT remounting the terminal. The PTY genuinely changed, but
-  // the terminal is the same DOM node with a new sessionId: XtermTerminal swaps the
-  // attachment imperatively (detach old PTY, attach new) rather than tearing the
-  // whole component — socket, listeners, observers — down and rebuilding it. This is
-  // the P4c fix: the terminal used to be key={sessionId} and remounted here.
+  // A runner replacement lands a new PTY on the same chat. The pane adopts it without remounting:
+  // XtermTerminal swaps the attachment imperatively on the same DOM node instead of tearing down
+  // socket, listeners and observers.
   it('adopts the chat new runner in place — new PTY, but the SAME terminal (no remount)', async () => {
     landOnTerminal()
     const store = seedWorkspace([

@@ -29,9 +29,8 @@ function openFile(workspaceId: string, path: string) {
 
 beforeEach(() => {
   useJumpListStore.getState().actions.clear()
-  // Task 26: panes/buffers are window-level and never destroyed, so the
-  // singleton persists across tests — reset it to a pristine, empty store
-  // (mirroring createWindowPaneStore's own defaults) before each test.
+  // The window-level pane store is a singleton that outlives each test; start every test from
+  // createWindowPaneStore's empty defaults.
   resetWindowPaneStoreForTests()
   setActiveWorkspaceId('w1')
 })

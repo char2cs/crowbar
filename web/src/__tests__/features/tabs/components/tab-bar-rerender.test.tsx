@@ -64,9 +64,8 @@ function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): Ed
   }
 }
 
-// Task 26: panes/buffers moved off the per-workspace store onto the
-// window-level singleton — seed `windowPaneStore`, not the per-workspace
-// store `createWorkspaceStore` still returns (kept for WorkspaceStoreContext).
+// Panes and buffers live in the window-level `windowPaneStore`; the workspace store returned
+// here only feeds WorkspaceStoreContext.
 function setupStore(buffers: EditorContent[]) {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()

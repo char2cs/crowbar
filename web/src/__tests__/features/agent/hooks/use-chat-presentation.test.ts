@@ -6,9 +6,9 @@
  * this hook) and, generalized here, the pane-level chat-view ⇄ editor-view
  * split spec §7.2 describes, consumed by `pane-container.tsx`.
  *
- * `usePaneViewPresentation` is pure geometry over `editorOpen` (Task 1's
- * `PaneGroup.editorOpen`) — there is nothing to "choose", so unlike
- * `useChatPresentation` it has no `setPresentation`/`chosen` pair to test.
+ * `usePaneViewPresentation` is pure geometry over `PaneGroup.editorOpen` — there is
+ * nothing to "choose", so unlike `useChatPresentation` it has no
+ * `setPresentation`/`chosen` pair to test.
  */
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -256,16 +256,8 @@ describe('usePaneViewPresentation', () => {
   })
 })
 
-/**
- * The measurement must not turn a pixel-by-pixel resize back into a render per
- * pixel. `usePaneViewPresentation` answers with one of three arrangements, but
- * it used to hold the raw `clientWidth`/`clientHeight` in state — so a pane
- * sash drag, which rewrites flex-basis on every raw pointermove, re-rendered
- * the whole pane subtree (PaneContainer, the transcript's Plate editor, the tab
- * bar, every Tooltip under it) once per pixel for an answer that never changed.
- * Live-measured in the dev app, a ~2s drag committed 157 renders; only the
- * handful that actually cross a threshold are legitimate.
- */
+/** A sash drag rewrites flex-basis on every pointermove; `usePaneViewPresentation` must re-render
+ *  only when one of its three arrangements changes, not once per pixel of the whole pane subtree. */
 describe('usePaneViewPresentation — a resize that does not change the answer does not re-render', () => {
   function withObservedResize(run: (fire: () => void) => void) {
     const callbacks: ResizeObserverCallback[] = []

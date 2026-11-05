@@ -221,7 +221,7 @@ describe('AgentChatPane — with the split view switched off', () => {
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   })
 
-  // The regression that actually matters: one surface live, the other dormant.
+  // The invariant that matters most: one surface live, the other dormant.
   it('keeps exactly one surface live, whichever one is in front', async () => {
     await renderPane(seed())
 

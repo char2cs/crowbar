@@ -4,10 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Regression coverage for the empty chat document's (`.docwrap`/`.doc`,
- * agent-empty-document.tsx) two typographic bugs: no horizontal scrollbar on
- * overflow, and a font-size that no longer matches the transcript's rendered
- * turn output.
+ * The empty chat document (`.docwrap`/`.doc`, agent-empty-document.tsx) never scrolls
+ * horizontally on overflow, and its font-size matches the transcript's rendered turns.
  *
  * These assert against the raw stylesheet source rather than jsdom — jsdom
  * does not run layout, so there is nothing to measure a real scrollbar or
@@ -79,9 +77,7 @@ describe('empty chat document — font size', () => {
     expect(doc['font-size']).toBe(agentProse['font-size'])
   })
 
-  // REGRESSION: `.doc` used to sit at 16px, a deliberate "drafting vs.
-  // reading" size difference from the transcript — that call is now
-  // overridden, so 16px must not come back.
+  // No separate 16px "drafting" size: the document reads at the transcript's size.
   it('is no longer the old 16px drafting size', () => {
     const doc = cascadedDeclarations(composerCss, '.agent-chat .doc')
     expect(doc['font-size']).not.toBe('16px')

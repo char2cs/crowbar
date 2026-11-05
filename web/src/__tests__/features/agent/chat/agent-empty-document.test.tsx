@@ -61,11 +61,8 @@ describe('AgentEmptyDocument handle', () => {
   })
 })
 
-// REGRESSION: `place()` used to position the handle at the CARET's line when
-// one existed in the document, and only fell back to the last line once the
-// document lost focus entirely — so clicking back into an earlier sentence
-// to fix a word dragged the send button up the page with the caret. It must
-// always sit under the last written line, full stop.
+// The handle always sits under the last written line, never the caret's: editing an earlier
+// sentence must not drag the send button up the page.
 describe('lastLineTop', () => {
   function docWithParagraphs(bottoms: number[], docTop = 0): HTMLDivElement {
     const doc = document.createElement('div')
@@ -236,11 +233,8 @@ describe('AgentEmptyDocument selectionchange gating', () => {
 })
 
 describe('AgentEmptyDocument stop control', () => {
-  // REGRESSION: this surface hand-duplicates composer-handle.tsx's own
-  // send/stop button, and used to gate `stopping` on the document being
-  // empty the same way — hiding the only way to interrupt a turn already
-  // running (a background handoff can start one before anything is typed)
-  // the instant a person started writing.
+  // This surface duplicates composer-handle.tsx's send/stop button; Stop must not depend on the
+  // document being empty, since a background handoff can start a turn before anything is typed.
   it('stops a running turn even with text already in the document', () => {
     const onStop = vi.fn()
     draw({ hasText: true, working: true, canStop: true, onStop })
@@ -279,12 +273,8 @@ describe('AgentEmptyDocument hasText', () => {
   })
 })
 
-// REGRESSION: the reviving/idle/trust-wait signpost used to render as its own
-// row ABOVE this whole document (agent-chat-pane.tsx), free-floating over the
-// model/effort/attach/send row rather than on it — a resize could visibly
-// separate the two, since they had independent positions. It now occupies
-// THIS component's own control-bar slot, sharing the ONE `place()` transform
-// the ordinary row rides, so there is nothing left for it to drift apart from.
+// The reviving/idle/trust-wait signpost takes the control row's slot and shares its one
+// `place()` transform, so a resize cannot separate the two.
 describe('AgentEmptyDocument banner overlay', () => {
   it('renders the banner inside the handle in place of the control row when one is given', () => {
     const { container } = draw({
