@@ -308,7 +308,7 @@ describe('buffer-slice', () => {
     expect(killTerminalSession).not.toHaveBeenCalled()
   })
 
-  // A chat is no longer a buffer (it is `PaneGroup.chatId`), so closing a
+  // A chat is not a buffer (it is `PaneGroup.chatId`), so closing a
   // terminal never reaches the agent API.
   it('closing a terminal tab does not stop an agent CLI', async () => {
     killChat.mockClear()

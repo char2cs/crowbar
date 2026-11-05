@@ -29,9 +29,7 @@ describe('buffer slice auto-eviction', () => {
     expect(store.getState().buffers).toHaveLength(2)
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('a.ts')
     expect(store.getState().buffers.map((b) => b.name)).toContain('c.ts')
-    // The evictee's tab must also be gone from the pane that held it — via
-    // pane-slice's real removeEditorTabFromPane, not the old (deleted)
-    // removeBufferFromPane/bufferIds shape.
+    // The evictee's tab must also be gone from the pane that held it.
     expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(idA)
   })
 
@@ -80,11 +78,8 @@ describe('buffer slice auto-eviction', () => {
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('a.ts')
   })
 
-  // Task 26 fix round 1 (Critical 3): buffers are one flat, window-level
-  // list shared across every retained workspace — the cap and the evictee
-  // search must stay scoped to the buffer's OWN workspace, or opening a file
-  // in workspace A silently discards workspace B's tab (a workspace the user
-  // may not even be looking at).
+  // Buffers are one window-wide list, so the cap and evictee search stay within the buffer's
+  // own workspace: opening a file in A must never discard B's tab.
   it('does not evict a buffer belonging to a DIFFERENT workspace at the cap', () => {
     const store = createWindowPaneStore()
     store.setState({ maxOpenTabs: 2 })

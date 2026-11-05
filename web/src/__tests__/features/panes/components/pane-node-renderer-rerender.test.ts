@@ -49,9 +49,8 @@ function paneGroup(id: string, editorTabIds: string[], activeEditorTabId: string
   }
 }
 
-// Task 26: panes/layout live on the window-level `windowPaneStore`, not the
-// per-workspace store — seed pane-a/pane-b there. `WorkspaceStoreContext` is
-// kept around purely because PaneContainer still reads `workspaceId` off it.
+// Panes live on the window-level `windowPaneStore`, so pane-a/pane-b are seeded there; the
+// workspace store is only for the `workspaceId` PaneContainer reads off its context.
 function setupStore() {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
@@ -125,8 +124,8 @@ describe('SplitViewRoot end-to-end leaf isolation', () => {
       windowPaneStore.getState().paneActions.activateEditorTabInPane('pane-a', 'a2')
     })
 
-    // SplitViewRoot no longer subscribes to the whole `panes` record, so it does
-    // not re-render the layout tree; only pane A's own leaf reacts.
+    // SplitViewRoot doesn't subscribe to the whole `panes` record, so it does not
+    // re-render the layout tree; only pane A's own leaf reacts.
     expect(paneRenderCounts.get('pane-b')).toBe(beforeB)
   })
 })

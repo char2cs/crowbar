@@ -88,14 +88,8 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
     expect(a.windowPaneStore).toBe(windowPaneStore)
   })
 
-  // Task 26 fix round 1 (I5): the ACTUAL trap the model spec names is
-  // destroyWorkspaceStore — the old per-workspace registry destroyed the
-  // whole store panes/buffers lived on, the moment a workspace aged out of
-  // keep-alive. The previous version of this test never called
-  // destroyWorkspaceStore at all (only setActiveWorkspaceId, which was never
-  // what destroyed anything) and would have passed identically against the
-  // OLD, broken code. This exercises the REAL singleton and the REAL
-  // destroy call.
+  // A workspace leaving keep-alive is destroyed via destroyWorkspaceStore; the pane layout
+  // must outlive it, so this drives the real singleton and the real destroy call.
   it("pane layout survives destroyWorkspaceStore for the chat's own (evicted) workspace", async () => {
     resetWindowPaneStoreForTests()
     getOrCreateWorkspaceStore('ws-evicted')

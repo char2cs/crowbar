@@ -249,10 +249,7 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
   })
 })
 
-// The IDE shell's own border/rounding no longer depends on the shared box
-// at all: only the facing edge (the one genuine internal seam) ever draws a
-// border, and no corner is ever rounded — reported live: "the IDE shell
-// shouldn't have rounded corners anymore."
+// The IDE shell borders only its facing edge (the one internal seam) and never rounds a corner.
 describe('buildInnerViewStyle', () => {
   it('facingChatEdge "left": only the left edge is bordered', () => {
     const s = buildInnerViewStyle('left')

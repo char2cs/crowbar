@@ -70,12 +70,8 @@ describe('useCurrentIdentity', () => {
     expect(mocks.getIdentity).toHaveBeenCalledWith('ws-ready-1')
   })
 
-  // Regression: the route records a workspace's scope with NO chat id; only
-  // the sidebar's own async chat-list fetch later attaches owningChatId.
-  // identityBaseForWorkspace throws without one; that throw is caught inside
-  // resolveIdentity (.catch(() => null)) so it never crashes, but the hook's
-  // effect used to fire once per wsId and never re-run — identity stayed null
-  // forever once raced, even after the id arrived moments later.
+  // The route records a scope with no chat id; the sidebar's chat-list fetch attaches it later.
+  // The hook must retry when it arrives rather than stay null.
   it('retries and resolves identity once the owning chat id arrives after mount', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race-2' })
     mocks.getIdentity.mockResolvedValue(identity('mona'))

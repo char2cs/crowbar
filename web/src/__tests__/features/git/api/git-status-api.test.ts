@@ -27,10 +27,7 @@ afterEach(() => {
 })
 
 describe('getGitStatus', () => {
-  // Regression: the backend serialises a clean working tree as `files: null`.
-  // Downstream code (toWorkspaceGitStatus, panels) does `status.files.length`,
-  // which threw and silently killed the whole git data load — gitData stayed
-  // 'idle' forever after a page reload on a clean workspace.
+  // The backend serialises a clean tree as `files: null`; downstream reads `files.length`.
   it("normalises a clean tree's files:null to an empty array", async () => {
     mockFetchEnvelope({ branch: 'main', ahead: 0, behind: 0, files: null })
 

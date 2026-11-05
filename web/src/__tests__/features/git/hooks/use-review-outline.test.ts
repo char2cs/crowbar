@@ -109,12 +109,8 @@ describe('useReviewOutline', () => {
     expect(result.current.loaded).toBe(false)
   })
 
-  // Regression: the route records a workspace's scope with NO chat id; only
-  // the sidebar's own async chat-list fetch later attaches owningChatId.
-  // getReviewOutline resolves through reviewBaseForWorkspace, which throws
-  // without one; firing anyway hit the throw, landed in the swallowing catch,
-  // and left the outline empty until an UNRELATED git status change
-  // happened to retry it.
+  // The route records a scope with no chat id (the sidebar attaches it later), and the outline
+  // route throws without one: the hook must wait for the id, then fetch.
   describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
     it('does not fetch before an owning chat id is recorded', async () => {
       setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })

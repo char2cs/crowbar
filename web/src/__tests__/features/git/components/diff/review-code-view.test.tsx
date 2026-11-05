@@ -254,11 +254,8 @@ describe('buildPlaceholderFileDiff', () => {
   })
 
   it("reserves the capped height but still reports the file's TRUE ± counts", () => {
-    // The header's ± label sums additionLines/deletionLines; the reserved
-    // height comes from unifiedLineCount. Capping the reservation by scaling
-    // the ± counts too made the fixture's 420,000-line monster announce itself
-    // as "+20000" — the reader could no longer tell a huge file from a small
-    // one, on the surface whose whole job is reviewing huge files.
+    // The ± label sums addition/deletion lines while the height comes from unifiedLineCount:
+    // capping the height must not shrink the ± a reader uses to tell a huge file from a small one.
     const monster: GitDiff = { ...textFile(0), additions: 420_000, deletions: 0 }
     const oneHugeHunk: FileOutline = {
       ...textOutline(0),
@@ -542,9 +539,7 @@ describe('ReviewCodeView scroll retention', () => {
     clearPreservedScroll()
   })
 
-  // Regression: PaneContainer renders only the active buffer, so switching
-  // away to another tab and back unmounts this surface entirely and rebuilds
-  // it from scratch — the scroll offset used to reset to the top every time.
+  // A tab switch unmounts this surface; the scroll offset must survive the remount.
   it('restores the scroll offset when the tab is switched away and back', () => {
     const { files, outline } = manyFiles(5)
 
