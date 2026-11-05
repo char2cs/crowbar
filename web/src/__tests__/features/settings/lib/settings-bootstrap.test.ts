@@ -6,7 +6,7 @@ describe('initializeSettingsState', () => {
     localStorage.clear()
   })
 
-  // A profile from the base build saved the static cut this build no longer ships.
+  // A saved static cut, which the bundle does not ship.
   it('rewrites a saved static Geist Mono to the variable cut, once, in storage', async () => {
     localStorage.setItem('crowbar:settings:fontFamily', JSON.stringify('Geist Mono'))
     localStorage.setItem('crowbar:settings:terminalFontFamily', JSON.stringify('Geist Mono'))

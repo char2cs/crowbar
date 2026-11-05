@@ -286,11 +286,8 @@ describe('WorkspaceHost', () => {
   })
 
   it('protects a homeWsIds entry from the existence-prune — home is a project-level concept, absent from the sidebar entirely', () => {
-    // Sidebar only knows about repo workspace "b" — the home id is never a
-    // tree row, so without homeWsIds it would look "closed" (same shape as
-    // the "destroys a retained workspace once it no longer exists" case
-    // above) the instant it goes hidden. Give it a view chat too, or the new
-    // retention rule (not the existence-prune) would evict it anyway.
+    // The home id is never a tree row, so without homeWsIds it would be pruned as "closed" once
+    // hidden. It also gets a view chat, or retention (not the prune) would evict it.
     seedSidebar(['b'])
     const { rerender } = render(
       <WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />,
@@ -315,12 +312,8 @@ describe('WorkspaceHost', () => {
     expect(slot('home-ws')).toBeNull()
   })
 
-  // Regression: a split can hold panes from workspaces this host never
-  // otherwise mounts (never routed to, never clicked into) — without a real
-  // store, PaneContainer/ChatHead fell back to whichever workspace happened
-  // to be AMBIENT, rendering wrong/blank until the OTHER pane's own click
-  // happened to flip which workspace was active. `paneWsIds` force-mounts
-  // every one of them, the same blank-frame guard `activeWsId` already gets.
+  // A split can hold panes from workspaces never routed to; each needs a real store, or its pane
+  // reads the ambient fallback and renders wrong or blank.
   it("force-mounts every paneWsIds entry, even one that's neither active nor previously retained", () => {
     render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} />)
 

@@ -29,12 +29,8 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-/**
- * Where the dark theme starts. Match the SELECTOR at the start of a line, not the
- * bare text ".dark": a comment that merely mentions the dark theme used to split
- * the file here, silently truncating the light block and making every token below
- * the comment read as "missing".
- */
+// Match the `.dark` selector at a line start, not the bare text: a comment mentioning it would
+// otherwise truncate the light block.
 const DARK_BLOCK_START = css.search(/^\.dark\s*\{/m)
 
 /**

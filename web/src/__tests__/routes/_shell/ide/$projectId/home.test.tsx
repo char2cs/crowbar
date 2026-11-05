@@ -26,12 +26,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { HomeRoute } from '@/routes/_shell/ide/$projectId/home'
 
-// HomeRoute no longer renders WorkspaceView itself (that used to mean a fresh
-// fetch+hydrate+mount, and a full store teardown, on every single visit to
-// project home). IDEShell now resolves the home workspace id once per project
-// (home-workspace-resolver.ts) and keeps its WorkspaceView mounted-but-hidden
-// in WorkspaceHost, the same keep-alive retention real workspaces get — see
-// ide-shell.tsx. This route only surfaces the loading/error state.
+// HomeRoute only surfaces the loading/error state; WorkspaceHost retains and paints the home
+// workspace like any other.
 describe('HomeRoute component', () => {
   it('renders nothing while the home workspace id is still resolving', () => {
     useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: false })

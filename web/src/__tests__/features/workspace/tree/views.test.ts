@@ -114,9 +114,8 @@ describe('a repo', () => {
     expect(repoRows(makeRepo())).toEqual([])
   })
 
-  // Task 5 (icon personalization): the home row's own icon (EditableRepoIcon, repo-icon-mark.tsx)
-  // needs the repo's ids and avatar fields to reach the right REST base — see SidebarRow's own doc
-  // on the `repoIcon` field.
+  // The home row's icon (EditableRepoIcon) needs the repo's ids and avatar fields to reach the
+  // right REST base; see SidebarRow's `repoIcon` doc.
   describe('the home row’s repoIcon', () => {
     it('carries the repo’s own identity once its owning project has seeded', () => {
       const repo = makeRepo({
@@ -381,8 +380,8 @@ describe('chatless workspaces', () => {
     ])
   })
 
-  // REGRESSION: the daemon used to promote the only chat of a chatless workspace — the thread just
-  // started inside it — to the workspace owner, and the thread row vanished into the branch row.
+  // The only chat of a chatless workspace is not its owner: the thread keeps its own row instead of
+  // folding into the branch row.
   it('a thread inside a locked branch stays its own row under the recorded owner', () => {
     const owner: Chat = {
       id: 'o1',

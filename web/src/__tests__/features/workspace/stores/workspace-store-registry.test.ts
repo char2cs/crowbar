@@ -14,12 +14,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// Task 26: pane/buffer layout moved off this registry onto the window-level
-// pane store (window-pane-store.ts), which is created once and never
-// destroyed — the "destroyWorkspaceStore unsubscribes the persistence
-// writer"/"disposes the inner session writer" tests that used to live here
-// moved with it; see window-pane-store.test.ts. What's left to test here is
-// the registry's own instance lifecycle, which did not change.
+// The registry's instance lifecycle; pane/buffer persistence is window-level and tested in
+// window-pane-store.test.ts.
 describe('workspace-store-registry', () => {
   it('getOrCreate returns the same instance for the same wsId', () => {
     const a = getOrCreateWorkspaceStore('ws-a')
