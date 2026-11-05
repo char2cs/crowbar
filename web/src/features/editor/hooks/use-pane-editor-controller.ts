@@ -1,8 +1,5 @@
-/**
- * usePaneEditorController — the pane's retained Monaco widget mounts once, and a tab
- * switch is an imperative model swap deduped on the document uri, outside React render.
- * A document that opens after its tab became active is shown when it opens.
- */
+// The pane's retained Monaco widget mounts once; a tab switch is an imperative model swap, deduped
+// by document uri, outside React render. A document that opens after its tab activated shows then.
 
 import { useEffect, useRef } from 'react'
 import type { StoreApi } from 'zustand'
@@ -45,11 +42,8 @@ export interface PaneEditorControllerDeps<S> {
   syncCursorAndSelection(): void
 }
 
-/**
- * Mount + drive the retained widget for `paneId`. The effect depends on the
- * pane alone (everything else is read through the latest-deps ref), so the
- * widget is mounted and the listeners are bound once per pane lifetime.
- */
+/** Mount and drive the retained widget for `paneId`. The effect depends on the pane alone (the
+ *  rest is read through the latest-deps ref), so mount and listeners happen once per pane. */
 export function usePaneEditorController<S>(
   paneId: string,
   containerRef: React.RefObject<HTMLElement | null>,
