@@ -107,6 +107,14 @@ export function useChatPresentation(
     },
     [shownChatId],
   )
+  // A provider that held one surface hands it over as the pick: the user was on it, and a
+  // switch to a provider that holds none must not drop them on an unseen preference.
+  const [heldBefore, setHeldBefore] = useState(held)
+  if (heldBefore !== held) {
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: the same documented pattern as the re-seed below; an effect would paint the hidden pick for a frame first.
+    setHeldBefore(held)
+    if (heldBefore !== null && held === null) setChosenRaw(heldBefore)
+  }
   const splitEnabled = useSplitPresentationEnabled()
   // Derived, not corrected: a reload, a disabled split or the daemon moving the chat can
   // never leave the pane on a surface that is not there.

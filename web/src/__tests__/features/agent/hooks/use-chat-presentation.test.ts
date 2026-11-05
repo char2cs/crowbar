@@ -81,6 +81,16 @@ describe('useChatPresentation — a view the daemon holds', () => {
     expect(result.current.presentation).toBe('chat')
   })
 
+  it('leaves the user on the chat it held when a switch moves the chat to a provider that holds none', () => {
+    const { result, rerender } = renderHook(
+      ({ held }: { held: 'chat' | null }) => useChatPresentation('chat-h', { current: null }, held),
+      { initialProps: { held: 'chat' as 'chat' | null } },
+    )
+    expect(result.current.presentation).toBe('chat')
+    rerender({ held: null })
+    expect(result.current.presentation).toBe('chat')
+  })
+
   it('shows the chat on the phone, its one surface, wherever the daemon holds it', () => {
     platform.mobile = true
     expect(render('terminal').current.presentation).toBe('chat')
