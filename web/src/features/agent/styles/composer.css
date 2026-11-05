@@ -762,6 +762,12 @@
   /* Content wider than the measure (an unwrapped long line, a code fence)
      scrolls instead of clipping. */
   overflow-x: auto;
+  /* The empty state: the page is the writing surface, anchored above the box's controls. */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 /* The document's editable. Plate owns the blocks inside it; this is only the
    column they sit in. */
@@ -1115,38 +1121,6 @@
 }
 
 /* ── the empty state ───────────────────────────────────── */
-/* The empty state: a blank markdown document, the page as writing surface and the box as controls.
-   No component renders `.sheet`. This rule shares and follows the live `.doc` rule, so it must
-   never set `overflow`, which would override the live one. */
-.agent-chat .doc {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-}
-.agent-chat .doc .sheet {
-  width: 100%;
-  max-width: 768px;
-  margin: 0 auto;
-  padding: 0 24px;
-  color: var(--muted-foreground);
-  font-size: 16px;
-  line-height: 1.7;
-}
-.agent-chat .doc .sheet h1 {
-  margin: 0 0 6px;
-  font-family: var(--font-heading);
-  font-size: 2em;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  color: color-mix(in oklch, var(--foreground) 32%, transparent);
-}
-.agent-chat .doc .sheet p {
-  margin: 0;
-  color: color-mix(in oklch, var(--foreground) 26%, transparent);
-}
-
 /* A prompt fills the dock slot as ONE box: the question reads down the page and the nested bar
    becomes its plain bottom row. `.asks` takes `.pill.multi`'s growing-box geometry (it is never
    one line). */
