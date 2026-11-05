@@ -133,27 +133,9 @@ describe('settleFreshGeneration', () => {
   })
 })
 
-/**
- * REGRESSION, reported live and root-caused in slate's own source: a settled
- * word must not disturb the words still fading beside it.
- *
- * `slate-react` keys every rendered leaf `${textKey}-${i}` where `i` is the
- * POSITIONAL INDEX into the split `Text.decorations` rebuilds from scratch on
- * each render. So dropping one settled range does not just remove its own
- * leaf — it shifts the index of every leaf after it, React sees new keys,
- * unmounts those spans and mounts fresh ones, and a fresh DOM node starts its
- * CSS animation over from zero.
- *
- * While a reply streams, words are settling continuously, so every settle
- * restarted every later still-fading word. Words never got an uninterrupted
- * stretch of real time to finish, and sat at the animation's invisible start
- * state until the stream stopped: literal blank gaps mid-paragraph that
- * healed once the turn ended (many small deltas), or text appearing to pop in
- * with no fade at all (whole-sentence chunks). One mechanism, two symptoms,
- * purely a function of how big the arriving chunks are — so these tests fix
- * the chunk size rather than the provider, and nothing here branches on which
- * provider produced the stream.
- */
+// slate-react keys leaves by POSITION in the decoration split, so dropping a settled range would
+// shift every later leaf's key and remount (restarting) its fade. A settling word must leave its
+// still-fading neighbours' DOM nodes alone, whatever the chunk size or provider.
 describe('a settling word leaves its still-fading neighbours alone', () => {
   const fadeSpans = () => [...document.querySelectorAll<HTMLElement>('.chat-fresh-text')]
   // Word chunks keep their own whitespace (see `splitIntoWords`), so a span
@@ -188,9 +170,8 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
     const before = spanFor('two')
     expect(before).toBeDefined()
 
-    // The first chunk finishes fading for real (`animationend`), then the next
-    // chunk arrives — the ordinary streaming sequence, and exactly when the
-    // reindex used to happen.
+    // The first chunk finishes fading (`animationend`), then the next chunk
+    // arrives: the ordinary streaming sequence, and where a reindex would land.
     await act(async () => {
       settleFreshGeneration(editor, 1)
     })
