@@ -5,22 +5,12 @@ const registry = new Map<string, WorkspaceStore>()
 
 let _activeWorkspaceId: string | null = null
 
-// §3/§7: workspace-scoped API/WS URLs are now hierarchical
-// (/v0/projects/:p/repos/:r/workspaces/:w/...). The owning project+repo of the
-// active workspace are threaded from the TanStack route and recorded so the many
-// wsId-keyed callers (files, git, terminal, editor) can resolve the full scope
-// without every signature growing two params. The scope MAP itself lives in the
-// dependency-free `@/lib/workspace-scope` module so those lightweight builders
-// don't import this registry and the whole workspace-store graph behind it.
-// We re-export the setter/getter here for callers that already depend on it.
+// Scoped URLs are hierarchical (/v0/projects/:p/repos/:r/workspaces/:w/...); the wsId -> scope map
+// lives in dependency-free `@/lib/workspace-scope` so URL builders don't import this store graph.
 export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
 
-/**
- * THE active workspace (C4) — one id, written by exactly one owner:
- * `WorkspaceHost`, in the same layout effect that mounts the stores, so every
- * reader (the active store, jump navigation) agrees within a commit. Nothing
- * that builds a scoped URL reads it: those name their workspace.
- */
+// Written only by `WorkspaceHost`, in the layout effect that mounts the stores, so every reader
+// agrees within a commit. Scoped-URL builders never read it: they name their workspace.
 export function setActiveWorkspaceId(wsId: string | null): void {
   if (_activeWorkspaceId === wsId) return
   _activeWorkspaceId = wsId
@@ -56,12 +46,8 @@ export function getActiveWorkspaceId(): string | null {
   return _activeWorkspaceId
 }
 
-/**
- * A registered workspace store, or `undefined` if none exists — never
- * creates one. A buffer can outlive its workspace's eviction, and minting a
- * store for its id would register one `WorkspaceHost` never mounted and will
- * never destroy.
- */
+// Never mints: a buffer can outlive its workspace's eviction, and minting for it would register a
+// store `WorkspaceHost` never mounted and will never destroy.
 export function getWorkspaceStore(wsId: string): WorkspaceStore | undefined {
   return registry.get(wsId)
 }
@@ -75,17 +61,12 @@ export function detachedWorkspaceStore(): WorkspaceStore {
   return detached
 }
 
-/**
- * Mint (or return) `wsId`'s store. Only `WorkspaceHost` calls this in the app
- * — from its reconcile effect, never from render (C6): the registry's keys are
- * exactly the host's mounted set (C5). Everything else reads with
- * {@link getWorkspaceStore} and copes with a workspace that is not mounted.
- */
+// Only `WorkspaceHost`'s reconcile effect calls this, never render, so the registry's keys are
+// exactly its mounted set. Everything else reads with getWorkspaceStore.
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
-    // Task 26: pane/buffer layout no longer lives on this per-workspace
-    // snapshot (it's window-level now — see window-pane-store.ts), so the
-    // only fields left to restore here are recentFiles/terminalLayout.
+    // Pane/buffer layout is window-level (window-pane-store.ts); this snapshot restores only
+    // recentFiles and terminalLayout.
     const snapshot = loadFromLocalStorage(wsId) ?? undefined
     const store = createWorkspaceStore(wsId, snapshot)
     registry.set(wsId, store)
@@ -94,12 +75,8 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   return registry.get(wsId)!
 }
 
-/**
- * Notified whenever a workspace store is registered or destroyed, for code that
- * watches a store it must not mint. A `'registered'` store is empty and minting
- * can happen during render, so watchers re-bind on it without pushing; only
- * `'destroyed'` (always from an effect) changes an answer.
- */
+// For code watching a store it must not mint. A 'registered' store is empty, so watchers re-bind
+// without pushing; only 'destroyed' (always from an effect) changes an answer.
 export type WorkspaceRegistryChange = 'registered' | 'destroyed'
 
 const registryListeners = new Set<(change: WorkspaceRegistryChange) => void>()
