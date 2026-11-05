@@ -56,9 +56,6 @@ type Cache struct {
 	slots    chan struct{}
 	probe    probeFunc
 	manifest manifestProbeFunc
-	// afterRefresh, set only by a test, runs once attemptRefresh's side effects
-	// (store, disk write) have landed, so a test can wait on completion.
-	afterRefresh func(id string)
 	// lifecycle bounds every background probe/fetch. It is deliberately not the
 	// triggering request's ctx, which must not cut a refresh short when it returns.
 	lifecycle context.Context
@@ -189,9 +186,6 @@ func (c *Cache) attemptRefresh(d *spec.Descriptor, home string) {
 	fp := fingerprint(d.Spawn.Cmd)
 	if !c.beginRefresh(d.ID, fp, ttl) {
 		return
-	}
-	if c.afterRefresh != nil {
-		defer c.afterRefresh(d.ID)
 	}
 
 	ctx, cancel := context.WithTimeout(

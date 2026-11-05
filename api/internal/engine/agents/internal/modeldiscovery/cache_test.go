@@ -177,9 +177,8 @@ func TestAttemptRefresh_LifecycleCancelledMidProbeDoesNotWriteTheDiskCache(t *te
 // lands. The probe is left blocked on release so the assertion can only pass
 // if the disk seed ran on Refresh's own calling goroutine, not the fork.
 //
-// afterRefresh is used only so this test can wait for the background fork to
-// fully finish (including its own disk write) before returning — otherwise
-// t.TempDir()'s cleanup can race that still-running write.
+// Close joins the background fork, disk write included, so t.TempDir()'s cleanup
+// cannot race it.
 func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeDiscoverCache(home, "probe", []Model{{ID: "cached-1", Efforts: []string{"low"}}}))
@@ -188,8 +187,6 @@ func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	c.probe = blockUntil(started, release)
-	settled := make(chan struct{})
-	c.afterRefresh = func(string) { close(settled) }
 
 	c.Refresh(discoverDescriptor(), home)
 
@@ -197,11 +194,7 @@ func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	assert.Equal(t, []string{"low"}, c.Efforts("probe", "cached-1"))
 
 	close(release)
-	select {
-	case <-settled:
-	case <-time.After(2 * time.Second):
-		t.Fatal("background refresh never settled")
-	}
+	c.Close()
 }
 
 // A home that cannot hold the cache (here, a regular file where the cache
