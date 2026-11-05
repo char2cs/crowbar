@@ -163,25 +163,17 @@ func (c *Conversations) PurgeChat(
 	if err != nil {
 		return fmt.Errorf("agent: purge chat: %w", err)
 	}
-	end, err := c.PurgeLocked(ctx, chatID)
+	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
+		release()
+		return fmt.Errorf("agent: purge chat: get: %w", err)
+	}
+	// Retire first, so the chat's feed still carries its runner's exit; the
+	// processes end once the lock is let go.
+	end := c.runners.RetireChatRunners(ctx, chatID)
+	err = c.forget(ctx, chatID)
 	release()
 	end()
 	return err
-}
-
-// PurgeLocked is PurgeChat for a caller already holding chatID's lock (the
-// spawn path does): the lock is not reentrant. The caller runs end, which ends
-// the chat's processes, once it lets the lock go.
-func (c *Conversations) PurgeLocked(
-	ctx context.Context,
-	chatID string,
-) (end func(), err error) {
-	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
-		return func() {}, fmt.Errorf("agent: purge chat: get: %w", err)
-	}
-	// Retire first, so the chat's feed still carries its runner's exit.
-	end = c.runners.RetireChatRunners(ctx, chatID)
-	return end, c.forget(ctx, chatID)
 }
 
 // forgetLedger erases chatID's rows, then every payload they named that no

@@ -192,8 +192,7 @@ func TestNewHomeCorrectedChats_LeavesABubbleUntouched(t *testing.T) {
 }
 
 // A home-scoped chat with no Node row yet (its very first placement is still
-// in flight, or it was minted via the bare SpawnChat path this task's report
-// already discloses as unminting) degrades to its Chat-native placement
+// in flight) degrades to its Chat-native placement
 // rather than erroring the whole read.
 func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{

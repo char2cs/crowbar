@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
@@ -153,21 +154,6 @@ func (f forkAfterLoss) CreateCommand(
 	return f.fakeTermForAttach.CreateCommand(ctx, chatID, cwd, argv, env, onExit)
 }
 
-// createAfterLoss mints the chat only once the connection is lost: before the
-// runner_started row, so the loss lands during startup.
-type createAfterLoss struct {
-	stubChatsForSpawn
-	afterLoss
-}
-
-func (c createAfterLoss) Create(ctx context.Context, _ agentchat.CreateInput) (domain.Chat, error) {
-	return c.chat, c.wait(ctx)
-}
-
-type seedingConversations struct{ stubConversationsForSpawn }
-
-func (seedingConversations) SeedPermissionLevel(context.Context, string) {}
-
 // A connection lost before its spawn forked the PTY is not why that runner
 // ends: it ends as the user's Stop.
 func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) {
@@ -176,7 +162,7 @@ func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 	require.Len(t, h.term.created, 1, "the spawn forked its PTY")
 	require.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the connection was lost first")
@@ -197,16 +183,18 @@ func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testin
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := helperServeSpawn(t, tc.mode, false)
-			h.rs.chats = createAfterLoss{
-				stubChatsForSpawn{chat: domain.Chat{ID: h.chatID}},
-				afterLoss{conns: h.rs.apiConns, runnerID: "runner-1", crash: tc.crash},
-			}
-			h.rs.conversations = seedingConversations{}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
+			// The loss lands once runner_started commits, before the runner is started.
+			loss := afterLoss{conns: h.rs.apiConns, runnerID: "runner-1", crash: tc.crash}
+			h.rs.ledger.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
+				if slices.ContainsFunc(rows, func(r ledger.Row) bool { return r.Kind == ledger.KindRunnerStarted }) {
+					require.NoError(t, loss.wait(ctx))
+				}
+			})
 
 			_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
-				spawnInput{runnerID: "runner-1", promptMessage: "hi"}, true)
+				spawnInput{runnerID: "runner-1", promptMessage: "hi"})
 			if err != nil {
 				require.ErrorIs(t, err, ErrProviderExitedDuringStartup)
 			}
@@ -225,7 +213,7 @@ func TestSpawnRunner_APTYLessRunnerWhoseServeCrashesEndsAsALostConnection(t *tes
 	h := helperServeSpawn(t, "answer", false)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 	require.Empty(t, h.term.created, "the connection is the runner")
 	v, ok := h.rs.live.view(h.chatID)

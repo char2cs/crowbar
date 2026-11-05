@@ -26,7 +26,7 @@ func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
 
 	spawned := make(chan error, 1)
 	go func() {
-		_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+		_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 		spawned <- err
 	}()
 	opened := make(chan *os.File, 1)

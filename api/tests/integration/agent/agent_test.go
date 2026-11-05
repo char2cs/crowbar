@@ -9,7 +9,7 @@
 // this package builds its own from-scratch daemon (engine -> adapter -> app ->
 // v0 router), serves it on the real unix socket and on a published hook server,
 // wires a real built `crowbar` binary for the CLIs' `crowbar mcp` (engine.Container.CrowbarBin),
-// and drives the agent usecase directly (SpawnChat / SwitchProvider) rather than
+// and drives the agent usecase directly (spawnChat / SwitchProvider) rather than
 // through HTTP — the point of the test is proving the hook comes BACK, not
 // re-testing the REST surface.
 package agent_test
@@ -197,7 +197,7 @@ func apiRootDir(t *testing.T) string {
 //
 // The child-workspace requirement is load-bearing, not stylistic:
 // agent.WorkspaceReader (internal/app/usecases/container.go's
-// agentWorkspaceReader) derives SpawnChat's cwd from the workspace row's stored
+// agentWorkspaceReader) derives spawnChat's cwd from the workspace row's stored
 // WorktreePath (WorktreeDir returns it verbatim). A managed child worktree's
 // stored WorktreePath is a real on-disk directory under crowbar home (worktree.
 // CreateChild creates it there), so both the cwd and the sibling chats dir
@@ -249,6 +249,17 @@ func requireCLI(t *testing.T, name string) {
 		return
 	}
 	t.Skipf("%s not installed", name)
+}
+
+// spawnChat mints a chat in wsID and starts provider on it, as a create then a
+// Start session do.
+func spawnChat(ctx context.Context, h *harness, wsID, provider string) (string, string, error) {
+	chatID, err := h.app.Usecases.AgentChat.MintChat(ctx, "", wsID, provider, "")
+	if err != nil {
+		return "", "", err
+	}
+	runnerID, err := h.app.Usecases.AgentRunner.StartRunner(ctx, chatID, provider)
+	return chatID, runnerID, err
 }
 
 // liveRunnerTerminalSession returns the PTY of the runner currently placed on
@@ -340,10 +351,10 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 			"reach the hook server, or the hook ingress did not record the outcome — runner observed: %+v",
 		runner)
 
-	// The runner SpawnChat created is still the one placed on the chat: a bind stays
+	// The runner spawnChat started is still the one placed on the chat: a bind stays
 	// put (it is not a move), and the chat is live because a live-runner row exists.
 	require.Equal(t, runnerID, liveRunnerID(t, h, chatID),
-		"the chat's live runner must still be the one SpawnChat started")
+		"the chat's live runner must still be the one spawnChat started")
 	require.Equal(t, []string{providerSessionID}, chatSessionIDs(t, h, chatID),
 		"the chat must have hosted exactly the one conversation claude announced")
 }

@@ -49,19 +49,19 @@ func (stubProvidersForSpawn) ProviderMCPEnabled(context.Context, string) (bool, 
 	return false, nil
 }
 
-// stubConversationsForSpawn answers only the two calls a create=true spawn's
+// stubConversationsForSpawn answers only the two calls a spawn's
 // spawnPreflight makes — ThreadContext and ChatSelection — panicking on
 // anything else via the embedded nil interface.
 type stubConversationsForSpawn struct {
 	Conversations
 }
 
-func (stubConversationsForSpawn) ThreadContext(context.Context, string, bool) (string, error) {
+func (stubConversationsForSpawn) ThreadContext(context.Context, string) (string, error) {
 	return "", nil
 }
 
 func (stubConversationsForSpawn) ChatSelection(
-	context.Context, string, bool,
+	context.Context, string,
 ) (engineagents.Selection, error) {
 	return engineagents.Selection{}, nil
 }
@@ -113,13 +113,14 @@ func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {
 		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
+		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:        newTestLedger(t),
 		live:          newLiveTable(),
 		chatLock:      newTestLock(), parks: newParks(),
 	}
 
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "boom-test",
-		spawnInput{runnerID: "runner-1", promptMessage: "hello"}, true)
+		spawnInput{runnerID: "runner-1", promptMessage: "hello"})
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "build spawn plan")
@@ -139,12 +140,13 @@ func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.
 		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
+		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:        newTestLedger(t),
 		live:          newLiveTable(),
 	}
 
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "missing-test",
-		spawnInput{runnerID: "runner-1", promptMessage: "hello"}, true)
+		spawnInput{runnerID: "runner-1", promptMessage: "hello"})
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "resolve descriptor")
@@ -204,7 +206,7 @@ func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *
 	appendPrompt(t, rs.ledger, "req-1", "runner-1")
 
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "ok-test",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 
 	require.Error(t, err)
 	exit, ok := chatState(t, rs.ledger).LastExit()
@@ -232,7 +234,7 @@ func TestSpawnRunner_ACarriedPushThatFindsTheSessionGoneLosesIt(t *testing.T) {
 	conn.serve, conn.tctx = reapServe(serve), engineagents.TemplateCtx{Session: "S1"}
 
 	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", apiLoseProvider,
-		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+		spawnInput{runnerID: "runner-1", promptMessage: "hi"})
 
 	require.ErrorIs(t, err, ErrSpawnPromptUndeliverable)
 	st := chatState(t, h.rs.ledger)
@@ -259,7 +261,7 @@ func TestSpawnRunner_AnAdoptionWithNothingToWatchReapsWhatItSetUp(t *testing.T) 
 	conn.tctx = engineagents.TemplateCtx{Session: "S1"}
 
 	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", apiLoseProvider,
-		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+		spawnInput{runnerID: "runner-1", promptMessage: "hi"})
 
 	require.ErrorContains(t, err, "vanished")
 	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"))
@@ -300,7 +302,7 @@ func TestSpawnRunner_AnAttachingSpawnThatCannotForkDropsItsConnection(t *testing
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 
 	require.Error(t, err)
 	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the serve it would have attached to is dropped")
@@ -312,7 +314,7 @@ func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T
 	h := newSpawnHarness(t, "")
 	h.rs.live = liveWith(t, engineagents.Runner{ID: "runner-0", ProviderID: "claude", CurrentChatID: "chat-1"})
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude", spawnInput{runnerID: "runner-1"}, false)
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude", spawnInput{runnerID: "runner-1"})
 
 	require.ErrorIs(t, err, ErrChatHasLiveRunner)
 	assert.Empty(t, h.term.created, "nothing forked")
@@ -342,7 +344,7 @@ func TestRecordSpawnFailure_ClosesATurnOpenedInTheWindow(t *testing.T) {
 	require.True(t, chatState(t, rs.ledger).Busy(), "precondition: a turn runs on the spawning runner")
 
 	spawnErr := errors.New("spawn failed")
-	rs.recordSpawnFailure(t.Context(), runner.CurrentChatID, runner.ID, false, &spawnErr)
+	rs.recordSpawnFailure(t.Context(), runner.CurrentChatID, runner.ID, &spawnErr)
 
 	assert.False(t, chatState(t, rs.ledger).Busy(), "the failed spawn left its turn running")
 	opened, err := rs.TurnRunner(runner.ID, func(engineagents.Runner) error { return nil })
@@ -362,7 +364,7 @@ func TestSpawnRunner_ARefusedPreForkSpawnReapsItsDirAndSurface(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 
 	require.ErrorIs(t, err, ErrSpawnSessionRefused)
 	assert.NoDirExists(t, filepath.Join(h.home, "runners", "runner-1-carrier-test"))

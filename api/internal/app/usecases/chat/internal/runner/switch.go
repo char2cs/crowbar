@@ -117,7 +117,7 @@ func (rs *Runners) switchProviderLocked(
 
 		return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, targetProviderID, spawnInput{
 			launch: &launch, conversation: conversation, gapTurns: gapTurns, resuming: resuming,
-		}, false)
+		})
 	}
 }
 

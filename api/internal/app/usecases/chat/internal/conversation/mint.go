@@ -36,14 +36,14 @@ func (c *Conversations) MintChat(
 	if err != nil {
 		return "", fmt.Errorf("agent: mint chat: %w", err)
 	}
-	c.SeedPermissionLevel(ctx, chatID)
+	c.seedPermissionLevel(ctx, chatID)
 	return chatID, nil
 }
 
-// SeedPermissionLevel writes the current global default onto a new chat as a RAW,
+// seedPermissionLevel writes the current global default onto a new chat as a RAW,
 // NON-explicit display value: spawns keep re-resolving the live default until the user
 // picks a level. Best-effort — a failure must not stop the chat being created.
-func (c *Conversations) SeedPermissionLevel(
+func (c *Conversations) seedPermissionLevel(
 	ctx context.Context,
 	chatID string,
 ) {

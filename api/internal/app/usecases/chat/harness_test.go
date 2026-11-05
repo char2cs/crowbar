@@ -171,10 +171,8 @@ func (f *fakeCommander) SessionLive(_ context.Context, sessionID string) bool {
 	return !f.deadSessions[sessionID]
 }
 
-// exit models the PTY actually dying: the session stops being live and the terminal
-// engine invokes the onExit callback it was handed at spawn — which is the ONE event
-// that makes a runner dead. Tests call it to say "and then the CLI died", whether
-// that death followed a TerminateGraceful or was the CLI exiting on its own.
+// exit models the PTY dying: the session stops being live and the onExit callback
+// handed at spawn runs, the ONE event that makes a runner dead.
 func (f *fakeCommander) exit(t *testing.T, sessionID string) {
 	t.Helper()
 	f.exitWith(t, sessionID, engineterminal.Exit{})
@@ -331,10 +329,8 @@ func (f *fakeWorkspace) AgentChatsDir(
 	return f.chatsDir, nil
 }
 
-// fakeWorktreeCreator is a thread-safe agentusecase.WorktreeCreator double:
-// CreateChildWorkspace records the fork parent id it was called with and hands
-// back a fresh workspace id, so Promote's tests can assert on both without a
-// real worktree usecase (git engine, repo store) in this package's fixture.
+// fakeWorktreeCreator is a thread-safe agentusecase.WorktreeCreator double that
+// records each fork parent and hands back a fresh workspace id.
 type fakeWorktreeCreator struct {
 	mu       sync.Mutex
 	forkedOn []string
@@ -722,10 +718,8 @@ func (fixtureThreadWriter) Resolve(context.Context, string) (domain.ReviewThread
 	return domain.ReviewThread{}, nil
 }
 
-// noopThreadBroadcast stands in for the app layer's hub fan-out. These tests
-// never call a write tool, so nothing ever observes a broadcast; it only needs
-// to be non-nil so canWriteReviewThread and canPostReviewComment register their
-// tools.
+// noopThreadBroadcast stands in for the hub fan-out: non-nil only so the review
+// write tools register.
 func noopThreadBroadcast(domain.ReviewThread, string, string) {}
 
 // setPrefs saves global provider preferences into the fixture's real store, so a
@@ -759,11 +753,21 @@ func (f testFixture) wait() {
 	f.waitFn()
 }
 
+// spawnChat mints a chat in ws1 and starts provider on it, as create then Start do.
+func (f testFixture) spawnChat(ctx context.Context, provider string) (string, string, error) {
+	chatID, err := f.usecase.MintChat(ctx, "", "ws1", provider, "")
+	if err != nil {
+		return "", "", err
+	}
+	runnerID, err := f.usecase.StartRunner(ctx, chatID, provider)
+	return chatID, runnerID, err
+}
+
 // spawn creates a chat with a live runner on it, and blocks until both aggregates'
 // projections have folded — so the very next call reads a settled model.
 func (f testFixture) spawn(t *testing.T, provider string) (chatID, runnerID string) {
 	t.Helper()
-	chatID, runnerID, err := f.usecase.SpawnChat(f.ctx, "ws1", provider)
+	chatID, runnerID, err := f.spawnChat(f.ctx, provider)
 	require.NoError(t, err)
 	f.wait()
 	return chatID, runnerID
@@ -782,10 +786,8 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	f.wait()
 }
 
-// turn drives a turn_stop hook: the CLI finishing a turn, which is how a line ever
-// gets into a chat's ledger in production. It is the ONLY way these tests write
-// ledger content — no test reaches around the hook path to plant a turn — because the
-// ledger's provider tag and timestamps are exactly what the resume path later reads.
+// turn drives a turn_stop hook, the only way these tests write ledger content: its
+// provider tag and timestamps are what the resume path later reads.
 func turn(t *testing.T, f testFixture, runnerID, provider, content string) {
 	t.Helper()
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "turn_stop",
@@ -903,10 +905,8 @@ func (f testFixture) runnerKinds(t *testing.T) []string {
 	return append([]string(nil), f.snapFrames.runner...)
 }
 
-// newChatStore builds a throwaway in-memory asynx-backed agentchat EventStore wired
-// to the given hub broadcast func, returning it with its WaitPublish. broadcast is
-// the SAME seam the production hub projection uses, so a test capturing frames
-// through it exercises the real lifecycle feed — the usecase never broadcasts itself.
+// newChatStore is an in-memory agentchat EventStore and its WaitPublish, wired to
+// broadcast: the seam the production hub projection uses.
 func newChatStore(
 	t testing.TB,
 	watch agentchat.WatchFunc,

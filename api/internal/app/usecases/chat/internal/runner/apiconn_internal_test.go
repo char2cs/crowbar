@@ -143,7 +143,7 @@ func TestStartAPIConn_AServeThatEndsUnansweredIsNotReady(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 
 	require.NoError(t, err)
 	require.NoError(t, ctx.Err(), "serve's end went unseen until the spawn's bound")

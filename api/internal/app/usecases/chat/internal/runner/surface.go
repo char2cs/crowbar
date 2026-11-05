@@ -5,29 +5,10 @@ package runner
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
-
-// storedSurface is the chat's durable landing VIEW, read at every spawn so each one
-// rebuilds on the chat's surface. A create answers "": a non-default surface is minted
-// with the chat first (tree.CreateChat), which then spawns with create=false.
-func (rs *Runners) storedSurface(
-	ctx context.Context,
-	chatID string,
-	create bool,
-) (string, error) {
-	if create {
-		return "", nil
-	}
-	chat, err := rs.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: spawn runner: chat surface: %w", err)
-	}
-	return chat.Surface, nil
-}
 
 // surfaceForSpawn is the stored surface when the descriptor can launch it, else the
 // default (""). It DEGRADES rather than refuses: the stored value outlives a switch to

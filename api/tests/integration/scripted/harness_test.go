@@ -256,7 +256,10 @@ func (r *rig) runners() agentusecase.RunnerUsecase { return r.d.app.Usecases.Age
 
 func (r *rig) spawn(provider string) string {
 	r.t.Helper()
-	chatID, _, err := r.runners().SpawnChat(context.Background(), r.wsID, provider)
+	ctx := context.Background()
+	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, provider, "")
+	require.NoError(r.t, err)
+	_, err = r.runners().StartRunner(ctx, chatID, provider)
 	require.NoError(r.t, err)
 	return chatID
 }

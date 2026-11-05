@@ -112,21 +112,11 @@ func (c *Conversations) ChatProviderID(
 	return chat.ProviderID, nil
 }
 
-// ChatSelection reads what a chat WANTS to run its provider as. minting=true (no row
-// yet) still needs a permission level, since none would leave the provider ungoverned:
-// it resolves the global default, falling back to guarded, never full-auto.
+// ChatSelection reads what a chat WANTS to run its provider as.
 func (c *Conversations) ChatSelection(
 	ctx context.Context,
 	chatID string,
-	minting bool,
 ) (engineagents.Selection, error) {
-	if minting {
-		level, err := c.defaultPermissionLevel(ctx)
-		if err != nil {
-			level = "guarded"
-		}
-		return engineagents.Selection{PermissionLevel: level}, nil
-	}
 	chat, err := c.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return engineagents.Selection{}, fmt.Errorf("agent: chat selection: %w", err)
@@ -149,7 +139,7 @@ func (c *Conversations) ChatSelection(
 		if err != nil {
 			level = "guarded"
 		} else {
-			c.SeedPermissionLevel(ctx, chatID)
+			c.seedPermissionLevel(ctx, chatID)
 		}
 	}
 	return engineagents.Selection{

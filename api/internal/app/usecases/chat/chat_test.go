@@ -46,7 +46,7 @@ func TestRenameChat_Precedence(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, _, err := f.spawnChat(ctx, "claude")
 	require.NoError(t, err)
 	f.wait()
 
@@ -79,7 +79,7 @@ func TestRenameChat_BroadcastsTitleSetOnSuccessfulChange(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, _, err := f.spawnChat(ctx, "claude")
 	require.NoError(t, err)
 	f.wait()
 	f.bc.reset()
@@ -126,7 +126,7 @@ func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.spawnChat(ctx, "claude")
 	require.NoError(t, err)
 	f.wait()
 
@@ -581,7 +581,7 @@ func TestSpawn_MintingAChatResolvesNoLineage(t *testing.T) {
 	f, cs := newFaultFixture(t)
 	cs.failListByWorkspace = errors.New("folder table unreadable")
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 	require.NoError(t, err)
 }
 
@@ -667,7 +667,7 @@ func TestMintChat_SurfacesACreateFailure(t *testing.T) {
 
 // The regression this whole path exists for, at the unit level: a chat that is
 // ALREADY a thread when its first CLI is started is told so on that first
-// session. StartRunner takes the ordinary create=false spawn, so nothing
+// session. StartRunner takes the ordinary spawn, so nothing
 // special-cases it — it falls out of the chat existing and being placed first.
 func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.T) {
 	f := newFixture(t)

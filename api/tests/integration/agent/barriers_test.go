@@ -699,9 +699,9 @@ func spawnReady(
 	t.Helper()
 	ctx := context.Background()
 
-	chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := spawnChat(ctx, h, wsID, provider)
 	if err != nil {
-		t.Fatalf("spawnReady: SpawnChat(%s): %v", provider, err)
+		t.Fatalf("spawnReady: spawnChat(%s): %v", provider, err)
 	}
 	termSessID = liveRunnerTerminalSession(t, h, chatID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })

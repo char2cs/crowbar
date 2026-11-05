@@ -17,7 +17,7 @@ func BenchmarkHook(b *testing.B) {
 	b.Cleanup(func() { slog.SetDefault(prev) })
 
 	f := newFixture(b)
-	_, runnerID, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, runnerID, err := f.spawnChat(f.ctx, "claude")
 	if err != nil {
 		b.Fatal(err)
 	}

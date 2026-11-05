@@ -142,7 +142,7 @@ func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDe
 	assert.Equal(t, "guarded", chat.PermissionLevel,
 		"the STORED/display field is a snapshot taken at mint and must not drift on its own")
 
-	sel, err := conversations.ChatSelection(t.Context(), chatID, false)
+	sel, err := conversations.ChatSelection(t.Context(), chatID)
 	require.NoError(t, err)
 	assert.Equal(t, "full-auto", sel.PermissionLevel,
 		"but a chat that was never explicitly pinned must SPAWN under the CURRENT global "+

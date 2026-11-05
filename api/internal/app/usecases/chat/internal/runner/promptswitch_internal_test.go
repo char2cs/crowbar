@@ -81,7 +81,7 @@ type stagedConversations struct {
 	held      engineagents.Selection
 }
 
-func (c stagedConversations) ChatSelection(context.Context, string, bool) (engineagents.Selection, error) {
+func (c stagedConversations) ChatSelection(context.Context, string) (engineagents.Selection, error) {
 	return c.held, nil
 }
 

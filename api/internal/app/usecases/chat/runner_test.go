@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -626,32 +625,12 @@ func TestRegression_ProviderExitingBeforeItsRunnerRowCommitsIsRefused(t *testing
 	f := newFixture(t)
 	exitDuringFork(f)
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 
 	require.ErrorIs(t, err, agentusecase.ErrProviderExitedDuringStartup,
 		"a CLI that died before its runner row existed has not started")
 	assert.Contains(t, err.Error(), "exited during startup",
 		"the refusal has to name what went wrong: the user's own CLI died, and only they can fix it")
-}
-
-func TestRegression_ProviderExitingBeforeItsRunnerRowCommitsLeavesNoChat(t *testing.T) {
-	f := newFixture(t)
-	exitDuringFork(f)
-
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
-	require.ErrorIs(t, err, agentusecase.ErrProviderExitedDuringStartup)
-	f.wait()
-
-	chats, listErr := f.usecase.ListChatsByWorkspace(f.ctx, "ws1")
-	require.NoError(t, listErr)
-	assert.Empty(t, chats, "a refused spawn must not leave a chat behind")
-
-	f.term.duringForkCall = nil
-	chatID, _ := f.spawn(t, "claude")
-	chats, listErr = f.usecase.ListChatsByWorkspace(f.ctx, "ws1")
-	require.NoError(t, listErr)
-	require.Len(t, chats, 1, "a working provider still creates exactly one chat")
-	assert.Equal(t, chatID, chats[0].ID)
 }
 
 func TestSlashCatalogPlacementHelperProcess(t *testing.T) {
@@ -1928,7 +1907,7 @@ func TestRegression_ResumeInARelaunchedChat_BindsTheConversationInPlace(t *testi
 // Spawn
 // ---------------------------------------------------------------------------
 
-func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
+func TestStartRunner_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1958,7 +1937,7 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", filepath.Base(call.argv[0]))
 	assert.Equal(t, assigned, argAfter(t, call.argv, "--session-id"))
-	// A fresh SpawnChat injects the capability preamble via the descriptor's
+	// A fresh spawn injects the capability preamble via the descriptor's
 	// context_inject mechanism (claude.yaml maps it to --append-system-prompt); it
 	// must be present, not the raw ledger handoff (there is none yet for a
 	// brand-new chat).
@@ -1993,7 +1972,7 @@ func TestSpawnRunner_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenThePTYDies(t *testin
 	assert.True(t, os.IsNotExist(err), "the tmp dir must be removed once the PTY dies")
 }
 
-func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
+func TestStartRunner_UsesDescriptorCmdAsArgv0(t *testing.T) {
 	for _, providerID := range []string{"claude", "codex"} {
 		t.Run(providerID, func(t *testing.T) {
 			f := newFixture(t)
@@ -2012,7 +1991,7 @@ func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
 
 // argv[0] is exec'd by absolute path (binpath.Resolve): a launchd daemon's
 // minimal PATH misses where the CLIs install.
-func TestSpawnChat_ResolvesArgv0ToAbsolutePath(t *testing.T) {
+func TestStartRunner_ResolvesArgv0ToAbsolutePath(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "claude")
 	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
@@ -2323,15 +2302,15 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 	// frames are ordered.
 	kinds := f.bcKinds(t)
 	assert.Equal(t, []string{
-		"created",              // SpawnChat
-		"permission_level_set", // SpawnChat: seeded from the global default
+		"created",              // MintChat
+		"permission_level_set", // MintChat: seeded from the global default
 		"title_set",            // user_prompt: derived title
 		"deleted",              // PurgeChat (asynx Forget's OnForget)
 	}, inFeed(kinds, recordFeed...))
 	assert.Equal(t, []string{"turn_started", "turn_stopped"}, inFeed(kinds, ledgerFeed...))
 
 	assert.Equal(t, []string{
-		"started", // SpawnChat
+		"started", // StartRunner
 		"exited",  // PurgeChat
 	}, f.runnerKinds(t))
 }
@@ -2340,27 +2319,13 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 // Error paths
 // ---------------------------------------------------------------------------
 
-func TestSpawnChat_CreateChatFailure_TearsDownCLIAndWraps(t *testing.T) {
-	f, cs := newFaultFixture(t)
-	cs.failCreate = fmt.Errorf("boom: create")
-
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "create chat")
-
-	// The CLI was already spawned (term-1) and must be torn down so no orphan process
-	// leaks when the persist fails.
-	require.Equal(t, 1, f.term.callCount())
-	assert.Contains(t, f.term.terminatedIDs(), "term-1")
-}
-
-// TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps: a CLI whose runner cannot be
+// TestStartRunner_RecordFailure_TearsDownCLIAndWraps: a CLI whose runner cannot be
 // recorded is invisible to Crowbar. Kill it rather than leak it.
-func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
+func TestStartRunner_RecordFailure_TearsDownCLIAndWraps(t *testing.T) {
 	f := newFixture(t)
 	f.refuseRunnerStarted(t)
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 	require.ErrorContains(t, err, "record runner")
 
 	require.Equal(t, 1, f.term.callCount())
@@ -2368,84 +2333,28 @@ func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
 		"a CLI nothing points at must never be left running")
 }
 
-// A spawn refused after the chat was written (a CLI exiting at startup, a runner row
-// that will not commit) forgets the chat. The frames prove it was created first.
-func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		arm  func(t *testing.T, f testFixture)
-	}{
-		{
-			// The production case: `true` as a vendor CLI — a process that swears it is
-			// interactive and is already gone by the time its row could be written.
-			name: "the CLI exits during startup",
-			arm: func(t *testing.T, f testFixture) {
-				t.Helper()
-				f.term.duringForkCall = func(call commandCall) { call.onExit(engineterminal.Exit{}) }
-			},
-		},
-		{
-			name: "the runner row will not commit",
-			arm: func(t *testing.T, f testFixture) {
-				t.Helper()
-				f.refuseRunnerStarted(t)
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t)
-			tc.arm(t, f)
-
-			chatID, runnerID, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
-			require.Error(t, err)
-			assert.Empty(t, chatID, "a refused create hands back no chat")
-			assert.Empty(t, runnerID)
-			f.wait()
-
-			// Forget supersedes frames still queued, so the middle one may be gone.
-			assert.Contains(t, [][]string{{"created", "deleted"}, {"created", "permission_level_set", "deleted"}},
-				f.bcKinds(t), "the chat was written and then taken back out — not merely never written")
-
-			var born string
-			for _, frame := range f.bc.snapshot() {
-				if frame.kind == "created" {
-					born = frame.chatID
-				}
-			}
-			require.NotEmpty(t, born, "precondition: the spawn got far enough to write a chat")
-
-			_, getErr := f.chats.GetChat(f.ctx, born)
-			assert.ErrorIs(t, getErr, agentchat.ErrNotFound,
-				"the aggregate is Forgotten, not just hidden from the list")
-			listed, err := f.chats.ListChats(f.ctx)
-			require.NoError(t, err)
-			assert.Empty(t, listed, "a refused spawn must not leave a chat behind")
-		})
-	}
-}
-
-func TestSpawnChat_CreateCommandFailure_ReturnsWrappedError(t *testing.T) {
+func TestStartRunner_CreateCommandFailure_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	f.term.err = fmt.Errorf("boom: create command")
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create command")
 }
 
-func TestSpawnChat_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
+func TestStartRunner_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	f.ws.err = fmt.Errorf("boom: worktree lookup")
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "worktree dir")
 }
 
-func TestSpawnChat_UnknownProvider_ReturnsWrappedDescriptorError(t *testing.T) {
+func TestStartRunner_UnknownProvider_ReturnsWrappedDescriptorError(t *testing.T) {
 	f := newFixture(t)
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "not-a-real-provider")
+	_, _, err := f.spawnChat(f.ctx, "not-a-real-provider")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "resolve descriptor")
 }
@@ -2530,15 +2439,15 @@ func configValue(t *testing.T, argv []string, prefix string) string {
 	return ""
 }
 
-// TestSpawnChat_MissingCLI_PropagatesCommandNotFound: when the vendor CLI is not
+// TestStartRunner_MissingCLI_PropagatesCommandNotFound: when the vendor CLI is not
 // installed, the sentinel must survive the usecase intact. Burying it in a generic
 // wrap chain is what mapped it to an opaque 500, so the UI had nothing to say and the
 // chat button just did nothing.
-func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
+func TestStartRunner_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
 	f := newFixture(t)
 	f.term.err = fmt.Errorf("%w: claude", engineterminal.ErrCommandNotFound)
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, engineterminal.ErrCommandNotFound,

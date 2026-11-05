@@ -1,6 +1,5 @@
 // Package runner (file spawnrecord.go) commits a spawned CLI to the durable
-// record: the chat row a create has to mint first, then the runner_started row
-// naming the process that was just started.
+// record: the runner_started row naming the process that was just started.
 package runner
 
 import (
@@ -12,7 +11,6 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -21,23 +19,9 @@ import (
 // recordRunner commits forked r as the chat's runner; Launch* is what it was actually
 // launched with. A process that died first has its exit recorded after, and is refused.
 func (rs *Runners) recordRunner(
-	ctx context.Context, r engineagents.Runner, resumeID string, create bool, staged *domain.ChatSelection,
+	ctx context.Context, r engineagents.Runner, resumeID string, staged *domain.ChatSelection,
 ) error {
 	chatID, now := r.CurrentChatID, time.Now()
-	if create {
-		_, err := rs.chats.Create(ctx, agentchat.CreateInput{
-			ID:          chatID,
-			WorkspaceID: r.WorkspaceID,
-			Type:        domain.ChatTypeChat,
-			ProviderID:  r.ProviderID,
-			Now:         now,
-		})
-		if err != nil {
-			return rs.teardownForked(ctx, chatID, r.ID, r.TerminalSession,
-				fmt.Errorf("agent: spawn runner: create chat: %w", err))
-		}
-		rs.seedPermissionLevel(ctx, chatID)
-	}
 	rs.live.update(r.ID, func(live *engineagents.Runner) {
 		live.TerminalSession = r.TerminalSession
 		live.LaunchModel, live.LaunchEffort = r.LaunchModel, r.LaunchEffort
@@ -61,9 +45,7 @@ func (rs *Runners) recordRunner(
 	if rs.termWait != nil {
 		rs.termWait.Wake() // the sweep parks while no runner is live
 	}
-	if !create {
-		rs.recordChatProvider(ctx, chatID, r.ProviderID)
-	}
+	rs.recordChatProvider(ctx, chatID, r.ProviderID)
 	rs.commitCarriedSelection(ctx, chatID, staged)
 	rs.touch(ctx, chatID)
 	if exitedEarly {
@@ -84,7 +66,7 @@ func startupExit(reason string) error {
 // recordSpawnFailure frees the chat of a spawn that put no CLI on it and, for an
 // existing chat, records spawn_failed, or resume_failed for a refused session;
 // a CLI that died in startup, or a preempted spawn, is recorded elsewhere.
-func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID string, create bool, err *error) {
+func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID string, err *error) {
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return
 	}
@@ -94,7 +76,7 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	rs.live.remove(runnerID)
 	// A refusal settles what the runner carried; the spawn's error names the end.
 	rs.loseRefusedSession(ctx, runnerID, claimed.exit)
-	if create || errors.Is(*err, context.Canceled) {
+	if errors.Is(*err, context.Canceled) {
 		return
 	}
 	if _, live := rs.live.byChat(chatID); live {

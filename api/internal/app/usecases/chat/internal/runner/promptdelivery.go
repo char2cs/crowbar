@@ -185,7 +185,7 @@ func (rs *Runners) launchCarrying(
 		runnerID: carrier, launch: &delivery.launch, finalSteps: delivery.promptSteps,
 		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text,
 		selection: delivery.selection,
-	}, false)
+	})
 	if err != nil {
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, spawnFailure(ctx, err))
 	}
@@ -267,7 +267,7 @@ func (rs *Runners) selectionRequiresRestart(
 	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) (bool, error) {
-	desired, err := rs.conversations.ChatSelection(ctx, chatID, false)
+	desired, err := rs.conversations.ChatSelection(ctx, chatID)
 	if err != nil {
 		return false, err
 	}

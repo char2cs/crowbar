@@ -118,7 +118,7 @@ func (rs *Runners) validateSelectionForProvider(
 
 // holdsSelection reports whether the chat's pick already is selection.
 func (rs *Runners) holdsSelection(ctx context.Context, chatID string, selection domain.ChatSelection) bool {
-	current, err := rs.conversations.ChatSelection(ctx, chatID, false)
+	current, err := rs.conversations.ChatSelection(ctx, chatID)
 	return err == nil && current.Model == selection.Model && current.Effort == selection.Effort
 }
 
@@ -129,7 +129,7 @@ func (rs *Runners) setChatSelectionLocked(
 	ctx context.Context,
 	chatID, model, effort string,
 ) error {
-	before, beforeErr := rs.conversations.ChatSelection(ctx, chatID, false)
+	before, beforeErr := rs.conversations.ChatSelection(ctx, chatID)
 	if err := rs.conversations.SetChatSelection(ctx, chatID, model, effort); err != nil {
 		return err
 	}

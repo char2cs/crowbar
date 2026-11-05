@@ -12,14 +12,6 @@ import (
 // that starts or ends a CLI decides under the chat's hook lock (so two switches never
 // put two CLIs on one chat) and waits with it released, so hooks are never held up.
 type RunnerUsecase interface {
-	// SpawnChat mints a chat and starts a CLI on it in one act, returning both
-	// ids. A refused spawn takes the half-created chat with it.
-	SpawnChat(
-		ctx context.Context,
-		workspaceID string,
-		providerID string,
-	) (chatID, runnerID string, err error)
-
 	// StartRunner starts a CLI on a chat that already exists.
 	StartRunner(
 		ctx context.Context,
@@ -192,15 +184,6 @@ var (
 	ErrPromptUnsupported        = runner.ErrPromptUnsupported
 	ErrPromptSessionUnavailable = runner.ErrPromptSessionUnavailable
 )
-
-// SpawnChat mints a chat and starts a provider CLI on it in one step.
-func (u *Usecase) SpawnChat(
-	ctx context.Context,
-	workspaceID string,
-	providerID string,
-) (chatID, runnerID string, err error) {
-	return u.runners.SpawnChat(ctx, workspaceID, providerID)
-}
 
 // StartRunner starts a provider CLI on a chat that already exists.
 func (u *Usecase) StartRunner(

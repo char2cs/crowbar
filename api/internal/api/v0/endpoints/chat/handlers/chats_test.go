@@ -222,10 +222,6 @@ func (u *configurableListGetUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (configurableListGetUsecase) SpawnChat(context.Context, string, string) (string, string, error) {
-	return "", "", nil
-}
-
 func (configurableListGetUsecase) Hook(
 	context.Context, string, string, string, []byte, engineagents.Channel,
 ) (agentusecase.HookReply, error) {

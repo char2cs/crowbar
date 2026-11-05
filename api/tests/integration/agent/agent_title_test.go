@@ -16,7 +16,7 @@ import (
 
 // mustSpawnChat creates a project + repo + managed child workspace and spawns
 // a real <provider> chat in it (via the same importRepoAndWorkspace +
-// SpawnChat sequence every other test in this package repeats), registering
+// spawnChat sequence every other test in this package repeats), registering
 // the spawned PTY's teardown so callers don't have to. Returns the workspace's
 // project/repo/workspace ids along with the new chat's id and the id of
 // the RUNNER started on it, which every hook is posted as.
@@ -31,7 +31,7 @@ func mustSpawnChat(
 	repoPath := kit.InitRepo(t)
 	projectID, repoID, wsID = h.importRepoAndWorkspace(t, "title-"+provider, repoPath)
 
-	chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := spawnChat(ctx, h, wsID, provider)
 	require.NoError(t, err)
 	require.NotEmpty(t, chatID)
 	require.NotEmpty(t, runnerID)

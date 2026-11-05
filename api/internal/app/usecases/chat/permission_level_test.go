@@ -56,10 +56,8 @@ func TestSetChatPermissionLevel_RejectsALevelTheProviderDoesNotDeclare(t *testin
 }
 
 // TestRegression_SpawnChatSeedsThePermissionLevelFromTheCurrentGlobalDefault
-// proves the REAL production chat-creation path — SpawnChat, not MintChat —
-// durably seeds a freshly spawned chat's DISPLAY field (chat.PermissionLevel)
-// from the global default AT CREATION TIME (see recordRunner's seed in
-// internal/runner/spawn.go).
+// proves the chat-creation path durably seeds a freshly spawned chat's DISPLAY
+// field (chat.PermissionLevel) from the global default AT CREATION TIME.
 //
 // This is the STORED-field half only. It does NOT test what the chat
 // actually spawns under on its NEXT prompt/restart — that is

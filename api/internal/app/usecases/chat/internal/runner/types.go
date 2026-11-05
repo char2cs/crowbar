@@ -20,12 +20,10 @@ type Conversations interface {
 		ctx context.Context,
 		chatID string,
 	) (string, error)
-	// ChatSelection is the model and reasoning effort pinned to the chat. create
-	// says the chat is being minted right now, so there is nothing to read.
+	// ChatSelection is the model and reasoning effort pinned to the chat.
 	ChatSelection(
 		ctx context.Context,
 		chatID string,
-		create bool,
 	) (engineagents.Selection, error)
 	// SetChatSelection pins the model and effort the chat's next CLI launches
 	// with, refusing a value the resolved provider does not declare.
@@ -50,25 +48,10 @@ type Conversations interface {
 		leftAt time.Time,
 	) (string, error)
 	// ThreadContext is the prompt fragment naming the chats this one reads.
-	// minting says the chat is being created now and can have no lineage yet.
 	ThreadContext(
 		ctx context.Context,
 		chatID string,
-		minting bool,
 	) (string, error)
-	// PurgeLocked erases a chat whose caller ALREADY holds its lock, and
-	// returns the end of its processes. A spawn that fails discards the chat it
-	// minted, from inside that hold.
-	PurgeLocked(
-		ctx context.Context,
-		chatID string,
-	) (end func(), err error)
-	// SeedPermissionLevel durably writes the current global default onto a chat
-	// created without MintChat (SpawnChat, moveToNewChat).
-	SeedPermissionLevel(
-		ctx context.Context,
-		chatID string,
-	)
 }
 
 // AncestorCwd answers where a workspace-less chat's CLI runs: the nearest

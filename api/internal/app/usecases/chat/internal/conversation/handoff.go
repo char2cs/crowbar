@@ -65,9 +65,8 @@ func (c *Conversations) AssembleHandoff(
 func (c *Conversations) ThreadContext(
 	ctx context.Context,
 	chatID string,
-	minting bool,
 ) (string, error) {
-	if minting || c.lineage == nil {
+	if c.lineage == nil {
 		return "", nil
 	}
 	ancestors, err := c.lineage.Ancestors(ctx, chatID)

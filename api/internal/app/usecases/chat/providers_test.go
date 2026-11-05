@@ -111,11 +111,11 @@ func TestResolveProviders_NoPreferences_OrdersByDescriptorID(t *testing.T) {
 // persisted and reported, but a POST .../chats naming it — from a stale
 // tab, a second window, or the CLI — reaches spawnRunner directly and never
 // passes through the list the Enabled flag decorates.
-func TestSpawnChat_RefusesDisabledProvider(t *testing.T) {
+func TestStartRunner_RefusesDisabledProvider(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", Disabled: true})
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "codex")
+	_, _, err := f.spawnChat(f.ctx, "codex")
 
 	require.ErrorIs(t, err, problem.ErrInvalidArgument,
 		"a disabled provider must be refused with a 4xx-mapping sentinel")
@@ -124,14 +124,14 @@ func TestSpawnChat_RefusesDisabledProvider(t *testing.T) {
 
 // The guard is scoped to the provider that is actually off: disabling one must
 // not take the others down with it.
-func TestSpawnChat_AllowsEnabledProviderAlongsideADisabledOne(t *testing.T) {
+func TestStartRunner_AllowsEnabledProviderAlongsideADisabledOne(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t,
 		domain.AgentProviderPreference{ProviderID: "codex", Disabled: true},
 		domain.AgentProviderPreference{ProviderID: "claude", Disabled: false},
 	)
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.term.callCount())
@@ -330,12 +330,12 @@ func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 	assert.False(t, send)
 }
 
-// TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts closes the loop the
+// TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts closes the loop the
 // descriptor tests can only render half of: the token baked into the CLI's argv at
 // spawn must be one THIS daemon's minter verifies. A spawn path that minted from a
 // different secret — or shipped the segment id twice — would render argv that looks
 // perfectly right and authenticate nothing.
-func TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts(
+func TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts(
 	t *testing.T,
 ) {
 	f := newFixture(t)
@@ -367,12 +367,12 @@ func TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts(
 	assert.Equal(t, "Minted At Spawn", f.chat(t, chatID).Title)
 }
 
-// TestSpawnChat_InjectsTheCapabilityPreamble: registering the MCP server is only
+// TestStartRunner_InjectsTheCapabilityPreamble: registering the MCP server is only
 // half the job. A model asked to "review this branch" reaches for gh or writes
 // prose unless it is TOLD which surface to prefer — tool descriptions alone do not
 // override that prior — so the preamble travels in the same {context} document
 // every other injected instruction uses.
-func TestSpawnChat_InjectsTheCapabilityPreamble(
+func TestStartRunner_InjectsTheCapabilityPreamble(
 	t *testing.T,
 ) {
 	f := newFixture(t)
@@ -390,7 +390,7 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 	assert.Contains(t, doc, "set_chat_title")
 }
 
-// TestSpawnChat_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
+// TestStartRunner_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
 // no --append-system-prompt, so the preamble rides the same silent
 // developer_instructions channel a handoff uses. It must never arrive as a
 // positional, which IS codex's opening user message.
@@ -398,7 +398,7 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 // Together with TestResumeChat_GaplessRevive_SendsNoUserMessage below this pins the
 // whole delivery rule: a FRESH spawn is injected even when it has no handoff to
 // carry (the preamble is the point), a gapless RESUME is not injected at all.
-func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
+func TestStartRunner_Codex_InjectsTheCapabilityPreamble(
 	t *testing.T,
 ) {
 	f := newFixture(t)
@@ -545,7 +545,7 @@ var codexMCPKeys = []string{
 // that filtered templated steps would leave .command, .env_vars and
 // .default_tools_approval_mode behind and register a server with no arguments —
 // a broken tool surface rather than an absent one.
-func TestSpawnChat_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
+func TestStartRunner_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
 	t.Run("claude", func(t *testing.T) {
 		f := newFixture(t)
 		f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
@@ -585,7 +585,7 @@ func TestSpawnChat_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
 // disabling its tool surface must not — the CLI comes up, the chat works, and the
 // hooks Crowbar depends on for every turn keep firing. A toggle that quietly
 // broke the chat would be worse than no toggle.
-func TestSpawnChat_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.T) {
+func TestStartRunner_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			f := newFixture(t)
@@ -620,7 +620,7 @@ func TestSpawnChat_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.
 // negative precisely so AutoMigrate's backfill of false reads as "enabled" — a
 // positive flag would have switched MCP off for every provider the user had ever
 // reordered or disabled, the first time the daemon came up on the new schema.
-func TestSpawnChat_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T) {
+func TestStartRunner_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T) {
 	f := newFixture(t)
 	// Exactly the row the old PUT body wrote: a priority and an enabled flag, and
 	// nothing about MCP.
@@ -642,7 +642,7 @@ func TestSpawnChat_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T
 // The comparison is against a spawn with NO preference row at all — the state
 // every provider was in before this task — so "identical" is a fact the test can
 // actually establish rather than a claim about a previous commit.
-func TestSpawnChat_MCPEnabled_IsIdenticalToNoPreferenceAtAll(t *testing.T) {
+func TestStartRunner_MCPEnabled_IsIdenticalToNoPreferenceAtAll(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			assert.Equal(t,
@@ -655,7 +655,7 @@ func TestSpawnChat_MCPEnabled_IsIdenticalToNoPreferenceAtAll(t *testing.T) {
 
 // The switch is PER PROVIDER: turning codex's tools off must leave claude's alone.
 // A global flag would satisfy every assertion above and still be the wrong feature.
-func TestSpawnChat_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
+func TestStartRunner_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", MCPDisabled: true})
 
@@ -679,11 +679,11 @@ func TestSpawnChat_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
 // Switching the tool surface off must not switch the PROVIDER off. They are
 // stored in adjacent columns and read a few lines apart, which is exactly the
 // shape of mistake that spawns nothing and reports a disabled provider.
-func TestSpawnChat_MCPDisabledDoesNotDisableTheProvider(t *testing.T) {
+func TestStartRunner_MCPDisabledDoesNotDisableTheProvider(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", MCPDisabled: true})
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "codex")
+	_, _, err := f.spawnChat(f.ctx, "codex")
 	require.NoError(t, err)
 
 	got, err := f.usecase.ResolveProviders(f.ctx)

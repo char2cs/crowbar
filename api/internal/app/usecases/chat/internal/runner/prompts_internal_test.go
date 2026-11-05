@@ -29,7 +29,7 @@ type stubConversationsForPromptRestart struct {
 }
 
 func (s stubConversationsForPromptRestart) ChatSelection(
-	context.Context, string, bool,
+	context.Context, string,
 ) (engineagents.Selection, error) {
 	return s.desired, nil
 }

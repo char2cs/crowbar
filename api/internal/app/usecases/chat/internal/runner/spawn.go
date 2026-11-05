@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -17,62 +16,35 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (rs *Runners) SpawnChat(
-	ctx context.Context,
-	workspaceID string,
-	providerID string,
-) (chatID, runnerID string, err error) {
-	chatID = uuid.NewString()
-	h, err := rs.acquire(ctx, chatID)
-	if err != nil {
-		return "", "", fmt.Errorf("agent: spawn chat: %w", err)
-	}
-	defer h.release()
-
-	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, spawnInput{}, true)
-	if err != nil {
-		return "", "", rs.discardSpawnedChat(ctx, chatID, err)
-	}
-	return chatID, runnerID, nil
-}
-
-func (rs *Runners) StartRunner(
-	ctx context.Context,
-	chatID string,
-	providerID string,
-) (string, error) {
-	h, err := rs.acquire(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: start runner: %w", err)
-	}
-	defer h.release()
-
-	chat, err := rs.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: start runner: chat: %w", err)
-	}
-	return rs.startLocked(ctx, chat, providerID)
+func (rs *Runners) StartRunner(ctx context.Context, chatID, providerID string) (string, error) {
+	return rs.underChat(ctx, chatID, "start runner", func(chat domain.Chat) (string, error) {
+		return rs.startLocked(ctx, chat, providerID)
+	})
 }
 
 // OpenChat is a just-created chat's launch. Only a chat landing on its terminal
 // gets its CLI now, that view being nothing without one; any other stays dormant
 // ("") until its first prompt, whose launch carries it: one CLI, not two.
-func (rs *Runners) OpenChat(
-	ctx context.Context,
-	chatID string,
-	providerID string,
+func (rs *Runners) OpenChat(ctx context.Context, chatID, providerID string) (string, error) {
+	return rs.underChat(ctx, chatID, "open chat", func(chat domain.Chat) (string, error) {
+		return rs.openLocked(ctx, chat, providerID)
+	})
+}
+
+// underChat runs launch on chatID's current row with its lock held.
+func (rs *Runners) underChat(
+	ctx context.Context, chatID, op string, launch func(domain.Chat) (string, error),
 ) (string, error) {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("agent: open chat: %w", err)
+		return "", fmt.Errorf("agent: %s: %w", op, err)
 	}
 	defer h.release()
-
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("agent: open chat: chat: %w", err)
+		return "", fmt.Errorf("agent: %s: chat: %w", op, err)
 	}
-	return rs.openLocked(ctx, chat, providerID)
+	return launch(chat)
 }
 
 // openLocked refuses what a launch would refuse, so no chat is made that no
@@ -93,21 +65,7 @@ func (rs *Runners) openLocked(ctx context.Context, chat domain.Chat, providerID 
 
 func (rs *Runners) startLocked(ctx context.Context, chat domain.Chat, providerID string) (string, error) {
 	defer rs.enterPhase(ctx, chat.ID, snapshot.PhaseStarting)()
-	return rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, providerID, spawnInput{}, false)
-}
-
-func (rs *Runners) discardSpawnedChat(
-	ctx context.Context,
-	chatID string,
-	cause error,
-) error {
-	end, err := rs.conversations.PurgeLocked(ctx, chatID)
-	if err != nil && !errors.Is(err, agentchat.ErrNotFound) {
-		slog.WarnContext(ctx, "agent: discard chat of a refused spawn (best-effort, reporting the spawn failure)",
-			"chat_id", chatID, "err", err)
-	}
-	end() // still in the spawn's hold: a refused spawn's CLI never outlives it
-	return cause
+	return rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, providerID, spawnInput{})
 }
 
 //nolint:funlen // orchestrates preflight, path resolution, attachment materialization, descriptor render, spawn-plan build and fork in one strict sequence; splitting would scatter the abort-on-failure cleanup this function is responsible for at each step
@@ -117,11 +75,10 @@ func (rs *Runners) spawnRunner(
 	workspaceID string,
 	providerID string,
 	in spawnInput,
-	create bool,
 ) (_ string, err error) {
 	runnerID := newRunnerID(in.runnerID)
-	defer rs.recordSpawnFailure(ctx, chatID, runnerID, create, &err)
-	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create, in.selection)
+	defer rs.recordSpawnFailure(ctx, chatID, runnerID, &err)
+	pre, err := rs.spawnPreflight(ctx, chatID, providerID, in.selection)
 	if err != nil {
 		return "", err
 	}
@@ -255,7 +212,7 @@ func (rs *Runners) spawnRunner(
 		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, TerminalSession: termSessID,
 		CurrentChatID: chatID, LaunchModel: carried.Model, LaunchEffort: carried.Effort,
 		LaunchPermissionLevel: carried.PermissionLevel,
-	}, launch.resumeID, create, in.selection); err != nil {
+	}, launch.resumeID, in.selection); err != nil {
 		if !errors.Is(err, ErrProviderExitedDuringStartup) {
 			rs.agents.ForgetRunner(runnerID)
 		}
@@ -333,14 +290,13 @@ type spawnPreflight struct {
 	mcpOn     bool
 	threads   string
 	selection engineagents.Selection
-	// surface is the chat's own stored landing VIEW — see storedSurface.
+	// surface is the chat's own stored landing VIEW.
 	surface string
 }
 
 func (rs *Runners) spawnPreflight(
 	ctx context.Context,
 	chatID, providerID string,
-	create bool,
 	staged *domain.ChatSelection,
 ) (spawnPreflight, error) {
 	// This is the ONE seam every vendor CLI is launched through, which makes it the
@@ -355,25 +311,26 @@ func (rs *Runners) spawnPreflight(
 	if err != nil {
 		return spawnPreflight{}, err
 	}
-	threads, err := rs.conversations.ThreadContext(ctx, chatID, create)
+	threads, err := rs.conversations.ThreadContext(ctx, chatID)
 	if err != nil {
 		return spawnPreflight{}, err
 	}
 	// The selection is also what gets RECORDED on the runner, so the record and the
 	// argv are rendered from ONE read: two reads could disagree across a concurrent
 	// change and leave a process whose recorded selection is not the one it runs.
-	sel, err := rs.conversations.ChatSelection(ctx, chatID, create)
+	sel, err := rs.conversations.ChatSelection(ctx, chatID)
 	if err != nil {
 		return spawnPreflight{}, err
 	}
 	if staged != nil {
 		sel.Model, sel.Effort = staged.Model, staged.Effort
 	}
-	surface, err := rs.storedSurface(ctx, chatID, create)
+	// Read at every spawn, so each one rebuilds on the chat's durable landing VIEW.
+	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
-		return spawnPreflight{}, err
+		return spawnPreflight{}, fmt.Errorf("agent: spawn runner: chat surface: %w", err)
 	}
-	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, surface: surface}, nil
+	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, surface: chat.Surface}, nil
 }
 
 type forkRequest struct {

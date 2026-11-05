@@ -24,7 +24,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// stubChatsForSpawn answers a create=false spawn's reads of the chat; the
+// stubChatsForSpawn answers a spawn's reads of the chat; the
 // embedded nil interface panics on anything else.
 type stubChatsForSpawn struct {
 	agentchat.EventStore
@@ -144,7 +144,7 @@ func TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY(t *testing.T) {
 	h.seedLiveAPIConn(t, "runner-1")
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -161,7 +161,7 @@ func TestRegression_APTYLessRunnerExitsWhenItsServeProcessDies(t *testing.T) {
 	cmd := h.seedLiveAPIConn(t, "runner-1")
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 	<-h.lifecycle.started
 
@@ -181,7 +181,7 @@ func TestSpawnRunner_AHooksTransportProviderStillForksItsPTY(t *testing.T) {
 	h := newSpawnHarness(t, "")
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1, "claude's PTY is the session; it must still be forked")
@@ -195,7 +195,7 @@ func TestSpawnRunner_AnAPITransportSpawnWithNoLiveConnectionStillForksItsPTY(t *
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1,
@@ -209,7 +209,7 @@ func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *te
 	cmd := h.seedLiveAPIConn(t, "runner-1")
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 	<-h.lifecycle.started
 
@@ -450,7 +450,7 @@ func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *test
 
 	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
 		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
-	}, false)
+	})
 	require.NoError(t, err)
 
 	require.Empty(t, h.term.created,
@@ -477,7 +477,7 @@ func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *tes
 
 	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
 		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
-	}, false)
+	})
 
 	require.ErrorIs(t, err, ErrSpawnPromptUndeliverable)
 	select {
@@ -497,7 +497,7 @@ func TestSpawnRunner_TheForkedPTYCarriesThePromptWhenNoConnectionCameUp(t *testi
 
 	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
 		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
-	}, false)
+	})
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1)
@@ -534,7 +534,7 @@ type selectionConversations struct {
 }
 
 func (s selectionConversations) ChatSelection(
-	context.Context, string, bool,
+	context.Context, string,
 ) (engineagents.Selection, error) {
 	return s.sel, nil
 }
@@ -552,7 +552,7 @@ func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 	h.seedAdoptableAPIConn(t, stdio, agent)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -572,7 +572,7 @@ func TestRegression_ASelectionIsRecordedOnTheCarrierThatActuallyTookIt(t *testin
 	h.seedAdoptableAPIConn(t, stdio, agent)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	in := startedRow(t, h.rs.ledger, <-h.lifecycle.started)
@@ -590,7 +590,7 @@ func TestSpawnRunner_TheForkedPTYCarriesTheSelectionWhenNoConnectionCameUp(t *te
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep", Effort: "high"}}
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1)
@@ -619,7 +619,7 @@ func TestRegression_ASelectionCarryingSpawnStillDeliversItsPromptOverTheConnecti
 
 	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
 		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
-	}, false)
+	})
 	require.NoError(t, err)
 
 	require.Empty(t, h.term.created)
@@ -662,7 +662,7 @@ func TestSpawnRunner_ASpawnWithNoSelectionStillAdoptsItsConnection(t *testing.T)
 	h.seedAdoptableAPIConn(t, stdio, agent)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -677,7 +677,7 @@ func TestSpawnRunner_APermissionLevelAloneStillAdoptsTheConnection(t *testing.T)
 	h.seedLiveAPIConn(t, "runner-1")
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
-		spawnInput{runnerID: "runner-1"}, false)
+		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -694,7 +694,7 @@ func TestSpawnRunner_AnAttachingSpawnDeliversItsPromptOverTheConnection(t *testi
 	defer cancel()
 
 	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+		spawnInput{runnerID: "runner-1", promptMessage: "hi"})
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1, "the attach view forked")

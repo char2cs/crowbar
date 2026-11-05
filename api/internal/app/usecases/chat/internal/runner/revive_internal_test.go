@@ -123,7 +123,7 @@ func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarrie
 				h.rs.conversations = reviveConversations{provider: sc.current}
 				h.rs.ledger = turnedTestLedger(t, "claude", "S1")
 				if sc.live {
-					_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", sc.current, spawnInput{}, false)
+					_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", sc.current, spawnInput{})
 					require.NoError(t, err)
 				}
 				term.early = early
