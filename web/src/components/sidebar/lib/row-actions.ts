@@ -32,9 +32,9 @@ export function projectIdForRepo(repoId: string): string | undefined {
   return readSelect(selectRepos).find((r) => r.id === repoId)?.projectId
 }
 
-// The daemon renames the git branch, relocates the worktree and broadcasts the WorkspaceDTO, so
-// there is no optimistic write: a relabel would show a name that never landed. A 409 refusal
-// (name taken, locked, adopted checkout) carries a user-facing message, so it is surfaced.
+// The daemon renames the git branch and broadcasts the updated workspace, so there is no
+// optimistic write: a relabel would show a name that never landed. A 409 refusal (name taken,
+// locked, adopted checkout) carries a user-facing message, so it is surfaced.
 export async function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.workspaces.some((w) => w.id === wsId))
   const ws = repo?.workspaces.find((w) => w.id === wsId)

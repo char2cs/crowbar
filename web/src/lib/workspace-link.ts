@@ -22,11 +22,8 @@ function webUrl(link: string): string {
   return link.startsWith('//') ? `https:${link}` : link
 }
 
-/**
- * True, once the user is told why, when a link found in workspace `wsId`'s content (null:
- * content of no workspace) must not open on this computer: a loopback address from a
- * workspace on another host — or one whose host is not known — is that host's.
- */
+// True (after telling the user why) when a link in `wsId`'s content (null: no workspace's) must
+// not open here: a loopback address from a workspace on another, or unknown, host is that host's.
 export function refuseRemoteLoopback(link: string, wsId: string | null): boolean {
   if (wsId === null || !isLoopbackUrl(webUrl(link))) return false
   const hostId = resolvedHostOf({ wsId })

@@ -12,12 +12,9 @@ import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-/**
- * Hydrates this window's pane/buffer layout and sidebar UI from IndexedDB, not the
- * network, before the first render: a surface that mounts against empty defaults and
- * is swapped a frame later trips on a workspace store not yet armed for its pane.
- * The tree itself is the projects scope's, drawn as a skeleton until its snapshot.
- */
+// Hydrates this window's pane/buffer layout and sidebar UI from IndexedDB before first render: a
+// surface swapped from empty defaults a frame later trips on a workspace store not yet armed for
+// its pane. The tree itself is the projects scope's, drawn as a skeleton until its snapshot.
 export async function hydrateCriticalStores(): Promise<void> {
   void retireOrphanedStorage()
   const remoteHosts = prepareRemoteHosts()
