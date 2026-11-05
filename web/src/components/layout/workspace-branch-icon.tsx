@@ -28,8 +28,7 @@ export function WorkspaceBranchIcon({
   size = 'size-4',
   invertedGround,
 }: WorkspaceBranchIconProps) {
-  // `working` is the §5 in-flight flag that replaced the old 'agent-running'
-  // status overlay; it shows the spinner regardless of the underlying status.
+  // `working` is the §5 in-flight flag; it shows the spinner whatever the underlying status.
   if (working) return <WorkspaceAgentSpinner invertedGround={invertedGround} />
 
   // A placeholder is a locked row, but it needs the user's attention rather than

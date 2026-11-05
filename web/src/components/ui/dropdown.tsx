@@ -108,10 +108,8 @@ export function Dropdown(props: DropdownProps) {
   const anchorAlign = isAnchorMode ? ((props as AnchorPositioning).anchorAlign ?? 'start') : 'start'
   const point = !isAnchorMode ? (props as PointPositioning).point : null
 
-  // Pull the union members out once. Depending on the whole `props` object
-  // rebuilt these callbacks on every render (props is a fresh object each
-  // time), which defeated the useCallback entirely; the specific arrays are
-  // what the bodies actually read.
+  // Depend on the specific union arrays, not `props` (a fresh object each render), so the
+  // callbacks below actually memoize.
   const itemsProp = 'items' in props ? props.items : undefined
   const sectionsProp = 'sections' in props ? props.sections : undefined
   const hasItems = itemsProp != null

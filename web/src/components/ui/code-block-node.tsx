@@ -14,12 +14,8 @@ import { cn } from '@/lib/utils'
 import { CODE_SYNTAX_THEME } from '@/components/ui/code-syntax-theme'
 import { useRedecorateWhenGrammarReady } from '@/components/editor/plugins/use-redecorate-when-grammar-ready'
 
-// This file is `components/ui` only by shadcn-registry convention — it is
-// already Plate/markdown-specific (it imports `platejs` types and reads
-// `element.lang` for the language combobox below), not a generic reusable
-// primitive, so reaching into the markdown feature for the one extra
-// language case (`mermaid`) keeps all of this element's per-language
-// branching colocated rather than split across layers.
+// In `components/ui` only by shadcn convention; it is already Plate-specific, so reaching into
+// the markdown feature for `mermaid` keeps all per-language branching in one place.
 import { MermaidCodeBlock } from '@/features/editor/markdown/plate/mermaid-code-block'
 
 // `@/components/ui/command` wraps this app's own base-ui `Autocomplete`
@@ -242,17 +238,9 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
     <PlateElement className={cn('py-1', CODE_SYNTAX_THEME)} {...props}>
       <div className="relative rounded-md bg-muted/50">
         {isMermaid ? (
-          // The fenced code block stays a plain `code_block` node in the
-          // document model — this only changes how it RENDERS. `codeBody`
-          // (the actual Plate/Slate-controlled text) is passed through
-          // unchanged and stays mounted at all times; see
-          // mermaid-code-block.tsx for why.
-          //
-          // Join the code LINES with `\n`: a code block is `code_block >
-          // code_line[]`, and `NodeApi.string(element)` concatenates every
-          // line's text with no separator — so `graph TD` and `  A --> B`
-          // arrive as one line and mermaid fails to parse. Reconstruct the
-          // real multi-line source per line instead.
+          // Render-only: the node stays a `code_block` and `codeBody` stays mounted (mermaid-code-block.tsx).
+          // Join LINES with `\n`: `NodeApi.string(element)` concatenates code_lines with no separator,
+          // which mermaid cannot parse.
           <MermaidCodeBlock code={element.children.map((line) => NodeApi.string(line)).join('\n')}>
             {codeBody}
           </MermaidCodeBlock>

@@ -2,21 +2,9 @@ import { cva } from 'class-variance-authority'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { cn } from '@/utils/cn'
 
-// Trigger styling, with a variant axis rather than one hard-coded look.
-//
-// `ghost` exists for triggers that sit ON a surface rather than beside content — a
-// filled trigger there reads as a stray button someone left lying on the page.
-//
-// A ghost trigger has NO visible box, so its optical left edge is its ICON, not its
-// border. A caller aligning one to a text column must pull back the FULL chrome the
-// icon sits behind: px-2 (8px) PLUS the button's 1px transparent border, which renders
-// invisible but still takes space. That is 9px, not 8 — get it wrong and the trigger
-// looks a pixel out while every measurement insists it is aligned.
-//
-// Each variant is cn()'d so the trigger's own `px-2` beats buttonVariants' padding.
-// Do NOT hoist the shared classes into cva's base string: cva concatenates without
-// tailwind-merge, so the base would be emitted BEFORE the button classes and lose to
-// them — the trigger would silently render at the button's padding instead of its own.
+// `ghost` is for triggers on a surface; with no box, its optical edge is the icon, so text-column
+// alignment pulls back px-2 PLUS the 1px transparent border (9px). Variants are cn()'d so the
+// trigger's `px-2` wins; cva's base string skips tailwind-merge and would lose to buttonVariants.
 const TRIGGER_SHARED = 'min-w-0 gap-1 rounded-lg px-2 text-muted-foreground'
 
 const dropdownTriggerVariants = cva('', {

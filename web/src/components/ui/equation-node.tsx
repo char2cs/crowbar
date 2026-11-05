@@ -211,10 +211,8 @@ const EquationPopoverContent = ({
   return (
     <PopoverContent
       className="flex gap-2"
-      // Base UI's Popup has no `onEscapeKeyDown` escape hatch (that's a Radix
-      // prop this file was generated against) — this app's Popover primitive
-      // closes on Escape via its own default handling instead, so there's no
-      // default to suppress here.
+      // No `onEscapeKeyDown` (a Radix prop): Base UI's Popover closes on Escape by default,
+      // so there is nothing to suppress.
       contentEditable={false}
     >
       <EquationInput

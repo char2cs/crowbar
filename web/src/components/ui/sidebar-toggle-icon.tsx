@@ -3,29 +3,14 @@ import { cn } from '@/utils/cn'
 
 type SidebarToggleIconProps = React.SVGProps<SVGSVGElement>
 
-/**
- * Sidebar-toggle glyph: a rounded panel with a left rail that carries two short
- * content lines. Lucide's PanelLeft leaves that rail empty, which reads as a
- * plain divided rectangle rather than "a sidebar"; the content lines are what
- * make the metaphor legible, matching the reference browser's toolbar.
- *
- * Authored here rather than copied: the reference icon is from a commercial
- * (Nucleo) set that cannot be redistributed. This is original path data for the
- * same standard UI metaphor. Stroke-based so it composes with the muted token
- * and sits consistently beside the Lucide arrows/settings in the same cluster.
- */
+// A panel whose left rail carries two content lines (an empty rail reads as a divided box, not a
+// sidebar). Original path data: the reference is a non-redistributable commercial icon. Stroked to
+// sit with the Lucide glyphs beside it.
 export function SidebarToggleIcon({ className, ...props }: SidebarToggleIconProps) {
   return (
     <svg
-      // Sized by CLASS, not by width/height attributes, and that is the whole
-      // point. Button sizes its icons with `[&_svg:not([class*='size-'])]`,
-      // which beats presentation attributes — so the old `size={14}` / `size={16}`
-      // props were silently ignored and the glyph took whichever size its button
-      // variant dictated: 14px in the tab bar (icon-xs), 16px in the sidebar
-      // header (icon-sm), and 16/18px respectively below the `sm` breakpoint.
-      // Same button, four sizes. Carrying a size- class opts out of that rule
-      // entirely, so the toggle is one size everywhere; callers can still
-      // override by passing their own.
+      // Sized by CLASS: Button's `[&_svg:not([class*='size-'])]` rule beats width/height attributes,
+      // so a size- class is what keeps the toggle one size everywhere (callers may override).
       className={cn('size-4', className)}
       viewBox="0 0 24 24"
       fill="none"

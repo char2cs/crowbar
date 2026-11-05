@@ -49,9 +49,7 @@ export function FlickerSpinner({
       ref={boxRef}
       role="status"
       aria-label="Loading"
-      // The stable hook for "this is the real flicker spinner" — call-site
-      // tests assert on it. They used to look for an <animate> element, which
-      // is no longer how the animation is expressed.
+      // The stable hook call-site tests assert on for "this is the real flicker spinner".
       data-flicker-spinner=""
       // Exempt from index.css's reduced-motion kill-switch: a frozen status spinner reads as
       // "hung". Guarded by __tests__/reduced-motion.test.ts.

@@ -84,12 +84,9 @@ export function TableFloatingToolbar({ children }: { children: React.ReactElemen
   const isFocusedLast = useFocusedLast()
   const [isExpandedSelectionToolbarReady, setIsExpandedSelectionToolbarReady] =
     React.useState(false)
-  // `getSelectedCellIds` only reports cells once a range spans more than one
-  // cell, so a count of zero means the selection (a caret or an expanded
-  // range) is confined to a single cell. Gating on it instead of
-  // `editor.api.isCollapsed()` keeps the row/column controls available while a
-  // cell's content is fully selected (e.g. select-all inside a cell), not just
-  // while the caret is collapsed in it.
+  // Zero selected cell ids means the selection is within one cell (ids appear only once a range
+  // spans two). Gating on that, not isCollapsed(), keeps row/column controls while a cell's content
+  // is fully selected.
   const isSingleCellToolbarOpen = isFocusedLast && selected && selectedCellCount === 0
   const isExpandedSelectionPending = isFocusedLast && selectedCellCount > 1
 
