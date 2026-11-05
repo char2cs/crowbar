@@ -100,8 +100,8 @@ function IdeShellBody() {
           }
         />
         <SidebarFoot />
-        {/* The removal service (commit clock, pagehide flush, confirm dialog), mounted where nothing
-            unmounts it: a gated tray never sends its DELETE. */}
+        {/* The removal service (commit clock, pagehide flush, confirm dialog), mounted where
+            nothing unmounts it: a gated tray never sends its DELETE. */}
         <RemovalTray />
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>

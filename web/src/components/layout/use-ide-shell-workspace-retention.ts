@@ -39,9 +39,9 @@ export function useIdeShellWorkspaceRetention(
   homeWorkspacePath: string | null = null,
   projectPath = '',
 ): IdeShellWorkspaceRetention {
-  // The ACTIVE PANE's workspace: "the workspace you're in" for the file-explorer card and the host's
-  // active slot, so focusing a split's other pane moves them. Read off the pane record, so clicking
-  // between two chats of one workspace re-renders nothing.
+  // The ACTIVE PANE's workspace: "the workspace you're in" for the file-explorer card and the
+  // host's active slot, so focusing a split's other pane moves them. Read off the pane record, so
+  // clicking between two chats of one workspace re-renders nothing.
   const activePaneWorkspaceId = useActivePaneWorkspaceId()
   // Every workspace a view member belongs to, and every workspace some pane's
   // editor tabs reference (an editor-only pane names no chat) — together, the

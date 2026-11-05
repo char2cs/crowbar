@@ -29,8 +29,8 @@ const SIZES = {
 interface ProjectIconMarkProps {
   project: ProjectIconSource
   size: keyof typeof SIZES
-  /** Cache-buster for surfaces that change the icon. Stacks with the daemon's `?v=` (moves only when
-   *  the DTO streams back) because this one moves the instant the upload resolves. */
+  /** Cache-buster for surfaces that change the icon. Stacks with the daemon's `?v=` (moves only
+   *  when the DTO streams back) because this one moves the instant the upload resolves. */
   version?: number
 }
 
@@ -93,8 +93,8 @@ function ProjectIconImage({
   }
   if (!hostResolved) return fallback
 
-  // Resolved for the BROWSER: the DTO's bare `/v0/...` path is not the webview's origin, and it would
-  // 404 into the default glyph, making an uploaded icon look like none.
+  // Resolved for the BROWSER: the DTO's bare `/v0/...` path is not the webview's origin, and it
+  // would 404 into the default glyph, making an uploaded icon look like none.
   const url = projectAssetURL(projectId, avatarUrl)
   const src = version === undefined ? url : `${url}${url.includes('?') ? '&' : '?'}v=${version}`
 

@@ -87,9 +87,9 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
   ) => (
     <button
       ref={ref}
-      // A click must not leave the focus ring: WebKit shows `:focus-visible` for real trackpad clicks.
-      // preventDefault on mousedown stops the focus move (keyboard never uses mousedown), unless a
-      // caller's handler (dnd-kit's drag activation) already took the event.
+      // A click must not leave the focus ring: WebKit shows `:focus-visible` for real trackpad
+      // clicks. preventDefault on mousedown stops the focus move (keyboard never uses mousedown),
+      // unless a caller's handler (dnd-kit's drag activation) already took the event.
       onMouseDown={(e) => {
         onMouseDown?.(e)
         if (!e.defaultPrevented) e.preventDefault()

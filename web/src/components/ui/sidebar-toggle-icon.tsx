@@ -9,8 +9,9 @@ type SidebarToggleIconProps = React.SVGProps<SVGSVGElement>
 export function SidebarToggleIcon({ className, ...props }: SidebarToggleIconProps) {
   return (
     <svg
-      // Sized by CLASS: Button's `[&_svg:not([class*='size-'])]` rule beats width/height attributes,
-      // so a size- class is what keeps the toggle one size everywhere (callers may override).
+      // Sized by CLASS: Button's `[&_svg:not([class*='size-'])]` rule beats width/height
+      // attributes, so a size- class is what keeps the toggle one size everywhere (callers may
+      // override).
       className={cn('size-4', className)}
       viewBox="0 0 24 24"
       fill="none"

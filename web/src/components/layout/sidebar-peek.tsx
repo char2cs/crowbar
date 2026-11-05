@@ -42,8 +42,8 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
   const peeking = hidden && hovered
   const isRight = side === 'right'
 
-  // Hit-tested, so a closed peek costs the editor nothing. Once open, the card's footprint counts as
-  // still peeking, so no close timer is needed: there is no gap to cross.
+  // Hit-tested, so a closed peek costs the editor nothing. Once open, the card's footprint counts
+  // as still peeking, so no close timer is needed: there is no gap to cross.
   useEffect(() => {
     if (!hidden) {
       // Pinning the sidebar open must not leave a stale hover behind, or the
@@ -128,11 +128,12 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
                 // affordances while staying below the z-50 portal layer.
                 'fixed inset-y-2 z-40 w-(--peek-width) max-w-[calc(100vw-1rem)]',
                 isRight ? 'right-2' : 'left-2',
-                // The floating-surface recipe (popover.tsx): bg-clip-padding keeps the background out
-                // of the translucent border; the inset ::before carries the hairline highlight.
+                // The floating-surface recipe (popover.tsx): bg-clip-padding keeps the background
+                // out of the translucent border; the inset ::before carries the hairline highlight.
                 'overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg/5 outline-none not-dark:bg-clip-padding',
-                // The command palette's `before:bg-muted` wash takes the glare off light-mode white and
-                // lifts the card in dark (--muted is 4% black/white), with no per-theme override.
+                // The command palette's `before:bg-muted` wash takes the glare off light-mode white
+                // and lifts the card in dark (--muted is 4% black/white), with no per-theme
+                // override.
                 'before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-xl)-1px)] before:bg-muted before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]',
                 // Transform only, so it composites. Reduced motion is handled
                 // globally by the kill-switch in index.css.

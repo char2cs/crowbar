@@ -23,9 +23,9 @@ export function IdeShellWorkspaceContent({
     <div className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
       {showViewTabs && <ViewTabsRow />}
       <ErrorBoundary>
-        {/* Mounted for the whole session, home route included, so retained workspaces stay warm. A
-            workspace stays mounted while home (homeWsIds), a pane (paneWsIds) or Recents (viewWsIds)
-            names it. The Outlet stays mounted so route-level guards keep running. */}
+        {/* Mounted all session, home route included, so retained workspaces stay warm; one stays
+            while home (homeWsIds), a pane (paneWsIds) or Recents (viewWsIds) names it. The Outlet
+            stays mounted so route-level guards keep running. */}
         <WorkspaceHost
           activeWsId={effectiveActiveWorkspaceId}
           homeWsIds={getKnownHomeWorkspaceIds()}

@@ -106,7 +106,8 @@ export function DragGhostRows({ rows }: { rows: GhostRows }) {
 }
 
 // A carried clone wears ROW_ACTIVE whatever it wore in the list: ROW_INACTIVE has no fill and
-// vanishes over the editor. Says nothing about which workspace is open; the source row is unchanged.
+// vanishes over the editor. Says nothing about which workspace is open; the source row is
+// unchanged.
 function liftClone(clone: HTMLElement): void {
   for (const cls of ROW_INACTIVE.split(/\s+/)) clone.classList.remove(cls)
   for (const cls of ROW_ACTIVE.split(/\s+/)) clone.classList.add(cls)

@@ -38,8 +38,8 @@ export const BlockSelectionKit = [
   BlockSelectionPlugin.configure(({ editor }) => ({
     options: {
       enableContextMenu: true,
-      // Cmd/Ctrl+A goes to the text selection (SelectAllDocument): a BLOCK selection's keymap ignores
-      // left/right, so a fully selected document would never collapse.
+      // Cmd/Ctrl+A goes to the text selection (SelectAllDocument): a BLOCK selection's keymap
+      // ignores left/right, so a fully selected document would never collapse.
       disableSelectAll: true,
       isSelectable: (element) =>
         !getPluginTypes(editor, [KEYS.column, KEYS.codeLine, KEYS.td]).includes(element.type),
@@ -48,8 +48,9 @@ export const BlockSelectionKit = [
       belowRootNodes: (props) => {
         if (!hasSelectableClass(props)) return null
 
-        // `belowRootNodes`' props are generic over this plugin's config while `BlockSelection` takes plain
-        // `PlateElementProps`: same runtime shape, but TS won't unify them (upstream casts too).
+        // `belowRootNodes`' props are generic over this plugin's config while `BlockSelection`
+        // takes plain `PlateElementProps`: same runtime shape, but TS won't unify them (upstream
+        // casts too).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the two plugin generics do not unify structurally
         return <BlockSelection {...(props as any)} />
       },

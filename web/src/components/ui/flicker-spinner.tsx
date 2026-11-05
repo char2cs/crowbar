@@ -29,8 +29,8 @@ export function FlickerSpinner({
   const boxRef = useRef<HTMLSpanElement>(null)
   const stripRef = useRef<HTMLSpanElement>(null)
 
-  // Park the animation while off-screen (the sidebar carousel, scrolled-out rows). Fail-open: only a
-  // definitive not-intersecting pauses it, since a wrongly frozen spinner reads as "hung".
+  // Park the animation while off-screen (the sidebar carousel, scrolled-out rows). Fail-open: only
+  // a definitive not-intersecting pauses it, since a wrongly frozen spinner reads as "hung".
   useEffect(() => {
     const box = boxRef.current
     if (!box || typeof IntersectionObserver === 'undefined') return
@@ -55,8 +55,8 @@ export function FlickerSpinner({
       // "hung". Guarded by __tests__/reduced-motion.test.ts.
       data-essential-motion=""
       // Sized by className and coloured by an ancestor text-* token (fill="currentColor").
-      // overflow-hidden is the strip's frame window; shrink-0 stops a squeezed flex row narrowing the
-      // box, which would play crushed slivers.
+      // overflow-hidden is the strip's frame window; shrink-0 stops a squeezed flex row narrowing
+      // the box, which would play crushed slivers.
       className={cn(
         'relative inline-flex size-4 shrink-0 items-center justify-center overflow-hidden',
         className,

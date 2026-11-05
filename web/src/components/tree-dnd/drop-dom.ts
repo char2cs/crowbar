@@ -131,7 +131,8 @@ export function createDropHitTest<
   return (x, y, subjects) => {
     for (const el of document.elementsFromPoint(x, y)) {
       // The ghost is a deep clone carrying real drop attributes under the cursor. `pointer-events:
-      // none` should hide it from `elementsFromPoint`; this zero-cost check makes sure it is never a hit.
+      // none` should hide it from `elementsFromPoint`; this zero-cost check makes sure it is never
+      // a hit.
       if (el.closest('[data-drag-ghost]')) continue
       for (const z of zones) {
         if (el.hasAttribute(z.attr)) return z.hit(subjects, el, { x, y })

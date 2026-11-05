@@ -17,7 +17,8 @@ export function useShellRouteState() {
   const navigate = useNavigate()
 
   // §7: route params are canonical for the active scope (the sidebar store lags on cold start).
-  // Recorded SYNCHRONOUSLY in render: WorkspaceView builds workspaceBase() URLs during its own render.
+  // Recorded SYNCHRONOUSLY in render: WorkspaceView builds workspaceBase() URLs during its own
+  // render.
   const routeScope = recordWorkspaceScopeFromPath(pathname)
   const homeRouteMatch = routeScope ? null : pathname.match(/\/ide\/([^/]+)\/home$/)
   const activeProjectId = routeScope?.projectId ?? homeRouteMatch?.[1]

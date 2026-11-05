@@ -60,9 +60,9 @@ export async function handleCreate(
   if (!projectId) return
 
   if (kind === 'workspace') {
-    // The daemon places by CHAT id. A branch row's id already is one; a regular fork's row is id'd by
-    // its workspace, so read the owner off the record. Falls back to the clicked id for the repo home,
-    // a folder, or a frame with no owner yet.
+    // The daemon places by CHAT id. A branch row's id already is one; a regular fork's row is id'd
+    // by its workspace, so read the owner off the record. Falls back to the clicked id for the repo
+    // home, a folder, or a frame with no owner yet.
     const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
     // A bubble's ground workspace can ALSO be the repo home — never in
     // `repo.workspaces` — so it resolves the way the home row's own id was rendered.

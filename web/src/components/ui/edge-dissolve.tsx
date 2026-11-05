@@ -4,8 +4,8 @@ import { cn } from '@/lib/utils'
 interface DissolveLayerSpec {
   /** px blur radius for THIS layer's backdrop-filter. */
   blur: number
-  /** Mask stops as fractions of the zone (0 = far edge, 1 = near): transparent→black, then →black→
-   *  transparent for mid layers; the last two run to the near edge. From composer.css's
+  /** Mask stops as fractions of the zone (0 = far edge, 1 = near): transparent→black, then
+   *  →black→ transparent for mid layers; the last two run to the near edge. From composer.css's
    *  `.dissolve-layer`: stacked masked layers fake a ramping blur one backdrop-filter can't. */
   stops: number[]
 }

@@ -238,9 +238,9 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
     <PlateElement className={cn('py-1', CODE_SYNTAX_THEME)} {...props}>
       <div className="relative rounded-md bg-muted/50">
         {isMermaid ? (
-          // Render-only: the node stays a `code_block` and `codeBody` stays mounted (mermaid-code-block.tsx).
-          // Join LINES with `\n`: `NodeApi.string(element)` concatenates code_lines with no separator,
-          // which mermaid cannot parse.
+          // Render-only: the node stays a `code_block` and `codeBody` stays mounted
+          // (mermaid-code-block.tsx). Join LINES with `\n`: `NodeApi.string(element)` concatenates
+          // code_lines with no separator, which mermaid cannot parse.
           <MermaidCodeBlock code={element.children.map((line) => NodeApi.string(line)).join('\n')}>
             {codeBody}
           </MermaidCodeBlock>

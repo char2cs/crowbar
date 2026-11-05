@@ -76,8 +76,8 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
       void createSidebarRow(parentId, kind, navigate),
     [navigate],
   )
-  // The row's X control: the same `handleTrash` as drag-to-trash, and the same toast when it refuses,
-  // since `handleTrash` answers only true/false.
+  // The row's X control: the same `handleTrash` as drag-to-trash, and the same toast when it
+  // refuses, since `handleTrash` answers only true/false.
   const onTrash = useCallback(
     (id: string) => {
       if (handleTrash(id)) return

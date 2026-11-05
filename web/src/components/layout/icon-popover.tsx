@@ -226,8 +226,8 @@ export function IconPopover({
                   {emoji}
                 </AvatarFallback>
               ) : (
-                // Always both (Base UI's pairing): Fallback shows when Image fails to load, so a bad
-                // staged or stale `src` lands on `fallbackLarge`, not an empty square.
+                // Always both (Base UI's pairing): Fallback shows when Image fails to load, so a
+                // bad staged or stale `src` lands on `fallbackLarge`, not an empty square.
                 <>
                   {src && <AvatarImage src={src} alt={name} />}
                   <AvatarFallback className="rounded-xl bg-transparent">
