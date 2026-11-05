@@ -20,23 +20,9 @@ func TestStorageDir(t *testing.T) {
 	)
 }
 
-func TestThreadsStorageDir(t *testing.T) {
-	dir := ThreadsStorageDir("/crow", "proj-1", "repo-1", "ws-abc")
-	assert.Equal(
-		t,
-		"/crow/projects/proj-1/repo-1/workspaces/ws-abc/threads/storages",
-		dir,
-	)
-}
-
 func TestRepoDir(t *testing.T) {
 	dir := RepoDir("/crow", "proj-1", "repo-1")
 	assert.Equal(t, "/crow/projects/proj-1/repo-1", dir)
-}
-
-func TestRepoStorageDir(t *testing.T) {
-	dir := RepoStorageDir("/crow", "proj-1", "repo-1")
-	assert.Equal(t, "/crow/projects/proj-1/repo-1/storages", dir)
 }
 
 func TestRepoIconPath(t *testing.T) {
@@ -49,12 +35,7 @@ func TestProjectDir(t *testing.T) {
 	assert.Equal(t, "/crow/projects/proj-1", dir)
 }
 
-func TestProjectStorageDir(t *testing.T) {
-	dir := ProjectStorageDir("/crow", "proj-1")
-	assert.Equal(t, "/crow/projects/proj-1/storages", dir)
-}
-
-// --- Human-readable worktree path derivation (Task 3, spec §3.9) ---
+// --- Human-readable worktree path derivation ---
 
 func TestDerive(t *testing.T) {
 	home := "/h"

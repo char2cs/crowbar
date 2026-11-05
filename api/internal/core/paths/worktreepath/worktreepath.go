@@ -236,22 +236,6 @@ func StorageDir(
 	)
 }
 
-// ThreadsStorageDir returns the per-workspace thread storage directory.
-//
-// Path: .../workspaces/<workspaceID>/threads/storages
-func ThreadsStorageDir(
-	crowbarHome string,
-	projectID string,
-	repoID string,
-	workspaceID string,
-) string {
-	return filepath.Join(
-		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
-		"threads",
-		"storages",
-	)
-}
-
 // RepoDir returns the per-repo directory.
 //
 // Path: <crowbarHome>/projects/<projectID>/<repoID>
@@ -261,17 +245,6 @@ func RepoDir(
 	repoID string,
 ) string {
 	return filepath.Join(ProjectDir(crowbarHome, projectID), repoID)
-}
-
-// RepoStorageDir returns the per-repo storage directory.
-//
-// Path: .../projects/<projectID>/<repoID>/storages
-func RepoStorageDir(
-	crowbarHome string,
-	projectID string,
-	repoID string,
-) string {
-	return filepath.Join(RepoDir(crowbarHome, projectID, repoID), "storages")
 }
 
 // RepoIconPath returns the per-repo icon file path.
@@ -293,16 +266,6 @@ func ProjectDir(
 	projectID string,
 ) string {
 	return filepath.Join(crowbarHome, "projects", projectID)
-}
-
-// ProjectStorageDir returns the per-project storage directory.
-//
-// Path: .../projects/<projectID>/storages
-func ProjectStorageDir(
-	crowbarHome string,
-	projectID string,
-) string {
-	return filepath.Join(ProjectDir(crowbarHome, projectID), "storages")
 }
 
 func workspaceDir(

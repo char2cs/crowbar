@@ -12,9 +12,6 @@ internal/app/repositories/workspace/internal/reconcile/reconcile.go: WithTimeout
 internal/app/repositories/workspace/workspace.go: WithReconciler
 internal/app/usecases/chat/aliases.go: NewToolSet
 internal/core/binpath/git.go: InvalidateGit
-internal/core/paths/worktreepath/worktreepath.go: ProjectStorageDir
-internal/core/paths/worktreepath/worktreepath.go: RepoStorageDir
-internal/core/paths/worktreepath/worktreepath.go: ThreadsStorageDir
 internal/core/terminal/internal/model/vt_model.go: ResponseSinkInstalledForTest
 internal/core/terminal/internal/session/session_testseams.go: SetNewModelForTest
 internal/engine/lsp/internal/manager/manager.go: WithLookPath
