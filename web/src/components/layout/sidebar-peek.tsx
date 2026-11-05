@@ -15,17 +15,8 @@ import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 const SLIDE_PROPERTIES = new Set(['translate', 'transform'])
 /** Gap between the peeked card and the window edges (Tailwind `inset-2`). */
 const PEEK_MARGIN_PX = 8
-/**
- * How close to the window edge the pointer must come to summon the peek.
- *
- * The window is natively framed and resizable (`decorations` defaults to true,
- * `resizable: true` in tauri.conf.json), so AppKit owns a resize tracking band a
- * few points wide at the frame. Those points are lost to us either way, which is
- * why this is a hit TEST rather than a hit TARGET: an actual element here would
- * sit on top of the editor and swallow its wheel, clicks and text selection in
- * that column — and with the sidebar docked right it would cover most of
- * Monaco's 14px vertical scrollbar, making it undraggable.
- */
+/** Edge distance that summons the peek. A hit TEST, not an element: an element would swallow the
+ *  editor's wheel, clicks and selection there (and Monaco's scrollbar when docked right). */
 const EDGE_TRIGGER_PX = 6
 /** Top chrome band — never summon from behind the traffic lights / drag region. */
 const CHROME_BAND_PX = CHROME_ROW_HEIGHT_PX
@@ -41,25 +32,9 @@ interface SidebarPeekProps {
   children: ReactNode
 }
 
-/**
- * Hover-to-peek host for the sidebar.
- *
- * While the sidebar is hidden, bringing the pointer to the window edge it is
- * docked against slides a floating copy of it in over the editor; moving away
- * slides it out. Peeking is not pinning: it changes no panel geometry, so the
- * editor never reflows, the panel stays collapsed and `sidebarOpen` stays false.
- *
- * The wrappers render in EVERY state and never move in the tree; only their
- * classes change. That is load-bearing — rendering `children` into a separate
- * overlay container when hidden would unmount and rebuild the entire sidebar
- * (workspace tree, carousel scroll offset, file explorer, agent chat list),
- * which is the same defect that made flipping the sidebar's side so expensive.
- * See the comment above `sidebarPanel` in ide-shell.tsx.
- *
- * The docked sidebar is deliberately transparent so the native window vibrancy
- * shows through; a floating card cannot be, or the editor would read through it,
- * so the peek wears the app's standard popover surface instead.
- */
+// While the sidebar is collapsed, the pointer at its window edge slides a floating copy over the
+// editor without changing panel geometry. The wrappers never move in the tree (only classes change)
+// so the sidebar never remounts; the card wears the popover surface since vibrancy can't float.
 export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps) {
   const [hovered, setHovered] = useState(false)
   const setOccupied = useSidebarPeekStore((s) => s.setOccupied)
@@ -67,10 +42,8 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
   const peeking = hidden && hovered
   const isRight = side === 'right'
 
-  // Hit-tested against the pointer rather than served by an element, so the peek
-  // costs the editor nothing while it is closed. Once open, the card's own
-  // footprint counts as "still peeking" — which is what removes the need for a
-  // close timer: there is no gap between the trigger band and the card to cross.
+  // Hit-tested, so a closed peek costs the editor nothing. Once open, the card's footprint counts as
+  // still peeking, so no close timer is needed: there is no gap to cross.
   useEffect(() => {
     if (!hidden) {
       // Pinning the sidebar open must not leave a stale hover behind, or the
@@ -155,18 +128,11 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
                 // affordances while staying below the z-50 portal layer.
                 'fixed inset-y-2 z-40 w-(--peek-width) max-w-[calc(100vw-1rem)]',
                 isRight ? 'right-2' : 'left-2',
-                // The app's floating-surface recipe (popover.tsx / dialog.tsx):
-                // bg-clip-padding stops the background bleeding through the
-                // translucent light-mode border, and the inset ::before carries
-                // the hairline highlight at the parent radius minus its 1px.
+                // The floating-surface recipe (popover.tsx): bg-clip-padding keeps the background out
+                // of the translucent border; the inset ::before carries the hairline highlight.
                 'overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg/5 outline-none not-dark:bg-clip-padding',
-                // The `before:bg-muted` wash is the command palette's recipe
-                // (command.tsx) for a large surface that would otherwise glare:
-                // --popover is pure white in light mode, which reads far
-                // brighter than the docked sidebar's vibrancy glass it stands in
-                // for. --muted is 4% black in light and 4% WHITE in dark, so one
-                // token both takes the glare off and lifts the card off the
-                // background — no per-theme override.
+                // The command palette's `before:bg-muted` wash takes the glare off light-mode white and
+                // lifts the card in dark (--muted is 4% black/white), with no per-theme override.
                 'before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-xl)-1px)] before:bg-muted before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]',
                 // Transform only, so it composites. Reduced motion is handled
                 // globally by the kill-switch in index.css.

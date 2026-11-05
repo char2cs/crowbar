@@ -18,14 +18,9 @@ import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
 import { report } from '@/lib/errors/report'
 
-/**
- * A pick made in `onStage` mode (create-space-panel.tsx) — nothing hits the
- * network yet, since there is no entity id to hang `base` off until the
- * space itself exists. `previewUrl` is always a URL the popover's own
- * `<img>` can load immediately (a `blob:` object URL for a browser File, an
- * `asset://` one via `convertFileSrc` for a Tauri-picked path); the raw
- * `file`/`path` is what the caller actually persists once a real id exists.
- */
+// A pick in `onStage` mode (create-space-panel.tsx): nothing is sent until the entity exists.
+// `previewUrl` loads at once (blob: for a File, asset:// for a Tauri path); `file`/`path` is
+// what the caller persists once it has an id.
 export type StagedIcon =
   | { kind: 'emoji'; emoji: string }
   | { kind: 'path'; path: string; previewUrl: string }
@@ -33,13 +28,8 @@ export type StagedIcon =
   | { kind: 'reset' }
 
 interface IconPopoverProps {
-  /**
-   * The entity's REST base — `/v0/projects/<id>` or
-   * `/v0/projects/<id>/repos/<id>`, qualified with the entity's host (projectBase/repoBase,
-   * lib/project-url). Every mutation below hangs off it, which is
-   * the whole reason one component can serve both: the daemon exposes the same
-   * four routes under each. Unused when `onStage` is provided.
-   */
+  /** The entity's host-qualified REST base (projectBase/repoBase); the daemon serves the same icon
+   *  routes under a project and a repo, so one component serves both. Unused with `onStage`. */
   base?: string
   /** Names the trigger and the preview image, for screen readers. */
   name: string
@@ -51,44 +41,19 @@ interface IconPopoverProps {
   fallback: ReactNode
   /** The same default, drawn large for the popover's preview. */
   fallbackLarge: ReactNode
-  /**
-   * Replaces the composed emoji/image/fallback mark on the trigger. Pass this
-   * when the same mark is drawn somewhere else too (the project mark is also in
-   * the context pill) so both surfaces render ONE component and cannot drift.
-   * `emoji`/`iconUrl` are still required — the popover body reads them for its
-   * preview and for whether there is anything to remove. Receives the cache-bust
-   * version so the shared mark refetches after an upload — the proxy URL is
-   * stable, so without it a mounted <img> keeps the old bytes.
-   */
+  /** Replaces the trigger mark when it is drawn elsewhere too, so both render one component.
+   *  `emoji`/`iconUrl` still feed the preview; `version` cache-busts the stable proxy URL. */
   trigger?: (version: number) => ReactNode
-  /**
-   * Offer the GitHub owner-avatar button. Repos only: it reads the repo's
-   * `origin` remote, and a project has none of its own.
-   */
+  /** Offer the GitHub owner-avatar button. Repos only: it reads the repo's `origin` remote. */
   github?: boolean
-  /**
-   * Stage a pick locally instead of mutating `base` over the network — the
-   * caller owns `emoji`/`iconUrl` as controlled props and feeds the staged
-   * choice straight back in, the same round trip a real mutation's refetch
-   * would otherwise do. `base`/`github` are ignored in this mode: GitHub's
-   * avatar fetch needs a real repo origin, which nothing has before it exists.
-   */
+  /** Stage picks locally instead of mutating `base`; the caller feeds them back as controlled
+   *  `emoji`/`iconUrl`. `base`/`github` are ignored: nothing has an origin before it exists. */
   onStage?: (change: StagedIcon) => void
 }
 
-/**
- * The editable icon shared by a repo's header row and the project switcher.
- *
- * Clicking the mark — and only the mark, the click is stopped from bubbling to
- * the row — opens the editor; hovering it reveals a pencil saying it is
- * editable. It edits the ICON only: renaming stays on the name's double-click,
- * on both.
- *
- * Three states, in precedence order: an emoji, an uploaded image, or the
- * entity's own default. That order is the daemon's (see the icons package), not
- * this component's — setting an emoji clears a stored image server-side, so the
- * two can never both be live.
- */
+// The editable icon of a repo header and the project switcher. Only the mark opens it (clicks stop
+// short of the row); it edits the icon, never the name. Precedence emoji > image > default is the
+// daemon's: setting an emoji clears a stored image, so both are never live.
 export function IconPopover({
   base,
   name,
@@ -103,12 +68,8 @@ export function IconPopover({
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
   const [loading, setLoading] = useState(false)
-  // The icon proxy URL is stable, so the browser caches the image and will not
-  // refetch after an upload/github/reset changes the bytes in place. Bump this
-  // on every successful mutation and append it as a cache-busting query param so
-  // both the popover preview and the row mark refresh. Meaningless in `onStage`
-  // mode — a staged preview URL (blob:/asset://) is already fresh per pick, and
-  // appending a query param to one would break it outright.
+  // The proxy URL is stable, so bump a cache-busting param after each mutation to refresh both
+  // marks. Not in `onStage` mode: a blob:/asset:// preview is fresh per pick and a query breaks it.
   const [version, setVersion] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -233,13 +194,8 @@ export function IconPopover({
     <Popover>
       <PopoverTrigger
         aria-label={`Edit ${name} icon`}
-        // `align-middle`: a caller wrapping this trigger in a bare `<span>`
-        // makes that span this button's inline formatting context. An `inline-flex` box with no `vertical-align` set defaults
-        // to `baseline` there, sitting a few px above the row's true center
-        // even though the button centers ITS OWN children correctly — caught
-        // live as an uploaded project/repo icon sitting visibly high next to
-        // its name. Meaningless (and harmless) once a caller's own wrapper is
-        // itself a flex/grid container, so this is safe for every trigger.
+        // `align-middle`: inside a caller's bare inline `<span>`, an inline-flex box defaults to
+        // baseline and sits a few px high. Harmless when the wrapper is flex/grid.
         className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -270,12 +226,8 @@ export function IconPopover({
                   {emoji}
                 </AvatarFallback>
               ) : (
-                // Always both, Base UI's own intended pairing — not an
-                // either/or ternary: Image tracks its own load/error status
-                // on the Root's context, and Fallback reads that to decide
-                // whether IT shows, so a `src` that fails to load (a staged
-                // preview URL the webview can't fetch, a stale proxy path)
-                // still lands on `fallbackLarge` instead of an empty square.
+                // Always both (Base UI's pairing): Fallback shows when Image fails to load, so a bad
+                // staged or stale `src` lands on `fallbackLarge`, not an empty square.
                 <>
                   {src && <AvatarImage src={src} alt={name} />}
                   <AvatarFallback className="rounded-xl bg-transparent">
