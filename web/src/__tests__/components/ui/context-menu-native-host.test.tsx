@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { ContextMenu } from '@/components/ui/context-menu'
 
 const MENU_RID = 7
@@ -97,7 +97,8 @@ describe('ContextMenu — native path (isTauri() true)', () => {
       />,
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Flush the effects and any promise they started.
+    await act(async () => {})
     expect(menuNewMock).not.toHaveBeenCalled()
     expect(invokeMock).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
@@ -160,10 +161,9 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     // unopened, asserted below; the popped one stays open until its action
     // runs or the next menu replaces it). What must stay singular is the actual popup.
     await waitFor(() => expect(menuNewMock).toHaveBeenCalledTimes(2))
-    // Give any extra (buggy) popup call a chance to fire before asserting it didn't.
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // The cancelled invocation closing its menu is the point it would otherwise have popped it.
+    await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(2))
     expect(invokeMock).toHaveBeenCalledOnce()
-    expect(closeMock).toHaveBeenCalledTimes(2)
   })
 })
 
