@@ -1,10 +1,6 @@
-/**
- * Monaco language-feature providers backed by the daemon's /lsp routes: completion, hover,
- * signature help, definition, references, rename, code actions, document symbols, code lens,
- * semantic tokens and document formatting. Monaco owns every widget (suggest, hover, parameter
- * hints, peek, rename box, lightbulb, lenses, outline); this module only answers queries (each
- * through `lsp-query.ts`) and runs the server commands lenses and actions carry.
- */
+// Monaco language-feature providers backed by the daemon's /lsp routes. Monaco owns every widget;
+// this only answers queries (through lsp-query.ts) and runs the server commands lenses and actions
+// carry.
 import { editor as monacoEditor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type {
@@ -78,10 +74,8 @@ function splitWorkspaceEdit(
   return { monacoEdits, rest }
 }
 
-/**
- * Apply an edit the server produced: files open in Monaco are edited through
- * their models (one undo step each), the rest through the buffers/disk.
- */
+/** Apply a server edit: files open in Monaco are edited through their models (one undo step
+ *  each), the rest through the buffers/disk. */
 async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void> {
   const rest: Record<string, TextEdit[]> = {}
   for (const [path, edits] of workspaceEditByPath(edit)) {
@@ -101,10 +95,8 @@ async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void>
   if (Object.keys(rest).length > 0) await applyWorkspaceEdit({ changes: rest }, wsId)
 }
 
-/**
- * Run a lens's or action's server command: the daemon executes it and hands
- * back the edits the server applied through the editor while it ran.
- */
+/** Run a lens's or action's server command: the daemon executes it and returns the edits the
+ *  server applied through the editor meanwhile. */
 async function runCommand(
   wsId: string,
   path: string,
@@ -144,11 +136,8 @@ function lensCommand(
     : { id: '', title: command.title }
 }
 
-/**
- * An LSP code action as Monaco's: edits to open files go through `edit` (the
- * undo stack); edits to other files and the server command (the daemon only
- * passes on commands the server runs) go through RUN_COMMAND.
- */
+/** An LSP code action as Monaco's: edits to open files go through `edit` (the undo stack);
+ *  other files' edits and the server command go through RUN_COMMAND. */
 function toCodeAction(
   target: { wsId: string; path: string },
   action: Command | CodeAction,

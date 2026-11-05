@@ -1,8 +1,6 @@
-// LSP client backed by the Go daemon: document sync (didOpen/didChange/
-// didSave/didClose) over REST, diagnostics on the owning chat's lsp: stream
-// scope, and the feature requests the Monaco providers (monaco-lsp-providers.ts)
-// make. Everything is addressed by the workspace the caller names — the
-// buffer's own — never by whichever workspace is active.
+// LSP client backed by the daemon: document sync over REST, diagnostics on the owning chat's lsp:
+// scope, and the Monaco providers' feature requests. Addressed by the workspace the caller names
+// (the buffer's own), never by whichever is active.
 
 import { apiFetch } from '@/lib/api/fetch'
 import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
@@ -73,13 +71,9 @@ function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown
   })
 }
 
-/**
- * One workspace's LSP state. It exists while it holds an open document or a
- * diagnostics handler; it holds the owning chat's lsp: scope while it exists and
- * that chat and the workspace's host are known (the scope registry and host
- * resolution own those). The daemon releases the servers, and so their documents,
- * whenever the scope is let go — a drop or a resync included.
- */
+/** One workspace's LSP state, alive while it holds an open document or diagnostics handler. It
+ *  holds the owning chat's lsp: scope while chat and host are known; the daemon releases the
+ *  servers (and their documents) whenever the scope is let go, a drop or resync included. */
 class WorkspaceSession {
   readonly handlers = new Set<DiagnosticsHandler>()
   readonly documents = new Map<string, OpenDocument>()
@@ -252,12 +246,9 @@ class LspClientImpl {
     }
   }
 
-  /**
-   * POST a feature request to `wsId`'s LSP route. Resolves null when the
-   * workspace has no LSP surface yet (home workspace, owning chat not
-   * recorded) — the same "nothing to do" the daemon answers for a language
-   * with no server. Daemon failures propagate so providers can surface them.
-   */
+  /** POST a feature request to `wsId`'s LSP route. Null when the workspace has no LSP surface yet
+   *  (home workspace, owning chat unrecorded), as the daemon answers for a serverless language.
+   *  Daemon failures propagate so providers can surface them. */
   async request<T>(
     wsId: string,
     route: string,
@@ -281,10 +272,8 @@ class LspClientImpl {
     return this.request<LspServerStatus>(wsId, 'restart', { path: filePath })
   }
 
-  /**
-   * Start the server for an open document whose server is not running (it
-   * crashed, or was never installed when the file opened): re-send didOpen.
-   */
+  /** Re-send didOpen to start the server of an open document whose server is not running (it
+   *  crashed, or was not installed when the file opened). */
   async reopen(wsId: string, filePath: string, content: string, languageId: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const base = session?.base()
@@ -336,11 +325,8 @@ class LspClientImpl {
     await post(`${base}/didClose`, { path: filePath }).catch(reportSync)
   }
 
-  /**
-   * Debounce a full-text didChange for an open document. `read` is called when
-   * the change is actually sent, so a burst of edits costs one read + POST;
-   * it returns null when the text is gone (model disposed) and nothing is sent.
-   */
+  /** Debounce a full-text didChange. `read` runs when the change is sent, so a burst costs one
+   *  read and POST; it returns null (nothing sent) once the model is disposed. */
   scheduleChange(wsId: string, filePath: string, read: ReadText): void {
     const session = this.sessions.get(wsId)
     const open = session?.documents.get(filePath)
@@ -353,11 +339,8 @@ class LspClientImpl {
     )
   }
 
-  /**
-   * Send a scheduled didChange now. Position-addressed requests (completion,
-   * signature help, …) await this first so the server answers against the
-   * text the user sees, not the text from before the debounce window.
-   */
+  /** Send a scheduled didChange now. Position-addressed requests (completion, signature help …)
+   *  await this so the server answers against the text on screen. */
   async flushChange(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const open = session?.documents.get(filePath)
