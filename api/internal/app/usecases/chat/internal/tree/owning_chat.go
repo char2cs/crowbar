@@ -17,7 +17,8 @@ import (
 
 // MintOwningChat mints the chat about to own a workspace, placed under parentWorkspaceID's own Node row
 // (every workspace has one, keyed by its id). An empty or unknown parent places it at the panel root;
-// chatID names the chat, or "" mints one.
+// chatID names the chat, or "" mints one. It records the default provider: a workspace's row is prompted
+// without the user ever picking an agent for it.
 func (u *chatFolderUsecase) MintOwningChat(
 	ctx context.Context,
 	chatID string,
@@ -27,7 +28,11 @@ func (u *chatFolderUsecase) MintOwningChat(
 	if err != nil {
 		return "", err
 	}
-	chatID, err = u.agent.MintChat(ctx, chatID, "", "", "")
+	providerID, err := u.agent.DefaultProviderID(ctx)
+	if err != nil {
+		return "", fmt.Errorf("agent chat folder: mint owning chat: default provider: %w", err)
+	}
+	chatID, err = u.agent.MintChat(ctx, chatID, "", providerID, "")
 	if err != nil {
 		return "", fmt.Errorf("agent chat folder: mint owning chat: %w", err)
 	}

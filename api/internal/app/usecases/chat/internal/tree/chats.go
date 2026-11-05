@@ -70,7 +70,7 @@ func (u *chatFolderUsecase) createImportChat(
 	ctx context.Context,
 	in CreateChatInput,
 ) (CreatedChat, error) {
-	chatID, ws, runnerID, err := u.createImportedWorktreeChat(ctx, in.ID, in.ProviderID, in.ParentID, in.Worktree.Import)
+	chatID, ws, runnerID, err := u.createImportedWorktreeChat(ctx, in.ID, in.ProviderID, in.ParentID, in.Worktree.Import, true)
 	if err != nil && chatID != "" {
 		return CreatedChat{}, u.discard(ctx, chatID, err)
 	}

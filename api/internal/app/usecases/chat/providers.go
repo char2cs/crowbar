@@ -91,6 +91,12 @@ func (u *Usecase) ResolveProviders(
 	return u.providers.ResolveProviders(ctx)
 }
 
+// DefaultProviderID is the agent a chat nobody picked one for runs on, "" when
+// this machine has none installed and enabled.
+func (u *Usecase) DefaultProviderID(ctx context.Context) (string, error) {
+	return u.providers.DefaultProviderID(ctx)
+}
+
 // DescriptorReports is every descriptor's static validation, for the provider
 // settings: a report with an error is a provider the daemon refuses to enable.
 func (u *Usecase) DescriptorReports(

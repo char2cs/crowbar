@@ -223,6 +223,21 @@ func (p *Providers) ResolveProviders(
 	return out, nil
 }
 
+// DefaultProviderID is the agent a chat nobody picked one for runs on: the first
+// enabled, installed provider in the user's order, "" when none is.
+func (p *Providers) DefaultProviderID(ctx context.Context) (string, error) {
+	providers, err := p.ResolveProviders(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, candidate := range providers {
+		if candidate.Enabled && candidate.Connected {
+			return candidate.ID, nil
+		}
+	}
+	return "", nil
+}
+
 // DescriptorReports validates every descriptor this machine would load. A
 // report with an error is a provider the daemon refuses to enable.
 func (p *Providers) DescriptorReports(

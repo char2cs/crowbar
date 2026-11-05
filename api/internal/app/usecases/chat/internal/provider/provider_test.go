@@ -259,6 +259,38 @@ func TestResolveProviders_ConnectedComesFromTheInstallProbe(t *testing.T) {
 	}
 }
 
+// The default is the agent order's first provider that could launch: a disabled
+// or uninstalled one ahead of it is skipped, and none at all is "".
+func TestDefaultProviderID_IsTheFirstEnabledInstalledProviderInTheUsersOrder(t *testing.T) {
+	t.Parallel()
+	all := func(engineagents.Agent) bool { return true }
+
+	ordered := newTable(t, all)
+	_, err := ordered.ReplaceProviderPreferences(t.Context(), []domain.AgentProviderPreference{
+		{ProviderID: "codex", Priority: 0}, {ProviderID: "claude", Priority: 1},
+	})
+	require.NoError(t, err)
+	disabled := newTable(t, all)
+	_, err = disabled.ReplaceProviderPreferences(t.Context(), []domain.AgentProviderPreference{
+		{ProviderID: "claude", Priority: 0, Disabled: true}, {ProviderID: "codex", Priority: 1},
+	})
+	require.NoError(t, err)
+
+	for name, tc := range map[string]struct {
+		table *provider.Providers
+		want  string
+	}{
+		"the order's first":        {ordered, "codex"},
+		"skips a disabled one":     {disabled, "codex"},
+		"skips an uninstalled one": {newTable(t, func(a engineagents.Agent) bool { return a.ID() == "codex" }), "codex"},
+		"none installed":           {newTable(t, func(engineagents.Agent) bool { return false }), ""},
+	} {
+		got, err := tc.table.DefaultProviderID(t.Context())
+		require.NoError(t, err, name)
+		assert.Equal(t, tc.want, got, name)
+	}
+}
+
 // A nil probe must default to the REAL one rather than reporting everything
 // disconnected: that is the shape the composition root passes.
 func TestNew_NilInstallProbeDefaultsToTheRealOne(t *testing.T) {

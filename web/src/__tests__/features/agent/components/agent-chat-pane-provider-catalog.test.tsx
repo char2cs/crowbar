@@ -1,7 +1,7 @@
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { createElement } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
@@ -255,6 +255,42 @@ describe('reopening an already-run conversation', () => {
 
     expect(listProvidersFn).toHaveBeenCalledWith('w1')
     expect(screen.queryByTestId('agent-selection-picker')).not.toBeNull()
+  })
+})
+
+// A chat imported while no agent was installed records none: its pane says so
+// and how to fix it, instead of sending into a 404.
+describe('a chat that records no agent', () => {
+  async function openUnassigned(list: AgentProvider[]) {
+    useAgentProvidersStore.getState().setProviders(list)
+    listProvidersFn.mockResolvedValue(list)
+    await renderPane(unmountedWorkspace([dormantChat('c3', '')]), openChatPane('c3'))
+    await settle()
+  }
+
+  it('says no agent is installed, and a send reaches neither the daemon nor a toast', async () => {
+    await openUnassigned(providers.map((p) => ({ ...p, connected: false })))
+
+    expect(screen.getByTestId('agent-session-note')).toHaveTextContent(
+      'No agent is installed. Add one in Settings → Agents to start this chat.',
+    )
+    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(input, { target: { value: 'hello' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await settle()
+
+    expect(submitPromptFn).not.toHaveBeenCalled()
+    expect(resumeChatFn).not.toHaveBeenCalled()
+    expect(toastErrorFn).not.toHaveBeenCalled()
+  })
+
+  it('asks for a pick when an agent is installed', async () => {
+    await openUnassigned(providers)
+
+    expect(screen.getByTestId('agent-session-note')).toHaveTextContent(
+      'This chat has no agent yet. Pick one, then send a message to start it.',
+    )
+    expect(screen.getByTestId('agent-selection-picker')).toBeInTheDocument()
   })
 })
 

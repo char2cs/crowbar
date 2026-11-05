@@ -58,6 +58,9 @@ type Agent interface {
 		providerID string,
 		surface string,
 	) (string, error)
+	// DefaultProviderID is the agent a row the user never picked one for runs on: the first enabled,
+	// installed provider in the user's order, "" when the machine has none.
+	DefaultProviderID(ctx context.Context) (string, error)
 	// OpenChat is the second half of the create MintChat opens, run once the row is
 	// where it belongs: it refuses a provider no launch could start, and launches the
 	// CLI only for a chat landing on its terminal ("" otherwise: its first prompt does).

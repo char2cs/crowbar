@@ -15,6 +15,8 @@ interface PaneAttachmentInputs {
   presentation: ChatPresentation
   /** A send's own replacement is in flight: the pane is mid-send, not waiting. */
   promptReplacing: boolean
+  /** Why the chat cannot start (it records no agent): no session to start until one is picked. */
+  missingAgent?: string
 }
 
 /** Why a dormant chat has no CLI, in one sentence, and what continues it. */
@@ -47,6 +49,7 @@ function attachmentOf(
   exitReason: string,
   providerName: string,
   neverStarted: boolean,
+  missingAgent: string | undefined,
 ): TerminalAttachment {
   if (!chat) return { state: 'pending' }
   // The attach-only view is bound to the PTY it names; a replacement is a swap.
@@ -54,6 +57,7 @@ function attachmentOf(
   if (chat.phase === 'starting' || chat.phase === 'switching') {
     return { state: 'reviving', message: `Starting ${providerName}…` }
   }
+  if (missingAgent) return { state: 'idle', message: missingAgent }
   // A new chat's CLI starts with its first message: not yet started is no ended session.
   if (neverStarted)
     return { state: 'idle', message: `${providerName} starts with your first message.` }
@@ -69,6 +73,7 @@ export function usePaneAttachment({
   providerName,
   presentation,
   promptReplacing,
+  missingAgent,
 }: PaneAttachmentInputs) {
   const known = useChatField(chatId, (c) => c !== undefined)
   const liveRunnerId = useChatField(chatId, (c) => c?.liveRunnerId ?? '')
@@ -86,6 +91,7 @@ export function usePaneAttachment({
     exitReason,
     providerName,
     neverStarted,
+    missingAgent,
   )
   const chatSide = presentation !== 'terminal' && !promptReplacing
   const revival: ComposerRevival | undefined =
@@ -108,6 +114,6 @@ export function usePaneAttachment({
     sessionNote,
     // A prompt queues on any chat that exists, a spawning one included.
     canSend: attachment.state !== 'pending',
-    startSession,
+    startSession: missingAgent ? undefined : startSession,
   }
 }

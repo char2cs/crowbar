@@ -50,8 +50,8 @@ export interface AgentTerminalSurfaceProps {
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
   terminalRef: XtermTerminalProps['ref']
-  /** Bring the chat's provider back without sending anything. */
-  onStartSession: () => void
+  /** Bring the chat's provider back without sending anything; absent while it records none. */
+  onStartSession?: () => void
   ref?: Ref<HTMLDivElement>
 }
 
@@ -161,15 +161,17 @@ export function AgentTerminalSurface({
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
           <p className="max-w-sm text-center text-muted-foreground text-sm">{attachment.message}</p>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            data-testid="pane-resume"
-            onClick={onStartSession}
-          >
-            Start session
-          </Button>
+          {onStartSession && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              data-testid="pane-resume"
+              onClick={onStartSession}
+            >
+              Start session
+            </Button>
+          )}
         </div>
       )}
 

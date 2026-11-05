@@ -25,6 +25,8 @@ type AgentChatPlacements struct {
 	// MintedProviders is the provider each MintChat recorded, in Minted order ("" for a
 	// placeholder): a chat minted without one cannot name its vendor when dormant.
 	MintedProviders []string
+	// DefaultProvider is what DefaultProviderID answers: "" for a machine with none.
+	DefaultProvider string
 	Started         []StartCall
 	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call as a StartCall, proving
 	// the placement landed before the spawn.

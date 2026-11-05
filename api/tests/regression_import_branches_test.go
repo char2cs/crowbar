@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // This file pins the branch-import contract the import dialog depends on
@@ -431,4 +434,30 @@ func TestRegression_ImportRejectsBranchMissingFromRemote(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), "feature/never-existed",
 		"the refusal must name the branch so the client can surface it")
+}
+
+// An imported branch's chat is one nobody picked an agent for: it is born on
+// the user's default (the agent order's first), so its first prompt runs there.
+func TestRegression_AnImportedBranchChatPromptsOnTheDefaultProvider(t *testing.T) {
+	h := newHarness(t)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude", ID: "importfake"})
+	putProviderPrefs(t, h, providerPref{ID: fake.ID})
+	f := newImportFixture(t, h)
+
+	const branch = "feature/imported-chat"
+	f.pushBranchToOrigin(t, branch, "main", "work\n")
+	feed := recordSidebar(t, h)
+	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
+		importBranches(branch), http.StatusAccepted).Body.Close()
+	created := feed.awaitNewChat(hasWorkspace)
+	h.Quiesce()
+	chatID, _ := created["id"].(string)
+	require.NotEmpty(t, chatID)
+
+	repo := importedRepo{projectID: f.projectID, repoID: f.repoID}
+	require.Equal(t, fake.ID, getAgentChat(t, h, f.repoBase(), chatID).ActiveProviderID)
+	require.Empty(t, fake.LaunchedRunners(t), "the import launches nothing")
+	l := promptLaunch(t, h, repo, fake, chatID, "first words", "")
+	assert.Contains(t, l.Argv, "first words")
+	requireOneLaunch(t, fake, l)
 }

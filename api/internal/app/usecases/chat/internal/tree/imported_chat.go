@@ -9,13 +9,15 @@ import (
 
 // createImportedWorktreeChat is CreateChat's WorktreeImport branch: mint the chat, place it, then attach the
 // worktree, so a branch never lands on disk owned by nothing. A failure after the mint returns the minted
-// chat; the caller decides its fate (a single create discards it, a batch keeps it).
+// chat; the caller decides its fate (a single create discards it, a batch keeps it). open opens providerID
+// on it; otherwise the provider is only recorded.
 func (u *chatFolderUsecase) createImportedWorktreeChat(
 	ctx context.Context,
 	chatID string,
 	providerID string,
 	parentID string,
 	spec ImportSpec,
+	open bool,
 ) (string, domain.Workspace, string, error) {
 	parentID, err := u.importPlacement(ctx, parentID, spec)
 	if err != nil {
@@ -34,22 +36,30 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 	if pErr := u.placeOwningRow(ctx, chatID, parentID); pErr != nil {
 		return chatID, domain.Workspace{}, "", pErr
 	}
-	ws, runnerID, err := u.agent.SpawnChatWithImportedWorktree(ctx, chatID, providerID, spec)
+	opened := ""
+	if open {
+		opened = providerID
+	}
+	ws, runnerID, err := u.agent.SpawnChatWithImportedWorktree(ctx, chatID, opened, spec)
 	if err != nil {
 		return chatID, domain.Workspace{}, "", err
 	}
 	return chatID, ws, runnerID, nil
 }
 
-// ImportBranchAsChat is createImportedWorktreeChat for a batch importer: no provider (no CLI for an unopened
-// row), placement from the spec's git lineage, and the workspace id taken from the create itself, since a
-// read-back from the async projection may predate the attach.
+// ImportBranchAsChat is createImportedWorktreeChat for a batch importer: the default provider recorded but
+// not opened (no CLI for an unopened row), placement from the spec's git lineage, and the workspace id taken
+// from the create itself, since a read-back from the async projection may predate the attach.
 func (u *chatFolderUsecase) ImportBranchAsChat(
 	ctx context.Context,
 	chatID string,
 	spec ImportSpec,
 ) (string, string, error) {
-	minted, ws, _, err := u.createImportedWorktreeChat(ctx, chatID, "", "", spec)
+	providerID, err := u.agent.DefaultProviderID(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("agent chat folder: import chat: default provider: %w", err)
+	}
+	minted, ws, _, err := u.createImportedWorktreeChat(ctx, chatID, providerID, "", spec, false)
 	return minted, ws.ID, err
 }
 

@@ -48,6 +48,7 @@ import '@/features/agent/styles/transcript.css'
 import '@/features/agent/styles/activity.css'
 import { chatPromptToSend } from '@/features/agent/composer/plate/chat-prompt-send'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
+import { missingAgentNote } from '@/features/agent/lib/missing-agent'
 
 /** One entry per progressive-blur layer in the dock's dissolve — see composer.css. */
 const DISSOLVE_LAYERS = [0, 1, 2, 3, 4, 5, 6]
@@ -218,8 +219,16 @@ export function AgentChatView({
       : undefined
   useNativeContext({ visible, telemetry, compacting, onCompact: offeredCompact })
 
+  // A chat recording no agent says why it cannot start until a pick is staged.
+  const agentNote = selectionKnown ? missingAgentNote(effectiveProviderId, providers) : undefined
+  const note = providerId ? (blank ? undefined : sessionNote) : agentNote
+
   // The one serialization of a prompt: the key handler's read, or the box's on a click.
   const enqueueDraft = (text?: string) => {
+    if (agentNote) {
+      composer.setError(agentNote)
+      return
+    }
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
     const result = prompts.send({
       text: chatPromptToSend(text ?? composer.read()),
@@ -407,9 +416,9 @@ export function AgentChatView({
                   onSelect={selectSlashItem}
                 />
               )}
-              {!blank && sessionNote && (
+              {note && (
                 <p className="meta composer-note" data-testid="agent-session-note">
-                  {sessionNote}
+                  {note}
                 </p>
               )}
               <AgentComposer

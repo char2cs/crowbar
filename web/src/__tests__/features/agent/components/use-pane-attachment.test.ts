@@ -41,7 +41,7 @@ describe('usePaneAttachment', () => {
     seedChats([{ id: 'c1' }])
     seedFeed('c1')
 
-    attachmentOn('c1').current.startSession()
+    attachmentOn('c1').current.startSession?.()
 
     expect(resume).toHaveBeenCalledWith('w1', 'c1')
   })

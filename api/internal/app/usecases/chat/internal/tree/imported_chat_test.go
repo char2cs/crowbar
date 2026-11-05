@@ -98,6 +98,20 @@ func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	assert.Empty(t, chats.Started, "and the plain runner path is not taken either")
 }
 
+// A batch-imported row is a chat the user will prompt without ever having picked
+// an agent, so it is born on their default one: dormant, but startable.
+func TestImportBranchAsChat_RecordsTheDefaultProvider(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.NextID = "c-new"
+	chats.DefaultProvider = "codex"
+
+	_, _, err := uc.ImportBranchAsChat(context.Background(), "", importSpec("feature/x"))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex"}, chats.MintedProviders)
+	assert.Empty(t, chats.SpawnedImportedWorktree[0].ProviderID, "recorded, never launched")
+}
+
 // A batch keeps a failed branch's chat, placed, for its placeholder: purging it
 // and minting again would recreate an id a redelivered Forget then deletes.
 func TestImportBranchAsChat_AFailedAttachKeepsTheChatForThePlaceholder(t *testing.T) {
@@ -142,6 +156,22 @@ func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T
 		"placed directly under the parent workspace's own Node row")
 	assert.Empty(t, chatRow(t, chats, "c-new").WorkspaceID,
 		"nothing is owned yet: the workspace does not exist until the caller builds it")
+}
+
+// An owning row a repo import mints runs on the user's default agent; with none
+// installed it records none, and the client asks which to start.
+func TestMintOwningChat_RecordsTheDefaultProvider(t *testing.T) {
+	chats, uc := newUsecase(t)
+	ctx := context.Background()
+
+	chats.NextID, chats.DefaultProvider = "c-a", "claude"
+	_, err := uc.MintOwningChat(ctx, "", "")
+	require.NoError(t, err)
+	chats.NextID, chats.DefaultProvider = "c-b", ""
+	_, err = uc.MintOwningChat(ctx, "", "")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"claude", ""}, chats.MintedProviders)
 }
 
 // Two owning rows minted into the SAME level must not both claim slot 0.

@@ -82,6 +82,10 @@ func (s *AgentChatPlacements) MintChat(
 	return chatID, nil
 }
 
+func (s *AgentChatPlacements) DefaultProviderID(context.Context) (string, error) {
+	return s.DefaultProvider, nil
+}
+
 func (s *AgentChatPlacements) OpenChat(
 	ctx context.Context,
 	chatID string,
