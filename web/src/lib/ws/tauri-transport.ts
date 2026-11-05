@@ -1,18 +1,6 @@
-// WebSocket-shim over the Tauri unix-socket Channel bridge (D1).
-//
-// On the desktop app the browser `WebSocket` constructor cannot reach the
-// daemon: its only endpoint is the `crowbar://` unix-socket proxy, and every
-// scheme but ws/wss is rejected. There, Rust is the WebSocket client — it dials
-// the daemon socket, performs the HTTP→WS upgrade for a given `/v0/...` path,
-// and bridges frames over a Tauri Channel (see desktop/src-tauri/src/ws_bridge.rs).
-//
-// `TauriWebSocket` presents the subset of the `WebSocket` interface the
-// `wsManager` relies on (onopen/onmessage/onclose/onerror, send, close,
-// readyState + the CONNECTING/OPEN/CLOSED constants) so the manager stays
-// transport-agnostic. Frames arrive RAW and are surfaced as `{ data }` to mirror
-// the native `MessageEvent` shape: a text frame as its string, a binary frame
-// (the terminal's PTY output) as an ArrayBuffer — what a native WebSocket with
-// `binaryType = 'arraybuffer'` delivers.
+// WebSocket shim over the Tauri unix-socket Channel bridge: on desktop the browser WebSocket can't
+// reach the daemon (`crowbar://`), so Rust dials, upgrades and bridges frames (ws_bridge.rs).
+// Frames surface as `{ data }` like a native MessageEvent: text as string, binary as ArrayBuffer.
 
 import { Channel, invoke } from '@tauri-apps/api/core'
 
@@ -34,25 +22,16 @@ export class TauriWebSocket {
   readyState: number = TauriWebSocket.CONNECTING
 
   private readonly connId: string
-  // Set by close() so a teardown issued while the socket is still CONNECTING is
-  // honoured once ws_open resolves. The connId is minted client-side before
-  // ws_open is invoked, but Rust only registers the connection (UnixStream +
-  // reader/writer tasks) AFTER the async dial+upgrade completes. A ws_close
-  // racing ahead of that registration is a no-op on the Rust side, so without
-  // this flag the now-registered connection — daemon FD + 2 tokio tasks — would
-  // leak for every StrictMode double-mount or rapid scope switch. We defer the
-  // real ws_close to the ws_open .then() instead.
+  // Set by close() so a teardown while CONNECTING is honoured once ws_open resolves: Rust registers
+  // the connection only after the dial+upgrade, so an earlier ws_close is a no-op there and would
+  // leak the daemon FD and two tokio tasks per StrictMode double-mount.
   private closed = false
   /** Frames forwarded before ws_open resolved; null once it has. */
   private early: (string | ArrayBuffer)[] | null = []
 
-  /**
-   * `idleTimeoutMs`: judge the socket half-open — and close it — when the daemon
-   * sends nothing at all (not even a ping) for this long. Only for streams whose
-   * daemon side pings; unset means never.
-   * `hostId`: which remote host's daemon to dial (Tauri bridge plan Task 6's
-   * `ws_open` `host_id`); omitted or 'local' dials the local daemon, unchanged.
-   */
+  /** `idleTimeoutMs`: close as half-open when the daemon sends nothing, not even a ping, for this
+   *  long (only for streams it pings; unset = never). `hostId`: the remote host to dial; omitted
+   *  or 'local' dials the local daemon. */
   constructor(path: string, options?: { idleTimeoutMs?: number; hostId?: string }) {
     this.connId = crypto.randomUUID()
     const hostId = options?.hostId ?? 'local'
@@ -118,10 +97,8 @@ export class TauriWebSocket {
     const wasConnecting = this.readyState === TauriWebSocket.CONNECTING
     this.readyState = TauriWebSocket.CLOSED
     this.closed = true
-    // While CONNECTING the Rust connection isn't registered yet, so a ws_close
-    // now would be a no-op; the ws_open .then() handler issues it once the
-    // connection exists. Only call ws_close eagerly when there is something to
-    // close (open, or a prior reconnect race).
+    // While CONNECTING the Rust side isn't registered, so ws_close would be a no-op; the ws_open
+    // handler issues it. Close eagerly only when there is something to close.
     if (!wasConnecting) {
       void invoke('ws_close', { connId: this.connId })
     }

@@ -82,17 +82,9 @@ describe('fetchWorkspaces', () => {
     expect(result).toEqual(workspaces)
   })
 
-  // TestRegression: fetchWorkspaces used to derive WorkspaceDTOs from the
-  // repo's chat list, on the theory that every worktree worth showing has a
-  // chat to derive it from. That theory breaks for a workspace with NO chat
-  // at all — a repo's own default checkout before anyone has chatted in it,
-  // or a locked tracking branch nobody ever opened a conversation in — which
-  // had no chat row to derive from and so never appeared anywhere, taking the
-  // repo's own header row with it (deriveRows mints that from the
-  // default workspace). Reproduced live against real production data. The
-  // real resource has no such blind spot: it reports the workspace with
-  // owningChatId: '', which deriveRows already renders as an unfolded
-  // branch row.
+  // Workspaces come from the real resource, not the chat list: a workspace with no chat (an
+  // unchatted default checkout, an unopened locked branch) must still appear, owningChatId '',
+  // or the repo header goes missing with it.
   it('includes a workspace with no owning chat at all', async () => {
     const workspaces = [dto({ id: 'w1', isDefault: true, owningChatId: '' })]
     fetchMock.mockResolvedValue(jsonResponse(workspaces))

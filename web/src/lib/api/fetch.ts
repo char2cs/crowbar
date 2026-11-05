@@ -13,11 +13,8 @@ import { routeToHost } from '@/lib/api/host-route'
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
-/**
- * The API base for a host: the local daemon's API_BASE, or a registered remote
- * host, which only the desktop app can reach (its bridge, crowbar://<hostId>,
- * completes the pinned-TLS dial).
- */
+/** The API base for a host: the local API_BASE, or a registered remote host, reachable only from
+ *  the desktop app (its bridge, crowbar://<hostId>, completes the pinned-TLS dial). */
 export function apiBaseFor(hostId: string): string {
   if (hostId === LOCAL_HOST.id) return API_BASE
   if (!isTauri()) {
@@ -28,22 +25,16 @@ export function apiBaseFor(hostId: string): string {
   return `crowbar://${hostId}`
 }
 
-/**
- * The absolute URL for a daemon-relative path, qualified or not, for callers that
- * build their own `fetch`. Throws for a host this window cannot reach rather than
- * falling back to the local daemon.
- */
+/** The absolute URL for a daemon-relative path, for callers building their own `fetch`. Throws for
+ *  a host this window can't reach rather than fall back to the local daemon. */
 export function apiUrl(path: string): string {
   const target = routeToHost(path)
   return `${apiBaseFor(target.hostId)}${target.path}`
 }
 
-/** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
- *  (a network/transport error — never an HTTP status) means the request never
- *  reached the daemon; at app launch that is the sidecar's unix socket not yet
- *  accepting connections. Idempotent reads retry across that startup window so a
- *  cold start lands on the workspace instead of crashing or showing an empty
- *  state. Injectable so tests run without real backoff sleeps. */
+/** Transient-retry policy for apiFetch. A fetch() rejection (never an HTTP status) means the
+ *  request never reached the daemon — at launch, its socket not yet accepting — so idempotent
+ *  reads retry across that window. Injectable so tests skip real backoff. */
 export interface RetryConfig {
   /** Total attempts including the first (1 = no retry). */
   attempts: number
@@ -59,23 +50,16 @@ const DEFAULT_RETRY: RetryConfig = { attempts: 8, baseDelayMs: 100, maxDelayMs: 
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-/** Only idempotent reads auto-retry on transport failure. Mutations have their
- *  own async-202 + subscribe-before-POST resilience and must never be blindly
- *  replayed (at-least-once would double-apply). */
+/** Only idempotent reads auto-retry on transport failure: mutations have async-202 resilience
+ *  and must never be blindly replayed (at-least-once would double-apply). */
 function isIdempotentRead(init?: RequestInit): boolean {
   const method = init?.method?.toUpperCase()
   return method === undefined || method === 'GET'
 }
 
-/** Perform a request with transient-transport retry and
- *  error-status handling, returning the raw `Response`.
- *
- *  This is the layer beneath {@link apiFetch}: every v0 route answers the
- *  `{success,data}` envelope EXCEPT `/review/patch`, which answers text/plain
- *  and reports truncation in a response header. That one caller needs the
- *  Response itself — its body is not JSON and its headers carry meaning — but it
- *  needs the retry and the error-envelope decoding just as much, so both live
- *  here rather than being reimplemented beside it. */
+/** A request with transient retry and error-status handling, returning the raw Response. Beneath
+ *  apiFetch because `/review/patch` answers text/plain with truncation in a header, yet needs the
+ *  same retry and error-envelope decoding. */
 export async function apiFetchRaw(
   path: string,
   init?: RequestInit,
@@ -111,15 +95,9 @@ export async function apiFetchRaw(
       continue
     }
 
-    // Status FIRST, body second. `fetch` resolves on 4xx/5xx, so reading the
-    // envelope before looking at the status is how an error payload gets
-    // mistaken for a result. The daemon does answer errors with the same
-    // {success,error,data} envelope, so the body is still worth reading here —
-    // deliberately, on the error path, purely to recover its `error` message.
-    //
-    // An HTTP error status is a real daemon response, not a transport failure —
-    // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
-    // must never be retried.
+    // Status first, body second: fetch resolves on 4xx/5xx, so reading the envelope first mistakes
+    // an error payload for a result. The body is read only to recover `error`; an HTTP error is a
+    // real daemon answer, terminal, and never retried.
     if (!res.ok) {
       const proxied = proxyMarkerError(res.headers?.get(PROXY_HEADER), target.hostId, res.status)
       if (proxied) throw proxied

@@ -11,20 +11,9 @@ function makeTestChat(over: Partial<Chat> & { id: string; title: string }): Chat
   return { repoId: 'r1', order: 0, ...over }
 }
 
-/**
- * The id of the `branch` row every fixture's repo home owns.
- *
- * Every repo with a home workspace has one by the time `deriveRows` is
- * called (2026-09-08 sidebar-placement-unification Task 9: chat-first, at
- * creation — `MintOwningChat`/`AttachOwningWorkspace`, never a boot
- * backfill), and `SidebarTreeSurface` does not build rows for a repo until
- * its chat seed has landed. So the fixtures carry it too — a repo without
- * one is not a state this function is ever handed, and modelling it would be
- * modelling the loading state the caller already excludes. Its OWN `type` is
- * deliberately `'chat'`, not `'branch'` — Task 9 retires the retype, so
- * `makeTestRepo` also stamps `defaultOwningChatId`, the direct field
- * `deriveRows` reads instead.
- */
+// The id of the branch row each fixture's repo home owns. Every repo home has an owning chat
+// (minted at creation) before rows are built, so fixtures carry one; its type is 'chat', and
+// `makeTestRepo` stamps `defaultOwningChatId`, the field deriveRows reads.
 const HOME_ROW_ID = 'home-branch-row'
 
 /**

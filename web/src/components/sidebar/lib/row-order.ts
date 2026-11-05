@@ -1,13 +1,9 @@
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { createdInstant } from '@/lib/store/created-instant'
 
-/**
- * The ONE sibling sort every surface shares, identical to the daemon's
- * (api/internal/app/tree/node.go `compareNodes`): dense `order`, then row
- * kind, then creation time, then id. A level nobody has dragged is all ties
- * at 0, and a drop index is only meaningful when the rows are counted in the
- * same sequence they are drawn — on both sides.
- */
+// The one sibling sort every surface shares, matching the daemon's compareNodes: order, then
+// kind, creation time, id. An undragged level is all ties at 0, and a drop index only means
+// something if both sides count rows in the order they are drawn.
 export const KIND_RANK = { folder: 0, branch: 1, chat: 2, workflow: 2, repo: 3 } as const
 
 type TieKeys = Pick<SidebarRow, 'id' | 'kind' | 'repoIcon'>

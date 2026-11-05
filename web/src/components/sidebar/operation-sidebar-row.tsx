@@ -34,11 +34,8 @@ function DraftNameInput({ row }: { row: SidebarRowType }) {
   )
 }
 
-/**
- * A create the sidebar draws before its entity exists, at the slot it lands
- * in: the naming input of a draft, a spinner while its operation runs, or the
- * reason it failed with a Dismiss.
- */
+// A create drawn before its entity exists, where it will land: a draft's naming input, a spinner
+// while its operation runs, or the failure reason with a Dismiss.
 export function OperationSidebarRow({ row, depth }: { row: SidebarRowType; depth: number }) {
   const operation = row.operation
   const isFailed = operation?.state === 'failed'

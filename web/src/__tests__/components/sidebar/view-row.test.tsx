@@ -221,9 +221,8 @@ describe('RecentsViewRow', () => {
     ).not.toBeInTheDocument()
   })
 
-  // Regression: a record whose chat no cache knew rendered null — an
-  // invisible row nobody could close. It draws from its record (loading)
-  // until the sidebar's tree names the chat; nothing is fetched for it.
+  // A record whose chat no cache knows still draws (loading) — a null row could never be closed.
+  // Nothing is fetched for it; the sidebar's tree names the chat in time.
   describe('a row whose chat data has not resolved', () => {
     const unknownChat = () => {
       seedRepos([{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }])

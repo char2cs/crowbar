@@ -19,9 +19,7 @@ import type { Project } from '@/lib/types'
 
 interface SpaceScrollerProps {
   projects: Project[]
-  /** Undefined on a route with no project in it yet (matches
-   *  `SidebarFooter`'s own `activeProjectId?: string` — the two read
-   *  the SAME value, ide-shell.tsx's `activeProjectIdFromRoute`). */
+  /** Undefined on a route with no project yet; the same value SidebarFooter reads. */
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
   /** Every row the project's panel draws (`deriveRows`). */
@@ -31,9 +29,8 @@ interface SpaceScrollerProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
-  /** Spec §9's project-level trash, behind the tree foot's Delete space.
-   *  Threaded as a prop like every other verb here rather than
-   *  called directly, so this file stays presentational. */
+  /** Spec §9's project-level trash behind the tree foot's Delete space; a prop, so this file
+   *  stays presentational. */
   onTrashProject: (projectId: string) => void
 }
 
@@ -63,9 +60,8 @@ function SpacePanel({
   // The project-home workspace: the tree foot's New thread and folder act on it, never a repo's home.
   const { wsId: homeWorkspaceId } = useHomeWorkspaceState(projectId)
   const navigate = useNavigate()
-  // `useSidebarDrag` resolves its edge-scroll target off this ref, which
-  // points at the actual overflow element (`ScrollAreaPrimitive.Viewport`),
-  // not the plain content div a naive ref here would otherwise land on.
+  // The edge-scroll target must be the real overflow element (ScrollArea's Viewport), not the
+  // content div a plain ref would land on.
   const contentRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
@@ -121,11 +117,7 @@ function SpacePanel({
   )
 }
 
-/**
- * One horizontal, x-mandatory-snap panel per project (spec §4).
- *
- * Each panel is ONE scroll region holding a project's `SidebarTree`.
- */
+/** One horizontal, x-mandatory-snap panel per project (spec §4), each one scroll region. */
 export function SpaceScroller({
   projects,
   activeProjectId,
@@ -145,24 +137,15 @@ export function SpaceScroller({
   const armUserGesture = () => {
     isUserGesture.current = true
   }
-  // The vertical chat-list ScrollArea lives INSIDE this horizontal carousel's
-  // subtree (SpacePanel), so a plain vertical wheel tick over the chat list
-  // still bubbles up and reaches this handler — React's onWheel doesn't
-  // filter by axis. Left unguarded, that armed this exactly like a real
-  // horizontal swipe, and a later scrollLeft nudge for any unrelated reason
-  // would silently swap the active project mid-scroll. Only a
-  // horizontally-dominant gesture is a real swipe of THIS carousel (same
-  // axis check Zen Browser's native arrowscrollbox patch uses on its own
-  // wheel handler).
+  // The vertical chat list lives inside this carousel, so its wheel ticks bubble here too
+  // (onWheel doesn't filter by axis). Only a horizontally dominant gesture is a swipe; anything
+  // else arming this would let an unrelated scrollLeft nudge swap the active project.
   const armUserGestureFromWheel = (e: React.WheelEvent) => {
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
     isUserGesture.current = true
   }
-  // The panel index a smooth, programmatic scroll is currently travelling to.
-  // That animation fires scroll events the whole way and none of them is a
-  // user gesture, so the re-align below would cancel the animation it is
-  // chasing by jumping straight to its destination — the switch would snap
-  // instead of glide.
+  // The panel index a smooth programmatic scroll is travelling to. Its scroll events aren't
+  // gestures, and re-aligning on them would cancel the animation — a snap instead of a glide.
   const settlingToIndex = useRef<number | null>(null)
 
   // Re-align scroll when the container is resized. Each panel is min-w-full,
@@ -214,13 +197,9 @@ export function SpaceScroller({
         if (settlingToIndex.current === index) settlingToIndex.current = null
         return
       }
-      // Not a swipe, and nothing programmatic is in flight: focus's own
-      // scrollIntoView (every row holds tabbable buttons, in EVERY panel), an
-      // edge-scroll, a WebKit snap. `overflow-x: scroll` + mandatory x
-      // snapping + min-w-full panels turns any of them into a whole panel,
-      // leaving the sidebar naming one space while the content area shows
-      // another — the exact divergence project-scoped panes exists to kill.
-      // Bounce back rather than switch a project the user never asked for.
+      // Not a swipe and nothing programmatic in flight (focus's scrollIntoView, edge-scroll, a
+      // WebKit snap): mandatory snapping turns any of these into a whole panel, so bounce back
+      // rather than switch to a project the user never asked for.
       const active = projects.findIndex((p) => p.id === activeProjectId)
       if (active !== -1 && active !== index) el.scrollLeft = active * el.clientWidth
       return
@@ -238,14 +217,9 @@ export function SpaceScroller({
       onWheel={armUserGestureFromWheel}
       onTouchStart={armUserGesture}
       data-testid="space-scroll-region"
-      // `overflow-x: scroll` + mandatory x
-      // snapping + min-w-full panels means a captured pointer travelling
-      // past this box's edge during a row drag gets scrolled a whole panel
-      // away by WebKit — the exact gesture Part G exists for (dragging a row
-      // rightward onto a pane). `index.css`'s `html[data-row-dragging]
-      // [data-sidebar-carousel]` rule pins it by this
-      // attribute; see drag-carousel-pin.test.ts for its own measured
-      // rationale (pin without `will-change` costs 4x the frame budget).
+      // During a row drag a captured pointer past this edge would get WebKit to snap a whole
+      // panel away; index.css pins the carousel via this attribute while `data-row-dragging`
+      // is set (with `will-change`: without it the pin costs 4x the frame budget).
       data-sidebar-carousel=""
       className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >

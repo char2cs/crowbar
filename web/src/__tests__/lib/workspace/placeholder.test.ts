@@ -34,12 +34,8 @@ describe('placeholderKind', () => {
     )
   })
 
-  // THE regression: `main` sitting in the repo's own main folder is the resting
-  // state of every imported repo (adoptRepoHome adopts repo.Path in place;
-  // provisioning then resolves holder.HeldByHome for that same branch). Read as
-  // a failed provision it put a permanent amber "Branch needs provisioning"
-  // triangle — and an error toast — on every repo's default branch, forever,
-  // pointing at a Retry that RetryProvision refuses outright.
+  // The repo's own main folder on `main` is every import's resting state, not a failed provision:
+  // read as one, every default branch wore a permanent warning pointing at a refused Retry.
   it('is own-checkout when the branch is the repo’s own default branch', () => {
     const kind = placeholderKind(
       ws({ branch: 'main', status: 'locked', heldByPath: '/Users/me/repo-beta' }),

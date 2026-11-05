@@ -25,11 +25,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// Task 34: the dedicated `/repos/:repoId/folders` resource was deleted from the
-// backend (11b72c72) — folders are Chat rows now, served only via
-// `.../chats/folders`, and its Create/Patch/Delete respond with `{folder,
-// shifted}` / `{shifted}` (dto.AgentChatDTO rows, title-named), not the old bare
-// `{id}` / void these three functions used to assume.
+// Folders are served via `.../chats/folders`; Create/Patch/Delete answer `{folder, shifted}` /
+// `{shifted}` as title-named rows, reshaped here into FolderDTOs.
 describe('createFolder', () => {
   it('POSTs .../chats/folders and reshapes {folder, shifted} into FolderDTOs', async () => {
     fetchMock.mockResolvedValue(
@@ -124,13 +121,8 @@ describe('deleteFolder', () => {
   })
 })
 
-// 2026-09-09 sidebar-placement-unification, workspace-placement fix: a
-// locked branch's own row is addressed by the WORKSPACE itself now —
-// `PATCH .../workspaces/:wsId/placement` — never by the chat that owns its
-// worktree. No owningChatId needs recording for this call at all any more;
-// workspaceBase resolves straight off the project/repo scope every
-// workspace already gets recorded with (recordWorkspaceScope, sidebar
-// store), locked branch or not.
+// A locked branch's row is addressed by the workspace (`PATCH .../workspaces/:wsId/placement`),
+// never its owning chat, so no owningChatId need be recorded — only the project/repo scope.
 describe('placeWorkspace', () => {
   beforeEach(() => {
     __resetWorkspaceScopesForTest()
@@ -148,9 +140,8 @@ describe('placeWorkspace', () => {
     expect(init.method).toBe('PATCH')
   })
 
-  // The moved row's decided placement, and every sibling the densify
-  // shifted, is the only confirmation a branch drag gets (no workspace frame
-  // carries a placement) — it used to be thrown away.
+  // The moved row's decided placement and every shifted sibling are the only confirmation a branch
+  // drag gets (no workspace frame carries a placement).
   it('answers the moved row and the shifted siblings, never void', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

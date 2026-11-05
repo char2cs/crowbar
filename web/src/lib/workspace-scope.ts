@@ -1,36 +1,21 @@
 import { useSyncExternalStore } from 'react'
 
-// §3/§7: the hierarchical scope (owning project+repo) of each workspace, keyed
-// by wsId. Lives in this dependency-free module — NOT in workspace-store-registry
-// — so the lightweight files/git/lsp/terminal URL builders can resolve it without
-// dragging in the heavy editor/Monaco workspace-store graph (which made their
-// dynamic-import unit tests time out).
+// Each workspace's owning project+repo (and chat), keyed by wsId. Dependency-free on purpose, so
+// the URL builders resolve it without pulling in the editor/Monaco workspace-store graph.
 export interface WorkspaceScope {
   projectId: string
   repoId: string
   wsId: string
-  /**
-   * The CHAT that owns this workspace's worktree, straight from the daemon
-   * (`WorkspaceDTO.owningChatId`) — never guessed here.
-   *
-   * It is what chat-scoped API routes are addressed by (`/v0/chats/:chatId/...`),
-   * so a caller holding only a wsId can still reach them. Optional because the
-   * ROUTE (/ide/:projectId/:repoId/:wsId) cannot supply it — only the sidebar's
-   * workspace data can — which is why setWorkspaceScope below merges rather
-   * than overwrites it.
-   */
+  /** The chat owning this worktree, straight from WorkspaceDTO.owningChatId: what chat-scoped
+   *  routes are addressed by. Optional because the route can't supply it, only the sidebar's
+   *  data — hence writes merge rather than overwrite it. */
   owningChatId?: string
 }
 
 const _scopes = new Map<string, WorkspaceScope>()
 
-// Notified whenever a workspace's scope is (re)written — the only signal a
-// caller has that `getOwningChatId(wsId)` might now answer differently.
-// `_scopes` is a plain Map (not a store) precisely to stay dependency-free;
-// this is the minimal addition that lets `useOwningChatId` (use-workspace-
-// effects.ts) treat "the sidebar hasn't recorded an owning chat yet" as a
-// state to wait on and re-render for, instead of a one-shot answer read once
-// at mount. See `subscribeToWorkspaceScope` below.
+// Notified whenever a workspace's scope is (re)written, so useOwningChatId and
+// useWorkspaceScopeReady can wait on a scope instead of reading it once at mount.
 const _scopeListeners = new Map<string, Set<() => void>>()
 
 // Every listener runs even if one throws (a throw must not starve the hooks behind
@@ -49,11 +34,8 @@ function notifyScopeListeners(wsId: string): void {
   if (failure) throw failure.error
 }
 
-/**
- * Subscribe to every future change of `wsId`'s scope (route-derived or
- * sidebar-derived). Fires on any field that changes, not just `owningChatId` —
- * callers that only care about that field re-read it themselves.
- */
+// Subscribe to every change of `wsId`'s scope, any field — callers interested in one field
+// re-read it themselves.
 export function subscribeToWorkspaceScope(wsId: string, callback: () => void): () => void {
   let listeners = _scopeListeners.get(wsId)
   if (!listeners) {
@@ -67,15 +49,8 @@ export function subscribeToWorkspaceScope(wsId: string, callback: () => void): (
   }
 }
 
-/**
- * Merge a scope into the registry, PRESERVING a previously recorded
- * owningChatId when the incoming scope carries none.
- *
- * The route parser and the sidebar both write here, and only the sidebar knows
- * the owning chat. Without this merge, navigating to a workspace (a route-derived
- * write with no chat) would erase the chat id the sidebar had already recorded,
- * and every chat-scoped URL for that workspace would start throwing.
- */
+// Merge keeping a recorded owningChatId when the incoming scope has none: the route parser writes
+// here without one, and erasing the sidebar's would break every chat-scoped URL.
 function mergeScope(scope: WorkspaceScope): WorkspaceScope {
   const prev = _scopes.get(scope.wsId)
   const owningChatId = scope.owningChatId || prev?.owningChatId
@@ -104,22 +79,14 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
   writeScope(scope)
 }
 
-/**
- * Record a workspace's scope WITHOUT making it the active workspace. The
- * sidebar store calls this for every workspace as its data arrives, so actions
- * on a workspace the user never navigated to (e.g. Retry/Detach… on a
- * placeholder row) can still build their scoped URL — workspaceBase throws on
- * an unrecorded scope, which used to make those buttons silently no-op.
- */
+// Record a workspace's scope without making it active. The sidebar calls this as data arrives, so
+// verbs on a workspace never navigated to (Retry/Detach… on a placeholder) can build their URLs.
 export function recordWorkspaceScope(scope: WorkspaceScope): void {
   writeScope(scope)
 }
 
-/**
- * Drop a DELETED workspace's scope (its tombstone, or its repo's). Everything
- * addressed through its owning chat — LSP sessions above all — stops on this
- * notification instead of reconnecting against a chat that is gone.
- */
+// Drop a deleted workspace's scope. Everything addressed through its owning chat (LSP sessions
+// above all) stops on this notification instead of reconnecting to a chat that is gone.
 export function forgetWorkspaceScope(wsId: string): void {
   if (!_scopes.delete(wsId)) return
   notifyScopeListeners(wsId)
@@ -130,30 +97,17 @@ export function forgetWorkspaceScope(wsId: string): void {
 // /ide/:projectId/:repoId/:wsId segments and stops at the next separator.
 const IDE_ROUTE = /\/ide\/([^/]+)\/([^/]+)\/([^/]+)/
 
-/**
- * Parse an /ide/:projectId/:repoId/:wsId pathname and record its scope, then
- * return it (or null for a non-/ide path). The IDE shell calls this SYNCHRONOUSLY
- * during render — before it renders WorkspaceView — because the workspace panels
- * build workspace-scoped URLs (workspaceBase) during their own render. Recording
- * the scope only in the route component's post-render effect was too late: the
- * first render threw and tripped the ErrorBoundary. The route is the canonical
- * scope source, so deriving it here keeps the lookup resolvable on first paint.
- */
+// Parse and record an /ide/:projectId/:repoId/:wsId pathname's scope (null off /ide). The IDE
+// shell calls this synchronously during render, since workspace panels build scoped URLs in their
+// own render; recording it in an effect would make the first render throw.
 export function recordWorkspaceScopeFromPath(pathname: string): WorkspaceScope | null {
   const scope = parseWorkspaceScopeFromPath(pathname)
   if (scope) setWorkspaceScope(scope)
   return scope
 }
 
-/**
- * Pure parse of an /ide/:projectId/:repoId/:wsId pathname into its scope, WITHOUT
- * recording it (no side effect). Returns null for a non-/ide path. Render paths
- * that only need to READ the active workspace from the route — e.g. the context
- * pill — use this so they react to pathname changes without mutating the registry
- * (which the IDE shell owns). The route shape is /ide/:p/:r/:wsId; matching the
- * legacy /workspaces/:wsId shape here is the bug this replaced — the pill then
- * never resolved a workspace and always showed the project name.
- */
+// Parse an /ide/:p/:r/:wsId pathname into its scope without recording it, for render paths that
+// only read the active workspace (e.g. the context pill); the IDE shell owns the registry.
 export function parseWorkspaceScopeFromPath(pathname: string): WorkspaceScope | null {
   const match = pathname.match(IDE_ROUTE)
   if (!match) return null
@@ -166,56 +120,30 @@ export function __resetWorkspaceScopesForTest(): void {
   _scopeListeners.clear()
 }
 
-/**
- * Resolve the hierarchical scope for `wsId`. Returns null when the scope was never
- * recorded — callers throw/skip so a workspace-scoped URL is never built with a
- * missing project/repo segment. There is no "active workspace" default: asking
- * without naming one is how a call lands on the wrong workspace or host.
- */
+// `wsId`'s recorded scope, or null — callers throw or skip rather than build a URL missing a
+// segment. No "active workspace" default: an unnamed ask lands on the wrong workspace or host.
 export function getWorkspaceScope(wsId: string): WorkspaceScope | null {
   return _scopes.get(wsId) ?? null
 }
 
-/**
- * The chat that owns `wsId`'s worktree, or null when the scope was never recorded
- * or the daemon resolved no owning chat.
- *
- * This is the bridge from "the id a terminal component holds" (a workspace) to
- * "the id its API routes are addressed by" (a chat). Callers throw or skip on
- * null rather than falling back to a workspace-scoped URL — those routes no
- * longer exist.
- */
+// The chat owning `wsId`'s worktree, or null when the scope is unrecorded or has no owner: the
+// bridge from a workspace id to the chat id routes are addressed by. Callers throw or skip on null;
+// there is no workspace-scoped route to fall back to.
 export function getOwningChatId(wsId: string): string | null {
   return getWorkspaceScope(wsId)?.owningChatId || null
 }
 
-/**
- * The workspace whose worktree `chatId` holds, or null. Only an OWNING chat is
- * recorded, so a sibling must be placed through the workspace it is opened in.
- */
+// The workspace whose worktree `chatId` holds, or null. Only owning chats are recorded, so a
+// sibling must be placed through the workspace it is opened in.
 export function getWorkspaceIdOwnedByChat(chatId: string): string | null {
   if (!chatId) return null
   for (const scope of _scopes.values()) if (scope.owningChatId === chatId) return scope.wsId
   return null
 }
 
-/**
- * Whether `wsId`'s project/repo scope has been recorded yet — `workspaceBase`
- * (and anything built on it, e.g. `repoChatsBaseForWorkspace`) throws without
- * it. WorkspaceHost can force-mount a workspace's effects (a pane/Recents-
- * retained workspace nobody has navigated to yet) before the route or the
- * sidebar's own repo fetch has recorded its scope — most reliably right after
- * a cold boot, when which of the two finishes first is a genuine race. This
- * makes readiness a piece of React state a caller can wait on, and re-fire
- * once it resolves, instead of calling straight into the throw.
- *
- * For a caller that only needs the OWNING CHAT specifically (chat-scoped
- * routes — files/git/lsp/terminal), use `getOwningChatId` with this same
- * `subscribeToWorkspaceScope` wiring instead (see `useOwningChatId`,
- * use-workspace-effects.ts) — scope can be recorded (route-derived, no chat
- * yet) well before an owning chat is, so the two readiness questions are
- * genuinely different.
- */
+// Whether `wsId`'s scope is recorded (workspaceBase throws without it), as React state.
+// WorkspaceHost can mount a retained workspace before the route or sidebar records it (a cold-boot
+// race). For the owning chat use useOwningChatId: scope can be recorded long before its owner.
 export function useWorkspaceScopeReady(wsId: string): boolean {
   return useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
@@ -223,10 +151,8 @@ export function useWorkspaceScopeReady(wsId: string): boolean {
   )
 }
 
-/**
- * `getOwningChatId(wsId)` as React state: the sidebar records it asynchronously,
- * and the chat-scoped routes throw without it, so effects must re-run once it lands.
- */
+// getOwningChatId as React state: the sidebar records it asynchronously and chat-scoped routes
+// throw without it, so effects must re-run once it lands.
 export function useOwningChatId(wsId: string): string | null {
   return useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),

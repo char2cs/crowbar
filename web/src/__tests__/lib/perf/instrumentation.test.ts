@@ -98,13 +98,9 @@ describe('perf instrumentation', () => {
     expect(() => markEnd('never-started')).not.toThrow()
   })
 
-  // Regression: the observer's async mark-cleanup used to clear a still-OPEN
-  // span's `:start` mark, then markEnd threw `No mark named 'x:start' exists`.
-  // This is exactly the terminal.echo path — a second keystroke opens a new echo
-  // span before the previous span's write callback (which calls markEnd) has run,
-  // and the observer drains the first span in between — and the throw escaped
-  // inside xterm's write() callback as an unhandled error. markEnd must be a real
-  // no-op when its start mark was cleared out from under it, never a throw.
+  // The terminal.echo path: a second keystroke opens a span before the first's markEnd runs, and
+  // the observer's cleanup can clear the open span's `:start`. markEnd must then be a no-op, since
+  // a throw escapes inside xterm's write() callback.
   it('markEnd does not throw when the observer cleared an in-flight span start mark', async () => {
     ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true
     installPerfObserver()

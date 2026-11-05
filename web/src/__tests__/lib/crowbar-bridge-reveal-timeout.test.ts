@@ -30,9 +30,7 @@ describe('crowbar-bridge revealItemInFinder timeout guard (Task 30)', () => {
     await expect(revealItemInFinder('/tmp')).rejects.toThrow('reveal_in_finder failed')
   })
 
-  // The bug this guards against: an invoke that never settles (hung main
-  // thread, denied capability, whatever) previously left the caller's
-  // `.catch` — which surfaces an error toast — waiting forever in silence.
+  // An invoke that never settles must still reject, so the caller's `.catch` toast fires.
   it('rejects with a timeout error when the invoke never settles', async () => {
     vi.useFakeTimers()
     invoke.mockReturnValueOnce(new Promise(() => {})) // never resolves or rejects

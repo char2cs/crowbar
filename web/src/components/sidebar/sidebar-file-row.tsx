@@ -37,10 +37,8 @@ interface TreeGuidesProps {
   targets?: ReadonlyArray<TreeGuideTarget | null>
 }
 
-/**
- * The vertical rules connecting a nested row to its ancestors, one per level.
- * Inset at the top where a level begins and at the bottom where it ends.
- */
+// The vertical rules joining a nested row to its ancestors, one per level, inset where a level
+// begins and ends.
 export function TreeGuides({
   depth,
   baseIndent,
@@ -103,10 +101,8 @@ type SidebarFileRowProps = Omit<React.ComponentProps<'button'>, 'children'> & {
   containerClassName?: string
 }
 
-/**
- * The dense sidebar row every file list draws through (Files explorer, Git
- * panel): the chat row's capsule, type and icon column at file-tree pitch.
- */
+// The dense row every file list draws through (Files explorer, Git panel): the chat row's capsule,
+// type and icon column at file-tree pitch.
 export function SidebarFileRow({
   depth = 0,
   indentSize = ROW_INDENT_STEP,

@@ -207,8 +207,7 @@ describe('TauriWebSocket', () => {
       stopDown()
     })
 
-    // A halted channel used to come back only once every subscriber had left and one came
-    // back; now the host's own return reopens it, whoever holds it.
+    // A halted channel reopens when its host returns, whoever holds it.
     it('opens nothing more for a host whose identity changed, and reopens it once it is up', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       pairRemoteHost('h1')

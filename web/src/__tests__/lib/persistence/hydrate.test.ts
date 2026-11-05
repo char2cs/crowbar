@@ -227,7 +227,7 @@ describe('hydrateWindowPaneLayout', () => {
     expect(windowPaneStore.getState().activeViewId).toBeNull()
   })
 
-  // Regression: one violation used to discard the whole band.
+  // One broken record must not discard the whole band.
   it('repairs a payload with one broken record, keeping every valid one in order', async () => {
     const db = await getDB()
     await db.put('workspace-layout', {

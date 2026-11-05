@@ -23,17 +23,9 @@ vi.mock('@/lib/persistence/hydrate', () => ({
   placeRestoredPanesOnceSynced,
 }))
 
-// Regression: this ordering used to live inside a React component
-// (`HydrationGate`) that gated first paint on ALL of it, including the one
-// genuine network call (`/v0/projects`) — live-measured as a 600-900ms blank
-// screen on every cold boot. Moving it here, awaited in main.tsx BEFORE
-// `renderApp()` is ever called, fixed that AND a real crash the naive "just
-// render immediately" fix introduced: a `WorkspaceView`/`EditorSurface` that
-// mounts against `windowPaneStore`'s just-booted defaults, only to have
-// `hydrateWindowPaneLayout` replace the whole layout out from under it a
-// frame later, threw ("Editor failed to load") on every retained pane.
-// `hydrateCriticalStores` must therefore fully resolve — synchronously, from
-// the caller's perspective — before React ever mounts.
+// Boot hydration resolves before React mounts (main.tsx awaits it before renderApp): a surface
+// mounted against just-booted defaults and then swapped a frame later throws ("Editor failed to
+// load"), while gating paint on the network call left a blank screen on cold boot.
 describe('hydrateCriticalStores', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -11,11 +11,8 @@ interface ActiveSessionsSectionProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
 }
 
-/**
- * The agents running right now, pinned above the tree on a touch device so a
- * phone can find a session it left running. Each entry is the ordinary row of a
- * chat already in the tree — same component, same menu — plus who is attached.
- */
+// Agents running now, pinned above the tree on touch so a phone finds a session it left running.
+// Each entry is the chat's ordinary tree row (same component and menu), plus who is attached.
 export function ActiveSessionsSection({
   rows,
   onOpen,

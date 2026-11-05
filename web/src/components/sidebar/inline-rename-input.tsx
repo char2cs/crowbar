@@ -6,10 +6,7 @@ interface InlineRenameInputProps {
   /** Branch rows draw their label monospace (sidebar-row.tsx); match it so
    *  the editor doesn't change typeface under the cursor. */
   mono?: boolean
-  /** Shown only while `defaultValue` is empty (the browser's own rule) — a
-   *  rename always seeds a real current name, so this is effectively a
-   *  create-only affordance: what an unlabeled, empty row would otherwise
-   *  give no hint it even wants (see `CREATE_ROW_PLACEHOLDER`'s own doc). */
+  /** Shows only while the value is empty, so it hints a create; a rename seeds a real name. */
   placeholder?: string
   /** Replaces the row-label text style (size, weight, family). */
   className?: string
@@ -17,14 +14,8 @@ interface InlineRenameInputProps {
   onCancel: () => void
 }
 
-/**
- * A row's label, replaced in place by a real, focused, pre-selected
- * `<input>` — this is develop's actual double-click-to-rename behavior
- * (`workspace-inline-input.tsx`, deleted in the tree-retirement commit
- * f119a402, rebuilt fresh here per "no legacy"). Enter confirms, Escape
- * cancels, and blur confirms unless Enter/Escape already handled it —
- * `handledRef` is what stops blur from double-firing after either did.
- */
+// The row's label replaced in place by a focused, pre-selected input. Enter confirms, Escape
+// cancels, blur confirms — `handledRef` keeps blur from firing again after Enter/Escape.
 export function InlineRenameInput({
   defaultValue,
   mono,
@@ -41,11 +32,8 @@ export function InlineRenameInput({
     if (!input) return
     input.focus()
     input.select()
-    // The editor does not always mount where the gesture happened: a rename
-    // started from a Recents row draws on that row's TREE copy instead
-    // (`inlineRenameDisabled`, view-row.tsx), and the context menu can
-    // rename a row the shared scroller has scrolled away from. focus() alone
-    // leaves the caret in an input that is off-screen.
+    // The editor may mount away from the gesture (a Recents rename draws on the tree copy, or a
+    // row scrolled out of view), and focus() alone leaves the caret off-screen.
     input.scrollIntoView({ block: 'nearest' })
   }, [])
 

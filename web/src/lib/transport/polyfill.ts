@@ -1,10 +1,8 @@
 import './types'
 
-// The native Crowbar shell may inject a partial `window.__CROWBAR__` (e.g. just
-// `api`/`endpoint`) before the event bridge (`on`/`emit`) is implemented — those
-// are still FUTURE on the native side. An all-or-nothing guard would leave `on`
-// undefined and crash `connectDaemonEvents` at startup. Instead, ensure the
-// object exists and backfill any missing methods so the bridge is always whole.
+// The native shell may inject a partial `window.__CROWBAR__` (just `api`/`endpoint`) without the
+// event bridge, and an all-or-nothing guard would leave `on` undefined and crash
+// connectDaemonEvents at startup — so ensure the object exists and backfill missing methods.
 if (typeof window !== 'undefined') {
   const existing = (window.__CROWBAR__ ?? {}) as Partial<Window['__CROWBAR__']>
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
