@@ -16,11 +16,9 @@ interface TypeToFocusOptions {
   onText: (text: string) => void
 }
 
-/**
- * Typing anywhere in the chat lands in the composer. A window listener, since
- * the box is not focused yet; a retained workspace stays mounted hidden, so the
- * active workspace is asked inside the handler.
- */
+/** Typing anywhere in the chat lands in the composer. A window listener, since
+ *  the box is not focused yet; a retained workspace stays mounted hidden, so the
+ *  active workspace is asked inside the handler. */
 export function useTypeToFocus({ wsId, watched, canType, onText }: TypeToFocusOptions) {
   const buffer = useRef<TypeBuffer>(EMPTY_TYPE_BUFFER)
   const onKey = useEffectEvent((event: KeyboardEvent) => {
