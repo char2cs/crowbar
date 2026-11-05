@@ -22,45 +22,13 @@ export interface ResolvedRow {
   subject: DragSubject
 }
 
-/**
- * Find `id` among the repo's CHAT rows.
- *
- * Deliberately its own resolver rather than a fourth branch inside
- * `resolveRow` below: that one answers with a `DragSubject`, whose `kind` is
- * the closed `DropKind` union (`workspace | folder | repo | project`) that the
- * drag matrix, `planRemoval` and `RemovalDraft` all switch on exhaustively.
- * Widening that union to admit a chat would change four surfaces that have
- * nothing to do with clicking a row, so a chat answers here instead and
- * `resolveRow` keeps exactly the contract it had.
- *
- * Callers must consult THIS FIRST. `resolveRow` cannot see a chat, and every
- * one of its callers treats "not found" as "do nothing" — which is how a chat
- * row came to look like every other row while silently doing nothing.
- *
- * AND it deliberately does NOT match a `branch` row, even though one lives in
- * the chat id space: `deriveRows` gives EVERY workspace-owning row —
- * a locked branch, a repo home, and an ordinary fork or forked thread alike —
- * the id of the chat that owns its workspace, because that is what the daemon
- * places by. Such a row is a WORKSPACE — `resolveRow` answers for it, via
- * `workspaceIdOfBranchRow`. Matching it here sent every verb down the chat
- * path, which is not a hypothetical: it made a locked branch's "+" silently
- * inert, pointed its trash at `deleteChat`, and turned renaming the repo-home
- * row into retitling a conversation. A new caller must handle both clauses.
- */
+// Find `id` among CHAT rows; callers consult this before `resolveRow`, which cannot see a chat.
+// Separate so `DragSubject`'s closed `DropKind` union stays chat-free. A branch row shares the
+// chat id space but is a WORKSPACE (rename moves the branch, trash removes it), so it is null here.
 export function resolveChatRow(
   repos: readonly Repo[],
   id: string,
 ): { repo: Repo; chat: Chat } | null {
-  // A workspace-owning row lives in the chat id space but is NOT a chat row —
-  // `deriveRows` gives that workspace's row this id precisely so the
-  // daemon can place under it. Matching it below would send every verb down
-  // the chat path: "+" would go silently inert, trash would delete the
-  // branch's own row, and rename would retitle it instead of moving the git
-  // branch. `workspaceIdOfBranchRow` is the one place that already knows every
-  // shape this id can take (locked, home, or an ordinary fold) — checked once,
-  // up front, rather than re-deriving its own `type === 'branch'` shortcut
-  // here, which stopped being able to tell a folded fork's row apart from a
-  // real conversation the moment it started sharing that id space too.
   if (workspaceIdOfBranchRow(repos, id) !== null) return null
   for (const repo of repos) {
     const chat = repo.chats?.find((c) => c.id === id)
@@ -69,48 +37,19 @@ export function resolveChatRow(
   return null
 }
 
-/**
- * Validates a resolved workspace id against THIS repo, or null when it names
- * none. Spec §9.2 makes a repo's chats an open set (a bubble moved across
- * repos keeps ancestors in the repo it left), so a `wsId` naming a workspace
- * outside this repo is an ordinary state, not corruption — and routing to
- * /ide/:p/:r/:ws with a ws that is not under :r would be a URL nothing
- * resolves.
- *
- * Takes an already-resolved id rather than a `Chat` — see `handleOpen`'s own
- * call site for WHERE that id comes from. It used to be `chat.workspaceId`
- * alone, which is genuinely null for a true bubble (§3.1: it owns none), and
- * that was read as "this row opens nothing" — clicking one just toggled its
- * own (childless, so invisible) fold. Live-reported: "clicking on a not
- * opened row... simply anything happens... it should create a view on its
- * own." A bubble still opens SOMEWHERE, though: it always sits inside some
- * real workspace's tree (worst case, the repo's own home), and that ground is
- * exactly the workspace context `deriveRows` already stamps on the row
- * for it — the caller reads the row's own `workspaceId` (which now folds
- * that fallback in) rather than the chat's, and this function's only job is
- * left as the repo-membership check.
- */
+// `wsId` if it names a workspace of THIS repo, else null. A chat moved across repos can keep a
+// workspace from the repo it left (§9.2), and /ide/:p/:r/:ws with a ws outside :r resolves nothing.
 function isOpenableWorkspaceOfRepo(repo: Repo, wsId: string | null): string | null {
   if (!wsId) return null
   if (wsId === repo.defaultWorkspaceId) return wsId
   return repo.workspaces.some((w) => w.id === wsId) ? wsId : null
 }
 
-/**
- * Find `id` — a workspace, a folder, or a repo's own default workspace —
- * across every visible repo, regardless of which project's space panel
- * rendered it. Extracted verbatim from sidebar-tree-panel.tsx (Task 8/29): a
- * row's owning repo is never ambiguous by project, so this needs no
- * per-project variant.
- *
- * NOT a chat resolver — see `resolveChatRow` above for why, and call that
- * first.
- */
+// Find `id` — a workspace, folder, or repo default workspace — across every visible repo (a
+// row's repo is never ambiguous by project). Not a chat resolver: call `resolveChatRow` first.
 export function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | null {
-  // A branch row is addressed by its owning chat's id, but everything downstream
-  // of here — the drag matrix, `planRemoval`, `RemovalDraft` — is about the
-  // WORKSPACE. Translate once, at the boundary, so none of them has to know two
-  // id spaces exist.
+  // Translate a branch row's owning-chat id to its workspace once, at the boundary, so the
+  // drag matrix, `planRemoval` and `RemovalDraft` never see two id spaces.
   const rowId = workspaceIdOfBranchRow(repos, id) ?? id
   for (const repo of repos) {
     const ws = repo.workspaces.find((w) => w.id === rowId)
@@ -140,11 +79,8 @@ export function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | nu
   return null
 }
 
-/** A `SidebarRow` good for exactly one thing: naming a chat and its
- *  workspace for `openChatInOwnPane`, which reads only those two fields
- *  (`subject.id`, `subject.workspaceId`). Every other field here is inert
- *  filler required by the type, not real row data — never hand this to
- *  anything that renders or drags a row. */
+// Names a chat and its workspace for `openChatInOwnPane`, which reads only those two fields.
+// The rest is type-required filler: never hand this to anything that renders or drags a row.
 function paneOpenSubject(chatId: string, workspaceId: string): SidebarRowType {
   return {
     id: chatId,
@@ -159,59 +95,18 @@ function paneOpenSubject(chatId: string, workspaceId: string): SidebarRowType {
   }
 }
 
-/**
- * Open `chatId` (which runs in `workspaceId`) the way a click does — spec
- * §8.4, "clicking a chat in the tree makes its own view": `openChatInOwnPane`
- * reveals it if it is already up, fills an empty pane if there is one, and
- * otherwise gives it a brand-new pane of its own.
- *
- * It is deliberately NOT `openChatIntoPane(…, activePaneId, 'center')` any
- * more. That call handed the click the DRAG-AND-DROP rules — a synthetic
- * "you dropped this exactly on the active pane" — whose occupied-pane branch
- * is a merge: a split carved out of the active pane and both chats grouped
- * into one Recents entry. Clicking a second row then read as appending a chat
- * to the view you were in, which is what it was reported as. Merging stays a
- * drag-and-drop gesture; see `openChatInOwnPane`'s own doc.
- *
- * Only reachable when `workspaceId` IS ALREADY the active workspace:
- * `openChatInOwnPane` itself refuses otherwise (the same documented guard
- * `openChatIntoPane` carries — no chatId->workspace resolution exists yet on
- * the render side for an off-screen workspace). A row naming a workspace that
- * is not yet active goes through `navigateThenOpenChat` below instead, which
- * waits for it to become active first rather than racing it.
- */
+// A click opens a chat in its OWN view (§8.4): reveal, fill an empty pane, or a new pane — never
+// the drop-on-active-pane merge, which stays a drag gesture. False unless `workspaceId` is already
+// active; other rows go through `navigateThenOpenChat`.
 export function openChatInOwnView(chatId: string, workspaceId: string): boolean {
   if (workspaceId !== getActiveWorkspaceId()) return false
   openChatInOwnPane(paneOpenSubject(chatId, workspaceId))
   return true
 }
 
-/**
- * Navigate to `wsId`'s own route, then open `chatId` into its own view.
- *
- * This is the sequencing `openChatInOwnView` alone cannot do: a bare
- * `navigate()` only changes the URL, and clicking a workspace that was not
- * already active used to stop there — the click looked like it did nothing,
- * because nothing ever wrote a chat into a pane.
- *
- * Opens the pane RIGHT AFTER navigating, not once the workspace "becomes
- * active" (an earlier version of this function polled
- * `getActiveWorkspaceId()` for up to 2s and gave up silently if it never
- * matched) — that wait can never resolve while the active PANE already holds
- * a chat from a DIFFERENT workspace: `IDEShell`'s own
- * `effectiveActiveWorkspaceId` resolves the active PANE's workspace before
- * ever consulting the route (`activePaneWorkspaceId ?? activeWorkspaceId`,
- * ide-shell.tsx), by design, for the unrelated case of clicking between two
- * panes of an existing split. That priority does not move just because THIS
- * navigation changed the URL, so "wait for active" deadlocked forever on
- * anything but the very first chat opened in a session — live-reported as a
- * bubble chat's click doing nothing at all. Panes are window-level now (Task
- * 26): `openChatInOwnPane` writes straight into `windowPaneStore`, and
- * `paneOpenSubject`'s own `workspaceId` is the HINT `resolveChatWorkspaceId`
- * needs to resolve correctly before any workspace store for it even exists
- * (see that function's own doc) — nothing here ever depended on "active"
- * being true, only on believing it had to.
- */
+// Navigate to `wsId`, then open `chatId` in its own view right away. Never wait for the workspace
+// to become "active": the active PANE's workspace outranks the route (ide-shell.tsx), so that wait
+// can deadlock. Panes are window-level, and the subject's `workspaceId` is the resolution hint.
 export async function navigateThenOpenChat(
   navigate: NavigateFn,
   params: { projectId: string; repoId: string; wsId: string },
@@ -221,21 +116,9 @@ export async function navigateThenOpenChat(
   openChatInOwnPane(paneOpenSubject(chatId, params.wsId))
 }
 
-/**
- * Resolve `chatId`'s route — project home or a repo workspace — and open it
- * into its own pane (reveal if already up, fill a vacant pane, or mint a new
- * view), navigating first when its workspace is not already active. Returns
- * whether a route was found at all.
- *
- * THE one place that resolves "home or repo, then open" for an
- * already-identified chat id — `handleOpen`'s three call sites below all go
- * through it now instead of each repeating the same
- * home-check/`openChatInOwnView`/`navigateThenOpenChat` trio. That
- * duplication is what let `focusRecent` (recents-actions.ts, the Recents
- * band's click) drift out of sync with this file: it never learned project
- * home exists, so a Recents row for a project-home chat resolved nowhere and
- * did nothing on click. `focusRecent` now calls this same function.
- */
+// The one "project home or repo workspace, then open in its own pane" path for a known chat id,
+// navigating first when needed; `handleOpen` and Recents' `focusRecent` both route through it so
+// neither forgets project home. Returns whether a route was found.
 export function openChatRoute(
   repos: readonly Repo[],
   chatId: string,
@@ -258,38 +141,9 @@ export function openChatRoute(
   return true
 }
 
-/**
- * Opens a row: into a pane (a real, unlocked chat/workspace row), or toggles
- * a fold (a container — a folder, the repo home, or a locked/protected
- * branch, addendum §3: "a project, a repo, and a locked/protected branch
- * never open a pane and never open a workspace of their own on click...
- * they contain rows; they are not rows you check out into").
- *
- * `repos` is the caller's removal-tray-filtered list (what is actually
- * rendered), not the raw store — a row already hidden pending removal must
- * not be openable.
- *
- * A CHAT row answers this the same way every other row does, chosen by the
- * one fact §3.1 distinguishes chats on:
- *
- *   - a WORKTREE chat owns a workspace, so it opens into the active pane
- *     (spec §8.4) — the same view clicking the branch row for that workspace
- *     opens, since both name the same conversation;
- *   - a BUBBLE owns none, so it folds, like every other container that has
- *     no destination of its own. Opening a bubble into a pane needs its
- *     ground workspace resolved by walking up to the nearest owning
- *     ancestor (§3.2) — not built yet (see `handleCreate`'s own note on the
- *     same gap) — so this is an honest fold, not a placeholder.
- *
- * Answers whether a chat was opened (a fold, a refusal or a miss is false).
- *
- * A project-home row (chat or folder) is resolved FIRST, against every
- * visible project's home tree rather than `repos` — see `resolveHomeRowScope`
- * (core/entities/home-rows.ts), the one shared implementation every caller that
- * needs to tell a home row apart from a repo one reuses.
- *
- * `fold: false` leaves a container row as it is: the phone folds only from its disclosure.
- */
+// Opens a row into a pane, or folds a container (folder, repo home, locked branch: §3, never
+// checked out into). `repos` is the removal-filtered rendered list; home rows resolve first.
+// True only when a chat opened. `fold: false` for the phone, which folds from the disclosure only.
 export function handleOpen(
   id: string,
   repos: readonly Repo[],
@@ -326,55 +180,33 @@ export function handleOpen(
 
   const found = resolveRow(repos, id)
   if (!found) return false
-  // A folder has no destination — the row body toggles it, same as the
-  // tree it replaces.
+  // A folder has no destination: the row body toggles it.
   if (found.subject.kind === 'folder') {
     toggle()
     return false
   }
   if (!found.repo.projectId) return false
-  // Addendum §3: the repo-home row (no `locked` on its subject at all — see
-  // `resolveRow`) and a locked/protected branch never open anything of
-  // their own on click; they are containers, not workspaces you check out
-  // into. Fold, exactly like a folder.
+  // §3: the repo home and a locked branch are containers, not checkouts — fold like a folder.
   const isRepoHome = found.subject.id === found.repo.defaultWorkspaceId
   if (isRepoHome || found.subject.locked) {
     toggle()
     return false
   }
-  // A real, unlocked workspace row IS a chat — the one that owns it — so it
-  // opens the same way clicking that chat's own bubble would (spec §8.4).
-  // The row itself is addressed by the WORKSPACE's id for a regular fork
-  // (`deriveRows`'s own note on why); its owning conversation is a
-  // separate id, read off the `Workspace` record the same way
-  // `handleCreate` already does.
+  // An unlocked workspace row opens as the chat that owns it (§8.4). Pass `subject.id`, never
+  // the row id: a branch row is addressed by its owning chat, and only `resolveRow` maps it back.
   const owningChatId = found.repo.workspaces.find((w) => w.id === found.subject.id)?.owningChatId
-  // `subject.id`, never the row's — a branch row is addressed by its owning
-  // chat, and only `resolveRow` knows which workspace that names.
   if (owningChatId) {
     return openChatRoute(repos, owningChatId, found.subject.id, navigate)
   }
-  // No owner recorded yet: the daemon mints one on the first read of the
-  // workspace list, so this is a list still landing, never a row to navigate
-  // to — a bare workspace route would spin forever on a chat-keyed explorer.
+  // No owner yet means the workspace list is still landing (the daemon mints one on first read);
+  // a bare workspace route would spin forever on a chat-keyed explorer.
   const branch = found.repo.workspaces.find((w) => w.id === found.subject.id)?.branch
   toast.error(chatNotLoadedYet('open', branch))
   return false
 }
 
-/**
- * Open `chatId` (already existing, running in the project's home workspace)
- * the way a click does — the home-scoped sibling of `navigateThenOpenChat`.
- * Shared by {@link handleCreateHomeThread} (a freshly-minted chat) and
- * {@link handleOpen}'s home branch (an existing row the user clicked): both
- * need the identical sequence — open in place if home is already the active
- * workspace, otherwise navigate to project home and open the pane right
- * after, exactly as `navigateThenOpenChat` does for a repo chat (see that
- * function's own doc for why this no longer waits for "active" first).
- * `/ide/$projectId/home` carries no `repoId`/`wsId` of its own (project home
- * rides no repo), which is the one thing that keeps this from just being a
- * call to `navigateThenOpenChat` itself.
- */
+// The project-home sibling of `navigateThenOpenChat` (same no-wait sequencing), for a new home
+// thread or a clicked home row. Separate only because `/ide/$projectId/home` has no repo or ws.
 export async function openHomeChat(
   projectId: string,
   homeWorkspaceId: string,
