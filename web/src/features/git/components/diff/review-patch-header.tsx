@@ -5,14 +5,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 /** Why a file's header is showing something other than its diff. */
 export type PatchState = 'truncated' | 'loading' | 'failed'
 
-/**
- * How many review threads a file carries, on its header.
- *
- * The threads store is always loaded; the diff is not. A thread anchored in a
- * file the window has left as a placeholder has no line to attach to and would
- * otherwise be invisible — so the header says it is there, and clicking loads
- * the file and goes to it.
- */
+/** A file's thread count on its header: a thread in a placeholder file has no line to hang on,
+ *  so the header shows it, and clicking loads the file and goes there. */
 export function FileThreadCount({
   path,
   count,
@@ -54,14 +48,8 @@ export function ViewedToggle({
   )
 }
 
-/**
- * What a file's header says when its body is not the whole story.
- *
- * The case this exists for: the fixture's monster file is a SINGLE 420k-line
- * hunk, so under the server's default cap nothing fits and the response is a
- * 142-byte header-only patch. Rendered naively that reads as "this file has no
- * changes" — the one thing it must never say.
- */
+/** What the header says when the body isn't the whole story: a single hunk over the cap arrives
+ *  as a header-only patch, which must never read as "no changes". */
 export function PatchStateNotice({
   path,
   state,

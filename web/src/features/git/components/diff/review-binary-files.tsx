@@ -4,14 +4,8 @@ import type { ReviewFileEntry } from '@/features/git/lib/review-placeholder'
 import { cn } from '@/utils/cn'
 import ImageDiffViewer from './git-diff-image'
 
-/**
- * Binary files, kept out of the diff renderer entirely.
- *
- * They sit in their own block rather than inline in the CodeView because
- * CodeView renders exactly two things — a file and a diff — and a binary is
- * neither. Rows start collapsed so a review with fifty images neither decodes
- * fifty images nor blows the pane's height open.
- */
+/** Binaries in their own block: CodeView renders files and diffs, and a binary is neither. Rows
+ *  start collapsed so fifty images neither decode nor blow the pane's height open. */
 export function ReviewBinaryFiles({ entries }: { entries: readonly ReviewFileEntry[] }) {
   return (
     <section
