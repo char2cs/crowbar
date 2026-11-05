@@ -90,14 +90,9 @@ function normalizeSearchPath(path: string): string {
   return normalized.replace(/\/+$/g, '')
 }
 
-/**
- * Compute search hits for the file-tree filter: every loaded node whose NAME
- * contains `query` (case-insensitive substring). Matches both files and
- * directories; pass the result to filterFileTreeForFffHits to prune the tree to
- * the matches and their ancestors. Skips in-progress inline-edit placeholders.
- * (Only loaded levels are searched — the tree is lazy, so unexpanded directories
- * aren't traversed.)
- */
+/** File-tree filter hits: every loaded, non-placeholder node (file or directory) whose name
+ *  contains `query`, case-insensitively. Unexpanded lazy levels are not searched. Pass the
+ *  result to filterFileTreeForFffHits to prune the tree to the hits and their ancestors. */
 export function computeFileTreeSearchHits(files: FileEntry[], query: string): FileTreeSearchHit[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
@@ -188,20 +183,9 @@ export interface VirtualRowExtent {
   size: number
 }
 
-/**
- * Which virtualized row is genuinely at the top of the scrolled viewport,
- * for the sticky-ancestor header to key off.
- *
- * Live-reported: the sticky header for a folder overlapped/garbled the real
- * row scrolled underneath it. Root cause: the caller used to re-derive this
- * index independently via `Math.floor(scrollOffset / rowHeight)`, assuming
- * every row's real rendered position exactly equals `index * rowHeight`.
- * `items` (from the virtualizer's own `getVirtualItems()`) is the single
- * source of truth for where rows actually are — reading it directly instead
- * can never drift from what is actually on screen. `items` includes
- * overscanned rows above and below the visible window, so the genuinely
- * topmost VISIBLE one is the first whose bottom edge is past `scrollOffset`.
- */
+/** The virtualized row truly at the top of the viewport, for the sticky header. Read from the
+ *  virtualizer's `items` (never `scrollOffset / rowHeight`, which drifts from real positions);
+ *  they include overscan, so it is the first row whose bottom edge is past `scrollOffset`. */
 export function findTopVisibleItemIndex(
   items: readonly VirtualRowExtent[],
   scrollOffset: number,
@@ -252,34 +236,9 @@ export interface StickyScrollLayout {
   visibleItems: readonly VirtualRowExtent[]
 }
 
-/**
- * Where real content should start once a sticky-ancestor stack is showing,
- * so nothing renders partially behind its opaque band.
- *
- * Live-reported (twice): a folder name rendering with its first letters
- * sheared off directly under the sticky header. The stack is a
- * `position: sticky; height: 0` overlay (it has to be — the ancestor rows it
- * shows are virtualized OUT of `items`, so it can never be a normal-flow
- * sibling of them) painted at a FIXED screen position, while the row
- * scrolled to the real top of the content keeps rendering at its ordinary,
- * continuously-scrolled position underneath it. For whatever slice of every
- * scroll frame that position falls inside the stack's band, the stack
- * paints over the top of that row.
- *
- * A one-time size reservation (e.g. adding the stack's height to
- * `paddingTop` once) does NOT fix this — it only shifts which continuous
- * scroll position produces the overlap, since scrolling still passes
- * through every fractional offset between rows; verified live by scrubbing
- * scroll position by hand and watching the overlap reappear a few pixels
- * later. The only way nothing ever renders partially behind the stack is to
- * stop rendering the marker row (whatever row is currently at the real top)
- * at its raw scrolled offset, and instead SNAP it — and everything after —
- * to start exactly where the stack ends, the same "content snaps into
- * place under sticky headers" behavior editors with this feature already
- * use. `containerInset` must be the same value the stack's own CSS `top`
- * offset subtracts (`file-explorer-tree.css`'s `.file-tree-sticky-ancestors`
- * — matching it is what closes the last few pixels of the gap).
- */
+/** Where content starts under a sticky-ancestor stack: the marker row and all after it snap to
+ *  the stack's bottom, since the fixed overlay clips any row scrolled under it and no padding
+ *  fixes that. `containerInset` must equal the `top` offset `.file-tree-sticky-ancestors` uses. */
 export function computeStickyScrollLayout(
   items: readonly VirtualRowExtent[],
   stickyMarkerIndex: number,

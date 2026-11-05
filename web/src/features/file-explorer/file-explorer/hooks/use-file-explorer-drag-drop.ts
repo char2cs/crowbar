@@ -39,10 +39,8 @@ export function useFileExplorerDragDrop(
   onMoveError?: (message: string) => void,
 ) {
   const [dragState, setDragState] = useState<DragState>(initialDragState)
-  // Mirror of the latest dragState so the document mouse handlers can read
-  // fresh drag data (draggedItem/dragOverPath/dragOverIsDir) without the
-  // listener effect re-subscribing every frame. Assigned inline on each render
-  // so it is up to date before any effect or event handler runs.
+  // Latest dragState for the document mouse handlers, so the listener effect need not resubscribe
+  // every frame. Assigned during render so it is current before any effect or handler runs.
   const dragStateRef = useRef<DragState>(dragState)
   dragStateRef.current = dragState
   const dragPreviewRef = useRef<HTMLDivElement | null>(null)
@@ -272,10 +270,8 @@ export function useFileExplorerDragDrop(
       clearAutoExpand()
       clearEditorDropHover()
     }
-    // Subscribe ONCE per drag: depend only on the isDragging boolean so the
-    // listeners stay mounted for the whole drag. The handlers read live drag
-    // data from dragStateRef, so no per-frame re-subscription is needed (which
-    // previously left a window where mouseup was unbound and could be missed).
+    // Of the drag state only isDragging is a dep, so the listeners stay bound for the whole drag
+    // (no gap where a mouseup is missed); handlers read live drag data from dragStateRef.
   }, [
     clearAutoExpand,
     clearEditorDropHover,

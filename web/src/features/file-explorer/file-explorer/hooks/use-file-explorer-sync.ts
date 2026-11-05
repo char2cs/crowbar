@@ -12,10 +12,7 @@ interface UseFileExplorerSyncOptions {
 const EMPTY_BUFFERS: PaneContent[] = []
 
 export function useFileExplorerSync({ activePath, updateActivePath }: UseFileExplorerSyncOptions) {
-  // Task 26: buffers/panes are window-level and never destroyed — a plain
-  // zustand selector off the one singleton store, no more "active workspace"
-  // resubscription (the per-active-workspace-store hook this used to read
-  // through, deleted in Task 27 once it had zero remaining callers) needed.
+  // Buffers and panes are window-level and never destroyed: a plain selector on the singleton.
   const buffers = useStore(windowPaneStore, (s) => s.buffers) ?? EMPTY_BUFFERS
   const activeBufferId = useStore(
     windowPaneStore,

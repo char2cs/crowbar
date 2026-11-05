@@ -11,11 +11,8 @@ import type { FileEntry } from '@/features/file-system/types/app'
 
 const SEARCH_DEBOUNCE_MS = 80
 
-/**
- * The tree's filter box: open state, the (debounced) query, the tree it
- * narrows the explorer to, and the ways to open it (`file-tree-open-search`
- * window event, Cmd/Ctrl+F while the tree is on screen).
- */
+/** The tree's filter box: open state, the debounced query, the narrowed tree, and its openers
+ *  (the `file-tree-open-search` window event, Cmd/Ctrl+F while the tree is on screen). */
 export function useTreeSearch({
   workspaceId,
   filteredFiles,
@@ -69,11 +66,9 @@ export function useTreeSearch({
     return () => window.removeEventListener('file-tree-open-search', open)
   }, [])
 
-  // Cmd/Ctrl+F when the tree itself doesn't have DOM focus (a click that opened
-  // a file moved focus into Monaco). The container's own onKeyDown handles the
-  // chord first and calls preventDefault; a live visibility check keeps a
-  // folded/scrolled-away tree (Files and Git both stay mounted in the sidebar
-  // carousel) from stealing the shortcut.
+  // Cmd/Ctrl+F when focus is elsewhere (opening a file moves it into Monaco). The container's own
+  // onKeyDown handles the chord first; the visibility check keeps a folded or scrolled-away tree
+  // (Files and Git both stay mounted in the sidebar carousel) from stealing it.
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
@@ -119,11 +114,8 @@ export function useTreeSearch({
 
 export type TreeSearch = ReturnType<typeof useTreeSearch>
 
-/**
- * The keyboard cursor while searching, DERIVED: the cursor's own path when it
- * is on a match, else the first match (scrolled into view). Enter / Shift+Enter
- * step between matches; closing the search keeps the cursor where it was shown.
- */
+/** The search cursor, derived: its own path while on a match, else the first match (scrolled
+ *  into view). Enter / Shift+Enter step through matches; closing keeps the cursor where shown. */
 export function useTreeSearchNavigation({
   search,
   visibleRows,
