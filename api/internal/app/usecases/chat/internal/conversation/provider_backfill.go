@@ -11,17 +11,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RestateProvidersFromHistory makes domain.Chat.ProviderID agree with the
-// legacy history for every chat, once, when an install is upgraded. newest is
-// the provider that history last names per chat.
-//
-// The pre-audit daemon answered "as whom does this chat come back" from that
-// history first and read the stored field only when there was none, so a row
-// it wrote may carry an empty or stale field. Every chat whose history names a
-// provider other than the stored one is restated to it; after this the field is
-// the one owner and nothing re-derives it. A row that cannot be restated is
-// logged and counted in skipped; the error is for a failed list or a cancelled
-// ctx.
+// RestateProvidersFromHistory makes domain.Chat.ProviderID agree, once per upgraded
+// install, with newest (the provider the legacy history last names per chat); after it
+// the field is the sole owner. Unrestatable rows are counted in skipped.
 func (c *Conversations) RestateProvidersFromHistory(
 	ctx context.Context,
 	newest map[string]string,

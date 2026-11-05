@@ -13,17 +13,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 )
 
-// This file is the door for everything the COMPOSITION ROOT builds itself: the
-// tool surface, the tree usecase, the fanout, the seams they need and the
-// sentinels they return. None of it is a method on *Usecase, which is why none of
-// it lives in one of the five responsibility files.
+// The door for everything the composition root builds itself (tool surface, tree
+// usecase, fanout, their seams and sentinels) — none of it is a method on *Usecase.
 
-// The agent-facing capability surface, re-exported.
-//
-// tools is an internal package: the MCP tool set is not a thing another layer
-// composes, it is a thing this feature exposes. What the composition root and the
-// status mapper legitimately name is re-exported here, prefixed Tool so one
-// import can carry both this and the tree without collisions.
+// The agent-facing MCP tool surface, re-exported: the feature exposes it rather than
+// another layer composing it. Prefixed Tool so one import carries this and the tree.
 type (
 	// ToolDeps is everything the tool surface needs wired before it can serve a
 	// call. Its Chats and ChatLogs ports are filled in by New; the rest come from
@@ -54,26 +48,22 @@ type (
 	ToolReviewReader = tools.ReviewReader
 	// ToolThreadBroadcast announces a review thread an agent just wrote.
 	ToolThreadBroadcast = tools.ThreadBroadcast
-	// ToolWorkspaceBranchRenamer is set_branch_name's write seam onto the
-	// workspace usecase. It is re-exported for the composition root's sake: the
-	// tool is withdrawn silently when it is nil, so the root has to be able to
-	// name the port it must refuse to start without.
+	// ToolWorkspaceBranchRenamer is set_branch_name's write seam onto the workspace
+	// usecase. A nil one silently withdraws the tool, so the root must name it to
+	// refuse to start without it.
 	ToolWorkspaceBranchRenamer = tools.WorkspaceBranchRenamer
 	// ToolBrowserBridge is the browser tools' route to the desktop app.
 	ToolBrowserBridge = tools.BrowserBridge
 )
 
-// The sidebar forest's tree, re-exported.
-//
-// The tree is a separate usecase with its own routes, but it is part of THIS
-// feature: it moves chat rows, and its chat delete cascades into the chat
-// aggregate. It is reached through this door so the feature has one.
+// The sidebar forest's tree, re-exported: a separate usecase with its own routes, but
+// part of this feature — it moves chat rows and its delete cascades into the chat aggregate.
 type (
 	// TreeUsecase is the folder/placement surface the /folders routes are served
 	// off.
 	TreeUsecase = tree.Usecase
-	// TreeChats is the chat-aggregate surface the tree reads and re-places —
-	// folder rows and conversation rows are the same table now.
+	// TreeChats is the chat-aggregate surface the tree reads and re-places;
+	// folder rows and conversation rows share one table.
 	TreeChats = tree.Chats
 	// TreeAgent is what the tree asks to erase each chat a cascade decided must go.
 	TreeAgent = tree.Agent
@@ -83,12 +73,11 @@ type (
 	// worktree in its subtree through, so a workspace never outlives the chat
 	// that owned it.
 	TreeWorkspaceReaper = tree.WorkspaceReaper
-	// TreeWorkspaceHolders is the census that decides whether that teardown may
-	// run: every chat currently resolving to a workspace, so a worktree
-	// surviving siblings still hold is never cascaded out from under them.
+	// TreeWorkspaceHolders is every chat currently resolving to a workspace, so a
+	// cascade never tears down a worktree surviving siblings still hold.
 	TreeWorkspaceHolders = tree.WorkspaceHolders
 	// TreeFolders is the plain-GORM identity surface a home-scoped folder's
-	// name lives on (2026-09-08 sidebar-placement-unification Task 5).
+	// name lives on.
 	TreeFolders = tree.Folders
 	// TreeNodes is the position surface a home-scoped chat or folder's
 	// placement goes through instead of Chat.SetOrder/.SetPlacement.
@@ -104,11 +93,9 @@ type (
 	// ChatDeletion is what a cascading chat delete removed.
 	ChatDeletion = tree.ChatDeletion
 
-	// WorktreeSpec, WorktreeMode and ImportSpec are CreateChat's worktree half:
-	// whether the new chat owns nothing, a fresh fork, or a branch that already
-	// exists — and, for the last, which branch. Re-exported because the
-	// composition root has to construct one to wire the import paths, and the
-	// tree package it is declared in is internal to this feature.
+	// WorktreeSpec, WorktreeMode and ImportSpec are CreateChat's worktree half: no
+	// worktree, a fresh fork, or an existing branch (and which). Re-exported because
+	// the composition root constructs one to wire the import paths.
 	WorktreeSpec = tree.WorktreeSpec
 	WorktreeMode = tree.WorktreeMode
 	ImportSpec   = tree.ImportSpec
@@ -142,10 +129,8 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 
-// NewTree builds the sidebar forest's tree usecase. busy is the chat
-// usecase (Usecase.ChatBusy): the tree's move and delete verbs refuse over a
-// subtree that is still working. workspaces is the tree's read seam onto the
-// workspace layer.
+// NewTree builds the sidebar forest's tree usecase. busy (Usecase.ChatBusy) lets
+// its move and delete verbs refuse over a subtree that is still working.
 func NewTree(
 	chats TreeChats,
 	agent TreeAgent,
@@ -167,13 +152,9 @@ func (u *Usecase) ChatBusy(ctx context.Context, chatID string) (bool, error) {
 	return u.runners.ChatBusy(ctx, chatID)
 }
 
-// HasTurns reports whether anything was ever SAID in a chat.
-//
-// Here rather than in one of the five responsibility files: the only caller
-// is the tree usecase built on top of this one, whose boot backfill asks it before adopting a row into a
-// different kind (see tree.Agent.HasTurns). It is the same "has this chat said
-// anything yet" test NoteThreadLineage already makes, kept to one read of the
-// turn record rather than rendering a log nobody reads.
+// HasTurns reports whether anything was ever SAID in a chat. Its only caller is the
+// tree's boot backfill (tree.Agent.HasTurns); it reads the turn record alone rather
+// than rendering a log nobody reads.
 func (u *Usecase) HasTurns(
 	ctx context.Context,
 	chatID string,
@@ -246,22 +227,17 @@ var (
 	ErrTreeWorkspaceUnprovisioned = tree.ErrWorkspaceUnprovisioned
 )
 
-// Fanout feeds repository lifecycle announcements to the chat snapshot owner.
-//
-// It is built by the composition root rather than by chat.New because the chat
-// repositories are constructed BEFORE the usecase that reads them, and they need
-// their watch seams at construction. The decision of what a client is told still
-// lives here, in the usecase layer, which is the whole point of the seam.
+// Fanout feeds repository lifecycle announcements to the chat snapshot owner. The
+// composition root builds it, not chat.New: the repositories need their watch seams
+// at construction, before the usecase exists.
 type Fanout = fanout.Fanout
 
 // NewFanout builds the fanout over the snapshot owner. A nil owner degrades to
 // a no-op.
 func NewFanout(snaps *ChatSnapshots) *Fanout { return fanout.New(snaps) }
 
-// ChatSnapshots is the ONE owner of every chat's versioned snapshot — see
-// internal/snapshot. The composition root builds it (the fanout needs it
-// before the usecase exists), binds its publish to the hub, and hands it to
-// New.
+// ChatSnapshots is the ONE owner of every chat's versioned snapshot. The composition
+// root builds it (the fanout needs it before the usecase exists) and hands it to New.
 type ChatSnapshots = snapshot.Snapshots
 
 // ChatSnapshot is one versioned answer about a chat.

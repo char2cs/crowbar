@@ -1,10 +1,7 @@
 // Package fanout turns repository lifecycle announcements into chat snapshots.
 //
-// The chat repository announces WHAT HAPPENED, carrying the aggregate as of
-// each event; this package hands those events to the one snapshot owner
-// (internal/snapshot), which versions them and publishes the frame. That is
-// what makes "one lifecycle change → exactly one versioned frame" a property
-// you can point at.
+// Each event, carrying the aggregate as of it, goes to the one snapshot owner,
+// which versions and publishes it: one lifecycle change, exactly one versioned frame.
 package fanout
 
 import (

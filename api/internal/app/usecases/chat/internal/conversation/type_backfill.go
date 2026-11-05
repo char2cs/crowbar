@@ -8,11 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// BackfillChatTypes records Type on every chat row minted before the field
-// existed. Such a row replays with "" and the pre-audit daemon read it as a
-// conversation (its EffectiveType); nothing reads "" that way any more, so it
-// is written down once. A row whose history cannot be replayed is logged and
-// counted in skipped; the error is for a list that failed or a cancelled ctx.
+// BackfillChatTypes writes Type once onto every legacy row that replays with "",
+// since nothing reads "" as a conversation any more. Unreplayable rows are logged
+// and counted in skipped; the error is for a failed list or a cancelled ctx.
 func (c *Conversations) BackfillChatTypes(ctx context.Context) (skipped int, err error) {
 	rows, err := c.chats.ListChats(ctx)
 	if err != nil {

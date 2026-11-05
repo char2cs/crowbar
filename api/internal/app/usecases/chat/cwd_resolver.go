@@ -7,15 +7,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 )
 
-// cwdResolver adapts the chat repository to runner.AncestorCwd over
-// tree.ResolveCwdWorkspaceID, so the runner component can resolve a bubble's
-// cwd without importing internal/tree directly — the two are peers
-// (aliases_test.go's layering rule), and this package is where they may both
-// be named.
-//
-// folders/nodes (2026-09-08 sidebar-placement-unification Task 8's own
-// review fix round) let the walk step through a Folder-only ancestor —
-// see tree.ResolveCwdWorkspaceID's own doc.
+// cwdResolver adapts tree.ResolveCwdWorkspaceID to runner.AncestorCwd: runner and
+// tree are peers that may not import each other, so only this package names both.
+// folders/nodes let the walk step through a folder ancestor.
 type cwdResolver struct {
 	chats   agentchat.EventStore
 	folders TreeFolders

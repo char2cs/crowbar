@@ -86,11 +86,8 @@ func (rs *Runners) resolveTargetProvider(ctx context.Context, chatID, staged str
 	return rs.conversations.ChatProviderID(ctx, chatID)
 }
 
-// validateSelectionForProvider mirrors conversation.Conversations'
-// unexported validateSelection, against an EXPLICIT provider id rather than
-// the chat's current one — conversation.Conversations can't be asked "would
-// this be valid for provider X" without first making X the chat's current
-// provider, which is exactly the commit this call must happen before.
+// validateSelectionForProvider mirrors Conversations' validateSelection against an
+// EXPLICIT provider, since it must run before that provider is committed to the chat.
 func (rs *Runners) validateSelectionForProvider(
 	ctx context.Context,
 	chatID, providerID, model, effort string,

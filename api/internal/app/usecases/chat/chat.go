@@ -23,14 +23,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ChatUsecase owns the chat aggregate — its identity, title, model selection
-// and hard deletion — and every read served off the conversation record it
-// accumulates.
-//
-// It starts no processes. A chat exists, and is readable, whether or not a CLI
-// has ever run on it: minting one, renaming it and reading its log are all
-// answerable with no runner in sight, which is why they are separable from the
-// runner lifecycle at all.
+// ChatUsecase owns the chat aggregate — identity, title, model selection, hard
+// deletion — and every read off its conversation record. It starts no processes:
+// a chat is readable whether or not a CLI ever ran on it.
 type ChatUsecase interface {
 	// ChatSnapshot is a chat's versioned snapshot — see internal/snapshot.
 	ChatSnapshot(ctx context.Context, chatID string) (ChatSnapshot, error)
@@ -38,15 +33,9 @@ type ChatUsecase interface {
 	// ChatSnapshotsOf is ChatSnapshot for many chats, in order, read together.
 	ChatSnapshotsOf(ctx context.Context, chatIDs []string) ([]ChatSnapshot, error)
 
-	// MintChat creates an empty chat in a workspace and returns its id. No CLI is
-	// started: the chat is dormant until a runner is placed on it.
-	//
-	// providerID is the vendor the chat is born on, recorded durably at creation so
-	// the chat can name it whether or not a CLI ever starts — "" for a placeholder
-	// row that will never get one. See Conversations.MintChat.
-	//
-	// surface is the VIEW the chat is born on (design spec 2.5), "" for the
-	// provider's own default landing — see domain.Chat.Surface.
+	// MintChat creates an empty, dormant chat in a workspace and returns its id.
+	// providerID is recorded durably ("" for a placeholder that never runs one);
+	// surface is the view it is born on ("" for the provider's default).
 	MintChat(
 		ctx context.Context,
 		chatID string,
@@ -55,10 +44,8 @@ type ChatUsecase interface {
 		surface string,
 	) (string, error)
 
-	// RenameChat retitles a chat, honouring where the title came from: a
-	// "derived" title never overwrites an existing one, an "agent" title never
-	// overwrites a locked one, and anything else is a manual rename that wins and
-	// locks.
+	// RenameChat retitles a chat by source: "derived" never overwrites an existing
+	// title, "agent" never overwrites a locked one, anything else wins and locks.
 	RenameChat(
 		ctx context.Context,
 		chatID, title, source string,
@@ -152,24 +139,20 @@ type ChatUsecase interface {
 		ancestors []string,
 	) error
 
-	// Ancestors returns the CHAT ancestors of chatID, nearest parent first —
-	// what a thread inherits. Folders are transparent to it, so a thread filed
-	// two folders deep under a chat inherits exactly what it would sitting
-	// directly under it. Empty for a chat at the panel root.
+	// Ancestors returns the CHAT ancestors of chatID, nearest parent first — what a
+	// thread inherits. Folders are transparent to it; empty at the panel root.
 	Ancestors(
 		ctx context.Context,
 		chatID string,
 	) ([]string, error)
 
-	// AssembleHandoff renders the conversation — capped to the most recent
-	// turns, see RecentHandoffWindow — into the document an incoming CLI is
-	// spawned with. It returns the empty string when there is nothing to hand
-	// over.
+	// AssembleHandoff renders the most recent turns (RecentHandoffWindow) into the
+	// document an incoming CLI is spawned with; "" when there is nothing to hand over.
 	AssembleHandoff(
 		ctx context.Context,
 		chatID string,
 	) (string, error)
-	// Promote fills a bubble's empty workspace slot (model spec §4.2, promote.go).
+	// Promote fills a bubble's empty workspace slot (promote.go).
 	Promote(
 		ctx context.Context,
 		chatID string,
@@ -178,27 +161,9 @@ type ChatUsecase interface {
 
 var _ ChatUsecase = (*Usecase)(nil)
 
-// Usecase is the chat feature: one type, whose methods are exposed across five
-// files by responsibility — the chat record here, the turn in turn.go, the vendor
-// CLI in runner.go, the human-in-the-loop in answers.go and the provider table in
-// providers.go.
-//
-// Each of those five files opens with the port it satisfies and the sentinels its
-// methods return, so a consumer reads one file to learn one responsibility. They
-// are five ports and not one because a consumer should not be able to reach past
-// what it needs: a route that lists chats has no business starting a CLI. The
-// surface is split; the state is not.
-//
-// It is ONE type and not five because those five responsibilities are one
-// surface that calls itself in a cycle: a purge retires the CLIs on the chat, a
-// hook moves a runner, a switch waits on a turn only the hook path can end. Five
-// types could only express that by binding each other after construction, which
-// is what this replaced.
-//
-// The work itself is NOT here. It lives in four components under internal/, and
-// those really are separate: each declares the narrow port it needs from a peer
-// and never imports one (see layering_test.go). This type is where they are built,
-// wired, and named for the outside — nothing more.
+// Usecase is the chat feature: one type whose surface is split into narrow ports by
+// file (chat record, turn, runner, answers, providers) because the responsibilities call
+// each other in a cycle. The work lives in internal/ components that never import a peer.
 type Usecase struct {
 	// The stores and seams the answer path reads directly. Everything else this
 	// type needs, it needs only long enough to build a component out of it.
@@ -209,16 +174,8 @@ type Usecase struct {
 	blobs    *ledgerstore.Blobs
 	ws       WorkspaceReader
 	worktree WorktreeCreator
-	// folders/nodes are the Folder+Node ports 2026-09-08
-	// sidebar-placement-unification Task 8's own review fix round added:
-	// own_worktree.go/promote.go/repo_scope.go/cwd_resolver.go all walk the
-	// chat/folder placement tree looking for a fork parent, a cwd, or a
-	// repo-scoped chat's ground workspace, and a folder is never a Chat row
-	// any more (home-scoped since Task 5, repo-scoped too since Task 8) — a
-	// raw Chats.ListChats/ListByWorkspace read alone can no longer see past
-	// one. May be nil (a caller with neither wired, e.g. a narrow test
-	// double); every consumer degrades to the pre-Task-8 Chat-only walk
-	// rather than failing.
+	// folders/nodes let the placement-tree walks (fork parent, cwd, repo scope) see
+	// past a folder, which is not a Chat row. May be nil: walks then see Chat rows only.
 	folders   TreeFolders
 	nodes     TreeNodes
 	repoRoots TreeRepoRoots
@@ -228,12 +185,9 @@ type Usecase struct {
 	answers *answerdesk.Desk
 	// asks closes the chat's asks, for the desk and for a person's answer.
 	asks askResolver
-	// tools is the agent-facing capability surface. It is kept after construction
-	// for one reason: its Chats, ChatLogs, Lineage and ToolAccess ports are this
-	// type's own methods, so New is the only thing that can fill them, and a nil
-	// ToolAccess FAILS OPEN — the per-provider Tools switch the user turned off
-	// would be silently back on. Keeping the value is what lets that wiring be
-	// guarded rather than assumed.
+	// tools is kept after construction because New alone fills its self-ports, and a
+	// nil ToolAccess FAILS OPEN (a provider's disabled Tools switch silently back on);
+	// keeping it lets that wiring be guarded.
 	tools agenttools.Deps
 
 	// snapshots is the one owner of every chat's versioned snapshot.
@@ -243,8 +197,8 @@ type Usecase struct {
 	// feeds are the per-chat row feeds.
 	feeds *feeds
 
-	// The five components. Each owns one responsibility, and the delegating
-	// methods in this file and the other five are the whole of what reaches them.
+	// The components, each owning one responsibility; the delegating methods are
+	// the whole of what reaches them.
 	conversations *conversation.Conversations
 	// recorder decides and records the rows of every hook the ingress places.
 	recorder *ingress.Recorder
@@ -287,13 +241,9 @@ func (u *Usecase) RenameByRunner(
 	return u.conversations.RenameByRunner(ctx, runnerID, title, source)
 }
 
-// PurgeChat hard-deletes a chat and retires every CLI still on it.
-//
-// tree.Agent's contract (this is one of its implementations) is problem.ErrNotFound
-// for "nothing to purge" — conversations.PurgeChat answers not-found in its own
-// repository-local sentinel instead, since it has never had a reason to know about
-// problem. This is the seam where that gets translated, so purgeAll's tolerance for
-// a chat that never minted an aggregate actually has something to match against.
+// PurgeChat hard-deletes a chat and retires every CLI still on it. It translates the
+// repository's not-found into problem.ErrNotFound, which tree.Agent's contract uses
+// for "nothing to purge".
 func (u *Usecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
@@ -345,12 +295,9 @@ func (u *Usecase) GetChat(
 	return u.conversations.GetChat(ctx, id)
 }
 
-// SetChatSelection pins the model and reasoning effort the chat's next CLI is
-// launched with, and records whichever of model/effort actually CHANGED.
-// Delegated to Runners so this runs under the SAME rs.spawns hold every other
-// mutating path on this interface takes — see Runners.SetChatSelection's own
-// doc (promptswitch.go) for the race a bare, unlocked read-write-record here
-// used to open against a concurrent SubmitPrompt staging its own selection.
+// SetChatSelection pins the model and effort the chat's next CLI launches with and
+// records whichever CHANGED. It runs under the runners' spawn hold so it cannot race a
+// concurrent SubmitPrompt staging its own selection.
 func (u *Usecase) SetChatSelection(
 	ctx context.Context,
 	chatID, model, effort string,

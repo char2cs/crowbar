@@ -1,8 +1,6 @@
-// Package runner (file chatlock.go) is how a user-initiated path holds a chat:
-// by the chat's lock, the one every hook of the chat is recorded under. A path
-// holds it while it decides and while it records runner_started, and releases
-// it around every wait, because what it waits for (a CLI's exit, a prompt's
-// acknowledgement) needs that CLI's own hooks recorded.
+// Package runner (file chatlock.go) is how a user-initiated path holds a chat: by the
+// lock every hook of the chat records under, held to decide and record runner_started,
+// released around every wait, since what it waits for needs the CLI's hooks recorded.
 package runner
 
 import (
@@ -137,10 +135,8 @@ func (h *hold) release() {
 	h.close()
 }
 
-// outside runs wait on the park with the chat's lock released, and takes the
-// lock back after. Whatever the caller decided before is stale: it decides
-// again from what it reads now. On an error the hold may no longer hold the
-// lock, and the caller returns.
+// outside runs wait with the chat's lock released and retakes it; the caller must
+// re-decide from fresh reads. On an error the lock may not be held: return.
 func (h *hold) outside(wait func(park context.Context) error) error {
 	h.unlock()
 	h.unlock = func() {}

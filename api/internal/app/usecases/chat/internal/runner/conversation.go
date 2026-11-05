@@ -17,10 +17,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// HandleSessionStart applies a CLI's session announcement to the chat it is
-// on. The runner never moves: a session the chat does not hold is a change,
-// a move of another chat's session onto this one, or a conflict that ends
-// the CLI, since nothing it does could be recorded here (ledger.Announce).
+// HandleSessionStart applies a CLI's session announcement to its chat; the runner never
+// moves. An unheld session is a change, a move onto this chat, or a conflict that ends
+// the CLI since nothing it does could be recorded (ledger.Announce).
 func (rs *Runners) HandleSessionStart(
 	ctx context.Context,
 	runner engineagents.Runner,

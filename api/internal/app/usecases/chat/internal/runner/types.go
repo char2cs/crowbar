@@ -10,11 +10,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Conversations is what starting, replacing and prompting a CLI needs from the
-// chat record: what the chat has chosen, what it has said, and — when a spawn
-// fails — the ability to erase the chat it was for.
-//
-// It is declared here, by the consumer, so the two never import each other.
+// Conversations is what starting, replacing and prompting a CLI needs from the chat
+// record, including erasing the chat a failed spawn was for. Declared by the consumer
+// so the two never import each other.
 type Conversations interface {
 	// ChatProviderID is the provider the chat's next CLI should be, resolved from
 	// its selection and the live provider order.
@@ -65,10 +63,8 @@ type Conversations interface {
 		ctx context.Context,
 		chatID string,
 	) (end func(), err error)
-	// SeedPermissionLevel durably writes the current global default onto a
-	// freshly created chat — see Conversations.MintChat's own use of this,
-	// which SpawnChat and moveToNewChat mirror since neither can call
-	// MintChat itself (both pre-generate chatID before the row exists).
+	// SeedPermissionLevel durably writes the current global default onto a chat
+	// created without MintChat (SpawnChat, moveToNewChat).
 	SeedPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -76,11 +72,8 @@ type Conversations interface {
 }
 
 // AncestorCwd answers where a workspace-less chat's CLI runs: the nearest
-// workspace-owning ancestor's id, or false when the row has none — the tree
-// usecase's own tree.CwdWorkspaceID ancestor walk (internal/tree, a peer this
-// package may not import; see aliases_test.go's layering rule).
-//
-// Declared here, by the consumer, so the two never import each other.
+// workspace-owning ancestor's id, or false. It is the tree's walk, declared by the
+// consumer because tree is a peer this package may not import.
 type AncestorCwd interface {
 	ResolveCwdWorkspaceID(
 		ctx context.Context,

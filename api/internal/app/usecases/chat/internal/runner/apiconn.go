@@ -1,13 +1,6 @@
-// Package runner (file apiconn.go) is the api-transport half of spawning a
-// provider: start `serve` as a background process, complete the handshake, pump
-// its resolved events through the same door hooks use, and answer any
-// permission it asks from Crowbar's own chat.
-//
-// This file reaches the API transport ONLY through engineagents.Agent
-// (StartAPIConn/APIServeArgv/APIAttachArgv/TransportFor) — never through
-// .../agents/internal/protocol or .../apidriver, which this package's import
-// path has no visibility into (Go's internal/ boundary sits one directory
-// higher than this package).
+// Package runner (file apiconn.go) is the api-transport half of spawning: fork `serve`,
+// handshake, pump its events through the hook door, answer its permissions. It goes only
+// through engineagents.Agent: the protocol packages sit behind an internal/ boundary.
 package runner
 
 import (
@@ -27,26 +20,17 @@ import (
 type apiconn struct {
 	serve  *serveProcess
 	driver *engineagents.APIConn
-	// ctx/cancel are the connection's OWN lifetime, deliberately NOT derived
-	// from whatever request's ctx happened to trigger the spawn. pumpAPIConn's
-	// goroutine outlives that request by design — the provider's reply to THIS
-	// message can arrive minutes after the spawn (or prompt) HTTP call already
-	// returned — and a request-scoped ctx is cancelled the instant that call
-	// completes, silently failing every placed event after with "context
-	// canceled" and making the reply vanish. cancel is called from drop, the
-	// same place serve is killed, so nothing outlives the connection either.
+	// ctx/cancel are the connection's OWN lifetime, never a request's: a reply can
+	// arrive minutes after the triggering HTTP call returned. drop cancels it, where
+	// serve is killed.
 	ctx    context.Context
 	cancel context.CancelFunc
-	// agent/tctx are this connection's own descriptor and rendered template
-	// context, set once establish succeeds. SwitchToTerminal (attach.go) reads
-	// them back to render attach's argv and to re-establish this SAME
-	// connection later, on the way back to native — nothing else needs them.
+	// agent/tctx are this connection's descriptor and template context, set once
+	// establish succeeds; SwitchToTerminal reads them to render attach and re-establish.
 	agent engineagents.Agent
 	tctx  engineagents.TemplateCtx
-	// detached marks a connection whose process is being killed without the
-	// runner ending: handed over to its native view (SwitchToTerminal), or the
-	// daemon shutting down, whose next boot reconciles the row. Read by
-	// watchExit (apirunner.go), which holds this pointer after the entry is gone.
+	// detached marks a connection killed without its runner ending (handed to its
+	// native view, or daemon shutdown). Read by watchExit after the entry is gone.
 	detached atomic.Bool
 	// lost is why the connection died on its own, kept here because only a
 	// watched connection's death is its runner's exit (watchAPIConnExit).
@@ -61,11 +45,8 @@ func (c *apiconn) lostReason() string {
 	return ""
 }
 
-// apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
-// onRunnerExit's teardown look up by runnerID. In memory only, like every other
-// live-process registry in this package (answerdesk's Desk) — it
-// describes a live connection to a live process, so it cannot survive a restart
-// and must not try to.
+// apiConnRegistry is the live api connections by runnerID. In memory only: it
+// describes live processes, so it cannot survive a restart.
 type apiConnRegistry struct {
 	mu    sync.Mutex
 	byRun map[string]*apiconn
@@ -94,10 +75,8 @@ func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
 	return c, ok
 }
 
-// drop closes and forgets runnerID's connection, if it has one. Safe to call
-// for a runner that never had one (the hooks-only common case), and on a nil
-// registry — pumpAPIConn's own loss handler runs on a goroutine that outlives
-// whatever built it, including test doubles that never made one.
+// drop closes and forgets runnerID's connection, if any. Safe on a nil registry:
+// pumpAPIConn's loss handler can outlive whatever built it.
 func (r *apiConnRegistry) drop(runnerID string) {
 	if r == nil {
 		return
@@ -120,19 +99,9 @@ func (r *apiConnRegistry) drop(runnerID string) {
 	c.serve.kill()
 }
 
-// closeAll drops every connection this registry holds. This is the ONLY path
-// that reaches apiConnRegistry at daemon shutdown: individual runners are
-// already torn down at retire, provider switch, spawn-failure rollback, and
-// PTY-exit, but nothing on the shutdown chain (engine.Container.Close only
-// knows PTYs and LSP servers; apiConnRegistry lives a layer below that) ever
-// visits the ones still live when the daemon exits. Without this, every
-// `serve` process a mixed-transport provider forked outlives the daemon that
-// spawned it. Each is detached first: the daemon ending is not the runner
-// exiting, and the next boot reconciles the row as daemon_restart.
-//
-// Snapshots the ids under the lock, then calls drop per id with the lock
-// released — drop takes its own lock, so holding r.mu across those calls
-// would deadlock.
+// closeAll detaches and drops every connection at daemon shutdown — the only path that
+// stops `serve` processes outliving the daemon; the next boot reconciles each row.
+// Ids are snapshotted under r.mu and dropped after it is released: drop takes it too.
 func (r *apiConnRegistry) closeAll() {
 	r.mu.Lock()
 	ids := make([]string, 0, len(r.byRun))
@@ -146,15 +115,9 @@ func (r *apiConnRegistry) closeAll() {
 	}
 }
 
-// startAPIConn starts nothing and returns ok=false for a hooks-transport
-// descriptor. For an api-transport one, it forks `serve` and hands its stdio to
-// protocol.StartAPIDriver (via engineagents.Agent.StartAPIConn — see this
-// file's own package doc comment for why that indirection is required, not
-// optional). Serve is ready when it answers the handshake, and not before.
-//
-// A failure at any step degrades to ok=false rather than an error: the caller
-// (spawnRunner) must still succeed over hooks alone. Design spec §2.2b: "Failure
-// of attach must not fail the session."
+// startAPIConn forks `serve` for an api-transport descriptor, ready once it answers
+// the handshake. Any failure (or a hooks descriptor) is ok=false, never an error:
+// the spawn must still succeed over hooks alone.
 func (rs *Runners) startAPIConn(
 	ctx context.Context,
 	runnerID string,
@@ -218,12 +181,8 @@ func (rs *Runners) applyAPITransport(
 	}
 	conn.agent, conn.tctx = agent, tctx
 
-	// Auto-attaching at spawn is only correct for a HOTSWAP provider: its
-	// attached view is meant to be there for the whole session, the way a
-	// hooks-transport PTY already is. A provider that declares attach WITHOUT
-	// hotswap wants it on demand only, once idle — before any turn has run, its
-	// session may not exist to attach to yet — so that case is left to
-	// SwitchToTerminal (attach.go), never rendered eagerly.
+	// Only a HOTSWAP provider auto-attaches at spawn; attach without hotswap is on
+	// demand once idle (SwitchToTerminal), since its session may not exist yet.
 	var attach []string
 	if agent.Capabilities().Hotswap {
 		if attachArgv, ok := agent.APIAttachArgv(tctx); ok {
@@ -287,11 +246,9 @@ func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 	plan.Argv = attachArgv[1:]
 }
 
-// pumpAPIConn places every canonical event this connection's driver resolves
-// through the same door the hook relay uses. It runs on the connection's own
-// ctx (never a request's) until the driver closes its events, and an event it
-// cannot place never stops the ones behind it; an ask it could not place is
-// refused at once.
+// pumpAPIConn places every event the driver resolves through the hook door, on the
+// connection's own ctx. An unplaceable event never stops those behind it; an
+// unplaceable ask is refused at once.
 func (rs *Runners) pumpAPIConn(
 	runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
 ) {
@@ -325,11 +282,9 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 	return ok
 }
 
-// awaitAndReply is the api channel's hook relay: it waits on the
-// answer desk and writes the verdict back. Every ask gets a reply — an api
-// provider has no TUI of its own to fall back to, so an ask left unanswered
-// would hold its turn open forever. On an expired budget the descriptor's own
-// refusal is sent instead, and the desk closes the question as refused.
+// awaitAndReply is the api channel's hook relay. Every ask gets a reply — an api
+// provider has no TUI to fall back to — so an expired budget sends the descriptor's
+// refusal and the desk closes the question as refused.
 func (rs *Runners) awaitAndReply(
 	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn, ask string,
 ) {

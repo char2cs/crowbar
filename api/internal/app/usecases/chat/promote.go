@@ -10,41 +10,26 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// WorktreeCreator is the narrow write port Promote needs from the worktree
-// hierarchy usecase: creating the workspace a bubble promotes into, forked
-// from the resolved fork parent.
-//
-// Declared here, by the consumer (see internal/shared/seam's own doc for why):
-// this feature only ever needs ONE verb off the worktree usecase, so a field
-// added to worktree.CreateChildInput for an unrelated reason cannot silently
-// change what Promote passes, and this package never has to import the
-// worktree usecase's wide surface to reach it.
+// WorktreeCreator is the narrow write port this feature needs from the worktree
+// hierarchy usecase, declared by the consumer so the worktree usecase's wide surface
+// never leaks in.
 type WorktreeCreator interface {
-	// branch names the fresh branch explicitly; blank keeps the
-	// server-generated name Promote's own call (always "") relied on before
-	// this parameter existed.
+	// CreateChildWorkspace forks a fresh workspace off forkParentID; a blank branch
+	// gets a server-generated name.
 	CreateChildWorkspace(
 		ctx context.Context,
 		forkParentID string,
 		branch string,
 	) (domain.Workspace, error)
 	// CreateImportedWorkspace is CreateChildWorkspace's import counterpart: the
-	// workspace for a branch that already exists, named outright by spec rather
-	// than forked from a resolved parent. It is on the SAME port because it is
-	// the same verb to this package — "give the chat I have just minted the
-	// worktree it is going to own" — and because a caller that can create one
-	// must be able to discard either, which DiscardChildWorkspace below already
-	// does for both.
+	// workspace for a branch that already exists, named outright by spec.
 	CreateImportedWorkspace(
 		ctx context.Context,
 		spec ImportSpec,
 	) (domain.Workspace, error)
-	// DiscardChildWorkspace takes a workspace CreateChildWorkspace has just
-	// minted back out, for a promotion that then failed. It is the compensating
-	// half of the verb above and belongs on the same port for that reason: the
-	// workspace exists before the row that would own it does, and the only way
-	// to reach a workspace is through that row, so a promotion abandoned in
-	// between leaves a real worktree on disk that nothing can ever name again.
+	// DiscardChildWorkspace removes a just-minted workspace whose create then failed:
+	// a workspace is reachable only through its owning row, so an abandoned one
+	// would be a worktree on disk nothing can name again.
 	DiscardChildWorkspace(
 		ctx context.Context,
 		workspaceID string,
@@ -56,10 +41,8 @@ type WorktreeCreator interface {
 // ancestor is workspace-less too. There is nothing to promote it under.
 var ErrNoForkParent = problem.New(problem.Conflict, "agent: chat has no fork parent to promote from")
 
-// ErrAlreadyPromoted is returned when chatID already has a workspace. Only a
-// bubble (WorkspaceID == "") can be promoted — model spec §4.2's "worktree is
-// never demoted" cuts the other direction too: promotion fills an empty slot
-// exactly once.
+// ErrAlreadyPromoted is returned when chatID already has a workspace: only a bubble
+// (WorkspaceID == "") can be promoted, and promotion fills an empty slot exactly once.
 var ErrAlreadyPromoted = problem.New(problem.Conflict, "agent: chat already has a workspace")
 
 // ErrNothingToPromote is returned when chatID has never had a live runner or a
@@ -67,14 +50,9 @@ var ErrAlreadyPromoted = problem.New(problem.Conflict, "agent: chat already has 
 // as.
 var ErrNothingToPromote = problem.New(problem.Conflict, "agent: chat has no provider to promote with")
 
-// Promote fills a bubble's empty workspace slot: a new worktree forked from
-// the chat's resolved fork parent, with the chat's current provider respawned
-// into it — see the ChatUsecase interface doc and model spec §4.2.
-//
-// It keeps the chat's id, its title and every turn already on it; only
-// WorkspaceID changes. The respawn goes entirely through SwitchProvider — the
-// same tear-down/assemble/respawn sequence an ordinary provider switch already
-// performs — so this adds no new spawn machinery of its own.
+// Promote fills a bubble's empty workspace slot with a worktree forked from its fork
+// parent and respawns the current provider into it via SwitchProvider. Only
+// WorkspaceID changes; id, title and turns are kept.
 func (u *Usecase) Promote(
 	ctx context.Context,
 	chatID string,
@@ -109,10 +87,8 @@ func (u *Usecase) Promote(
 		return domain.Chat{}, u.unpromote(ctx, chatID, ws.ID, true,
 			fmt.Errorf("promote: respawn: %w", err))
 	}
-	// Best-effort, and deliberately AFTER the respawn: the incoming CLI's own
-	// handoff is assembled from the ledger as it stood BEFORE this note exists
-	// (model spec §4.2 step 4 runs after step 3), so a note failure here must
-	// never unwind a promotion that already succeeded.
+	// Best-effort and AFTER the respawn, whose handoff predates this note: a note
+	// failure must never unwind a promotion that already succeeded.
 	if err := u.conversations.NotePromotion(ctx, chatID); err != nil {
 		slog.WarnContext(ctx, "agent: promote: note promotion (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
@@ -120,24 +96,9 @@ func (u *Usecase) Promote(
 	return u.GetChat(ctx, chatID)
 }
 
-// unpromote takes a half-finished promotion back out and hands back the failure
-// that caused it, the same shape tree.Create's discardFolder and CreateChat's
-// discard already use for a create that failed after minting something.
-//
-// It rolls the WHOLE promotion back rather than leaving a chat sitting on a
-// worktree with no CLI in it: Promote refuses a chat that already has a
-// workspace (ErrAlreadyPromoted), so a half-promoted row cannot be retried —
-// the user would be stuck with it. Undoing both steps leaves the retry they
-// will make the same call they just made.
-//
-// slotFilled says whether the row was ever pointed at the workspace, and the
-// ORDER it forces is what makes this safe: the workspace is discarded only once
-// nothing owns it. A clear that fails therefore keeps the worktree, because
-// deleting it under a row that still names it would turn a failed promotion
-// into a chat anchored to a directory that is gone.
-//
-// Every step is best-effort and none of them replaces the cause. What failed is
-// the promotion, and that is what the caller is told.
+// unpromote rolls a half-finished promotion WHOLLY back, best-effort, and returns
+// cause: a half-promoted row could never be retried. The workspace is discarded only
+// once no row names it, so a failed clear keeps it rather than orphan the chat.
 func (u *Usecase) unpromote(
 	ctx context.Context,
 	chatID string,
@@ -159,9 +120,8 @@ func (u *Usecase) unpromote(
 	return cause
 }
 
-// currentProviderID answers "the same provider" step 3 respawns as: whichever
-// provider is live on the chat right now, else the chat's own durable vendor —
-// the same single owner ResumeChat and ChatProviderID read.
+// currentProviderID is the provider Promote respawns as: the live one, else the
+// chat's own durable vendor.
 func (u *Usecase) currentProviderID(
 	ctx context.Context,
 	chatID string,

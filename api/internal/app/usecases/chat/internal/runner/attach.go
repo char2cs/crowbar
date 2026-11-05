@@ -72,21 +72,9 @@ func (rs *Runners) AttachedTerminalSession(runnerID string) (string, bool) {
 	return view.termSessID, true
 }
 
-// ShowingNativeView reports whether the CLI's own UI is the one in front of
-// the user — i.e. whether runnerID's chat is on the terminal surface right
-// now, however it got there.
-//
-// It reads the surface, NOT this file's attach registry. Those were two
-// independent answers and they disagreed: a chat BORN on the terminal
-// (domain.Chat.Surface, seeded at spawn) has never called SwitchToTerminal
-// and never appears in rs.attached, so it used to report "chat" while its
-// TUI was the only thing on screen. The registry still answers WHICH
-// terminal session the native view is (AttachedTerminalSession above); it is
-// no longer a second opinion on which surface that makes.
-//
-// Still blind to a HOTSWAP provider's terminal, and unavoidably so: both of
-// its faces are live at once over one channel, so Crowbar is never told which
-// one is being looked at (design spec P6b's own stated limit).
+// ShowingNativeView reports whether runnerID's chat is on the terminal surface, read
+// from the surface (not rs.attached, which misses a chat born on the terminal). Blind to
+// a HOTSWAP provider, whose two faces are live at once over one channel.
 func (rs *Runners) ShowingNativeView(runnerID string) bool {
 	return rs.surfaces.get(runnerID) == engineagents.SurfaceTerminal
 }
@@ -100,18 +88,9 @@ var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to 
 // the process mid-turn; a process that serves both surfaces moves any time.
 var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", problem.ErrConflict)
 
-// SwitchToTerminal moves chatID onto its provider's own TUI and returns the
-// terminal session that TUI is. How depends on what the runner is now:
-//
-//   - its own PTY (a chat born on the terminal): that PTY already is the TUI,
-//     so only the surface moves;
-//   - an api connection whose session has turned, so the TUI can load it: the
-//     connection is handed over to a hooks-transport `attach` of that session,
-//     same runner;
-//   - otherwise: the TUI is launched like any other replacement, on the
-//     chat's session.
-//
-// A dormant chat only records the move; its next start lands there.
+// SwitchToTerminal moves chatID onto its provider's TUI and returns its terminal
+// session: an own PTY just moves surface, a turned api session hands over to an `attach`
+// of it, else the TUI is relaunched. A dormant chat only records the move.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
@@ -237,18 +216,9 @@ func (rs *Runners) moveDormantSurface(ctx context.Context, chatID, surface strin
 	return nil
 }
 
-// moveSurface records, durably and in memory, that chatID is now on
-// `surface`. This is what makes domain.Chat.Surface the CURRENT view rather
-// than the one the chat was born on: the two switch calls are the only
-// moments Crowbar is told the user moved, so they are the only writers.
-//
-// Best-effort on the durable half, deliberately: the view has ALREADY moved
-// by the time this runs (the process is forked, or torn down), and refusing
-// the switch over a failed write would leave the two disagreeing in the
-// worse direction — a chat told it is somewhere its process is not. The
-// in-memory mirror is written regardless, so this session stays consistent
-// with what is actually on screen; a daemon restart re-reads the durable
-// field and is the only thing a lost write costs.
+// moveSurface records that chatID is now on `surface`; the two switch calls are its
+// only writers. The durable write is best-effort because the view has ALREADY moved;
+// the in-memory mirror is always written, so only a restart can see a lost write.
 func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface string) {
 	rs.surfaces.set(runnerID, surface)
 	if _, err := rs.chats.SetSurface(ctx, chatID, surface); err != nil {
@@ -257,12 +227,9 @@ func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface st
 	}
 }
 
-// SwitchToNative moves chatID onto Crowbar's own chat surface. An attached
-// native view is torn down and the api connection re-established over the
-// same session; a runner that is its own PTY on the terminal surface either
-// keeps serving (a provider whose chat surface is hooks-fed) or is relaunched
-// on the chat surface on the chat's session. A dormant chat only records the
-// move. Idempotent.
+// SwitchToNative moves chatID onto Crowbar's chat surface: an attached view is torn
+// down and the api connection re-established; an own PTY keeps serving (hooks-fed) or
+// is relaunched. A dormant chat only records the move. Idempotent.
 func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
@@ -347,9 +314,8 @@ func (rs *Runners) detachNativeView(
 	if _, err := rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, ""); err != nil {
 		slog.WarnContext(ctx, "agent: switch to native: re-establish the api session", "runner_id", live.ID, "err", err)
 	}
-	// A runner without a PTY of its own has just swapped processes again: the
-	// re-established connection is its process, and if none came back it has
-	// none.
+	// A PTY-less runner just swapped processes: the re-established connection is its
+	// process, and if none came back it has none.
 	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	if live.TerminalSession == "" && !rs.watchAPIConnExit(live.ID, view.tctx.CrowbarHome, view.tctx.Tmp) {
 		rs.exitProcesslessRunner(ctx, live.ID)
@@ -358,14 +324,9 @@ func (rs *Runners) detachNativeView(
 	return nil
 }
 
-// onAttachExit runs when the native-view PTY exits on its own — the user
-// closed it, or its process died. Switching back to native automatically is
-// the "nothing left to show" recovery: a chat left pointing at a terminal
-// session that no longer exists is worse than one quietly resuming its api
-// connection.
-//
-// Off the caller: the terminal engine runs this inside TerminateGraceful, and
-// a deliberate teardown may hold the chat's lock while it calls that.
+// onAttachExit switches back to native when the native-view PTY exits on its own,
+// rather than leave a chat pointing at a dead session. Off the caller: it runs inside
+// TerminateGraceful, which a teardown may call holding the chat's lock.
 func (rs *Runners) onAttachExit(chatID, runnerID string) func(engineterminal.Exit) {
 	return func(engineterminal.Exit) {
 		rs.background.run(context.Background(), func(ctx context.Context) {

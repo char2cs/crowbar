@@ -104,27 +104,16 @@ func (rs *Runners) spawnRunner(
 		return "", err
 	}
 
-	// Copies of promptMessage and conversation for dispatch — the durable ledger
-	// text is never mutated. conversation (AssembleConversation's rendering of
-	// the prior exchange, handed to a freshly spawned CLI on a restart or a
-	// provider switch) carries whatever attachment references the ORIGINAL
-	// turns held, exactly like promptMessage does for the live one — without
-	// this, only the CURRENT prompt's attachments resolved to real paths, and
-	// every earlier attachment a resumed/switched-to CLI was handed the
-	// literal logical reference for a file it therefore could not read.
-	//
-	// The sigil guard runs BEFORE materialization, while the attachment is still
-	// the logical `chats/<id>/attachments/<file>` reference its pattern is
-	// written against; the escape it may prepend does not disturb the rewrite.
+	// Dispatch copies of the prompt and the prior conversation, both with attachment
+	// refs materialized (the ledger text is never mutated). The sigil guard runs first,
+	// while refs are still the logical form its pattern is written against.
 	sigils, escape := descriptor.PromptLeadingSigils()
 	guardedMessage := promptsigil.Guard(sigils, escape, chatID, in.promptMessage)
 	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, guardedMessage)
 	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, in.conversation)
 
-	// The tool surface is switched off by rendering a descriptor that does not
-	// declare one, rather than by filtering steps at the injection site: WHERE those
-	// steps land is the descriptor's business (a variadic flag may need its pair
-	// immediately behind it), and this function has no business knowing that.
+	// Tools are switched off by rendering a descriptor without them, not by filtering
+	// steps here: where those steps land (flag pairing) is the descriptor's business.
 	descriptor = descriptor.WithTools(pre.mcpOn)
 
 	// Never the chat's own raw stored intent directly — see
@@ -151,27 +140,9 @@ func (rs *Runners) spawnRunner(
 		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel),
 	})
 
-	// Register the injected document BEFORE the CLI can run: a provider whose only
-	// resume channel is a user message fires its user-prompt hook with this
-	// exact text the moment it starts, and that echo must never be recorded as a
-	// ledger turn — that is what made handoffs nest inside themselves.
-	//
-	// Only when something was ACTUALLY injected. contextInject is the sole channel for
-	// both the document and the pointer, so an un-injected spawn has nothing that can
-	// echo — and since the capability preamble makes tctx.Context non-empty on every
-	// spawn, registering unconditionally would leave a guard behind for text no CLI
-	// was ever given.
-	//
-	// Unconditional otherwise — including when promptMessage is also set: a real
-	// prompt can ride the SAME positional as the injected document
-	// (mergeLeadingPositional), and the hook side (ConsumeInjectedPrefix,
-	// turn.go) is what tells "bare echo" and "echo with a real prompt merged
-	// ahead of it" apart, returning the remainder in the second case rather
-	// than swallowing the whole turn. Registering only for the bare case (a
-	// prior version of this gate) left the merged case with nothing
-	// registered at all — the injected preamble was then recorded verbatim as
-	// what the user typed, corrupting the ledger, the derived title, and
-	// every hash-based "was this accepted" check downstream.
+	// Register an ACTUALLY injected document before the CLI runs, so its echo through
+	// the user-prompt hook is never recorded as a turn — also when a real prompt is merged
+	// into the same positional: ConsumeInjectedPrefix strips the echo, keeps the rest.
 	if inject {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
@@ -214,12 +185,9 @@ func (rs *Runners) spawnRunner(
 		return "", err
 	}
 
-	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
-	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
-	// ignored for the lookup. A launchd-started .app daemon has a minimal PATH that
-	// misses ~/.local/bin, where vendor CLIs install, so a bare name made every
-	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
-	// through unchanged, preserving that error for a CLI that genuinely is not installed.
+	// binpath.Resolve, never the bare cmd: exec resolves argv[0] against the DAEMON's
+	// PATH, which under launchd misses ~/.local/bin. An unresolvable cmd passes through,
+	// keeping the not-found error for a CLI that is genuinely missing.
 	termSessID, carried, err := rs.forkOrAdopt(ctx, forkRequest{
 		runnerID:    runnerID,
 		providerID:  providerID,
@@ -229,10 +197,8 @@ func (rs *Runners) spawnRunner(
 		tmpDir:      tmpDir,
 		argv:        append([]string{plan.Executable}, plan.Argv...),
 		env:         plan.Env,
-		// The SAME text the descriptor's prompt_submit steps just rendered into
-		// plan.Argv — never the raw ledger text: attachments are materialized
-		// and the leading-sigil escape applied above, and the carrier that ends
-		// up delivering it must send exactly what the argv would have.
+		// The SAME text prompt_submit rendered into plan.Argv, never the raw ledger
+		// text, so whichever carrier delivers sends exactly what the argv would have.
 		promptMessage: dispatchMessage,
 		// What each carrier would take, computed before either runs;
 		// forkOrAdopt returns whichever one actually did.
@@ -278,10 +244,8 @@ func (rs *Runners) forkCLI(
 	}
 	rs.abandonUnforked(ctx, req.runnerID, req.paths())
 
-	// A CLI that is not installed is the ONE spawn failure the user can act on, so
-	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
-	// being buried in a wrap chain that maps to an opaque 500. The provider id, not
-	// the resolved argv[0], is what the UI can name.
+	// A missing CLI is the ONE spawn failure the user can act on, so it keeps its own
+	// sentinel (424) naming the provider id rather than an opaque wrapped 500.
 	if errors.Is(err, engineterminal.ErrCommandNotFound) {
 		return "", fmt.Errorf("%w: %s", engineterminal.ErrCommandNotFound, req.providerID)
 	}
@@ -374,25 +338,19 @@ func (rs *Runners) spawnPreflight(
 type forkRequest struct {
 	runnerID   string
 	providerID string
-	// chatID is the terminal engine's session-scoping key — NOT the workspace id
-	// this used to carry: a chat with no worktree of its own has an empty one, so
-	// every such runner registered under the key "". worktree below is the CWD.
+	// chatID is the terminal engine's session-scoping key, not the workspace id (empty
+	// for a chat with no worktree of its own). worktree below is the CWD.
 	chatID      string
 	worktree    string
 	crowbarHome string
 	tmpDir      string
 	argv        []string
 	env         []string
-	// promptMessage is the user text this spawn exists to deliver, "" when it
-	// carries none. It is here, and not only inside argv, because argv is not
-	// always a carrier: forkOrAdopt's adopt branch forks no process at all, so
-	// whichever branch runs has to be able to SEE that it owes a delivery.
-	// See carryPromptOverAPIConn (apirunner.go) for the invariant.
+	// promptMessage is the user text this spawn must deliver ("" for none). It is not
+	// only in argv because the adopt branch forks nothing, and must still see it owes one.
 	promptMessage string
-	// argvSelection/apiSelection are the SAME invariant for the model/effort
-	// choice: the part of it each carrier renders. The branch that runs
-	// returns its own (forkOrAdopt), so recordRunner cannot stamp a selection
-	// the process never received — see carriedSelection (apirunner.go).
+	// argvSelection/apiSelection are what each carrier renders of the selection; the
+	// branch that runs returns its own, so recordRunner never stamps one not received.
 	argvSelection engineagents.Selection
 	apiSelection  engineagents.Selection
 	// resume is how this process's exit tells a refusal of its session.

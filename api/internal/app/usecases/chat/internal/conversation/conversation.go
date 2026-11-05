@@ -1,14 +1,9 @@
 // Package conversation owns the chat record: the aggregate's identity, title and
 // model selection, and every read served off the conversation it accumulates.
 //
-// It starts no processes. A chat exists, and is readable, whether or not a CLI
-// has ever run on it — minting one, renaming it and reading its log are all
-// answerable with no runner in sight, which is what makes them separable from the
-// runner lifecycle at all.
-//
-// The one thing it does owe the processes on a chat is the hard delete: erasing
-// the aggregate has to retire the CLIs pointed at it, which it asks the runner
-// lifecycle to do through a port rather than reaching for it.
+// It starts no processes: a chat is readable whether or not a CLI ever ran on it.
+// The one thing it owes the processes is the hard delete, which retires a chat's
+// CLIs through the Runners port rather than reaching for the runner lifecycle.
 package conversation
 
 import (
@@ -29,12 +24,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Runners is what this package needs from the runner lifecycle: the live
-// runner a hook or a provider read names, and the CLI a hard delete retires.
-//
-// It is declared here, by the consumer, so the two never import each other. A
-// chat's erasure decides that the processes on it must go; how they are torn
-// down is not its business.
+// Runners is what this package needs from the runner lifecycle: live runner reads
+// and the retirement a hard delete owes. Declared by the consumer so the two never
+// import each other.
 type Runners interface {
 	// RunnerByID is the live runner runnerID, also while it is exiting.
 	RunnerByID(runnerID string) (engineagents.Runner, bool)
@@ -73,16 +65,11 @@ type Conversations struct {
 	ledger *ledgerstore.Store
 	// writes commits the chat's own notes, under the chat's lock.
 	writes Writes
-	// defaultPermissionLevel resolves the current global default at mint time
-	// — Crowbar's own guarded/trusted/full-auto name, not yet checked against
-	// any provider (a bare-minted chat has none). It's a closure, not a
-	// direct usecase reference, the same way home is a closure — this
-	// package must not import the chat usecase package it lives inside of.
+	// defaultPermissionLevel resolves the global default at mint time, unchecked
+	// against any provider. A closure because this package may not import its parent.
 	defaultPermissionLevel func(ctx context.Context) (string, error)
-	// runners is the runner lifecycle: the live runner a read names, and the
-	// retirement a hard delete owes the processes on the chat. It is bound AFTER construction
-	// because the two sides are built together and neither can name the other
-	// first — see SetRunners.
+	// runners is the runner lifecycle, bound after construction by SetRunners because
+	// the two sides are built together and neither can name the other first.
 	runners Runners
 }
 
@@ -98,10 +85,8 @@ type Deps struct {
 	Ledger    *ledgerstore.Store
 	Writes    Writes
 
-	// DefaultPermissionLevel resolves the current global default at the
-	// moment a chat is minted. It's a closure, not a direct usecase
-	// reference, the same way Home is a closure — conversation must not
-	// import the chat usecase package it lives inside of.
+	// DefaultPermissionLevel resolves the global default at mint time; a closure
+	// because conversation may not import the chat usecase package above it.
 	DefaultPermissionLevel func(ctx context.Context) (string, error)
 }
 
@@ -122,13 +107,9 @@ func New(d Deps) *Conversations {
 	}
 }
 
-// SetRunners binds the runner lifecycle a hard delete retires through.
-//
-// It is a setter and not a constructor argument because the erasure edge is a
-// cycle: a purge retires the CLIs on a chat, and a spawn that fails discards the
-// half-created chat it was for. Building both and then closing the edge is the
-// honest expression of that; a constructor that could take it would be lying
-// about which one exists first.
+// SetRunners binds the runner lifecycle a hard delete retires through. A setter
+// because the edge is a cycle: a purge retires a chat's CLIs, and a failed spawn
+// discards the chat it was for.
 func (c *Conversations) SetRunners(runners Runners) { c.runners = runners }
 
 func (c *Conversations) RenameChat(
@@ -234,22 +215,9 @@ func (c *Conversations) forget(ctx context.Context, chatID string) error {
 	c.telemetry.Forget(ctx, chatID)
 	c.forgetLedger(ctx, chatID)
 
-	// Reap the chat's on-disk footprint now the aggregate is gone. The conversation
-	// itself no longer lives here — it is in the record dropped above — but a chat
-	// directory may still hold whatever a spawn left in it.
-	//
-	// NOT the runner's tmp dir, which no longer lives under the chat (worktreepath.RunnerDir)
-	// and is no business of the chat's: it belongs to the PROCESS lifecycle, and the process
-	// we have just SIGTERM'd is still alive and still reading it. Removing a live CLI's
-	// config out from under it was only ever an accident of the old layout. It goes when the
-	// PTY does (onExit), or at the next boot if the daemon died first.
-	//
-	// Resolved via c.home, NOT c.ws.AgentChatsDir(chat.WorkspaceID): this is the chat's
-	// own directory (worktreepath.LedgerChatsDir, not chat_ledger.db, forgotten above),
-	// keyed by the chat's id alone because WorkspaceID is optional and mutable (spec §1.5) —
-	// a workspace lookup would error for a bubble and could target the wrong directory for a
-	// chat that has since been promoted. RemoveUnderHome re-asserts the target is strictly
-	// under crowbar home regardless.
+	// Reap the chat's own directory, keyed by id under home because WorkspaceID is optional
+	// and mutable. The runner's tmp dir is not touched: it belongs to the process lifecycle,
+	// and the CLI just signalled may still be reading it.
 	home, err := c.home()
 	if err != nil {
 		slog.WarnContext(ctx, "agent: purge chat: resolve home for reap (best-effort, continuing)",
@@ -306,15 +274,9 @@ func lineageNoteText(
 		"rewrites nothing it has already read."
 }
 
-// NotePromotion records, in a chat's own conversation, that it has just been
-// promoted from a bubble into its own worktree — the model spec §4.2 ledger
-// note, following lineageNoteText's own convention: a "[Crowbar] ..." system
-// turn appended AFTER the respawn it describes, so the incoming CLI's own
-// handoff (assembled from the ledger BEFORE this call) never sees it.
-//
-// Like NoteThreadLineage, it writes nothing into a chat that has said nothing
-// yet — a chat with no ledger has nothing for the note to distinguish a
-// "before" from.
+// NotePromotion records, in a chat's own conversation, that it was just promoted into
+// its own worktree. Appended after the respawn, so the new CLI's handoff never sees it;
+// a chat that has said nothing gets no note.
 func (c *Conversations) NotePromotion(
 	ctx context.Context,
 	chatID string,
@@ -340,12 +302,8 @@ func promotionNoteText() string {
 }
 
 // Ancestors returns the CHAT ancestors of chatID, nearest parent first — what a
-// thread inherits, and the same answer the spawn path composes prior context
-// from. Folders are transparent to it: a thread filed two folders deep under a
-// chat inherits exactly what it would sitting directly under it.
-//
-// Empty for a chat at the panel root and for one merely filed in a folder;
-// neither reads anything.
+// thread inherits and the spawn path composes prior context from. Folders are
+// transparent; empty at the panel root or merely filed in a folder.
 func (c *Conversations) Ancestors(
 	ctx context.Context,
 	chatID string,

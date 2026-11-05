@@ -8,11 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// ProviderUsecase owns the agent PROVIDERS themselves: which ones exist, which
-// the user has enabled, and the MCP surface their CLIs call back into.
-//
-// It is global, never per workspace: a preference row is keyed by provider id
-// alone, so nothing here may depend on a workspace being resolvable.
+// ProviderUsecase owns the agent PROVIDERS: which exist, which are enabled, and the
+// MCP surface their CLIs call back into. It is global, never per workspace: a
+// preference row is keyed by provider id alone.
 type ProviderUsecase interface {
 	InstallDescriptor(context.Context, []byte) (descriptorcheck.Report, error)
 	// ResolveProviders lists every installed descriptor merged with the user's
@@ -27,23 +25,17 @@ type ProviderUsecase interface {
 		ctx context.Context,
 	) ([]descriptorcheck.Report, error)
 
-	// ReplaceProviderPreferences overwrites the whole preference table and
-	// returns the resolved list the caller should broadcast. A provider the
-	// submission omits reverts to its default rather than keeping a stale
-	// priority. Returns problem.ErrInvalidArgument when a row names a provider no
-	// descriptor declares.
+	// ReplaceProviderPreferences overwrites the whole preference table and returns the
+	// resolved list to broadcast; an omitted provider reverts to its default.
+	// problem.ErrInvalidArgument when a row names a provider no descriptor declares.
 	ReplaceProviderPreferences(
 		ctx context.Context,
 		prefs []domain.AgentProviderPreference,
 	) ([]domain.AgentProvider, error)
 
-	// DispatchMCP answers one JSON-RPC message from a runner's CLI against a tool
-	// set built PER CALL around that runner's credentials, so no handler can be
-	// reached without a successful resolve. The bool reports whether the response
-	// is to be sent at all (a notification produces none).
-	//
-	// It refuses to serve at all when the tool surface was never configured,
-	// rather than quietly advertising an empty tool list.
+	// DispatchMCP answers one JSON-RPC message against a tool set built PER CALL from
+	// the runner's credentials; the bool reports whether to send a response. It refuses
+	// rather than advertise an empty tool list when the surface was never configured.
 	DispatchMCP(
 		ctx context.Context,
 		runnerID string,
@@ -82,28 +74,14 @@ type ProviderUsecase interface {
 
 var _ ProviderUsecase = (*Usecase)(nil)
 
-// ErrProviderDisabled is returned when a request names an agent provider the
-// user has switched OFF in the global preference table.
-//
-// Disabled is a decision the preference table records and ResolveProviders
-// reports, but reporting is not enforcing: a spawn or a provider switch names a
-// provider id directly and never passes through the list that Enabled flag
-// decorates, so a stale tab, a second window, or the command line would
-// otherwise launch a provider the user turned off.
-//
-// It wraps problem.ErrInvalidArgument, so handlers answer 400 through the
-// existing sentinel mapping with no new case.
+// ErrProviderDisabled is returned when a spawn or switch names a provider the user
+// switched OFF, enforced there because a stale tab or the CLI bypasses the listed
+// Enabled flag. It wraps problem.ErrInvalidArgument (a 400).
 var ErrProviderDisabled = provider.ErrProviderDisabled
 
 func (u *Usecase) InstallDescriptor(ctx context.Context, raw []byte) (descriptorcheck.Report, error) {
 	return u.providers.InstallDescriptor(ctx, raw)
 }
-
-// The provider table: which vendor CLIs this machine offers, in what order, and
-// which of them may call back into Crowbar.
-//
-// It is global — per user and machine, never per workspace — so nothing here
-// takes a workspace id, and the settings route that rewrites it has none to give.
 
 // ResolveProviders lists every provider this machine offers, in the user's
 // order, each with whether it is installed, enabled, and what it can do.
@@ -149,10 +127,8 @@ func (u *Usecase) VerifyRunnerToken(
 	return u.providers.VerifyRunnerToken(runnerID, token)
 }
 
-// providerMCPEnabled reports whether a provider may use the tool surface at all.
-// It is bound into the tool Deps as a LIVE port rather than read once at spawn:
-// without that, a chat spawned with tools on keeps them for the life of its CLI
-// whatever the user does in Settings afterwards.
+// providerMCPEnabled reports whether a provider may use the tool surface. It is a
+// LIVE port, not read once at spawn, so a Settings change reaches running CLIs.
 func (u *Usecase) providerMCPEnabled(
 	ctx context.Context,
 	providerID string,

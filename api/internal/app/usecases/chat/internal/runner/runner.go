@@ -1,17 +1,10 @@
-// Package runner is the vendor CLI's lifecycle: starting one on a chat,
-// replacing it with another provider's, resuming it after a restart, stopping
-// it, and delivering a Crowbar-authored prompt into it.
+// Package runner is the vendor CLI's lifecycle: start, switch provider, resume, stop,
+// and deliver a Crowbar-authored prompt.
 //
-// Everything here is USER-INITIATED, which is what separates it from the hook
-// ingress. It may block, it may refuse, and it holds the chat's lock while it
-// decides — the lock every hook of the chat is recorded under (chatlock.go).
-// Nothing on the hook path may call into it through a locking door.
-//
-// A runner's own PROCESS is the sole authority on its liveness. Nothing here
-// asserts a process is alive or dead that it has not observed; a CLI is ended
-// by killing it and letting its death record the runner's exit. That process
-// is usually a PTY, and for an api-driven runner it is the `serve` connection
-// or the native view it hands over to instead — see apirunner.go.
+// Everything here is USER-INITIATED: it may block or refuse, and decides under the
+// chat's hook lock (chatlock.go); the hook path must never call in through a locking
+// door. A runner's PROCESS (PTY, serve connection, or native view) is the sole
+// authority on its liveness: a CLI is ended by killing it and letting its death record the exit.
 package runner
 
 import (
@@ -64,10 +57,8 @@ type Runners struct {
 	// apiConns holds each runner's api-transport connection (serve process +
 	// driver), for a mixed-transport provider. Empty for a hooks-only one.
 	apiConns *apiConnRegistry
-	// attached holds, for a runner CURRENTLY showing its provider's native TUI
-	// instead of its api connection, the terminal session that IS that TUI —
-	// in memory only, exactly like apiConns: it describes a live process, not
-	// a fact to survive a restart on. See attach.go.
+	// attached is the terminal session of each runner CURRENTLY showing its native
+	// TUI instead of its api connection; in memory, as it describes a live process.
 	attached *attachRegistry
 	// surfaces is the CURRENT surface each runner's chat is on — the
 	// in-process mirror of domain.Chat.Surface. See surfaceRegistry.
@@ -79,10 +70,8 @@ type Runners struct {
 	// together and neither can name the other first.
 	turns Turns
 
-	// termWait detects the state no hook reports: a CLI parked on a modal Crowbar
-	// cannot answer, which otherwise renders as an empty pane over a live process.
-	// NIL when the terminal seam cannot render a screen, in which case every chat
-	// reports the zero verdict.
+	// termWait detects a CLI parked on a modal no hook reports. Nil when the terminal
+	// seam cannot render a screen; every chat then reports the zero verdict.
 	termWait termwait.Detector
 
 	// live is the one CLI on each chat: in memory, like every process registry
@@ -164,14 +153,8 @@ func New(d Deps) *Runners {
 	}
 }
 
-// SetTurns binds the hook ingress and, with it, builds the terminal-wait
-// detector.
-//
-// The detector is built HERE rather than in New because its screen
-// classifiers belong to the hook ingress, and it binds them by value.
-//
-// It is nil when the terminal seam cannot render a screen, which is the whole of
-// the "no detector" case every reader of termWait guards for.
+// SetTurns binds the hook ingress and builds the terminal-wait detector, here rather
+// than in New because its screen classifiers belong to the ingress (bound by value).
 func (rs *Runners) SetTurns(turns Turns) {
 	rs.turns = turns
 	screens, ok := rs.term.(termwait.Screens)

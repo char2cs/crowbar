@@ -14,10 +14,9 @@ import (
 // the time it is recorded: the ordinary path delivers it instead.
 var errNoTurnToSteer = errors.New("agent: steer: no turn is running on the carrier")
 
-// submitPromptSteered delivers text into live's RUNNING turn when its
-// descriptor declares steering: the prompt is recorded as steered and the
-// turn's own end hook carries it into the same process, so nothing is quit or
-// respawned. handled=false leaves the ordinary path to decide.
+// submitPromptSteered delivers text into live's RUNNING turn when the descriptor
+// declares steering: the turn's end hook carries it into the same process.
+// handled=false leaves the ordinary path to decide.
 func (rs *Runners) submitPromptSteered(
 	ctx context.Context,
 	chat domain.Chat,

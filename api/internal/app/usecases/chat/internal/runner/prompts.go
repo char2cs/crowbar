@@ -185,10 +185,9 @@ func priorPrompt(st ledger.State, requestID, text string) (ledger.Prompt, bool, 
 	return p, false, nil
 }
 
-// recordPrompt appends requestID's user_message before any CLI is touched: the
-// prompt exists, and is owed an outcome, from this commit on. dispatch is the
-// text the CLI is handed when it is not text; carrier is the runner that will
-// deliver it; admit, when set, refuses the record.
+// recordPrompt appends requestID's user_message before any CLI is touched: from this
+// commit the prompt is owed an outcome. dispatch is what the CLI is handed if not
+// text; carrier is the delivering runner; admit, when set, may refuse the record.
 func (rs *Runners) recordPrompt(
 	ctx context.Context, chatID, requestID, text, dispatch, delivery, carrier string, admit func(ledger.State) error,
 ) error {
@@ -241,22 +240,9 @@ func (rs *Runners) settlePrompts(ctx context.Context, chatID string, decide func
 	}
 }
 
-// submitPromptOverAPI delivers text over live's connection when it has one —
-// the mixed-transport case, where MOST messages need no restart at all: the
-// same connection applyAPITransport opened at spawn carries every message
-// the conversation sends, first or hundredth, AS LONG AS the chat's desired
-// model/effort/permission level still match what this connection's process
-// was launched with. A changed selection that the descriptor itself declares
-// restart_tui for (selectionRequiresRestart, promptdelivery.go) is refused
-// here instead: pushing it over the stale connection would silently keep
-// running the OLD model/effort forever, since nothing on this fast path ever
-// re-examines the launch argv a running process was started with — confirmed
-// live, this exact gap is why a model/effort switch never reached the
-// CLI. handled=false means either no live api connection (every hooks-only
-// provider, and a mixed-transport one whose serve process never came up) or
-// a selection change this connection cannot carry; either way the caller
-// falls back to the restart_tui path, which tears the connection down and
-// respawns with the new selection.
+// submitPromptOverAPI delivers text over live's api connection with no restart, unless
+// the selection changed in a restart_tui field (the connection would keep the OLD
+// model). handled=false — no connection, or such a change — falls back to a restart.
 func (rs *Runners) submitPromptOverAPI(
 	ctx context.Context,
 	chat domain.Chat,

@@ -7,37 +7,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Fix round 2 of 2026-09-08 sidebar-placement-unification Task 5: a
-// home-scoped chat's Chat.ParentID/.Order are write-once-at-creation-then-
-// ignored (position authority moved to Node — see tree/internal's
-// correctHomePlacement, which fixes this for the TREE package's own
-// PLANNING reads). The actual read endpoints (GET /chats, GET /chats/:id)
-// never went through that path at all — ChatUsecase.ListChatsByWorkspace/
-// ListChatsInRepo/ListChats/GetChat read straight off the Chat aggregate's
-// own frozen fields, through Conversations, with zero Node awareness. A chat
-// moved into a home folder therefore rendered at the panel root FOREVER,
-// survivably a reload, since the reload hits this exact same stale path.
-//
-// Widened in 2026-09-08 sidebar-placement-unification Task 8 from home-only
-// to every non-bubble workspace: repo-scoped chat placement is Node-backed
-// now too, and the identical staleness bug applies to a repo-scoped chat
-// dragged into a repo-scoped folder. correctHomeChat no longer distinguishes
-// scope at all — a bubble (WorkspaceID == "") is the only row left
-// unchanged.
-//
-// NewHomeCorrectedChats wraps a ChatUsecase so every row it returns carries
-// its LIVE position, overlaying the Node-sourced ParentID/Order the same way
-// correctHomePlacement does — kept as an independent, small implementation
-// rather than exported from tree/internal: this decorator's lifecycle
-// (wraps the read surface every handler shares) is unrelated to a placement
-// plan's, and the logic itself is five lines.
-//
-// This does NOT close the companion gap the SDD review also flagged: a WS
-// broadcast for a chat's move (unlike a rename or a delete) only ever fires
-// announceFolders, filtered to folder-kind rows — a live viewer's already-
-// open session does not see the move until it re-fetches. Deliberately
-// deferred: fixing it means teaching the hub's chat-lifecycle broadcast
-// about Node moves, a materially larger change than this read-side fix.
+// NewHomeCorrectedChats wraps a ChatUsecase so every row it returns carries its LIVE
+// Node position: a non-bubble chat's own ParentID/Order are written once at creation
+// and then ignored, since Node is the position authority.
 func NewHomeCorrectedChats(
 	chats ChatUsecase,
 	nodes TreeNodes,
@@ -45,9 +17,8 @@ func NewHomeCorrectedChats(
 	return &homeCorrectedChats{ChatUsecase: chats, nodes: nodes}
 }
 
-// homeCorrectedChats embeds the underlying ChatUsecase so every method
-// passes through unchanged except the four read paths that hand back
-// domain.Chat rows.
+// homeCorrectedChats passes every method through except the four reads that
+// return domain.Chat rows.
 type homeCorrectedChats struct {
 	ChatUsecase
 	nodes TreeNodes
@@ -103,34 +74,9 @@ func (u *homeCorrectedChats) correctAll(
 	return correctHomeChats(ctx, u.nodes, rows)
 }
 
-// NewHomeCorrectedTreeChats is NewHomeCorrectedChats' counterpart for the
-// LOWER-level tree.Chats port — found while verifying this fix, not in the
-// SDD review's own findings: NewChatLineage (container.go) is built
-// DIRECTLY from the raw chat repository, entirely independent of
-// Container.AgentChat/NewHomeCorrectedChats above, and internal/lineage's
-// own Resolver.Ancestors reads chat.ParentID and every sibling row's
-// ParentID straight off it (LoadChat/ListByWorkspace) with zero Node
-// awareness — the SAME staleness bug as Critical 1, but for what a freshly
-// spawned CLI is told to read (AssembleHandoff, the tool surface's
-// Ancestors), not merely how the sidebar renders a row. A thread moved
-// under a different parent would hand its next spawn the WRONG (or
-// missing) prior context.
-//
-// Wraps only the two reads internal/lineage.Chats actually needs
-// (LoadChat, ListByWorkspace) — every other tree.Chats method (the mutating
-// half: Create/SetTitle/SetPlacement/SetOrder/SetType/Forget, and the two
-// other reads, Get/ListChats, unused by the lineage resolver) passes
-// through via embedding.
-//
-// folders is a SECOND fix, 2026-09-08 sidebar-placement-unification Task 8:
-// once a folder is Folder/Node-backed (never a Chat row — home-scoped since
-// Task 5, repo-scoped too since Task 8), ListByWorkspace's raw read no
-// longer carries it at ALL — internal/lineage.Resolver's own walk (Walk,
-// lineage.go) steps THROUGH a folder ancestor by finding its ParentID in
-// this same list, and a folder missing from the list breaks that walk
-// exactly as if the chat sat at the panel root: a thread two folders under
-// a real ancestor conversation would be told it has none. See
-// foldersReachableFrom for how the gap is closed.
+// NewHomeCorrectedTreeChats corrects the two reads the lineage resolver makes
+// (LoadChat, ListByWorkspace) to live Node positions, and adds the folders the walk
+// must step through, so a moved thread's next spawn gets the right prior context.
 func NewHomeCorrectedTreeChats(
 	chats TreeChats,
 	nodes TreeNodes,
@@ -170,30 +116,16 @@ func (u *homeCorrectedTreeChats) ListByWorkspace(
 	}
 	folderRows, ferr := foldersReachableFrom(ctx, u.folders, u.nodes, out)
 	if ferr != nil {
-		// Degrades to the chat-only list rather than failing the whole
-		// lineage read: a chat sitting directly under a real ancestor (no
-		// folder between them, by far the common case) is unaffected, and a
-		// missing folder discovery here is no worse than this package's own
-		// pre-Task-8 posture, which had no folder awareness at all.
+		// Degrade to the chat-only list rather than fail the lineage read: a chat
+		// directly under its ancestor (the common case) is unaffected.
 		return out, nil
 	}
 	return append(out, folderRows...), nil
 }
 
-// foldersReachableFrom discovers every Folder+Node row filed somewhere
-// between workspaceRows (a workspace's own chats, already read) and the
-// panel root, rendered as the same Chat-shaped view PlaceChat itself uses —
-// exactly enough for internal/lineage.Resolver's walk to step THROUGH a
-// folder ancestor rather than losing the thread the moment one sits between
-// a chat and its real ancestor conversation. Home AND repo-scoped alike:
-// nothing here checks Folder.RepoID, since the walk only cares whether an id
-// resolves to SOMETHING it can keep climbing from, not which repo owns it.
-//
-// The BFS is seeded with every id workspaceRows already names (mirroring
-// tree/internal's own mergeForest — see its doc for why: a folder nested
-// under an ordinary chat, or under a branch's own owning row that has no
-// Node of its own, is otherwise unreachable) plus the panel root, so a
-// folder sitting at the bare root is found too.
+// foldersReachableFrom finds every folder between workspaceRows and the panel root, as
+// Chat-shaped rows, so the lineage walk can climb through them (any repo). The BFS is
+// seeded with every workspace row's id plus the root, since a folder may nest under either.
 func foldersReachableFrom(
 	ctx context.Context,
 	folders TreeFolders,
@@ -243,9 +175,7 @@ func foldersReachableFrom(
 	return found, nil
 }
 
-// correctOne overlays row's live Node position. A row not yet minted onto
-// Node (its very first placement, still mid-flight) or a bubble
-// (WorkspaceID == "") is returned unchanged.
+// correctOne overlays row's live Node position.
 func (u *homeCorrectedChats) correctOne(
 	ctx context.Context,
 	row domain.Chat,
@@ -253,15 +183,8 @@ func (u *homeCorrectedChats) correctOne(
 	return correctHomeChat(ctx, u.nodes, row)
 }
 
-// correctHomeChat is the one small correction both decorators in this file
-// share: overlay row's live Node position. Widened in 2026-09-08
-// sidebar-placement-unification Task 8 from home-only to every non-bubble
-// workspace — repo-scoped chat placement is Node-backed now too, and the
-// SAME staleness bug Critical 1 caught for home applies identically to a
-// repo-scoped chat dragged into a repo-scoped folder: GET /chats would have
-// rendered it at the wrong position forever otherwise. A row not yet minted
-// onto Node (its very first placement, still mid-flight — GetNode's error
-// case) or a bubble (WorkspaceID == "") is returned unchanged.
+// correctHomeChat overlays row's live Node position, for every non-bubble chat. A
+// bubble, or a row with no Node yet (first placement still mid-flight), is unchanged.
 func correctHomeChat(
 	ctx context.Context,
 	nodes TreeNodes,
@@ -279,10 +202,8 @@ func correctHomeChat(
 	return row
 }
 
-// correctHomeChats is correctHomeChat for a whole list: one read of the Node
-// table instead of one lookup per row. A lone row keeps the by-id lookup, which
-// is cheaper than reading the table, and a failed read leaves every row as it
-// was, the same degradation a missing Node gets.
+// correctHomeChats is correctHomeChat for a list, from one read of the Node table; a
+// lone row keeps the cheaper by-id lookup, and a failed read leaves every row as it was.
 func correctHomeChats(
 	ctx context.Context,
 	nodes TreeNodes,

@@ -58,13 +58,9 @@ func (c *Conversations) appendNote(ctx context.Context, chatID, text string) err
 	return nil
 }
 
-// speaker names who produced a ledger turn, for the two places this package
-// RENDERS one: the handoff preamble and the chat log.
-//
-// It is here and not on domain.LedgerTurn because it is display text, not a fact
-// about the turn — "harness (injected, NOT the user)" exists to stop a reader (and
-// a model reading its own handoff) mistaking an injected prompt for something a
-// person typed.
+// speaker names who produced a ledger turn, as display text for the handoff and chat
+// log. "harness (injected, NOT the user)" stops a reader — or a model reading its own
+// handoff — mistaking an injected prompt for something a person typed.
 func speaker(t domain.LedgerTurn) string {
 	switch t.Role {
 	case "assistant":

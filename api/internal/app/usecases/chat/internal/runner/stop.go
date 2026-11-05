@@ -31,10 +31,9 @@ func (rs *Runners) KillChat(
 	return rs.endRunner(context.WithoutCancel(ctx), chatID, false)
 }
 
-// endRunner is the one owner of what a Stop or Kill records: stopRunner.
-// Waits parked on the chat are cancelled rather than queued behind, so Stop
-// is bounded by the teardown alone (invariant A2); an end already under way is
-// waited out, with the chat's lock released.
+// endRunner is the one owner of what a Stop or Kill records. Parked waits are
+// cancelled, not queued behind, so Stop is bounded by the teardown alone; an end
+// already under way is waited out with the lock released.
 func (rs *Runners) endRunner(
 	ctx context.Context,
 	chatID string,
@@ -74,10 +73,9 @@ func (rs *Runners) endRunner(
 	}
 }
 
-// stopRunner ends the chat's turn and settles its pending prompts in one
-// commit, records the divider when that stopped a turn, then tells live: an
-// api provider mid-turn is interrupted in place, and otherwise the runner is
-// marked ending (retiring) for the caller to end, its exit recorded by its own.
+// stopRunner ends the turn and settles pending prompts in one commit, then tells live:
+// an api provider mid-turn is interrupted in place; otherwise the runner is marked
+// retiring for the caller to end.
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) (bool, error) {
 	stopped := false
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
@@ -100,17 +98,13 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	return retiring, nil
 }
 
-// interruptEvent is the canonical outbound event a provider declares when
-// Crowbar can cancel its in-flight turn without ending the session — the one
-// case StopChat's full teardown (retire) is too blunt for. Key-presence on the
-// descriptor is the whole capability check, same as compactStartEvent.
+// interruptEvent is the outbound event a provider declares when Crowbar can cancel
+// its turn without ending the session; key presence is the whole capability check.
 const interruptEvent = "interrupt"
 
-// interruptTurn asks a live api connection to cancel its current turn in
-// place, and reports whether it can: false — no api driver, no interrupt
-// gesture, or one not reachable over this connection (wire == "prompt") —
-// falls back to StopChat's retire. The send runs in the background: the
-// turn is already over in the ledger, and nothing waits for the provider.
+// interruptTurn asks a live api connection to cancel its turn in place; false (no
+// driver or reachable gesture) falls back to retire. Sent in the background: the turn
+// is already over in the ledger.
 func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {

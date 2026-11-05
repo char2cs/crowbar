@@ -80,10 +80,9 @@ func (rs *Runners) Shutdown() {
 	rs.apiConns.closeAll()
 }
 
-// reconcileRunnerExit records that runnerID's process is gone: one ledger
-// commit ends its turn, names why and settles what it carried, then the chat
-// is freed. The first exit signal to claim the runner records it, and is
-// answered the reason it recorded.
+// reconcileRunnerExit records in one ledger commit that runnerID's process is gone,
+// then frees the chat. The first exit signal to claim the runner records it and gets
+// back the reason.
 func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) string {
 	ctx = context.WithoutCancel(ctx)
 	rs.agents.ForgetRunner(runnerID)

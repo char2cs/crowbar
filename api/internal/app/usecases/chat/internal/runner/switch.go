@@ -23,24 +23,17 @@ func (rs *Runners) SwitchProvider(
 	return rs.switchProviderLocked(ctx, h, chatID, targetProviderID)
 }
 
-// The caller already holds chatID through h: SwitchProvider above takes it,
-// and ResumeChat reaches this from inside its own. The chat's lock is not
-// reentrant, so wiring either caller to SwitchProvider instead deadlocks.
-//
-// Every wait (a pending prompt, the outgoing CLI's exit) runs outside the lock
-// and parks on h, so a Stop abandons it (ErrStopped); after one, the switch
-// decides again from the top.
+// The caller holds chatID through h (the lock is not reentrant). Every wait runs
+// outside the lock parked on h, so Stop abandons it (ErrStopped); after one, the
+// switch decides again from the top.
 func (rs *Runners) switchProviderLocked(
 	ctx context.Context,
 	h *hold,
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
-	// REFUSE A DISABLED TARGET BEFORE ANYTHING IS TORN DOWN. spawnRunner guards it
-	// too, but that guard fires at the END of this function — after the outgoing
-	// CLI has already been quit — so a switch that only checked there would leave
-	// the chat with no agent at all. ResumeChat enters here, so a dormant chat is
-	// held to the same rule as a fresh one.
+	// REFUSE A DISABLED TARGET BEFORE ANYTHING IS TORN DOWN: spawnRunner's guard
+	// fires only after the outgoing CLI was quit, leaving the chat with no agent.
 	if err := rs.providers.RequireProviderEnabled(ctx, targetProviderID); err != nil {
 		return "", err
 	}
@@ -66,15 +59,9 @@ func (rs *Runners) switchProviderLocked(
 		if waited {
 			continue
 		}
-		// Resolve the target while the outgoing CLI is still alive. A missing or
-		// malformed provider descriptor is a deterministic planning failure, not a
-		// reason to destroy the user's current session and leave the chat dormant.
-		//
-		// Through cwdWorkspaceID, not chat.WorkspaceID: a BUBBLE carries none of
-		// its own and runs in its nearest workspace-owning ancestor's worktree
-		// (model spec §3.2) — the same fallback spawnPaths, promptTarget, Compact
-		// and SlashCatalog already take. Promote respawns through here, and a
-		// bubble is the only chat it can be called on.
+		// Resolve the target while the outgoing CLI lives: a bad descriptor must not
+		// destroy the session. Via cwdWorkspaceID because a bubble (Promote's only
+		// target) has no workspace of its own.
 		cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chatID, chat.WorkspaceID)
 		if err != nil {
 			return "", err
@@ -97,18 +84,9 @@ func (rs *Runners) switchProviderLocked(
 			return "", err
 		}
 
-		// Read-BEFORE-terminate: the ledger is built from hooks and is already on disk, so
-		// assembling the handoff never depends on the outgoing CLI still being alive — and
-		// doing it FIRST means a failure here aborts the switch with nothing destroyed,
-		// rather than leaving the chat with its old CLI killed and the new one spawned with
-		// an EMPTY handoff.
-		//
-		// A provider resumed into its OWN conversation already holds every turn up to the
-		// moment it was switched out, so it is handed only the gap. Replaying the whole
-		// ledger to it would duplicate its own history back at it — noise that dilutes the
-		// very turns it is meant to notice. A provider new to this chat has no history at
-		// all, so it gets the conversation so far — capped to the most recent turns, same
-		// as the gap, so a long-running chat does not grow the handoff without bound.
+		// Read BEFORE terminate, so a failure aborts with nothing destroyed. A provider
+		// resumed into its OWN conversation gets only the gap; a new one gets the recent
+		// conversation, capped like the gap.
 		conversation := ""
 		if !launch.lost {
 			conversation, err = rs.conversations.AssembleConversation(ctx, chatID, resuming, leftAt)

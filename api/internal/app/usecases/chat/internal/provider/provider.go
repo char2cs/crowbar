@@ -1,10 +1,6 @@
-// Package provider owns the global provider table — which vendor CLIs this
-// machine offers, in what order, and with which of them allowed to call back
-// into Crowbar — and the MCP dispatch those callbacks arrive on.
-//
-// Everything here is per user/machine and never per workspace: the settings PUT
-// that rewrites the table has no workspace to resolve one from, so nothing in
-// this package may depend on there being one.
+// Package provider owns the global provider table — which vendor CLIs this machine
+// offers, in what order, and which may call back into Crowbar — and the MCP dispatch
+// those callbacks arrive on. It is per user/machine, never per workspace.
 package provider
 
 import (
@@ -92,20 +88,15 @@ type Providers struct {
 	// installed is the install probe (defaults to Agent.Installed); injectable so
 	// provider-resolution tests never depend on which vendor CLIs the host has installed.
 	installed func(a engineagents.Agent) bool
-	// prefs is the global priority+enabled table read by ResolveProviders and
-	// rewritten by ReplaceProviderPreferences. It is keyed by provider id; a
-	// provider with no row is enabled and ordered after every preferenced one by
-	// descriptor id.
+	// prefs is the global priority+enabled table, keyed by provider id; a provider with
+	// no row is enabled and ordered after every preferenced one, by descriptor id.
 	prefs store.Store[domain.AgentProviderPreference, string]
 	// minter issues the per-runner token an MCP call is authenticated by. It is
 	// the SAME instance the spawn path hands a runner its token from: a runner's
 	// token must be minted by the same secret DispatchMCP verifies against.
 	minter *agenttools.TokenMinter
-	// tools is the agent-facing capability surface DispatchMCP builds a per-call
-	// ToolSet from. Its self-ports are wired by the caller before this is built;
-	// the one dependency a caller can get wrong is the Resolver — and DispatchMCP
-	// refuses to serve without it rather than quietly advertising an empty tool
-	// list.
+	// tools is the surface DispatchMCP builds a per-call ToolSet from. Without a
+	// Resolver it refuses to serve rather than advertise an empty tool list.
 	tools agenttools.Deps
 	// gate refuses a provider whose descriptor fails static validation.
 	gate *descriptorcheck.Gate

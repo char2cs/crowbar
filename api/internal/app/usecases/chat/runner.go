@@ -8,13 +8,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// RunnerUsecase owns the vendor CLI: starting one on a chat, replacing it,
-// resuming it, stopping it, and delivering a React-authored prompt to it.
-//
-// Every path in here that starts or ends a CLI on a chat decides under that
-// chat's lock, the one its hooks are recorded under: the only thing that can
-// stop two concurrent switches putting two CLIs on one chat. Every wait on a
-// CLI runs with the lock released, so the CLI's own hooks are never held up.
+// RunnerUsecase owns the vendor CLI: start, replace, resume, stop, prompt. Every path
+// that starts or ends a CLI decides under the chat's hook lock (so two switches never
+// put two CLIs on one chat) and waits with it released, so hooks are never held up.
 type RunnerUsecase interface {
 	// SpawnChat mints a chat and starts a CLI on it in one act, returning both
 	// ids. A refused spawn takes the half-created chat with it.
@@ -50,18 +46,16 @@ type RunnerUsecase interface {
 	// interrupted once it runs. A prompt a CLI holds, or a settled one, is a conflict.
 	Retract(ctx context.Context, chatID, requestID string) (RetractResult, error)
 
-	// KillChat force-ends the CLI on a chat, even mid-turn, leaving the chat
-	// dormant and resumable. Unlike StopChat it never interrupts in place. It is
-	// the only way a running agent ends because of a client: closing a view only
-	// detaches.
+	// KillChat force-ends the CLI on a chat, even mid-turn, leaving it dormant and
+	// resumable. It is the only way a client ends a running agent: closing a view
+	// only detaches.
 	KillChat(
 		ctx context.Context,
 		chatID string,
 	) error
 
-	// SwitchProvider replaces the chat's CLI with one from another provider,
-	// handing the incoming CLI the conversation so far. It WAITS for any in-flight
-	// turn rather than quitting a CLI mid-answer, and refuses a disabled target
+	// SwitchProvider replaces the chat's CLI with another provider's, handing over the
+	// conversation. It WAITS out an in-flight turn, and refuses a disabled target
 	// before anything is torn down.
 	SwitchProvider(
 		ctx context.Context,
@@ -69,21 +63,9 @@ type RunnerUsecase interface {
 		targetProviderID string,
 	) (string, error)
 
-	// SubmitPrompt delivers a React-authored prompt to the chat's CLI. Delivery is
-	// at-most-once against clientRequestID: a retry replays the original outcome
-	// rather than prompting twice.
-	//
-	// provider/selection are the STAGED pick the composer is showing right
-	// now — not necessarily what the chat already holds. An empty provider is
-	// "nothing staged, use the current one as-is"; a non-empty one that
-	// differs from the chat's current one is switched to via SwitchProvider
-	// BEFORE the prompt is delivered. A nil selection is "nothing staged,
-	// leave the sticky model/effort alone"; a non-nil one is committed via
-	// SetChatSelection next, INCLUDING an all-empty one, which clears the
-	// chat back to the provider's own default (domain.ChatSelection).
-	// Picking a row in the UI never mutates the chat on its own — provider
-	// included — it only takes effect bundled with the next message, one
-	// atomic call instead of two (or three).
+	// SubmitPrompt delivers a prompt at most once per clientRequestID (a retry replays the
+	// outcome). provider/selection are the composer's STAGED pick, applied atomically
+	// with the send: "" / nil keep the current; an all-empty selection resets to default.
 	SubmitPrompt(
 		ctx context.Context,
 		chatID, text, clientRequestID, provider string,
@@ -113,10 +95,8 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// AttachedTerminalSession answers, for a live runner, which terminal session
-	// IS its native view right now — set only between a SwitchToTerminal and its
-	// matching SwitchToNative. A plain in-memory read, like TerminalWait: no ctx,
-	// no error, and false for a runner with nothing attached.
+	// AttachedTerminalSession answers which terminal session IS a live runner's view,
+	// set only between SwitchToTerminal and SwitchToNative; false when none is attached.
 	AttachedTerminalSession(runnerID string) (string, bool)
 
 	// TelemetryOnChatSurface is the CHAT-scoped form of a capability a
@@ -213,11 +193,6 @@ var (
 	ErrPromptSessionUnavailable = runner.ErrPromptSessionUnavailable
 )
 
-// The vendor CLI's lifecycle. Everything here is USER-INITIATED, which is what
-// separates it from the hook ingress: it may block, it may refuse, and it decides
-// under the chat's lock — the only thing that stops two clicks putting two CLIs
-// on one chat.
-
 // SpawnChat mints a chat and starts a provider CLI on it in one step.
 func (u *Usecase) SpawnChat(
 	ctx context.Context,
@@ -266,19 +241,9 @@ func (u *Usecase) KillChat(
 	return u.runners.KillChat(ctx, chatID)
 }
 
-// SwitchProvider replaces the chat's CLI with another provider's, waiting for any
-// turn in flight so the outgoing CLI is never killed mid-answer.
-//
-// Switching to the provider the chat is ALREADY on is deliberately NOT a no-op
-// here, unlike SubmitPrompt's staged half (which skips it so an ordinary resend
-// does not pay for a switch nobody asked for). This verb means "tear the CLI
-// down and put a fresh one on the chat as X", and a same-provider call is the
-// one respawn primitive Promote has: its chat's WorkspaceID just changed, so the
-// live CLI is running in the wrong worktree and rebuilding it as itself is the
-// entire point. Nothing reachable from the UI sends an identity switch anyway —
-// the dropdown lists only the OTHER providers and ⌘/ skips a cycle that lands
-// back where it started — so a guard here would cost that primitive and buy
-// nothing.
+// SwitchProvider replaces the chat's CLI with another provider's, waiting out any turn
+// in flight. A same-provider switch is deliberately NOT a no-op: it is Promote's
+// respawn primitive, rebuilding a CLI whose worktree just changed.
 func (u *Usecase) SwitchProvider(
 	ctx context.Context,
 	chatID string,
@@ -337,9 +302,8 @@ func (u *Usecase) StaleProviders(
 // Compact asks the chat's provider to compact its own context, through whichever
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
-	// A person just asked for this, from the ONE place that fact is knowable.
-	// Armed even though the call below can still fail validation — see
-	// manualCompactRequests' own doc for why that's an acceptable tradeoff.
+	// The one place a manual request is knowable; armed even if the call below then
+	// fails validation (see manualCompactRequests).
 	u.recorder.ArmManualCompaction(chatID)
 	return u.runners.Compact(ctx, chatID)
 }

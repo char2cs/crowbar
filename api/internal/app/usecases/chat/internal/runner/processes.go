@@ -1,7 +1,5 @@
-// Package runner (file processes.go) ends a runner's processes. A runner is
-// one channel at a time — its PTY, the native view it was handed over to, or
-// its api connection's serve process — and every path that takes a runner off
-// its chat ends all of them through here, so none is ever leaked.
+// Package runner (file processes.go) ends a runner's processes (PTY, native view, or
+// serve). Every path that takes a runner off its chat goes through here, so none leaks.
 package runner
 
 import (
@@ -15,10 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// endProcesses ends runner's processes and reports whether its PTY's own exit
-// callback is still to record the end. The PTY goes first and its failure is
-// returned before anything else is touched, so a caller that must not proceed
-// on a still-running CLI (a switch) aborts with nothing changed.
+// endProcesses ends runner's processes and reports whether the PTY's exit callback
+// will record the end. The PTY goes first, so a failure aborts with nothing changed.
 func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool, error) {
 	ptyExits := false
 	if runner.TerminalSession != "" {

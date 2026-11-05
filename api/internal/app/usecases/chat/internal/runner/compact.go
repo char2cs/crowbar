@@ -22,10 +22,8 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	if err != nil {
 		return fmt.Errorf("agent: compact: %w", err)
 	}
-	// Before anything is resolved: the SURFACE decides, not the provider. See
-	// ErrCompactionOffSurface (capabilities.go) — and CompactionOnChatSurface
-	// beside it, which is the read the client gates its control on so the
-	// button is absent rather than present-and-erroring.
+	// Before anything is resolved: the SURFACE decides, not the provider
+	// (ErrCompactionOffSurface).
 	if chat.Surface == domain.SurfaceTerminal {
 		return ErrCompactionOffSurface
 	}

@@ -309,10 +309,9 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	return append(rows, steered...), fx, err
 }
 
-// closingRows are what a turn's end records of what it said: the answers
-// streamed with no row of their own, the reply its hook carried, the thought
-// behind it, and every ask nothing will answer now. One message is one whole
-// row, and the reply is its last message's.
+// closingRows are what a turn's end records: answers streamed with no row of their
+// own, the hook's reply and its thought, and every ask nothing will answer now. One
+// message is one whole row; the reply is its last message's.
 func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
 	said := unsaid(st, turnID, src.Live.Answers)
 	last, hasLast := st.LastMessage(turnID)

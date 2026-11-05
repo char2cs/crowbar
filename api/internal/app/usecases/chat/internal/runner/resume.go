@@ -53,11 +53,8 @@ func (rs *Runners) settledRunner(h *hold) (engineagents.Runner, bool, error) {
 	}
 }
 
-// lastActiveProviderID answers "who comes back" for a dormant chat: the chat's
-// own durable vendor (domain.Chat.ProviderID), restated on every placement and
-// backfilled at boot for rows that predate it. A chat with none has genuinely
-// never had a CLI placed on it, reported as ErrChatProviderUnknown — never as a
-// missing RUNNER, which is both expected here and not what failed.
+// lastActiveProviderID answers "who comes back" for a dormant chat: its durable
+// domain.Chat.ProviderID. None is ErrChatProviderUnknown, never a missing RUNNER.
 func (rs *Runners) lastActiveProviderID(ctx context.Context, chatID string) (string, error) {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {

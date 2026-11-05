@@ -1,8 +1,5 @@
-// Package runner (file apiserve.go) starts the provider's control-plane
-// process: the `serve` fork, whose stdin and stdout carry its api connection.
-//
-// Split from apiconn.go, which is about the CONNECTION — handshake, pumping,
-// teardown. This half is pure process; it knows nothing about events.
+// Package runner (file apiserve.go) starts the provider's control-plane process: the
+// `serve` fork whose stdio carries its api connection. Pure process; no events.
 package runner
 
 import (
@@ -57,10 +54,8 @@ func reapServe(cmd *exec.Cmd) *serveProcess {
 	return s
 }
 
-// kill ends the process and everything it started, and waits, bounded, until
-// it is gone. Waiting is the point: a provider can hold a writer lock on its
-// session for as long as serve lives, and refuse a replacement resuming it
-// before the old process is reaped.
+// kill ends the process tree and waits, bounded, until it is gone: a provider can hold
+// its session's writer lock while serve lives, refusing a replacement resuming it.
 func (s *serveProcess) kill() {
 	if s == nil || s.cmd.Process == nil {
 		return

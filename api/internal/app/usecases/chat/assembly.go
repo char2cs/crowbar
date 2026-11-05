@@ -22,13 +22,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Deps is everything the chat usecase is built over: the three stores it reads
-// and writes, the engine it resolves providers through, the seams onto the rest
-// of the daemon, and the agent-facing tool surface.
-//
-// What is NOT here is any of the shared in-flight state — the chat locks, the
-// answer desk. New builds those, and a caller must not be able to supply them:
-// a second instance of either doubles a CLI in production.
+// Deps is everything the chat usecase is built over. The shared in-flight state (chat
+// locks, answer desk) is deliberately absent: New builds it, because a second instance
+// of either doubles a CLI in production.
 type Deps struct {
 	Chats    agentchat.EventStore
 	Agents   engineagents.Agents
@@ -39,10 +35,8 @@ type Deps struct {
 	Worktree  WorktreeCreator // Promote's seam onto the worktree hierarchy usecase
 	// Lineage answers "what does this chat read" at spawn time.
 	Lineage ChatLineage
-	// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
-	// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
-	// (2026-09-08 sidebar-placement-unification Task 8's own review fix
-	// round) — see Usecase's own doc for why. May be left nil.
+	// Folders/Nodes let the placement-tree ancestor walks see past a folder, which
+	// is not a Chat row. May be left nil.
 	Folders TreeFolders
 	Nodes   TreeNodes
 	// RepoRoots finishes those same walks for a row filed in a repo-root
@@ -53,16 +47,11 @@ type Deps struct {
 	// PermissionPrefs is the global default permission level a new chat is
 	// seeded with.
 	PermissionPrefs store.Store[domain.AgentPermissionDefault, string]
-	// ModelManifestFetchPrefs is the global toggle for whether a
-	// model.manifest: source's background refresh may hit the network —
-	// wired straight into Agents.SetManifestFetchEnabled below, since that
-	// engine-side getter is pulled fresh on every refresh rather than pushed
-	// on change.
+	// ModelManifestFetchPrefs is the global toggle for whether a model.manifest:
+	// source's background refresh may hit the network.
 	ModelManifestFetchPrefs store.Store[domain.AgentModelManifestFetch, string]
-	// ChatTelemetry backs the durable half of the telemetry cache — the last
-	// usage report per chat, surviving a daemon restart. Nil is a valid,
-	// supported value (every test that builds Deps by hand): New falls back to
-	// a process-local-only store, same as before this field existed.
+	// ChatTelemetry backs the durable half of the telemetry cache: the last usage
+	// report per chat, surviving a restart. Nil falls back to a process-local store.
 	ChatTelemetry store.Store[domain.AgentChatTelemetry, string]
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog, and providers are global.
@@ -86,9 +75,8 @@ type Deps struct {
 	// exactly ONE per daemon: a runner's token must be minted by the same secret
 	// that verifies it.
 	Minter *agenttools.TokenMinter
-	// Snapshots is the chat snapshot owner the composition root built and fed
-	// to the fanout. Nil builds a private one (tests), fed by nothing until a
-	// test wires the fanout over Snapshots().
+	// Snapshots is the chat snapshot owner the composition root built and fed to the
+	// fanout. Nil builds a private one, fed by nothing until a fanout is wired over it.
 	Snapshots *snapshot.Snapshots
 	// AgentWorking is told when a chat's busy answer flips, for its
 	// workspace's working overlay.
@@ -101,13 +89,9 @@ type Deps struct {
 	Tools agenttools.Deps
 }
 
-// shared is the in-flight state the components are built over.
-//
-// It exists as a value so that "built exactly once" is something you can see
-// rather than a rule you have to trust: New makes one, and every component that
-// needs a piece of it is handed the SAME one. None of it is durable and none of
-// it may be — each value describes a live process, and a daemon restart kills
-// every process it could have been describing.
+// shared is the in-flight state the components are built over, a value so "built
+// exactly once" is visible: New makes one and hands every component the SAME one.
+// None of it may be durable — each value describes a live process.
 type shared struct {
 	telemetry *telemetry.Store
 	// locks is one lock per chat: every hook of the chat records under it, and
@@ -122,10 +106,8 @@ type shared struct {
 
 // New builds the chat usecase and every component behind it.
 func New(d Deps) *Usecase {
-	// context.Background(): this hydration read happens exactly once, at
-	// daemon boot, before there is a request context to carry — same
-	// justification as the other startup-only Background() reads in this
-	// codebase (e.g. container.go's sweepTargets).
+	// context.Background(): the telemetry hydration read runs once at boot, before
+	// any request context exists.
 	u := &Usecase{
 		chats:     d.Chats,
 		ledger:    d.Ledger,
@@ -189,11 +171,8 @@ func (r snapshotReader) GetChats(ctx context.Context, chatIDs []string) ([]domai
 	return r.chats.GetChats(ctx, chatIDs)
 }
 
-// buildComponents assembles the four halves of the surface and closes the edges
-// between them.
-//
-// It is split out of New only to keep each within its length budget; the two are
-// one operation, and nothing may call this twice.
+// buildComponents assembles the components and closes the edges between them. It is
+// split out of New only for length; the two are one operation, never called twice.
 func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.providers = provider.New(provider.Deps{
 		Agents:    d.Agents,
@@ -256,10 +235,9 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.ingress = ingress.New(ingress.Deps{
 		Runners: u.runners, Descriptors: u.recorder, Turns: u.recorder, Ledger: d.Ledger, Locks: sh.locks,
 	})
-	// The edges that can only close once both sides exist: a purge retires the
-	// CLI on the chat (and a failed spawn discards the chat it minted), a hook
-	// resolves its runner through the live table, and the terminal-wait detector
-	// reads screens through the hook ingress's own classifiers.
+	// The edges that can only close once both sides exist: purge retires the chat's
+	// CLI, a hook resolves its runner through the live table, and the terminal-wait
+	// detector reads screens through the hook ingress's classifiers.
 	u.conversations.SetRunners(u.runners)
 	u.recorder.SetRunners(u.runners)
 	u.runners.SetTurns(runnerTurns{Recorder: u.recorder, ingress: u.ingress})

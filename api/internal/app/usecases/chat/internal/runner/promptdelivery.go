@@ -143,10 +143,8 @@ func (rs *Runners) resolvePromptDelivery(
 	if !resuming {
 		return out, nil
 	}
-	// Unsupported is judged against the FULL native mapping: a provider with no
-	// resume arg at all cannot deliver this message any way, but one whose api
-	// connection may resume it instead is not that case merely because its PTY
-	// might end up carrying no positional args.
+	// Unsupported is judged against the FULL native mapping: only a provider with no
+	// resume arg at all cannot deliver this message.
 	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
@@ -260,14 +258,9 @@ func (rs *Runners) RequirePromptRestart(
 	return ErrPromptUnsupported
 }
 
-// selectionRequiresRestart reports whether live's LAUNCHED model/effort/
-// permission level differ from the chat's CURRENT desired selection in a
-// field the descriptor itself declares restart_tui for (descriptor.
-// SelectionRestart) — the same comparison RequirePromptRestart already made
-// for the restart-per-prompt path, extracted so submitPromptOverAPI's live
-// connection shortcut (prompts.go) can refuse it and fall back to an actual
-// restart instead of silently delivering to a process whose model/effort no
-// longer matches what the user just asked for.
+// selectionRequiresRestart reports whether live's LAUNCHED selection differs from the
+// chat's desired one in a field the descriptor declares restart_tui for, so the api
+// fast path restarts instead of delivering to a CLI on the old model.
 func (rs *Runners) selectionRequiresRestart(
 	ctx context.Context,
 	chatID string,

@@ -15,10 +15,9 @@ func boundSession(st ledger.State, provider string) string {
 	return ""
 }
 
-// namesAnotherConversation reports whether ev names a session other than the
-// chat's bound one, sharing its wire; an unbound chat judges nothing. Over hooks
-// a session_start is the CLI's announcement, never judged; an api connection's
-// own sessions bind as it opens them, so one it reports starting is a child's.
+// namesAnotherConversation reports whether ev names a session other than the chat's
+// bound one. A hook session_start is the CLI's own announcement, never judged; over
+// api, sessions bind as opened, so a reported start is a child's.
 func namesAnotherConversation(bound string, ev engineagents.CanonicalEvent, channel engineagents.Channel) bool {
 	if ev.SessionID == "" || ev.Kind == engineagents.HookSessionStart && channel != engineagents.ChannelAPI {
 		return false

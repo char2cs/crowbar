@@ -1,7 +1,5 @@
-// Package runner (file revive.go) is the server-owned revive: sending to a
-// dormant chat brings its provider back on the chat's session, in the same
-// hold of the chat as the delivery. The client only ever sends; it never
-// orchestrates a revive of its own.
+// Package runner (file revive.go) is the server-owned revive: sending to a dormant chat
+// brings its provider back in the same hold as the delivery. The client only sends.
 package runner
 
 import (

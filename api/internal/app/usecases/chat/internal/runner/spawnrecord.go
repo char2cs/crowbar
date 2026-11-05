@@ -18,10 +18,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// recordRunner commits r, already forked and in the live table, as the chat's
-// runner. Launch* is what the process was actually launched with: nothing can
-// ask it later. A process that died before this row committed has its exit
-// recorded after it, and the spawn refused.
+// recordRunner commits forked r as the chat's runner; Launch* is what it was actually
+// launched with. A process that died first has its exit recorded after, and is refused.
 func (rs *Runners) recordRunner(
 	ctx context.Context, r engineagents.Runner, resumeID string, create bool, staged *domain.ChatSelection,
 ) error {

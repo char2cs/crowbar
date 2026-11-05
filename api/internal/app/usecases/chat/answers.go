@@ -24,26 +24,17 @@ type AnswerUsecase interface {
 		askID string,
 	) bool
 
-	// AwaitAnswer blocks the relay held on askID until a person answers, its
-	// declared budget expires, or ctx is cancelled. It returns the stdout the
-	// relay must print — empty when nobody answered in time, which is the signal
-	// to leave the prompt to the provider's own UI.
-	//
-	// A verdict is claimed by EXACTLY ONE relay: one that arrives after the
-	// answer was already claimed gets nothing rather than replaying it.
+	// AwaitAnswer blocks the relay held on askID until a person answers, its budget
+	// expires, or ctx is cancelled. Empty stdout leaves the prompt to the provider's
+	// own UI; a verdict is claimed by EXACTLY ONE relay, never replayed.
 	AwaitAnswer(
 		ctx context.Context,
 		askID string,
 	) (HookAnswer, error)
 
-	// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
-	// options into the provider's own answer format and hands that to the relay
-	// holding the prompt open.
-	//
-	// Returns ErrNoLongerWaiting (an problem.ErrConflict) when no relay is still
-	// holding the prompt — its CLI has moved on, so it can no longer be answered
-	// from Crowbar — and problem.ErrInvalidArgument when the provider cannot
-	// express the decision.
+	// AnswerChoice renders the picked options in the provider's answer format for the
+	// relay holding the prompt. ErrNoLongerWaiting (a problem.ErrConflict) when no relay
+	// still holds it; problem.ErrInvalidArgument when the provider cannot express it.
 	AnswerChoice(
 		ctx context.Context,
 		chatID string,
@@ -62,10 +53,9 @@ type AnswerUsecase interface {
 		answerID string,
 	) error
 
-	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
-	// lifetime, independent of the global default (see
-	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
-	// current provider does not declare, with problem.ErrInvalidArgument.
+	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its lifetime,
+	// independent of the global default. Refuses a level the chat's current provider
+	// does not declare, with problem.ErrInvalidArgument.
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -83,12 +73,8 @@ var ErrNoLongerWaiting = answerdesk.ErrNotWaiting
 // time.
 type HookAnswer = answerdesk.HookAnswer
 
-// The human in the loop: a provider prompt that blocks its hook relay until
-// somebody decides, and the Crowbar-side act of deciding for it.
-//
-// The desk holding those relays is in memory and can never be otherwise: a slot
-// describes a live hook process holding a live provider gate open, so one that
-// survived a restart would be a promise to a process that no longer exists.
+// The answer desk is in memory by necessity: a slot is a live hook process holding a
+// provider gate open, so one surviving a restart would promise a process that is gone.
 
 // HoldsAnswer reports whether askID is on the desk: still open, or decided with a
 // verdict its hook has not collected yet; either way the hook must be held.

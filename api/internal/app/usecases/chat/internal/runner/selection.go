@@ -2,23 +2,9 @@ package runner
 
 import engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
-// resolveSelectionForSpawn clamps a chat's stored model/effort to what THIS
-// provider actually declares — the same reasoning as resolvePermissionLevel
-// (permission.go), and for the same reason ChatSelection never validates
-// them itself: its own doc comment says minting reads Model/Effort as "the
-// provider's own default", but a provider SWITCH is not a mint — it reads
-// the chat's raw stored fields, which still carry the OUTGOING provider's
-// choice. Left unclamped, that model string reaches this provider's spawn
-// argv verbatim: switching a chat from one provider to another spawned the
-// new CLI with the old provider's model id, which it rejects outright — while
-// the switch's OWN divider claims the new selection is the target provider's
-// default, because that marker is recorded from a separate, later call that
-// never reaches the CLI already spawned (and already dead) by then.
-//
-// Clearing to "" reads as "this provider's own default", exactly like a
-// fresh mint — and, like PermissionLevel, is never written back: the
-// chat's own stored intent is untouched, so switching providers again
-// resolves fresh each time.
+// resolveSelectionForSpawn clears a stored model/effort THIS provider does not declare
+// to "" (its default): after a switch the fields still carry the outgoing provider's ids.
+// Never written back, so the chat's intent resolves fresh on every spawn.
 func resolveSelectionForSpawn(
 	descriptor engineagents.Agent,
 	sel engineagents.Selection,

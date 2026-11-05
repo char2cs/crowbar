@@ -1,11 +1,6 @@
-// Package runner (file apirunner.go) is the spawn shape where the api
-// connection IS the whole runner: no PTY is forked at all, and the `serve`
-// process carries the liveness a PTY normally would.
-//
-// apiconn.go establishes and pumps a connection; attach.go forks the native
-// view a user switched to. This file answers the one question in between —
-// does this spawn still need a PTY? — and wires the exit signal for when it
-// does not.
+// Package runner (file apirunner.go) is the spawn shape where the api connection IS
+// the whole runner: no PTY is forked, and the `serve` process carries the liveness a
+// PTY normally would.
 package runner
 
 import (
@@ -16,25 +11,15 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// apiConnIsTheRunner reports whether runnerID's spawn has nothing left to
-// fork: its api connection came up and no hotswap `attach` argv was rendered.
-// One channel per runner: a connection that came up is the whole runner; one
-// that did not leaves the PTY (over hooks) as the only process there is.
+// apiConnIsTheRunner reports whether runnerID's spawn has nothing left to fork: its
+// api connection came up and no hotswap `attach` argv was rendered.
 func (rs *Runners) apiConnIsTheRunner(req forkRequest, attachArgv []string) bool {
 	return len(attachArgv) == 0 && rs.HasLiveAPIConnection(req.runnerID)
 }
 
-// carriedSelection is the part of sel that a carrier rendering `steps`
-// actually takes — asked one field at a time, because a descriptor may
-// declare a carrier for one and not the other.
-//
-// recordRunner stamps THIS, never the chat's intended selection. LaunchModel
-// is the only authority on what a live CLI is running, so a row claiming a
-// model no carrier received makes selectionRequiresRestart compare equal
-// forever and the revert permanent.
-//
-// PermissionLevel passes through: both carriers take it (apply: on an argv,
-// vars: in the establish call's send: tree), so neither branch can drop it.
+// carriedSelection is the part of sel a carrier rendering `steps` actually takes, per
+// field. recordRunner stamps THIS, never the intent: a row claiming a model no carrier
+// received would make selectionRequiresRestart compare equal forever.
 func carriedSelection(
 	sel engineagents.Selection,
 	steps func(engineagents.Selection) []engineagents.InjectStep,
@@ -70,10 +55,8 @@ func (rs *Runners) forkOrAdopt(
 	return termSessID, req.apiSelection, nil
 }
 
-// adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
-// reconcile against the `serve` process instead of a terminal session. Every
-// event the connection delivers waits on the chat's lock, which the spawn
-// holds until runner_started commits.
+// adoptAPIConn is forkCLI for a spawn with no PTY: the exit reconcile is armed on
+// `serve`. Its events wait on the chat's lock, held until runner_started commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	if !rs.watchAPIConnExit(req.runnerID, req.crowbarHome, req.tmpDir) {
@@ -111,24 +94,17 @@ func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) 
 	return nil
 }
 
-// handOverAPIConn marks runnerID's connection as being torn down in favour of
-// another process for the SAME runner, so the kill that follows is not read
-// as the runner ending. Called before the drop, never after: the watcher can
-// observe the process die the instant drop signals it.
+// handOverAPIConn marks runnerID's connection as replaced by another process of the
+// SAME runner, so its kill is not read as the runner ending. Call it before the drop.
 func (rs *Runners) handOverAPIConn(runnerID string) {
 	if c, ok := rs.apiConns.get(runnerID); ok {
 		c.detached.Store(true)
 	}
 }
 
-// runnerHasAnotherProcess reports whether runnerID is still SOMETHING —
-// after one of the several processes it can be has just died.
-//
-// A runner is exactly one process, but which kind is not fixed: an api-driven
-// one is its `serve` connection normally and its native view between a
-// SwitchToTerminal and the matching SwitchToNative, while every other runner
-// is its own PTY. This is the one place that asks which, so no teardown path
-// has to know.
+// runnerHasAnotherProcess reports whether runnerID is still alive after one of its
+// processes died. A runner is one process, of a varying kind (serve, native view, PTY);
+// this is the one place that asks which, so no teardown path has to.
 func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 	if rs.ShowingNativeView(runnerID) || rs.HasLiveAPIConnection(runnerID) {
 		return true
@@ -137,14 +113,9 @@ func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 	return ok && runner.TerminalSession != ""
 }
 
-// exitProcesslessRunner reconciles a runner that has just lost its last
-// process — the reconcile a dead PTY drives for every other runner.
-//
-// The CALLER serialises: every path that reaches this holds the chat's lock,
-// because the question "is anything else driving this runner" is only
-// answerable once whatever is mid-teardown (or mid-re-establish) has
-// finished. Taking the lock here instead would deadlock SwitchToNative, which
-// holds it across exactly that window.
+// exitProcesslessRunner reconciles a runner that just lost its last process. The
+// CALLER holds the chat's lock; taking it here would deadlock SwitchToNative, which
+// holds it across the re-establish window.
 func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
 	// The exit is reconciled in full even if the request that noticed it ends.
 	ctx = context.WithoutCancel(ctx)
@@ -168,23 +139,9 @@ func (rs *Runners) watchAPIConnExit(runnerID, home, tmpDir string) bool {
 	})
 }
 
-// watchExit arms onExit against runnerID's `serve` process — the liveness
-// signal a PTY-less runner has instead of a terminal session — handing it why
-// the connection died on its own, if it did.
-//
-// Reaping it here is also what keeps a killed `serve` from lingering as a
-// zombie: drop SIGKILLs without waiting, so before this nothing ever called
-// Wait on it. Wait is called from exactly one goroutine per connection, so it
-// is never raced.
-//
-// onExit fires for a DELIBERATE teardown too (retire, provider switch, a
-// failed persist — each drops the connection, which kills the process),
-// exactly as a PTY's own exit callback already did when those paths
-// terminated it. reconcileRunnerExit is idempotent against a row that is
-// already gone.
-//
-// false means there was no connection to watch, which is the caller's signal
-// that this spawn has no liveness signal at all and must not be recorded.
+// watchExit arms onExit (also on deliberate teardown) against runnerID's `serve`, the
+// liveness a PTY-less runner has, and reaps it from one goroutine so it never lingers
+// as a zombie. false means no connection: the spawn has no liveness and must not record.
 func (r *apiConnRegistry) watchExit(runnerID string, onExit func(lost string)) bool {
 	c, ok := r.get(runnerID)
 	if !ok || c.serve == nil {

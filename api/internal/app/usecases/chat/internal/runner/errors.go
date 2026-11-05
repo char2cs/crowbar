@@ -17,25 +17,13 @@ var (
 	ErrSlashCatalogSuperseded  = &problem.Error{Code: problem.CatalogSuperseded, Message: "agent: slash catalog request was superseded by a newer request", Err: problem.ErrConflict}
 )
 
-// ErrStopped is returned by a switch or resume that was parked (on the
-// outgoing turn, or on a prompt delivery) when the user pressed Stop. Stop
-// preempts the parked request rather than queueing behind it (invariant A2),
-// and the preempted request has changed nothing.
+// ErrStopped is returned by a parked switch or resume when the user pressed Stop:
+// Stop preempts rather than queues behind it, and the request changed nothing.
 var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request waited: %w", problem.ErrConflict)
 
-// ErrProviderExitedDuringStartup is returned when a provider's vendor CLI died
-// before its runner_started row could commit.
-//
-// Crowbar hosts the ordinary INTERACTIVE CLI in a real PTY — the engine's hardest
-// constraint, asserted by every descriptor's spawn.interactive_required — so a
-// process that exits on the spot has not started, whatever its exit code. Handing
-// the caller a chat with a corpse behind it would be a chat whose pane attaches to
-// a PTY that is already gone.
-//
-// It wraps problem.ErrFailedDependency (424), the same class as a vendor CLI that
-// is not installed at all: the request was well-formed and the daemon is healthy,
-// and what failed is a dependency the user can act on — an expired login, a broken
-// install, a CLI that refuses this workspace.
+// ErrProviderExitedDuringStartup is returned when the vendor CLI died before
+// runner_started committed: an interactive CLI that exits at once has not started.
+// It wraps problem.ErrFailedDependency (424) — something the user can fix.
 var ErrProviderExitedDuringStartup = fmt.Errorf(
 	"agent: spawn runner: provider process exited during startup: %w", problem.ErrFailedDependency,
 )
@@ -68,10 +56,8 @@ var ErrNoLiveRunner = problem.New(problem.NotFound, "agent: chat has no live run
 // the live table's key.
 var ErrChatHasLiveRunner = fmt.Errorf("agent: chat already has a live runner: %w", problem.ErrConflict)
 
-// ErrChatProviderUnknown is returned when a dormant chat cannot be resumed
-// because the chat records no provider. It is the PROVIDER that is missing, not
-// a runner (a dormant chat has none by definition), so the client asks which
-// provider to start instead of picking one. It keeps the 404.
+// ErrChatProviderUnknown is returned when a dormant chat records no provider to
+// resume on, so the client asks which to start. It keeps the 404.
 var ErrChatProviderUnknown = fmt.Errorf(
 	"agent: this chat no longer records which provider it ran: %w", problem.ErrNotFound,
 )
@@ -103,14 +89,9 @@ var (
 	// React that this provider has no declarative restart-TUI submission mapping.
 	ErrPromptUnsupported = &problem.Error{Code: problem.PromptSubmitUnsupported, Message: "agent: provider does not support React prompt submission", Err: problem.ErrUnprocessable}
 
-	// ErrSpawnPromptUndeliverable means a spawn was handed a user message and
-	// could not get it to any carrier. A spawn carries a prompt in exactly one
-	// of two places — the forked PTY's own argv, or a Dispatch down the api
-	// connection it adopted INSTEAD of forking one — and a PTY-less spawn has
-	// only the second. Failing here is the point: reporting success with the
-	// message nowhere is what silently lost a user's prompt (see
-	// carryPromptOverAPIConn), and the caller settles the prompt, which keeps the
-	// text in the client's own queue.
+	// ErrSpawnPromptUndeliverable means a spawn's user message reached neither carrier
+	// (PTY argv or api Dispatch). Failing, never reporting success, keeps the text in
+	// the client's queue once the caller settles the prompt.
 	ErrSpawnPromptUndeliverable = fmt.Errorf("agent: spawn runner: the prompt this spawn carries reached no carrier: %w", problem.ErrBadGateway)
 
 	// ErrPromptSessionUnavailable means there is no live native TUI to replace.
