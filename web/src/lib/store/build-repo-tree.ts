@@ -35,10 +35,8 @@ function repoAvatarColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 }
 
-// §5/§6: status now passes straight through — locked / pr-conflicts / deleted
-// are first-class WorkspaceStatus values, no longer derived from removed
-// agentRunning/locked/hasConflicts overlays. `working` is a separate flag the
-// sidebar renders as an in-progress indicator, not a status.
+// Status passes straight through (locked, pr-conflicts and deleted are WorkspaceStatus values);
+// `working` is a separate in-progress flag, not a status.
 export function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
   return ws.status as WorkspaceStatus
 }
@@ -54,15 +52,9 @@ function repoAvatarURL(repo: RepoDTO): string | undefined {
 
 export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
   return {
-    // EVERY field is present, never conditionally spread. applyWorkspaceDTO
-    // merges a live frame with {...w, ...ws}, and an omitted key cannot clear
-    // anything — it silently keeps the previous value. That used to be masked
-    // by the whole-tree rebuild every frame also triggered (which rebuilt each
-    // row from scratch); now that a frame is merged incrementally, a CLEARED
-    // field arrives here as '' / undefined and has to overwrite. Concretely:
-    // reparenting a workspace to the repo root, its parent branch going away
-    // with it, a PR closing, a Retry clearing heldByPath, a move
-    // out of a folder.
+    // Every field present, never conditionally spread: applyWorkspaceDTO merges `{...w, ...ws}`,
+    // so an omitted key keeps its previous value, while a cleared field ('' / undefined — a move to
+    // root, a PR closing, a Retry clearing heldByPath) must overwrite.
     id: ws.id,
     branch: ws.branch,
     parentId: ws.parentId || undefined,
@@ -87,11 +79,8 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
 
 export function toSidebarFolder(folder: FolderDTO): Folder {
   return {
-    // Every field present, never conditionally spread — same rule as
-    // toSidebarWorkspace: applyFolderDTO merges a live frame with {...f, ...folder},
-    // and an omitted key silently keeps the previous value instead of clearing
-    // it. Concretely, dragging a folder out to the repo root arrives as an empty
-    // parentId and has to overwrite the id it used to hold.
+    // Every field present, as in toSidebarWorkspace: a folder dragged to the repo root arrives
+    // with an empty parentId that must overwrite the previous one.
     id: folder.id,
     repoId: folder.repoId,
     parentId: folder.parentId || undefined,
@@ -101,10 +90,8 @@ export function toSidebarFolder(folder: FolderDTO): Folder {
   }
 }
 
-/** `ChatDTO` -> the sidebar's own `Chat`. Every field present, never
- *  conditionally spread — same rule as `toSidebarFolder` above: a chat dragged
- *  out to the root arrives as an empty parentId and has to overwrite the id it
- *  used to hold. */
+/** ChatDTO -> the sidebar's Chat, every field present (as toSidebarFolder): a chat dragged to the
+ *  root arrives with an empty parentId that must overwrite the previous one. */
 export function toSidebarChat(chat: ChatDTO): Chat {
   return {
     id: chat.id,
@@ -112,10 +99,8 @@ export function toSidebarChat(chat: ChatDTO): Chat {
     type: chat.type,
     parentId: chat.parentId || undefined,
     workspaceId: chat.workspaceId || undefined,
-    // Undefined, not `false`, when the cached row predates the field: `false`
-    // would assert "this is a bubble", and `deriveRows` must be able to
-    // tell that apart from "this row doesn't know yet" so it can fall back to
-    // the `Workspace.owningChatId` join for it.
+    // Undefined, not false, when the cached row predates the field: false asserts "a bubble",
+    // while undefined lets deriveRows fall back to the Workspace.owningChatId join.
     ...(chat.ownsWorktree === undefined ? {} : { ownsWorktree: chat.ownsWorktree }),
     title: chat.title,
     order: chat.order ?? 0,
@@ -166,30 +151,23 @@ export function toSidebarRepo(
   return {
     id: repo.id,
     projectId: repo.projectId,
-    // Never conditionally spread: like a workspace's, this field has to be able
-    // to overwrite. A repo dragged back to index 0 emits `order: 0`, and an
-    // omitted key cannot clear the 3 it used to hold.
+    // Never conditionally spread: a repo dragged back to index 0 emits `order: 0`, which must
+    // overwrite the previous order.
     order: repo.order ?? 0,
-    // Same rule: a repo dragged OUT of a folder emits `folderId: ''`, and an
-    // omitted key cannot clear the folder it used to hold.
+    // Same rule: a repo dragged out of a folder emits `folderId: ''`.
     folderId: repo.folderId ?? '',
     name: repo.name,
     avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
     avatarURL: repoAvatarURL(repo),
     workspaces: sidebarWorkspaces,
-    // Omitted entirely when the repo has none, so a repo built from a backend
-    // that does not emit folders yet is byte-identical to what it was before.
+    // Omitted when the repo has none, keeping a folderless repo's shape unchanged.
     ...(repoFolders.length > 0 ? { folders: repoFolders } : {}),
-    // Same rule as `folders` above — omitted entirely when the repo has none,
-    // so a repo whose chat seed has not landed is byte-identical to what it was
-    // before this pipeline existed.
+    // Omitted when none, like `folders`: a repo whose chat seed hasn't landed has no `chats`.
     ...(repoChats.length > 0 ? { chats: repoChats } : {}),
     ...(repo.deleting ? { deleting: true } : {}),
-    // The default (repo-home) workspace is filtered out of `workspaces` above —
-    // it is the repo header, not a tree row — so its live `working` overlay would
-    // be dropped with it. Lift it onto the repo as defaultWorking so the header
-    // and the context pill can spin the repo's icon during an agent turn.
+    // The default workspace is the repo header, filtered out of `workspaces`, so its live `working`
+    // is lifted onto the repo for the header and context pill to spin its icon.
     ...(defaultWs
       ? {
           defaultWorkspaceId: defaultWs.id,
@@ -209,38 +187,22 @@ export function toSidebarRepo(
   }
 }
 
-/**
- * Repos in sidebar order.
- *
- * `order` is an index WITHIN a project, so the flat list this returns is every
- * project's sequence interleaved — which is exactly what the sidebar consumes,
- * because it buckets by `projectId` and reads each bucket in array order. Where
- * a bucket lands in the flat array carries nothing; the project list decides
- * that (see applyPlacement).
- *
- * Ties break the way the daemon breaks them (compareByPlacement — a repo row
- * carries no createdAt, so by id), so a level nobody has dragged yet — every
- * repo still holding 0 — never reshuffles between a frame and a cache rebuild.
- */
+// Repos in sidebar order. `order` is per project, so the flat list interleaves projects — fine,
+// since the sidebar buckets by projectId and reads each bucket in order. Ties break as the daemon
+// does (compareByPlacement, by id), so an undragged level never reshuffles between rebuilds.
 export function sortReposByOrder(repos: readonly Repo[]): Repo[] {
   return sortByPlacement(repos)
 }
 
-// buildRepoTree groups the workspace list under their repos to produce the
-// nested Repo[] the sidebar renders.
-//
-// It is deliberately PROJECT-AGNOSTIC: it groups whatever repos it is handed and
-// tags each with its own `projectId`, so the sidebar can hold several projects
-// at once.
+// Groups workspaces under their repos into the nested Repo[] the sidebar renders. Project-agnostic
+// on purpose: each repo keeps its own projectId, so the sidebar can hold several projects at once.
 export function buildRepoTree(
   repos: RepoDTO[],
   workspaces: WorkspaceDTO[],
   folders: Folder[] = [],
   chats: Chat[] = [],
 ): Repo[] {
-  // Ordered here rather than left to the caller: the entity cache this is
-  // usually built from is a key-value store with no order of its own, so an
-  // unsorted rebuild would paint the user's arrangement in whatever sequence
-  // IndexedDB happened to yield.
+  // Sorted here: the entity cache is a key-value store with no order, so an unsorted rebuild would
+  // paint the user's arrangement in whatever sequence IndexedDB yields.
   return sortReposByOrder(repos.map((repo) => toSidebarRepo(repo, workspaces, folders, chats)))
 }
