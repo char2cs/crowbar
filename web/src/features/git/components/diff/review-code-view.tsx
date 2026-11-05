@@ -27,57 +27,22 @@ import type { ReviewAnnotation } from './use-review-annotations'
 import { useReviewPatchWindow } from './use-review-patch-window'
 import { DiffCodeView } from './diff-code-view'
 
-/**
- * The windowed Branch Review surface.
- *
- * The old stack loaded one composite `/review` payload — 158 MB and 1.4M line
- * objects on a 1M-line branch — and handed the whole thing to the renderer.
- * This one never holds more than a window: it lays every changed file out from
- * the OUTLINE's hunk geometry (numbers only, no content), and fetches a file's
- * patch text just as the reader approaches it, dropping it again once they have
- * moved on. Memory is then bounded by the window, not by the branch.
- *
- * Three consequences shape everything below:
- *
- *  1. A file's height must be right BEFORE its patch exists, or the scrollbar
- *     lies and every scroll jumps. That is what `buildPlaceholderFileDiff` is.
- *  2. Materialisation is imperative (`CodeViewHandle.updateItem`), not a React
- *     re-render — publishing 400 items through props on every scroll frame
- *     would cost more than the diff it is trying to save.
- *  3. Anything that is not a text diff must never reach the diff renderer:
- *     binaries have no patch, and feeding one to a syntax highlighter is how a
- *     review pane hangs.
- */
+// The windowed Branch Review: files are laid out from the outline's hunk geometry and only patches
+// near the viewport are held, so memory is bounded by the window. Placeholders get heights right
+// first; materialising is imperative (updateItem); binaries never reach the highlighter.
 
 // ── Tunables ────────────────────────────────────────────────────────
 
-/**
- * Longest line Shiki will tokenise, in characters.
- *
- * The 1M-line fixture contains a minified bundle whose single line is 657,780
- * characters. Tokenising that blocks whichever thread draws it for seconds, so
- * the cap is what keeps a generated file from freezing the pane. 2,000 is far
- * past any hand-written line and far short of a minified one.
- */
+/** Longest line Shiki tokenises: a minified line (650k chars) blocks the drawing thread for
+ *  seconds. 2,000 is far past hand-written code and far short of minified. */
 export const REVIEW_TOKENIZE_MAX_LINE_LENGTH = 2_000
 
-/**
- * Rendered-line count past which a diff is drawn as plain text.
- *
- * The per-line cap alone does not save a file that is merely enormous rather
- * than merely wide. This one is deliberately at the planner's whole-window line
- * budget: a single file that would fill the entire budget by itself still
- * renders, just without highlighting.
- */
+/** Rendered lines past which a diff is plain text — for files huge rather than wide. Set at the
+ *  planner's window budget, so a file filling it alone still renders, unhighlighted. */
 export const REVIEW_TOKENIZE_MAX_LENGTH = MAX_MATERIALIZED_LINES
 
-/**
- * Workers in the Shiki pool.
- *
- * Each worker holds its own highlighter, so the library's default of 8 buys
- * parallelism with tens of megabytes apiece — the exact trade this phase exists
- * to refuse. Two is enough to keep highlighting off the thread that scrolls.
- */
+/** Each worker holds its own highlighter (tens of MB), so not the library's 8: two keep
+ *  highlighting off the scrolling thread. */
 const HIGHLIGHT_POOL_SIZE = 2
 
 /** Raised header tone, opaque so the sticky header never shows code through it.
@@ -95,20 +60,12 @@ const EXPANSION_LINE_COUNT = 20
 
 // ── The surface ─────────────────────────────────────────────────────
 
-/**
- * Imperative surface handle.
- *
- * Find-in-diff lives outside this component (it queries the daemon, not the
- * rendered window), so it needs a way in. Revealing a line is not a prop: the
- * target file may not be materialised, and scrolling to a placeholder resolves
- * nothing at all — so the surface has to materialise, flush, then scroll, and
- * only it knows how.
- */
+/** For callers outside the surface (find-in-diff queries the daemon). Revealing is imperative: the
+ *  target may be a placeholder, so only the surface can materialise, flush, then scroll. */
 export interface ReviewCodeViewHandle {
   revealLine: (path: string, lineNumber: number, side: 'old' | 'new') => void
-  /** Bring a whole FILE into view — what the sidebar's changed-files list asks
-   *  for. Distinct from revealLine because the caller has no line to aim at and
-   *  a file's first diff line is not line 1. */
+  /** Bring a whole file into view (the sidebar's ask): no line to aim at, and a file's first
+   *  diff line is not line 1. */
   revealFile: (path: string) => void
 }
 
@@ -118,43 +75,21 @@ export interface ReviewCodeViewProps {
   files: readonly GitDiff[]
   /** Hunk geometry for the same files. Order does not matter; it is joined by path. */
   outline: readonly FileOutline[]
-  /** Scopes every read to ONE commit instead of the workspace's branch. It is
-   *  part of the patch cache key as well as the request: the same path in the
-   *  branch diff and in a commit diff are different content, and @pierre/diffs
-   *  treats the cacheKey as the item's IDENTITY — a collision keeps the first
-   *  one's parsed body and rendered height. */
+  /** Scopes every read to one commit. Also in the patch cache key: @pierre/diffs treats it as
+   *  item identity, and a branch/commit collision would keep the first one's body and height. */
   commit?: string
   /** False while the pane is hidden, which suspends fetching for it. */
   isActivePane?: boolean
-  /** 'split' (default): two-column, side-by-side. 'unified': one column,
-   *  old/new lines interleaved inline. Passed straight through to
-   *  `@pierre/diffs`' own `diffStyle` option — both are already fully
-   *  implemented by DiffHunksRenderer. */
+  /** @pierre/diffs' `diffStyle`: 'split' (default) side by side, 'unified' interleaved. */
   diffStyle?: 'split' | 'unified'
-  /** Imperative handle for callers that must navigate the surface from
-   *  outside it — find-in-diff resolves hits against the daemon, not the
-   *  rendered window, so it cannot reach a line any other way. */
+  /** Navigates the surface from outside (find-in-diff resolves hits against the daemon). */
   surfaceRef?: React.Ref<ReviewCodeViewHandle>
   className?: string
 }
 
-/**
- * Whether a highlighting worker can actually be BUILT in this environment.
- *
- * `typeof Worker !== 'undefined'` used to be the test, and it is not one — it is
- * true in precisely the case that breaks. If the constructor then throws (a CSP
- * that forbids workers; an engine refusing a module worker served from the
- * app's custom scheme) the pool is already installed, every `workerFactory()`
- * call throws, the library turns that into unhandled rejections, and the
- * surface renders NOTHING. Not unhighlighted text — nothing at all, silently.
- *
- * So build one and throw it away. Highlighting is an optimisation; being able
- * to READ the diff is not. Skipping the provider leaves the pool context
- * undefined, which CodeView already treats as "highlight inline".
- *
- * This catches only a SYNCHRONOUS failure. A worker that loads and then never
- * answers is the build-time hazard above, gated by verify-worker-bundles.mjs.
- */
+// Probes by building a worker: `Worker` can exist yet its constructor throw (CSP, custom scheme),
+// and an installed pool that can't spawn renders nothing at all. Without the provider CodeView
+// highlights inline. Only a synchronous failure is caught; verify-worker-bundles.mjs gates the rest.
 let workerPoolUsable: boolean | undefined
 function canUseWorkerPool(): boolean {
   if (workerPoolUsable !== undefined) return workerPoolUsable
@@ -163,8 +98,7 @@ function canUseWorkerPool(): boolean {
     return workerPoolUsable
   }
   try {
-    // The chunk this fetches is the one the pool is about to fetch anyway, so
-    // the probe costs a cache hit rather than a second download.
+    // The pool fetches this same chunk, so the probe costs a cache hit, not a download.
     createHighlightWorker().terminate()
     workerPoolUsable = true
   } catch {
@@ -185,28 +119,9 @@ export function ReviewCodeView(props: ReviewCodeViewProps) {
   )
 }
 
-/**
- * Build the pool's worker.
- *
- * `?worker` names the package's worker module as the worker ENTRY, which is the
- * whole point: the previous form was a local one-line module that imported it
- * only for its side effects, and `@pierre/diffs` declares
- * `"sideEffects": ["dist/components/web-components.js"]` — every other file in
- * the package, worker.js included, is advertised as side-effect free. A
- * production bundler is therefore entitled to drop that import, and it did: the
- * emitted worker chunk was 0 BYTES.
- *
- * Nothing failed loudly. An empty worker script loads fine, installs no message
- * handler, and answers none of the pool's requests — so every highlight stayed
- * pending forever and CodeView rendered no rows at all. The review pane went
- * blank in packaged builds while dev, which serves the module unbundled and
- * runs the import, stayed perfect.
- *
- * Naming the real module as the entry removes the failure structurally: an
- * entry is not a side effect to be proven, it is the thing being emitted, so
- * there is nothing left to shake away. `scripts/verify-worker-bundles.mjs` runs
- * as `postbuild` and fails the build if a worker chunk is ever empty again.
- */
+// `?worker` makes the package's worker module the entry itself: @pierre/diffs marks it
+// side-effect free, so a side-effect import may be tree-shaken into an empty, silent worker.
+// verify-worker-bundles.mjs (postbuild) fails the build on an empty worker chunk.
 function createHighlightWorker(): Worker {
   return new HighlightWorker()
 }
@@ -276,11 +191,8 @@ function ReviewCodeViewSurface({
     return counts
   }, [placeholders])
 
-  // PaneContainer renders only the active buffer, so a tab switch unmounts this
-  // surface entirely and a return remounts it from scratch — same as
-  // MarkdownPreview (use-preserved-scroll.ts's own doc). Keyed by wsId+commit
-  // (not just wsId) so a branch review and a commit-diff tab on the same
-  // workspace, or two different commit tabs, each keep their own offset.
+  // A tab switch unmounts this surface, so scroll is preserved outside it — keyed by wsId and
+  // commit so a branch review and each commit tab of one workspace keep their own offset.
   const scrollKey = `${wsId}\u0000${commit ?? ''}`
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const markScrollerRef = useCallback((node: HTMLDivElement | null) => {
@@ -364,12 +276,8 @@ function ReviewCodeViewSurface({
         onScroll={runWindow}
         onSelectedLinesChange={annotations.onSelectedLinesChange}
         className="min-h-0 flex-1 overflow-y-auto px-3"
-        // Annotations and header metadata are portalled into LIGHT dom, so
-        // Tailwind and the app's CSS-var tokens apply to both.
-        //
-        // The cast narrows the library's file-or-diff annotation union: every
-        // item this surface publishes is a diff, so a file annotation (one with
-        // no side) cannot reach here.
+        // Annotations and header metadata portal into light DOM, so Tailwind and CSS vars apply.
+        // The cast is safe: every item here is a diff, so no side-less file annotation arrives.
         // react-doctor-disable-next-line no-render-prop-children -- accepted: the render slots are the @pierre/diffs CodeView API this wrapper forwards unchanged.
         renderAnnotation={(annotation) =>
           annotations.renderAnnotation(annotation as ReviewAnnotation)

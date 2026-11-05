@@ -1,38 +1,19 @@
 import { apiFetch, apiFetchRaw } from '@/lib/api/fetch'
 import { reviewBaseForWorkspace } from '@/lib/workspace-scope-url'
 
-// The WINDOWED branch-review client: geometry, one file's patch, and search.
-//
-// It is the counterpart to review-api.ts, whose `getReview` answers the whole
-// diff in one composite payload — 158 MB and 1.4M line objects on a 1M-line
-// branch. These three routes replace that with reads whose cost is bounded by
-// what the reader is actually looking at:
-//
-//   /review/outline  — every file's hunk geometry and NO content, so the client
-//                      can reserve correct scroll space before fetching a byte.
-//   /review/patch    — exactly one file's unified patch, text/plain.
-//   /review/search   — find-in-diff run server-side, because a client holding
-//                      only a window of the patch has nothing left to search.
-//
-// Conventions follow review-api.ts: workspace-scoped hierarchical URLs and the
-// {success,data} envelope that apiFetch unwraps. /review/patch is the exception
-// — see getReviewPatch.
+// The windowed branch-review client, each read bounded by what the reader sees: outline (hunk
+// geometry, no content), one file's patch, contents for expansion, and server-side search (the
+// client holds only a window). JSON envelopes like review-api.ts, except the patch.
 
 function reviewBase(wsId: string): string {
   return reviewBaseForWorkspace(wsId)
 }
 
-/** The query parameter that narrows a windowed read from the workspace's whole
- *  branch to a single commit. Absent means the branch — the default and the
- *  surface's reason for existing. */
+/** Narrows a windowed read from the whole branch (the default when absent) to one commit. */
 const SCOPE_COMMIT_PARAM = 'sha'
 
-/** Which diff a windowed read is about.
- *
- *  `commit` empty/undefined means the workspace's branch against its parent —
- *  the GitHub-like review step. A commit narrows every read to that commit
- *  against its parent, which is what lets the history surface reuse the review
- *  surface wholesale instead of keeping a second diff renderer alive for it. */
+/** Which diff a read is about: no `commit` means the branch against its parent; a commit narrows
+ *  every read to that commit, so history reuses the review surface wholesale. */
 export interface DiffScope {
   wsId: string
   commit?: string
@@ -56,16 +37,9 @@ export interface HunkShape {
   newLines: number
 }
 
-/** One file of the branch diff described by its geometry alone (gitdomain.FileOutline).
- *
- *  A rename carries the NEW name in `path` (the name /review/patch is addressed
- *  with) and the source in `oldPath`. A binary file has no hunks: git emits no
- *  `@@` headers for one.
- *
- *  `isPartial` marks a file whose hunk count ran past the server's per-file cap.
- *  Its geometry is then a LOWER BOUND — the last hunk is not the end of the file
- *  — so a consumer sizing the file from it must top the estimate up from the
- *  summary's ±counts or the file under-reserves space. */
+/** One file's geometry (gitdomain.FileOutline). A rename's `path` is the new name (what
+ *  /review/patch takes); a binary has no hunks. `isPartial`: hunks ran past the server cap, so
+ *  geometry is a lower bound — top it up from the summary's ± counts. */
 export interface FileOutline {
   path: string
   oldPath?: string
@@ -94,13 +68,8 @@ export async function getReviewOutline(scope: DiffScope): Promise<FileOutline[]>
 
 // ── Patch ───────────────────────────────────────────────────────────
 
-/** Response header reporting that a capped patch was cut short.
- *
- *  A LEADING header, deliberately not an HTTP trailer: whether the cap was
- *  reached is only known once the last hunk is written, so a trailer is the
- *  natural HTTP answer — and `fetch()` exposes no trailers, so the one client
- *  this API has could never read it. The server holds a capped body (bounded by
- *  the cap, which is the point of asking for one) to put the answer up front. */
+/** Reports a capped patch was cut short. A leading header, not a trailer, because `fetch()`
+ *  exposes no trailers; the server buffers the (cap-bounded) body to answer up front. */
 export const DIFF_TRUNCATED_HEADER = 'X-Crowbar-Diff-Truncated'
 
 export interface ReviewPatch {
@@ -110,18 +79,9 @@ export interface ReviewPatch {
   truncated: boolean
 }
 
-/**
- * GET ONE file's unified patch as text/plain.
- *
- * This is the only v0 read that is not a JSON envelope, so it cannot go through
- * apiFetch — the body is patch text and the truncation flag lives in a response
- * header. apiFetchRaw underneath still supplies the
- * cold-start transport retry and the ApiError decoding of an error envelope.
- *
- * `maxLines` omitted takes the server's default cap. `maxLines <= 0` is the
- * engine's "unlimited" — the "show all" refetch of a file the cap cut — and is
- * served by the streaming path, which reports no truncation.
- */
+/** One file's patch as text/plain with the truncation flag in a header, so apiFetchRaw, not
+ *  apiFetch. `maxLines` omitted takes the server cap; `<= 0` is unlimited ("Show all"), streamed
+ *  and never truncated. */
 export async function getReviewPatch(
   scope: DiffScope,
   path: string,
@@ -143,13 +103,8 @@ interface ReviewFileSides {
   new: string | null
 }
 
-/**
- * GET one file's full old and new text, for revealing the unchanged lines a
- * patch omits. Fetched only when the reader clicks an expand control, and one
- * file at a time; the daemon refuses a file past its size ceiling (422).
- *
- * `oldPath` is the rename source and is sent only when it differs from `path`.
- */
+/** One file's full old and new text, fetched only when the reader expands unchanged lines; the
+ *  daemon refuses a file past its size ceiling (422). `oldPath` is sent only for a rename. */
 export async function getReviewFileSides(
   scope: DiffScope,
   path: string,
@@ -162,14 +117,9 @@ export async function getReviewFileSides(
 
 // ── Search ──────────────────────────────────────────────────────────
 
-/** One match against the CONTENT of the branch diff (gitdomain.SearchHit).
- *
- *  `lineNumber` is a line number in the FILE, not an offset into the patch, and
- *  `side` says which side it counts on: a removed line is numbered on the old
- *  side, an added one on the new side, and a context line — which exists on both
- *  — is reported on the new side, since that is the file the reader navigates
- *  to. `preview` is the line without its diff prefix, capped server-side, so it
- *  may stop before the match itself in a minified file. */
+/** One diff-content match. `lineNumber` is in the file on `side`: removed → old, added and
+ *  context → new. `preview` drops the diff prefix and is capped server-side, so in a minified
+ *  file it may end before the match. */
 export interface SearchHit {
   path: string
   side: 'old' | 'new'
@@ -189,11 +139,8 @@ export interface SearchDiffResult {
   truncated: boolean
 }
 
-/** GET find-in-diff results from the daemon.
- *
- *  An empty query answers an empty result rather than scanning the whole diff,
- *  so it is safe to fire on every keystroke of a find box. An invalid regex is a
- *  400 and surfaces as an ApiError for the caller to render inline. */
+/** Find-in-diff. An empty query answers empty without scanning, so it is safe per keystroke; an
+ *  invalid regex is a 400, an ApiError the caller renders inline. */
 export async function searchReviewDiff(
   scope: DiffScope,
   q: string,
