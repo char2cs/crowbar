@@ -1,26 +1,6 @@
-/**
- * A bounded recording of everything that becomes terminal INPUT, kept so an
- * intermittent corruption can be diagnosed from evidence instead of theory.
- *
- * The open question it exists to answer: when characters duplicate or vanish
- * while typing, does the extra/missing text originate ABOVE the app (WebKit
- * emitting a character through two paths — e.g. a `keypress` and an `input`, or
- * a composition finalise re-flushing the textarea) or BELOW it (a write that is
- * re-sent, dropped, or reordered on its way to the PTY)? Recording both ends of
- * that seam is the only way to tell them apart after the fact:
- *
- *   dom    — raw events on xterm's helper textarea, BEFORE anything interprets
- *            them (keydown/keypress/beforeinput/input/composition*)
- *   write  — a chunk handed to the write buffer, tagged with which code path
- *            produced it (xterm's onData, the Shift+Enter override, …)
- *   send   — a coalesced chunk actually flushed to the transport
- *
- * Purely observational: it never mutates an event, never preventDefaults, and
- * holds only plain data. It is deliberately NOT dev-gated — the bug shows up in
- * real work, so the tape has to be armed there too. One small object per entry
- * (a few per keystroke) against a fixed-size ring is not measurable next to the
- * DOM work each keystroke already does.
- */
+// A bounded, read-only ring of terminal input at each seam (dom: raw textarea events; write: chunks
+// by code path; send: flushed chunks), to tell WebKit-side from PTY-side duplication or loss.
+// Armed in production too, since the corruption shows up in real work; the cost is negligible.
 
 /** Entries kept before the oldest is evicted. ~thousands of keystrokes. */
 const MAX_ENTRIES = 20_000
@@ -88,11 +68,7 @@ export function clearInputTape(): void {
   dropped = 0
 }
 
-/**
- * Attach the observational DOM listeners to xterm's helper textarea. Capture
- * phase so an entry exists even for events something later stops, and every
- * listener is passive-by-construction (it only reads).
- */
+/** Capture phase, so events something later stops are still recorded; listeners only read. */
 export function observeInputEvents(textarea: HTMLTextAreaElement): () => void {
   const onKey = (event: Event) => {
     const e = event as KeyboardEvent
@@ -140,11 +116,8 @@ export function observeInputEvents(textarea: HTMLTextAreaElement): () => void {
   }
 }
 
-/**
- * Expose the dump on `window` so a recording can be read back from the console
- * (or over the automation bridge) the moment a corruption is noticed, without
- * shipping any UI for it. `{ copy: true }` puts the JSON on the clipboard.
- */
+/** Exposes the dump on `window` for the console or automation bridge, with no UI to ship.
+ *  `{ copy: true }` puts the JSON on the clipboard. */
 export function installInputTapeGlobal(): void {
   if (typeof window === 'undefined') return
   const host = window as unknown as Record<string, unknown>

@@ -17,11 +17,8 @@ interface MountXtermDeps {
   links: TerminalLinksOptions
 }
 
-/**
- * Open an xterm in `container` with everything a view hangs on it, and return
- * the ONE dispose that releases all of it. A throw part-way through releases
- * what was already built, so a failed mount leaks nothing.
- */
+/** Returns the one dispose for everything a view hangs on its xterm; a throw part-way releases
+ *  what was already built, so a failed mount leaks nothing. */
 export function mountXterm(
   container: HTMLElement,
   options: ITerminalOptions,

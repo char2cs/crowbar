@@ -9,11 +9,8 @@ function zoomBy(delta: number): void {
   updateSetting('terminalFontSize', Math.min(Math.max(settings.terminalFontSize + delta, 8), 32))
 }
 
-/**
- * The active terminal's window-level chords: Cmd/Ctrl+F opens its find bar,
- * Escape closes it, Cmd/Ctrl +/-/0 zoom its font. Subscribed once per active
- * session; the handler reads the latest search state through an Effect Event.
- */
+/** Cmd/Ctrl+F find, Escape close, Cmd/Ctrl +/-/0 zoom. Subscribed once per active session; the
+ *  handler reads the latest search state through an Effect Event. */
 export function useTerminalShortcuts({
   isActive,
   container,

@@ -11,18 +11,9 @@ export interface ResizeSettlePollDeps {
   cancelFrame: (id: number) => void
 }
 
-/**
- * Poll on animation frames until `isResizing()` returns false, then call
- * `onSettled` exactly once. This is the drag-end recovery that does NOT depend
- * on the one-shot `pane-resize-end` event: a terminal remounted mid-drag (a pane
- * split) never receives that event, so relying on it alone drops the final fit
- * and leaves the daemon PTY at its pre-resize size — the blank-top bug. Fitting
- * is deferred while the drag is live (per-frame fit + resize IPC is expensive);
- * this guarantees the last container size is applied once the drag ends.
- *
- * Returns a canceller (for effect cleanup / an earlier pane-resize-end) that
- * stops the poll and guarantees `onSettled` will not fire afterwards.
- */
+/** Calls `onSettled` once `isResizing()` is false. A terminal remounted mid-drag never gets the
+ *  one-shot `pane-resize-end`, so this guarantees the deferred final fit. The canceller ensures
+ *  `onSettled` never fires afterwards. */
 export function pollUntilResizeSettles(deps: ResizeSettlePollDeps): () => void {
   let frame: number | null = null
   let cancelled = false
@@ -48,11 +39,8 @@ export function pollUntilResizeSettles(deps: ResizeSettlePollDeps): () => void {
   }
 }
 
-/**
- * Call `onChange` each time window.devicePixelRatio changes (a monitor move, a
- * browser zoom). There is no DPR event: a resolution media query fires once per
- * flip, so it is re-armed at the new ratio. Returns the one release.
- */
+/** There is no DPR event: a resolution media query fires once per flip, so it is re-armed at the
+ *  new ratio. */
 export function watchDevicePixelRatio(onChange: () => void): () => void {
   let mql: MediaQueryList | null = null
   const onFlip = () => {

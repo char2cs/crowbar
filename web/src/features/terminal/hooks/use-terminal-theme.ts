@@ -28,13 +28,8 @@ export interface TerminalTheme {
   brightMagenta: string
   brightCyan: string
   brightWhite: string
-  /*
-   * xterm 6 replaced the native-overflow viewport with VS Code's own scrollable
-   * element, so the terminal's scrollbar is no longer a `::-webkit-scrollbar`
-   * we can style in CSS — xterm writes a <style> block from these three theme
-   * colours instead. They carry the app's scrollbar tokens across that gap so
-   * the terminal keeps matching every other scrollable surface.
-   */
+  // xterm's scrollbar is its own element styled from these theme colours, not a CSS-stylable
+  // `::-webkit-scrollbar`, so they carry the app's scrollbar tokens.
   scrollbarSliderBackground: string
   scrollbarSliderHoverBackground: string
   scrollbarSliderActiveBackground: string
@@ -118,24 +113,17 @@ function readUiTokens(): TerminalUiTokens {
   }
 }
 
-/**
- * The host terminal's light/dark theme, pushed to the daemon so a foreground app's
- * automatic theme (Claude Code's `auto`, etc.) can detect and follow it. `background` /
- * `foreground` are the opaque theme colours an OSC 11/10 query answers with — NOT xterm's
- * own transparent `theme.background`; `dark` is the authoritative light/dark polarity used
- * for the DEC 2031 CSI ?997;n theme-change report.
- */
+/** Pushed to the daemon so a foreground app's auto theme can follow it. `background`/`foreground`
+ *  are the opaque colours OSC 11/10 answers with (not xterm's transparent one); `dark` is the
+ *  polarity for the DEC 2031 theme-change report. */
 export interface TerminalThemePayload {
   background: string
   foreground: string
   dark: boolean
 }
 
-/**
- * Pure: build the daemon theme payload from a CSS-var reader + the dark-mode flag. The
- * reported background is the app's opaque `--background` surface (clearly light or dark),
- * since the terminal itself is transparent glass and has no colour of its own to report.
- */
+/** The reported background is the app's opaque `--background`: the terminal itself is
+ *  transparent and has no colour of its own to report. */
 export function buildTerminalThemePayload(
   resolve: (name: string) => string | null,
   isDark: boolean,

@@ -93,12 +93,8 @@ function uniqueFontFamilies(families: string[]): string[] {
   return result
 }
 
-/**
- * Build the terminal font-family string with platform-aware fallbacks.
- *
- * xterm.js measures character width from the *first* font it can resolve,
- * so the order matters: primary -> Nerd Font glyph fallbacks -> platform native -> generic monospace.
- */
+/** xterm.js measures cell width from the first font it resolves, so the order is: primary ->
+ *  Nerd Font glyph fallbacks -> platform native -> generic monospace. */
 export function buildTerminalFontFamily(primaryFont: string): string {
   const requestedFonts = splitFontFamilyList(primaryFont)
   const concreteRequestedFonts = requestedFonts.filter(
@@ -115,10 +111,7 @@ export function buildTerminalFontFamily(primaryFont: string): string {
     .join(', ')
 }
 
-/**
- * Load a font and verify it is actually available.
- * Returns `true` if the font is ready, `false` if it failed/timed out.
- */
+/** `false` if the font failed to load or timed out. */
 async function loadAndVerifyFont(fontFamily: string, fontSize: number): Promise<boolean> {
   const testString = `${fontSize}px "${fontFamily}"`
 
@@ -133,17 +126,11 @@ async function loadAndVerifyFont(fontFamily: string, fontSize: number): Promise<
   return document.fonts.check(testString)
 }
 
-/**
- * The bundled Nerd Font symbol fallback family (see the @font-face in theme.css
- * and the fallback list in terminal-fonts.ts). TUIs (Claude Code, lazygit, etc.)
- * render private-use icon glyphs that no text mono font carries.
- */
+// Bundled Nerd Font symbols (theme.css @font-face): TUIs draw private-use icon glyphs that no text
+// mono font carries.
 const SYMBOL_FALLBACK_FONT = 'Symbols Nerd Font Mono'
 
-/**
- * Warm the bundled symbol fallback font before first paint so icon glyphs do
- * not render as tofu. Best-effort: never throws, never blocks terminal init.
- */
+/** Warm the symbol font before first paint so icons aren't tofu; never throws or blocks init. */
 async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return
   try {
@@ -153,17 +140,9 @@ async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
   }
 }
 
-/**
- * Resolve the terminal's CSS font-family: the requested font when it loads,
- * otherwise the platform-native monospace, followed by the glyph fallbacks.
- *
- * The terminal always uses xterm's DOM renderer (real text rasterized by the
- * platform, matching Monaco), which handles variable fonts natively — so no
- * variable -> static mapping is needed. Measured throughput is on par with
- * WebGL (60 full-screen SGR repaints on 113x59: p50 8ms both, p99 DOM 10ms vs
- * WebGL 13ms); its one cost is that block elements (U+2588-259F) come from the
- * font rather than being drawn to the cell box.
- */
+/** The requested font when it loads, else platform mono, then glyph fallbacks. xterm's DOM
+ *  renderer handles variable fonts natively, at WebGL-level throughput; block elements
+ *  (U+2588-259F) come from the font rather than being drawn to the cell box. */
 export async function resolveTerminalFont(
   requestedFont: string,
   fontSize: number,

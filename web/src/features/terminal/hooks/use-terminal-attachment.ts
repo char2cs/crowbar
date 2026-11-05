@@ -24,11 +24,8 @@ interface UseTerminalAttachmentOptions {
   chatId?: string
   /** Never spawn — see resolveTerminalSession. */
   attachOnly: boolean
-  /**
-   * False until the view may attach at all: it has been shown at least once
-   * (a hidden tab costs nothing until it is looked at), and its terminals base
-   * can be built (a workspace's owning chat is recorded asynchronously).
-   */
+  /** True once the view has been shown (a hidden tab costs nothing until looked at) and its
+   *  terminals base can be built (the owning chat is recorded asynchronously). */
   enabled: boolean
   /** The session ended: its exit frame arrived, or the daemon no longer has it. */
   onEnded: (sessionId: string) => void
@@ -41,18 +38,9 @@ export interface TerminalAttachment {
   created: boolean
 }
 
-/**
- * Owns this view's connection to its daemon PTY: ONE path for the first attach,
- * the re-attach after a transport drop, and the swap when the view is pointed at
- * a different session. Every attempt is stamped with a generation; a newer
- * attempt (a swap, a drop, an unmount) supersedes an older one still waiting on
- * the daemon, so racing swaps converge on the latest session with no lock, no
- * swallowed call and no reconcile pass.
- *
- * Each view has its own transport, and the daemon paints every attached client
- * with its own snapshot — so an attach is always a redraw, and closing this
- * view's transport (on unmount or swap) never touches another view's.
- */
+// One path for first attach, re-attach after a drop, and session swap; a generation stamp lets the
+// newest attempt supersede older ones, so racing swaps converge without a lock. Each view has its
+// own transport: an attach is a full redraw, and closing it never touches another view.
 export function useTerminalAttachment({
   sessionId,
   workspaceId,

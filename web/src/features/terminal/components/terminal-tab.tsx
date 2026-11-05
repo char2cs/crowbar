@@ -9,20 +9,8 @@ interface TerminalTabProps {
   sessionId: string
   bufferId: string
   paneId?: string
-  /**
-   * The workspace THIS TERMINAL's buffer belongs to (TerminalContent.
-   * workspaceId), NOT the ambient WorkspaceStoreContext. WorkspaceHost keeps
-   * every WorkspaceView it retains mounted at once for keep-alive, each under
-   * its OWN ambient context — a shell tab that reads the ambient workspace
-   * instead of its own buffer's would resolve a hidden copy's connection
-   * (doReconnect/initializeTerminal → terminalsBaseForWorkspace) against
-   * whichever workspace happens to be active, not the one it actually belongs
-   * to, and on a transport drop that can spawn a fresh PTY in the WRONG
-   * worktree (see agent-chat-pane.tsx's `known` gate for the same shape of
-   * bug). The buffer's own field is the one thing that can't be ambiently
-   * wrong, the same way agent-terminal-surface.tsx threads chatId explicitly
-   * instead of reading it off context.
-   */
+  /** The buffer's own workspace, never the ambient context's: with several workspaces mounted,
+   *  the ambient one could reconnect or spawn this tab's PTY in the wrong worktree. */
   workspaceId: string
   initialCommand?: string
   workingDirectory?: string
@@ -48,11 +36,8 @@ export function TerminalTab({
     // Forget the exited PTY first, so closing the buffer does not DELETE a
     // session the daemon has already reaped (a 404 on every `exit`).
     useTerminalStore.getState().removeSession(sessionId)
-    // The PTY is already gone, so this buffer must be torn down regardless of
-    // how many panes still list it — closeBuffer only does that once NO pane
-    // references the id any more (see its own doc comment: a pane that still
-    // holds it reads as a SIBLING still showing a live split, which this is
-    // not). Strip every pane's membership first.
+    // The PTY is gone, but closeBuffer tears a buffer down only once no pane references it (a
+    // holder reads as a live split sibling), so strip every pane's membership first.
     const state = windowPaneStore.getState()
     for (const pane of Object.values(state.panes)) {
       if (pane.editorTabIds.includes(bufferId)) {
@@ -63,11 +48,8 @@ export function TerminalTab({
   }, [bufferId, sessionId])
 
   const handleActivate = useCallback(() => {
-    // I8 (Task 26 fix round 1): addBufferToPane/activatePaneBuffer have not
-    // existed on PaneActions since Task 1's editorTabIds rename — this threw
-    // on every click into a pane terminal. The tab is already open (it is
-    // mounted, rendering this very terminal); activate it in place —
-    // resolving the holding pane when the caller doesn't already know it.
+    // The tab is already open (it renders this terminal): activate it in place, resolving the
+    // holding pane when the caller doesn't know it.
     const { paneActions } = windowPaneStore.getState()
     const targetPaneId = paneId ?? paneActions.getPaneByEditorTabId(bufferId)?.id
     if (targetPaneId) {
