@@ -31,8 +31,8 @@ import (
 const MaxBytes = 2 << 20
 
 // ContentType picks the Content-Type for a stored icon. http.DetectContentType
-// sniffs SVG as text/*, which browsers refuse to render in an <img>, and some
-// GitHub avatars are SVG, so SVG is detected explicitly as image/svg+xml.
+// sniffs SVG as text/*, which browsers refuse to render in an <img>, and an
+// imported repo's logo or a GitHub avatar can be SVG, so SVG is detected explicitly.
 func ContentType(
 	data []byte,
 ) string {
@@ -76,6 +76,10 @@ func Serve(
 	// Uploads overwrite the bytes behind this URL; the DTO's ?v= param is the
 	// primary cache-buster and no-cache is the backstop.
 	c.Header("Cache-Control", "no-cache")
+	// A stored SVG comes from an imported repo's files: opened directly, it must not run script
+	// in the daemon's origin. An <img> applies neither header.
+	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.Data(http.StatusOK, ContentType(data), data)
 }
 
@@ -160,7 +164,8 @@ const oversizeMessage = "icon must be under 2 MB"
 
 // Validate rejects anything that is not an image of an acceptable size, writing
 // the response on failure. It sniffs content rather than trusting the extension
-// or Content-Type, so a .png-named arbitrary host file is never stored.
+// or Content-Type, so a .png-named arbitrary host file is never stored. SVG sniffs
+// as text and is refused: it can carry script, and the picker offers raster only.
 func Validate(
 	c *gin.Context,
 	data []byte,

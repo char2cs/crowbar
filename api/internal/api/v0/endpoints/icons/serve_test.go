@@ -94,6 +94,43 @@ func TestValidateRefusesANonImage(t *testing.T) {
 	}
 }
 
+const scriptedSVG = `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`
+
+// The picker offers only raster formats; an SVG can carry script, so an upload of one is refused.
+func TestValidateRefusesAnSVGUpload(t *testing.T) {
+	c, rec := ctx(httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", nil))
+
+	if icons.Validate(c, []byte(scriptedSVG)) {
+		t.Fatal("an svg upload passed validation")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+// An imported repo's logo.svg is served as an image, and opened directly it must not run its
+// script in the daemon's origin.
+func TestServeSandboxesAnSVG(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "icon")
+	if err := os.WriteFile(path, []byte(scriptedSVG), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c, rec := ctx(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+
+	icons.Serve(c, path)
+
+	if got := rec.Header().Get("Content-Type"); got != "image/svg+xml" {
+		t.Errorf("Content-Type = %q, want image/svg+xml", got)
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "sandbox") {
+		t.Errorf("Content-Security-Policy = %q, want default-src 'none' and sandbox", csp)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+}
+
 func TestValidateRefusesAnOversizeImage(t *testing.T) {
 	c, rec := ctx(httptest.NewRequest(http.MethodPut, "/", nil))
 
