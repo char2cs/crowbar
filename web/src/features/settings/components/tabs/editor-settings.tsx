@@ -6,14 +6,8 @@ import {
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '../settings-section'
+import { SettingSelect } from '@/features/settings/components/setting-select'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { FontSelector } from '../font-selector'
 
@@ -125,24 +119,14 @@ export const EditorSettings = () => {
           onReset={() => updateSetting('renderWhitespace', getDefaultSetting('renderWhitespace'))}
           canReset={settings.renderWhitespace !== getDefaultSetting('renderWhitespace')}
         >
-          <Select
+          <SettingSelect
+            options={renderWhitespaceOptions}
             value={settings.renderWhitespace}
             onValueChange={(value) => {
               if (value)
                 updateSetting('renderWhitespace', value as typeof settings.renderWhitespace)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {renderWhitespaceOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
 
         <SettingRow

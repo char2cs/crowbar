@@ -5,14 +5,8 @@ import { useFontStore } from '@/features/settings/stores/font-store'
 import { COMMON_TERMINAL_NERD_FONTS } from '@/features/terminal/utils/terminal-fonts'
 import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '../settings-section'
+import { SettingSelect } from '@/features/settings/components/setting-select'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import Tooltip from '@/components/ui/tooltip'
 
@@ -75,24 +69,15 @@ export const TerminalSettings = () => {
           canReset={settings.terminalFontFamily !== getDefaultSetting('terminalFontFamily')}
         >
           <div className="flex items-center gap-2">
-            <Select
-              items={fontOptions}
+            <SettingSelect
+              options={fontOptions}
               value={settings.terminalFontFamily}
+              width="xwide"
+              placeholder="Select font..."
               onValueChange={(val) => {
                 if (val) updateSetting('terminalFontFamily', val)
               }}
-            >
-              <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.xwide}>
-                <SelectValue placeholder="Select font..." />
-              </SelectTrigger>
-              <SelectContent>
-                {fontOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
             <Tooltip content={FONT_HELP_TEXT} side="left">
               <Info className="size-4 cursor-help text-muted-foreground transition-colors hover:text-foreground" />
             </Tooltip>
@@ -182,24 +167,13 @@ export const TerminalSettings = () => {
           }
           canReset={settings.terminalCursorStyle !== getDefaultSetting('terminalCursorStyle')}
         >
-          <Select
-            items={CURSOR_STYLE_OPTIONS}
+          <SettingSelect
+            options={CURSOR_STYLE_OPTIONS}
             value={settings.terminalCursorStyle}
             onValueChange={(val) => {
               if (val) updateSetting('terminalCursorStyle', val as 'block' | 'underline' | 'bar')
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CURSOR_STYLE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
 
         <SettingRow

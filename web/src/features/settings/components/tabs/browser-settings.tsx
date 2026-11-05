@@ -4,13 +4,6 @@ import { Input } from '@/components/ui/input'
 import NumberInput from '@/components/ui/number-input'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   isUsableSearchTemplate,
   SEARCH_ENGINE_OPTIONS,
   type SearchEngine,
@@ -20,6 +13,7 @@ import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import { toast } from '@/features/window/stores/toast-store'
 import { browserApi } from '@/lib/browser-bridge'
 import Section, { SettingRow } from '../settings-section'
+import { SettingSelect } from '@/features/settings/components/setting-select'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import { report } from '@/lib/errors/report'
 
@@ -89,23 +83,13 @@ export const BrowserSettings = () => {
           }
           canReset={settings.browserSearchEngine !== getDefaultSetting('browserSearchEngine')}
         >
-          <Select
+          <SettingSelect
+            options={SEARCH_ENGINE_OPTIONS}
             value={settings.browserSearchEngine}
             onValueChange={(val) => {
               if (val) updateSetting('browserSearchEngine', val as SearchEngine)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SEARCH_ENGINE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
 
         {settings.browserSearchEngine === 'custom' && (
