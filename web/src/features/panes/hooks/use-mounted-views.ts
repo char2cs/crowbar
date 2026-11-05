@@ -21,14 +21,9 @@ function recencyRank(view: ViewSlot, recentPaneIds: readonly string[]): number {
   return rank === -1 ? recentPaneIds.length : rank
 }
 
-/**
- * The view ids that should be mounted: the showing one at once, every parked
- * one a slot later — most recently used first, one per idle task, rendered in a
- * transition so the showing view's own updates preempt it, and not before the
- * showing chat surfaces have committed (the main thread is idle while their
- * chunk loads, which an idle task alone cannot tell apart from done). Once mounted a view
- * stays mounted: parking is not a teardown.
- */
+/** The showing view mounts at once; parked ones follow, MRU first, one per idle task in a
+ *  transition, only after the showing chat surfaces commit (idle while a chunk loads isn't done).
+ *  Once mounted a view stays mounted: parking is not a teardown. */
 export function useMountedViews<T extends ViewSlot>(views: readonly T[]): T[] {
   const [mounted, setMounted] = useState<ReadonlySet<string>>(NONE)
   const surfacesPending = useStore(pendingChatSurfaces, (state) => state.pending.size > 0)

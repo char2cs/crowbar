@@ -9,14 +9,9 @@ interface PaneAccentRingProps {
   visible: boolean
 }
 
-/**
- * The active-pane accent: the border `buildPaneContentStyle` would put on the
- * pane box when active, lifted onto a childless overlay over that box's border
- * box (its margins become insets) and faded by OPACITY. Fading a colour on the
- * large, rounded, translucent pane box itself repaints all of it every frame
- * (measured: 85 fps vs 116 fps over 12 focus clicks); the compositor fades an
- * overlay without repainting anything under it.
- */
+// The active-pane border on a childless overlay faded by opacity: fading a colour on the large
+// translucent pane box repaints all of it each frame (85 vs 116 fps), while the compositor fades
+// an overlay without repainting beneath it.
 export function PaneAccentRing({
   position,
   sidebarPosition,

@@ -54,18 +54,9 @@ interface Adoption {
   keepUnlisted?: boolean
 }
 
-/**
- * Load-time validation of a saved layout's buffers — the only place a
- * persisted buffer is checked.
- *
- * A saved layout outlives the code that wrote it: a buffer whose content type
- * this build no longer has would render blank, so it is dropped (graceful
- * fallback, not migration). Then invariant C2 is established once for what
- * was read: a tab id naming no surviving buffer leaves its pane, and a buffer
- * no pane lists is not restored — unless it holds unsaved edits (the only copy
- * of them), which `adoptInto` takes as a tab instead. From then on the store
- * keeps C2 itself (see `buffer-release.ts`), so nothing is repaired on save.
- */
+/** The only check of persisted buffers: unknown content types are dropped, then C2 is set up once
+ *  — dangling tab ids leave their pane, unlisted buffers are dropped unless they hold unsaved
+ *  edits (`adoptInto` takes those). The store keeps C2 after that. */
 export function validateLoadedBuffers<P extends PersistablePane, T extends Snapshot<P>>(
   snapshot: T,
   { adoptInto, keepUnlisted = false }: Adoption,
@@ -101,10 +92,8 @@ export function validateLoadedBuffers<P extends PersistablePane, T extends Snaps
   return { ...snapshot, buffers, panes }
 }
 
-/**
- * Buffers saved before a buffer named its document: an editor's file was
- * always its workspace's, and so was a preview's source.
- */
+/** Buffers saved before a buffer named its document: an editor's file and a preview's source
+ *  were always its workspace's. */
 export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
   return buffers.map((buffer) => {
     const saved = buffer as unknown as Record<string, unknown>
@@ -118,11 +107,8 @@ export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
   })
 }
 
-/**
- * Layouts saved while buffers carried their text: unsaved text becomes a
- * draft, and every buffer keeps only its identity. Runs after
- * `upgradeLegacyBuffers`, so each editor names its document.
- */
+/** Layouts saved while buffers carried their text: unsaved text becomes a draft and each buffer
+ *  keeps only its identity. Runs after upgradeLegacyBuffers, so every editor names its document. */
 export function splitLegacyEditorContent(layout: WorkspaceLayout): {
   layout: WorkspaceLayout
   drafts: EditorDraft[]

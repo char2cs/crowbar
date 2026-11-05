@@ -35,10 +35,9 @@ function paneCanSafelyLoseLastTab(state: WindowPaneState, paneId: string): boole
   return !!home && getAllLeafIds(layoutOf(state, home)).length > 1
 }
 
-/** Put `tabId` in `paneId` and make it the pane's shown tab. False when the
- *  pane does not exist. Pure over the draft, so `openContent` can create a
- *  buffer and seat it in one `set`. A `replaces` tab the pane holds leaves it,
- *  a new `tabId` taking its slot; the caller releases its buffer (C2). */
+/** Seat `tabId` in `paneId` as its shown tab (false: no such pane). Pure over the draft so
+ *  openContent creates and seats a buffer in one `set`. A held `replaces` tab gives up its
+ *  slot; the caller releases its buffer (C2). */
 export function placeTab(
   state: WindowPaneState,
   paneId: string,

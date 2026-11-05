@@ -80,10 +80,8 @@ export function EditorPane({
   ) {
     if (!documentOpen) return null
     return (
-      // M8: the lazy chunk can fail to load (offline, a stale asset hash after
-      // a deploy) and a rejected `lazy()` throws during render — Suspense only
-      // handles the pending state, not the rejection. Without a boundary here
-      // that escapes the pane and takes the whole workspace down.
+      // A lazy chunk can fail to load (offline, stale asset hash) and throw during render;
+      // Suspense handles only pending, so without this boundary it takes the workspace down.
       <ErrorBoundary
         fallback={
           <div className="flex h-full flex-1 items-center justify-center p-8 text-sm text-muted-foreground">

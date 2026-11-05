@@ -16,11 +16,8 @@ function pruneLayout(node: LayoutNode, keep: (paneId: string) => boolean): Layou
   return first === node.first && second === node.second ? node : { ...node, first, second }
 }
 
-/**
- * The largest part of `input` that satisfies `viewIntegrityViolations`: every
- * leaf, pane, record, order id and pointer that breaks an invariant is dropped;
- * everything else, including band order, is kept. Pure.
- */
+/** The largest part of `input` satisfying viewIntegrityViolations: whatever breaks an invariant
+ *  is dropped, the rest (band order included) kept. Pure. */
 export function repairViewState(input: Partial<ViewState>): ViewState {
   const source = input.panes ?? {}
   const panes: Record<string, PaneGroup> = {}

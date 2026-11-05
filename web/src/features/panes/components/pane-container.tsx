@@ -35,19 +35,14 @@ import { usePaneActivation } from '../hooks/use-pane-activation'
 interface PaneContainerProps {
   pane: PaneGroup
   position?: PanePosition
-  /** Whether this pane's VIEW is the one on screen — see PaneNodeRenderer.
-   *  A parked view's panes stay mounted (so nothing they hold is torn down)
-   *  but must do no work: every surface below is handed `isActive`/`isVisible`
-   *  false, the same dormant state a background tab already runs in. */
+  /** Whether this pane's view is on screen. A parked view's panes stay mounted but do no work:
+   *  every surface gets `isActive`/`isVisible` false, like a background tab. */
   showing?: boolean
 }
 
-/**
- * One pane: its identity row, its chat view and its editor view (spec §7.2),
- * arranged by `usePanePresentation`. The chat reads its OWN workspace
- * (`usePaneWorkspace`), drags land through `usePaneDropHandlers`, and each tab
- * type's surface comes from the content registry.
- */
+/** One pane: identity row, chat view and editor view (spec §7.2), arranged by
+ *  usePanePresentation. The chat reads its own workspace (usePaneWorkspace); tab surfaces come
+ *  from the content registry. */
 export function PaneContainer({
   pane,
   position = ROOT_PANE_POSITION,
@@ -149,10 +144,8 @@ export function PaneContainer({
     />
   )
 
-  // ALWAYS rendered under the same key — only `hidden` and its sizing change —
-  // so nothing inside (a live terminal included) remounts when the chat comes
-  // or goes or the presentation changes (spec §7.2: both surfaces stay
-  // mounted; `display: none` dormancy is load-bearing).
+  // Always rendered under one key (only `hidden` and sizing change), so nothing inside — a live
+  // terminal included — remounts when the chat or presentation changes (spec §7.2).
   const editorViewNode = (
     <div
       key="editor-view"
@@ -230,10 +223,9 @@ export function PaneContainer({
             activeZoneOverride={drop.internalHoverZone}
           />
           <div
-            // ONE rounded, bordered box around the identity row and the content,
-            // painting the translucent chat fill (the editor paints its own
-            // opaque one over it). `data-pane-content` is also the hook for the
-            // drag-time flattening rule in index.css.
+            // One bordered box around identity row and content, painting the translucent chat
+            // fill (the editor paints opaque over it); `data-pane-content` also hooks index.css's
+            // drag-time flattening.
             data-pane-content=""
             className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-chrome-bg transition-colors duration-150"
             style={paneContentStyle}

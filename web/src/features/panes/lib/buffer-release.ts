@@ -26,12 +26,9 @@ export interface BufferOwnershipState {
   closedBuffersHistory: ClosedBuffer[]
 }
 
-/**
- * Invariant C2: a buffer exists only while some pane lists it. Drops every
- * buffer no pane references — recording file buffers in the reopen history —
- * and returns them for `disposeBuffers`. Called inside the same `set` as the
- * pane write that unreferenced them, so no observer ever sees an orphan.
- */
+/** C2: a buffer exists only while some pane lists it. Drops the rest (file ones into the reopen
+ *  history) and returns them for disposeBuffers. Runs in the same `set` as the pane write that
+ *  unlisted them, so no observer sees an orphan. */
 export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneContent[] {
   if (!Array.isArray(state.buffers) || state.buffers.length === 0) return []
   const referenced = new Set<string>()
@@ -68,12 +65,9 @@ export function releaseDocumentOf(buf: PaneContent): void {
   getEditorHost()?.documents.release(documentUri(documentRefOf(buf)))
 }
 
-/**
- * Free everything a released buffer held outside the store: a terminal's PTY
- * (terminals never enter the reopen history, so the shell dies here or it
- * leaks), a browser tab's native webview, an editor's document (its model,
- * undo history and draft), git-blame data and the markdown view preference.
- */
+/** Frees what a released buffer held outside the store: a terminal's PTY (never in the reopen
+ *  history, so it dies here or leaks), a webview, an editor's document (model, undo, draft),
+ *  blame data and the markdown view preference. */
 export function disposeBuffers(released: readonly PaneContent[]): void {
   for (const buf of released) {
     if (buf.type === 'terminal') {

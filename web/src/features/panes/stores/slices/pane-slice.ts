@@ -23,10 +23,8 @@ export interface OpenChatOptions {
   runnerId?: string | null
 }
 
-/**
- * Only the actions marked "row" can add or remove a Recents row (a view
- * record); every structural write goes through `lib/view-ops.ts`.
- */
+/** Only actions marked "row" add or remove a Recents row (a view record); every structural
+ *  write goes through `lib/view-ops.ts`. */
 export interface PaneActions {
   /** A chatless pane carved out of `paneId`'s share, in `paneId`'s view. */
   splitPane(
@@ -109,10 +107,8 @@ export const createPaneSlice: StateCreator<
   [],
   PaneSlice
 > = (rawSet, get) => {
-  // Every pane write settles focus (`commitViewWrite`) and releases the
-  // buffers it left unreferenced in the same `set` (invariant C2): closing a
-  // view, a pane or a tab can never strand a buffer, or the terminal PTY
-  // behind one, nor leave focus on a pane that is gone.
+  // Every pane write settles focus and releases the buffers it unlisted in the same `set` (C2),
+  // so no close strands a buffer (or its PTY) or leaves focus on a gone pane.
   const set: PaneSet = (recipe) => {
     let released: PaneContent[] = []
     rawSet((state) => {

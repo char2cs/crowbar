@@ -39,12 +39,8 @@ export function CommentComposer({
   }
 
   return (
-    // `ui-font whitespace-normal` here rather than at the call sites: the
-    // annotation variant is slotted into the diff's <pre>, so everything below
-    // inherits both the CODE font and `white-space: pre` unless it opts out.
-    // Prose in a review is prose, whatever it is anchored to — and it must not
-    // depend on each caller remembering that. (The editable overrides
-    // white-space itself, as an editor should; this is for the chrome.)
+    // Set here, not per caller: the annotation variant sits inside the diff's <pre> and would
+    // inherit the code font and `white-space: pre`. Review prose is prose wherever it's anchored.
     <div className="ui-font whitespace-normal rounded-lg border border-border bg-background">
       {title && (
         <div className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-foreground">

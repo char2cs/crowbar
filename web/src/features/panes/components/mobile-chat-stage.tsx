@@ -7,11 +7,8 @@ import type { PaneGroup } from '../types/pane'
 import { usePaneWorkspace } from '../hooks/use-pane-workspace'
 import { PaneChatView } from './pane-chat-view'
 
-/**
- * The phone's stage: the focused pane's chat and nothing else — no view tabs, splits,
- * editor half or pane header. Other views stay in the store, so a desktop-shaped layout
- * collapses to its focused chat here without being rewritten.
- */
+// The phone's stage: the focused pane's chat alone — no view tabs, splits, editor or header.
+// Other views stay in the store, so a desktop layout collapses here without being rewritten.
 export function MobileChatStage() {
   const pane = usePaneById(useActivePaneId())
   if (!pane?.chatId) return <NoChat />
