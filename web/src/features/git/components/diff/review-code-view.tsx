@@ -88,8 +88,8 @@ export interface ReviewCodeViewProps {
 }
 
 // Probes by building a worker: `Worker` can exist yet its constructor throw (CSP, custom scheme),
-// and an installed pool that can't spawn renders nothing at all. Without the provider CodeView
-// highlights inline. Only a synchronous failure is caught; verify-worker-bundles.mjs gates the rest.
+// and a pool that can't spawn renders nothing. Without the provider CodeView highlights inline.
+// Only a synchronous failure is caught; verify-worker-bundles.mjs gates the rest.
 let workerPoolUsable: boolean | undefined
 function canUseWorkerPool(): boolean {
   if (workerPoolUsable !== undefined) return workerPoolUsable
