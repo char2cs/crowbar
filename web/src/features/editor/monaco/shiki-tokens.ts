@@ -144,8 +144,8 @@ const MAX_ADVANCE_LINES = 1_000
 const WHITESPACE = /\s/
 
 /** Tokenize rows [startRow, endRow], appending categorized tokens to `out`. `stacks[row]` is the
- *  rule stack entering `row`, extended as rows are consumed. Exported for fake-grammar tests. */
-export function tokenizeRows(
+ *  rule stack entering `row`, extended as rows are consumed. */
+function tokenizeRows(
   grammar: ShikiGrammar,
   getLine: (row: number) => string,
   stacks: (StateStack | null)[],

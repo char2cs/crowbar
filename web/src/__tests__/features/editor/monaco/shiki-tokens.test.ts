@@ -20,8 +20,6 @@ import {
   __resetShikiTokensForTests,
   scopeCategory,
   shikiTokensInRange,
-  tokenizeRows,
-  type ShikiToken,
   type TokenizerModel,
 } from '@/features/editor/monaco/shiki-tokens'
 
@@ -190,27 +188,6 @@ describe('scopeCategory', () => {
   })
 })
 
-describe('tokenizeRows', () => {
-  it('emits categories and trims the whitespace grammars pad tokens with', () => {
-    const lines = ['  fnRun  Tfoo  Kif  x']
-    const tokens: ShikiToken[] = []
-    tokenizeRows(fakeGrammar(), (row) => lines[row], [null], 0, 0, tokens)
-
-    expect(tokens).toEqual([
-      { category: 'function', row: 0, start: 2, end: 7 },
-      { category: 'type', row: 0, start: 9, end: 13 },
-      { category: 'variable', row: 0, start: 20, end: 21 },
-    ])
-  })
-
-  it('records the rule stack entering the row after the last one tokenized', () => {
-    const stacks: (StateStack | null)[] = [null]
-    tokenizeRows(fakeGrammar(), () => '/* Tfoo', stacks, 0, 0, [])
-    expect(stacks).toHaveLength(2)
-    expect(stacks[1]).toEqual({ inComment: true })
-  })
-})
-
 /** Run a language's first compile, which happens on a timer, so the next call is synchronous. */
 async function warm(model: TokenizerModel, languageId: string, endRow = 0): Promise<void> {
   const onReady = vi.fn()
@@ -235,6 +212,18 @@ describe('shikiTokensInRange', () => {
     // 3. synchronous from here on
     const tokens = shikiTokensInRange(model, 'fakelang', 0, 0, onReady)
     expect(tokens?.map((t) => t.category)).toEqual(['type', 'function'])
+  })
+
+  it('emits categories and trims the whitespace grammars pad tokens with', async () => {
+    register('fakelang')
+    const { model } = fakeModel('file:///pad.fake', ['  fnRun  Tfoo  Kif  x'])
+    await warm(model, 'fakelang')
+
+    expect(shikiTokensInRange(model, 'fakelang', 0, 0, () => {})).toEqual([
+      { category: 'function', row: 0, start: 2, end: 7 },
+      { category: 'type', row: 0, start: 9, end: 13 },
+      { category: 'variable', row: 0, start: 20, end: 21 },
+    ])
   })
 
   it('resumes from the rule stack above the viewport instead of re-reading the file', async () => {
