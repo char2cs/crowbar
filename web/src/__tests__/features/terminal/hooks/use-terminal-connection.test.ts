@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { Terminal } from '@xterm/xterm'
+import type { TerminalConnection } from '@/lib/crowbar-bridge'
 
 // A fake TerminalConnection the test drives by hand: the hook binds to whatever
 // connection object it is given, so frames are delivered through its captured
@@ -123,13 +124,11 @@ function makeFakeTerminal() {
 function renderConnection(terminal: unknown, overrides: Record<string, unknown> = {}) {
   return renderHook(() =>
     useTerminalConnection({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      connection: bridge.conn as any,
+      connection: bridge.conn as unknown as TerminalConnection,
       created: false,
       getTerminalTheme: () => ({}),
       sessionId: 'sess-1',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      terminal: terminal as any,
+      terminal: terminal as Terminal,
       updateSession: () => {},
       ...overrides,
     }),
@@ -206,13 +205,11 @@ function renderConnectionRerenderable(
   return renderHook(
     (props: Record<string, unknown>) =>
       useTerminalConnection({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        connection: bridge.conn as any,
+        connection: bridge.conn as unknown as TerminalConnection,
         created: false,
         getTerminalTheme: () => ({}),
         sessionId: 'sess-1',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        terminal: terminal as any,
+        terminal: terminal as Terminal,
         updateSession: () => {},
         ...props,
       }),
@@ -272,8 +269,7 @@ function rowZeroAcrossTasks(...steps: ((reattach: () => void) => void)[]) {
   const { rerender } = renderConnectionRerenderable(terminal, {})
   const reattach = () => {
     bridge = makeFakeConnection()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rerender({ connection: bridge.conn as any })
+    rerender({ connection: bridge.conn })
   }
   for (const step of steps) act(() => step(reattach))
   const seen: string[] = []
@@ -437,8 +433,7 @@ describe('useTerminalConnection — input across a re-attach', () => {
     expect(first.conn.written).toEqual([])
     bridge = makeFakeConnection()
     act(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rerender({ connection: bridge.conn as any })
+      rerender({ connection: bridge.conn })
     })
     expect(bridge.conn.written).toEqual(['ls\r'])
   })
