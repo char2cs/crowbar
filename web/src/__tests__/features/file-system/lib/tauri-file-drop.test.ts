@@ -1,12 +1,7 @@
 import type { RefObject } from 'react'
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import {
-  pickBySpecificity,
-  pointInRect,
-  type RegisteredConsumer,
-  useTauriFileDrop,
-} from '@/features/file-system/lib/tauri-file-drop'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 
 function rect(left: number, top: number, right: number, bottom: number): DOMRect {
   return {
@@ -21,91 +16,6 @@ function rect(left: number, top: number, right: number, bottom: number): DOMRect
     toJSON: () => ({}),
   }
 }
-
-describe('pointInRect', () => {
-  it('is true for a point strictly inside', () => {
-    expect(pointInRect({ x: 50, y: 50 }, rect(0, 0, 100, 100))).toBe(true)
-  })
-
-  it('is true on the boundary (inclusive)', () => {
-    expect(pointInRect({ x: 100, y: 100 }, rect(0, 0, 100, 100))).toBe(true)
-    expect(pointInRect({ x: 0, y: 0 }, rect(0, 0, 100, 100))).toBe(true)
-  })
-
-  it('is false outside the rect', () => {
-    expect(pointInRect({ x: 101, y: 50 }, rect(0, 0, 100, 100))).toBe(false)
-    expect(pointInRect({ x: 50, y: -1 }, rect(0, 0, 100, 100))).toBe(false)
-  })
-})
-
-function consumerFor(el: HTMLElement | null): RegisteredConsumer {
-  return { containerRef: { current: el }, onDrop: vi.fn() }
-}
-
-// `resolveConsumer`'s two callers (the elementFromPoint hit-test and the
-// rect fallback) both pre-filter to registrations with a live, distinct DOM
-// node before ever calling this, so its own null-ref and identical-node
-// guards are unreachable through the hook — exercised directly here instead.
-describe('pickBySpecificity', () => {
-  it('returns undefined for an empty candidate list', () => {
-    expect(pickBySpecificity([])).toBeUndefined()
-  })
-
-  it('skips a candidate whose ref has already gone null, keeping the champion', () => {
-    const champion = consumerFor(document.createElement('div'))
-    const goneRef = consumerFor(null)
-
-    expect(pickBySpecificity([champion, goneRef])).toBe(champion)
-  })
-
-  it('keeps the champion when a later candidate resolves to the identical DOM node', () => {
-    const el = document.createElement('div')
-    const champion = consumerFor(el)
-    const duplicateRegistration = consumerFor(el)
-
-    expect(pickBySpecificity([champion, duplicateRegistration])).toBe(champion)
-  })
-
-  it('picks the descendant regardless of registration order — ancestor-then-descendant', () => {
-    const inner = document.createElement('div')
-    const outer = document.createElement('div')
-    outer.appendChild(inner)
-
-    const innerConsumer = consumerFor(inner)
-    const outerConsumer = consumerFor(outer)
-
-    expect(pickBySpecificity([outerConsumer, innerConsumer])).toBe(innerConsumer)
-  })
-
-  it('picks the descendant regardless of registration order — descendant-then-ancestor', () => {
-    const inner = document.createElement('div')
-    const outer = document.createElement('div')
-    outer.appendChild(inner)
-
-    const innerConsumer = consumerFor(inner)
-    const outerConsumer = consumerFor(outer)
-
-    // The descendant registers (mounts) FIRST here, becoming the initial
-    // "champion" the reduce starts from — exercising the other half of the
-    // containment check (`candidateEl.contains(championEl)`) than the
-    // ancestor-then-descendant ordering above.
-    expect(pickBySpecificity([innerConsumer, outerConsumer])).toBe(innerConsumer)
-  })
-
-  it('keeps the champion over a larger, unrelated (non-nested) later candidate', () => {
-    const small = document.createElement('div')
-    small.getBoundingClientRect = () => rect(150, 150, 250, 250)
-    const large = document.createElement('div')
-    large.getBoundingClientRect = () => rect(0, 0, 400, 400)
-    const smallConsumer = consumerFor(small)
-
-    // small (mounted first) is the initial champion; large's area is NOT
-    // smaller, so it must not displace it — the other half of the area
-    // tiebreak than the smaller-candidate-wins case the cross-consumer
-    // arbitration tests below exercise.
-    expect(pickBySpecificity([smallConsumer, consumerFor(large)])).toBe(smallConsumer)
-  })
-})
 
 // The hook's own effect body — dynamic import, the onDragDropEvent
 // subscription, the payload-type filter, the null-ref guard, the rect
@@ -157,6 +67,22 @@ describe('useTauriFileDrop', () => {
     })
 
     expect(onDrop).toHaveBeenCalledWith(['/a/b.png'])
+  })
+
+  it('counts a drop on the container edge as inside it', async () => {
+    let capturedCallback: DragDropCallback | undefined
+    onDragDropEvent.mockImplementation(async (cb: DragDropCallback) => {
+      capturedCallback = cb
+      return stop
+    })
+    const onDrop = vi.fn()
+
+    renderHook(() => useTauriFileDrop(containerRefWithRect(rect(0, 0, 100, 100)), onDrop))
+
+    await waitFor(() => expect(capturedCallback).toBeDefined())
+    capturedCallback!({ payload: { type: 'drop', position: { x: 100, y: 0 }, paths: ['/edge'] } })
+
+    expect(onDrop).toHaveBeenCalledWith(['/edge'])
   })
 
   it('does not call onDrop for a drop outside the container rect', async () => {
@@ -296,7 +222,7 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
     return callbacks
   }
 
-  it('reproduces the confirmed C2 bug: a drop on the composer pill (nested in the pane) only reaches the composer, not the pane', async () => {
+  it('a drop on the composer pill (nested in the pane) only reaches the composer, not the pane', async () => {
     // Mirrors pane-container.tsx (containerRef, the whole pane) and
     // agent-composer.tsx (pillRef, nested inside it) — dropping ON the pill
     // must never also fire the pane's handleFileOpen.
@@ -314,6 +240,36 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
 
     expect(pillDrop).toHaveBeenCalledWith(['/a/file.pdf'])
     expect(paneDrop).not.toHaveBeenCalled()
+  })
+
+  it('picks the nested consumer whichever registers first', async () => {
+    const paneEl = mockElement(rect(0, 0, 400, 400))
+    const pillEl = mockElement(rect(20, 320, 380, 360))
+    paneEl.appendChild(pillEl)
+
+    const paneDrop = vi.fn()
+    const pillDrop = vi.fn()
+    const callbacks = await mountTwo(pillDrop, paneDrop, pillEl, paneEl)
+
+    for (const cb of callbacks) {
+      cb({ payload: { type: 'drop', position: { x: 100, y: 340 }, paths: ['/a/file.pdf'] } })
+    }
+
+    expect(pillDrop).toHaveBeenCalledWith(['/a/file.pdf'])
+    expect(paneDrop).not.toHaveBeenCalled()
+  })
+
+  it('hands a drop on one container registered twice to exactly one handler', async () => {
+    const el = mockElement(rect(0, 0, 400, 400))
+    const first = vi.fn()
+    const second = vi.fn()
+    const callbacks = await mountTwo(first, second, el, el)
+
+    for (const cb of callbacks) {
+      cb({ payload: { type: 'drop', position: { x: 10, y: 10 }, paths: ['/a/file.pdf'] } })
+    }
+
+    expect(first.mock.calls.length + second.mock.calls.length).toBe(1)
   })
 
   it('still opens on the pane when the drop lands outside the nested composer pill', async () => {
@@ -343,6 +299,22 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
     const paneDrop = vi.fn()
     const modalDrop = vi.fn()
     const callbacks = await mountTwo(paneDrop, modalDrop, paneEl, modalEl)
+
+    for (const cb of callbacks) {
+      cb({ payload: { type: 'drop', position: { x: 200, y: 200 }, paths: ['/b/img.png'] } })
+    }
+
+    expect(modalDrop).toHaveBeenCalledWith(['/b/img.png'])
+    expect(paneDrop).not.toHaveBeenCalled()
+  })
+
+  it('keeps the smaller unrelated consumer when the larger registers after it', async () => {
+    const modalEl = mockElement(rect(150, 150, 250, 250))
+    const paneEl = mockElement(rect(0, 0, 400, 400))
+
+    const modalDrop = vi.fn()
+    const paneDrop = vi.fn()
+    const callbacks = await mountTwo(modalDrop, paneDrop, modalEl, paneEl)
 
     for (const cb of callbacks) {
       cb({ payload: { type: 'drop', position: { x: 200, y: 200 }, paths: ['/b/img.png'] } })

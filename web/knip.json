@@ -90,7 +90,6 @@
     "src/features/file-explorer/file-explorer/stores/file-explorer-clipboard-store.ts": ["types"],
     "src/features/file-explorer/file-explorer/utils/file-explorer-tree-utils.ts": ["exports"],
     "src/features/file-system/controllers/file-utils.ts": ["duplicates", "exports"],
-    "src/features/file-system/lib/tauri-file-drop.ts": ["exports", "types"],
     "src/features/files/lib/file-tree-api.ts": ["exports", "types"],
     "src/features/files/lib/file-upload.ts": ["exports"],
     "src/features/git/api/review-window-api.ts": ["exports"],

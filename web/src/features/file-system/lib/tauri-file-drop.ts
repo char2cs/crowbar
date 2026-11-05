@@ -2,14 +2,14 @@ import { useEffect } from 'react'
 import type { RefObject } from 'react'
 import { isTauri } from '@/lib/crowbar-bridge'
 
-export interface TauriDropPosition {
+interface TauriDropPosition {
   x: number
   y: number
 }
 
-/** Pure — is `position` (Tauri's CSS-pixel, window-relative drop coordinate)
- *  inside `rect`. Inclusive of the boundary. */
-export function pointInRect(position: TauriDropPosition, rect: DOMRect): boolean {
+/** Is `position` (Tauri's CSS-pixel, window-relative drop coordinate) inside `rect`, boundary
+ *  included. */
+function pointInRect(position: TauriDropPosition, rect: DOMRect): boolean {
   return (
     position.x >= rect.left &&
     position.x <= rect.right &&
@@ -18,7 +18,7 @@ export function pointInRect(position: TauriDropPosition, rect: DOMRect): boolean
   )
 }
 
-export interface RegisteredConsumer {
+interface RegisteredConsumer {
   containerRef: RefObject<HTMLElement | null>
   onDrop: (paths: string[]) => void
 }
@@ -27,27 +27,35 @@ export interface RegisteredConsumer {
 // arbitrated across instances (`resolveConsumer`) instead of each reacting in isolation.
 const consumers = new Set<RegisteredConsumer>()
 
+interface Hit {
+  consumer: RegisteredConsumer
+  el: HTMLElement
+}
+
 function areaOf(el: HTMLElement): number {
   const rect = el.getBoundingClientRect()
   return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top)
 }
 
 // The most specific consumer containing the drop: a descendant beats its ancestor, and of two
-// unrelated containers (e.g. a Dialog portal outside the pane tree) the smaller wins. Exported to
-// test its null-ref and same-node branches, which resolveConsumer's call sites pre-filter away.
-export function pickBySpecificity(
-  candidates: RegisteredConsumer[],
-): RegisteredConsumer | undefined {
-  if (candidates.length === 0) return undefined
-  return candidates.reduce((champion, candidate) => {
-    const championEl = champion.containerRef.current
-    const candidateEl = candidate.containerRef.current
-    if (!championEl || !candidateEl) return champion
-    if (championEl === candidateEl) return champion
-    if (championEl.contains(candidateEl)) return candidate
-    if (candidateEl.contains(championEl)) return champion
-    return areaOf(candidateEl) < areaOf(championEl) ? candidate : champion
-  })
+// unrelated containers (e.g. a Dialog portal outside the pane tree) the smaller wins.
+function pickBySpecificity(hits: Hit[]): RegisteredConsumer | undefined {
+  if (hits.length === 0) return undefined
+  return hits.reduce((champion, candidate) => {
+    if (champion.el.contains(candidate.el)) return candidate
+    if (candidate.el.contains(champion.el)) return champion
+    return areaOf(candidate.el) < areaOf(champion.el) ? candidate : champion
+  }).consumer
+}
+
+// The registered consumers whose live container satisfies `inside`.
+function hitsWhere(inside: (el: HTMLElement) => boolean): Hit[] {
+  const hits: Hit[] = []
+  for (const consumer of consumers) {
+    const el = consumer.containerRef.current
+    if (el && inside(el)) hits.push({ consumer, el })
+  }
+  return hits
 }
 
 // The one consumer (if any) for a drop at `position`. elementFromPoint is the real hit-test, so
@@ -56,20 +64,9 @@ export function pickBySpecificity(
 function resolveConsumer(position: TauriDropPosition): RegisteredConsumer | undefined {
   if (typeof document.elementFromPoint === 'function') {
     const elAtPoint = document.elementFromPoint(position.x, position.y)
-    const hits = elAtPoint
-      ? Array.from(consumers).filter((consumer) => {
-          const el = consumer.containerRef.current
-          return !!el && el.contains(elAtPoint)
-        })
-      : []
-    return pickBySpecificity(hits)
+    return elAtPoint ? pickBySpecificity(hitsWhere((el) => el.contains(elAtPoint))) : undefined
   }
-
-  const rectHits = Array.from(consumers).filter((consumer) => {
-    const el = consumer.containerRef.current
-    return !!el && pointInRect(position, el.getBoundingClientRect())
-  })
-  return pickBySpecificity(rectHits)
+  return pickBySpecificity(hitsWhere((el) => pointInRect(position, el.getBoundingClientRect())))
 }
 
 // One Tauri subscription shared by all consumers (onDragDropEvent is window-wide anyway), giving
