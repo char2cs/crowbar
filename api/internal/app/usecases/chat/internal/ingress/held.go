@@ -191,8 +191,6 @@ func (r *Recorder) deadLetter(ctx context.Context, chatID string, f heldFrame, r
 // would have dead-lettered it on arrival.
 func drainReason(err error) string {
 	switch {
-	case errors.Is(err, errInternalSubagent):
-		return reasonInternal
 	case errors.Is(err, engineagents.ErrForeignConversation):
 		return reasonForeign
 	case errors.Is(err, seam.ErrHookNotRecorded):

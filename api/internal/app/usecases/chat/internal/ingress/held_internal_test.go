@@ -221,7 +221,6 @@ func TestIngress_ARunnersExitDeadLettersItsHeldFrames(t *testing.T) {
 // would have been on arrival.
 func TestDrainReason_IsTheIngresssOwn(t *testing.T) {
 	for err, want := range map[error]string{
-		errInternalSubagent: reasonInternal,
 		fmt.Errorf("x: %w", engineagents.ErrForeignConversation): reasonForeign,
 		fmt.Errorf("x: %w", seam.ErrHookNotRecorded):             reasonNotRecorded,
 		errors.New("disk full"):                                  reasonWriteFailed,

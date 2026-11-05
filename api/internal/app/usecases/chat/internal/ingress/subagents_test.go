@@ -75,17 +75,19 @@ func TestMap_ASpawnThatFailsBeforeItsBindFailsItsSubagent(t *testing.T) {
 	assert.Equal(t, ledger.SubagentFailed, gone.Status)
 }
 
-// A stop of a subagent nothing started and that names no type is the CLI's own.
+// A stop of a subagent nothing started and that names no type is the CLI's own:
+// acknowledged with no row, as nothing about it is wrong.
 func TestMap_AStopOfAnUntypedUnknownSubagentIsInternal(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
 
-	_, _, err := Map(c.st, engineagents.CanonicalEvent{
+	rows, _, err := Map(c.st, engineagents.CanonicalEvent{
 		Kind: engineagents.HookSubagentPost, Subagent: &engineagents.SubagentEvent{ID: "housekeeping"},
 	}, hooksSource(), BlobRefs{})
-	require.ErrorIs(t, err, errInternalSubagent)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
 
-	rows, _ := c.mapped(engineagents.CanonicalEvent{
+	rows, _ = c.mapped(engineagents.CanonicalEvent{
 		Kind: engineagents.HookSubagentPost, Subagent: &engineagents.SubagentEvent{ID: "B", AgentType: "explorer"},
 	}, hooksSource())
 	assert.Equal(t, []ledger.Kind{ledger.KindSubagent, ledger.KindSubagent}, kinds(rows), "a typed one is started and stopped")

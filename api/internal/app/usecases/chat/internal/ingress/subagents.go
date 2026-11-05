@@ -1,16 +1,9 @@
 package ingress
 
 import (
-	"fmt"
-
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
-
-// errInternalSubagent is a stop of a subagent nothing started and that names
-// no type: the CLI's own housekeeping agent, no subagent of the chat's.
-var errInternalSubagent = fmt.Errorf("ingress: a harness-internal subagent: %w", seam.ErrHookNotRecorded)
 
 // spawnRows are what a phase of a tool call of kind subagent says of the
 // subagent it spawns: its start under the call, its bind to the scope the
@@ -42,7 +35,7 @@ func spawnRows(st ledger.State, call ledger.ToolCall, turnID string) ([]ledger.R
 
 // mapSubagent records a subagent's own start or stop, once. A start no call
 // is known to have spawned runs at once; a stop of one never started is the
-// CLI's own unless it names a type.
+// CLI's own housekeeping agent unless it names a type, acknowledged with no row.
 func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	if ev.Subagent == nil || ev.Subagent.ID == "" {
 		return nil, nil
@@ -60,7 +53,7 @@ func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([
 		return nil, nil
 	}
 	if !seen && sub.AgentType == "" {
-		return nil, errInternalSubagent
+		return nil, nil
 	}
 	var rows []ledger.Row
 	turnID := known.TurnID

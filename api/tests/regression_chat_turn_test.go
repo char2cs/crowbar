@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/tests/kit"
@@ -245,4 +247,21 @@ func TestRegression_AHookRepliesOnlyAfterItsRowsAreReadable(t *testing.T) {
 		}
 	}
 	assert.Contains(t, texts, "readable on the reply")
+}
+
+// A plain turn, with the stop the CLI sends for its own untyped housekeeping
+// agent, keeps no dead letter: one is only kept when something went wrong.
+func TestRegression_APlainTurnKeepsNoDeadLetter(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.hook(t, c.launch, "user_prompt", map[string]any{"prompt": "plain", "prompt_id": "P"})
+	c.hook(t, c.launch, "subagent_post", map[string]any{"agent_id": "a-housekeeping", "prompt_id": "P"})
+	c.hook(t, c.launch, "turn_stop", map[string]any{"prompt_id": "P", "last_assistant_message": "done"})
+	c.h.QuiesceReactors()
+
+	db := openSQLite(t, filepath.Join(homeAt(t, c.h.home).Store(), ledgerstore.FileName))
+	defer closeSQLite(t, db)
+	var letters []string
+	require.NoError(t, db.Raw(`SELECT event || ':' || reason FROM ledger_dead_letters`).Scan(&letters).Error)
+	assert.Empty(t, letters, "a plain turn leaves no dead letter")
+	assert.Zero(t, chatDeadLetters(t, c.h))
 }
