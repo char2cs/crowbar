@@ -2,18 +2,9 @@ import { entityOf, entityStore } from '@/core/entities/entity-store'
 import { chatHostOf, resolvedHostOf } from '@/lib/host-resolve'
 import { resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 
-/**
- * Which PROJECT a chat belongs to — the derivation the pane store deliberately
- * never performs.
- *
- * A view's project is fixed on its record when the record is created,
- * precisely because this is not always answerable (before the projects scope
- * lands, nothing is known). Never used in a render path: only when a record is
- * minted, and in the drop refusal (`openChatIntoPane`), where an unresolvable chat is
- * ALLOWED through rather than refused.
- *
- * Null means nothing loaded right now can name a project for this chat.
- */
+/** A chat's project; null while nothing loaded can name it, which is why a view fixes its project
+ *  on its record at creation. Never in a render path: only when minting a record, and in
+ *  openChatIntoPane's drop check, which lets an unresolvable chat through. */
 export function resolveChatProjectId(chatId: string, workspaceHint?: string | null): string | null {
   const hostId = chatHostOf(chatId)
   const chat = hostId ? entityOf(entityStore.getState(), 'chat', hostId, chatId) : undefined

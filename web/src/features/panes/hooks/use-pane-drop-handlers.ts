@@ -22,12 +22,8 @@ function readTabPayload(e: React.DragEvent): TabDragPayload | null {
   }
 }
 
-/**
- * Everything a pane does with drags: the file-drag ring, the tab-drag split
- * overlay, a sidebar/explorer pointer drag hovering it, and what each drop
- * lands. A tab never crosses a pane boundary and never makes a split (a pane
- * group is a group of chats, never of tabs): only this pane's own tab lands here.
- */
+/** A pane's drags: file ring, tab split overlay, sidebar/explorer hover, and their drops. A tab
+ *  never crosses panes or makes a split (panes group chats, not tabs): only its own tab lands. */
 export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTMLElement | null>) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isTabDragOver, setIsTabDragOver] = useState(false)

@@ -6,17 +6,8 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 
-// Task 26 moved panes/buffers out of the per-workspace store registry into one
-// window-level store, and Task 1 renamed the pane's tab list `bufferIds` ->
-// `editorTabIds` (a chat is no longer one of them at all: it is the pane's own
-// `chatId` field). This suite used to drive `createWorkspaceStore('test-ws')`
-// and the pre-Task-1 action names, so every case in it threw
-// `addBufferToPane is not a function` — migrated here onto the real store and
-// the real action names.
-//
-// A fresh store per test rather than the module singleton: these cases split,
-// close and merge the layout, and the singleton is shared with every other
-// suite in the run.
+// A fresh store per test rather than the module singleton: these cases split, close and merge
+// the layout, and the singleton is shared with every other suite in the run.
 
 function makeStore(): WindowPaneStore {
   return createWindowPaneStore()
@@ -27,11 +18,8 @@ let store: WindowPaneStore
 const paneActions = () => store.getState().paneActions
 const panes = () => store.getState().panes
 
-/** A real editor buffer plus its tab in `paneId`. The buffer half matters:
- *  `setEditorTabPreview`/`setEditorTabPinned` scope-and-mutate the TAB'S OWN
- *  `isPreview`/`isPinned` (there are no pane-level `previewBufferId`/
- *  `pinnedBufferIds` fields — Task 2's ruling), so a tab id with no buffer
- *  behind it has nothing to mark. */
+/** A real editor buffer plus its tab in `paneId`: preview/pinned live on the buffer itself, so a
+ *  tab id with no buffer behind it has nothing to mark. */
 function openTab(paneId: string, id: string): void {
   const buffer: EditorContent = {
     id,
@@ -61,10 +49,8 @@ describe('pane-store bottom pane integration', () => {
     openTab(ROOT_PANE_ID, 'buffer-a')
     paneActions().moveEditorTabToPane('buffer-a', ROOT_PANE_ID, BOTTOM_PANE_ID)
 
-    // A pane emptied by a move is simply EMPTY now. The old "never tab-less,
-    // reseed a newTab placeholder" contract went with Task 1: a pane with zero
-    // editorTabIds renders the New Tab stage for free (pane-container.tsx), so
-    // there is no placeholder buffer left to assert.
+    // A pane emptied by a move is simply empty: it renders its New Tab stage with no
+    // placeholder buffer.
     expect(panes()[ROOT_PANE_ID]?.editorTabIds).toEqual([])
     expect(panes()[ROOT_PANE_ID]?.editorOpen).toBe(false)
     expect(panes()[BOTTOM_PANE_ID]?.editorTabIds).toEqual(['buffer-a'])

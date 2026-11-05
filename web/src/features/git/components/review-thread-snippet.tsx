@@ -16,11 +16,8 @@ const OPTIONS: FileDiffOptions<undefined, undefined> = {
 
 type Snippet = { patch: string | null } | { failed: true } | null
 
-/**
- * The lines a thread is anchored to, read from the file's patch through the
- * same per-file request the diff view makes. Renders nothing while loading or
- * when the anchor is no longer in the patch, and says so when the read fails.
- */
+/** A thread's anchored lines, via the diff view's own per-file patch request. Nothing while
+ *  loading or when the anchor left the patch; says so when the read fails. */
 export function ReviewThreadSnippet({ wsId, thread }: { wsId: string; thread: ReviewThread }) {
   const { filePath, side, lineNumber, startLine } = thread
   const [snippet, setSnippet] = useState<Snippet>(null)

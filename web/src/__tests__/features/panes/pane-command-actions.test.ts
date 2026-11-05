@@ -19,13 +19,6 @@ vi.mock('@/lib/workspace-scope', () => ({
   getOwningChatId: vi.fn(),
 }))
 
-// Task 1 renamed the pane's tab list `bufferIds` -> `editorTabIds` and the
-// actions that write it (`addBufferToPane` -> `addEditorTabToPane`, which now
-// takes the tab OBJECT rather than a bare id; `activatePaneBuffer` ->
-// `activateEditorTabInPane`). `pane-command-actions.ts` itself was migrated in
-// Task 26's fix round; this suite was not, so every case threw
-// `addBufferToPane is not a function`. Same assertions, real API.
-
 /** The tab object `addEditorTabToPane` takes. Only `id` is read today, but
  *  the object shape is the contract (see pane-container.tsx's own wrapper). */
 const tab = (id: string): EditorTabBase => ({
@@ -287,12 +280,7 @@ describe('ensurePaneChatThenOpen', () => {
   })
 })
 
-// Live-reported: clicking the branch-review shortcut on a pane that wasn't
-// the active one opened that pane's review INSIDE the active pane instead —
-// openContent (buffer-slice.ts) always adds a new tab to
-// `get().activePaneId`, never to whichever pane the caller is acting on. A
-// correctly-scoped `wsId` alone (a prior fix this session) stamped the right
-// workspace onto the buffer but did nothing about where its TAB landed.
+// An inactive pane's review button must open the review in that pane, not the active one.
 describe('openBranchReviewForWorkspace', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()

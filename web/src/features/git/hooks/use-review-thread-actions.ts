@@ -18,12 +18,8 @@ export interface ReviewThreadError {
 /** Where a new thread hangs; the author and the human flag are stamped here. */
 export type NewThreadInput = Omit<OpenThreadInput, 'author' | 'isAgent'>
 
-/**
- * Every review-thread write, shared by the diff annotations and the
- * Conversation view. There is deliberately no optimistic state: the threads
- * store is updated by the workspace WS stream, so a successful call needs no
- * local bookkeeping and a failed one only records `error`.
- */
+/** Every review-thread write, for the diff annotations and Conversation view. No optimistic
+ *  state: the WS stream updates the threads store, so a failure only records `error`. */
 export function useReviewThreadActions(wsId: string) {
   const identity = useCurrentIdentity(wsId)
   const [error, setError] = useState<ReviewThreadError | null>(null)

@@ -14,21 +14,9 @@ import type {
 } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 
-// Branch-review REST client. Review routes hang off the chat that owns the
-// workspace's worktree (reviewBaseForWorkspace, /v0/chats/:chatId/review) and
-// return the standard {success,data} envelope, which apiFetch already unwraps
-// for us (see git-diff-api.ts for the pattern). Merging is a worktree LIFECYCLE
-// verb rather than a review read, so it goes to the repo-scoped chat prefix the
-// other six verbs share (worktreeVerbBaseForWorkspace), not to reviewBase.
-//
-// The /threads routes below are a DIFFERENT concept sharing the word: they are
-// the code-review comment system, which backend spec §4.4 leaves untouched on
-// purpose. They stay workspace-scoped (workspaceBase) and are not part of this
-// migration.
-//
-// Scope: this is the LOCAL branch-vs-parent review surface (description +
-// multi-file diff + inline threads + merge strategy). It does NOT create remote
-// PRs or execute the merge — those are out of scope for this surface.
+// The local branch-vs-parent review client. Review routes hang off the worktree's owning chat;
+// merge is a worktree lifecycle verb (worktreeVerbBaseForWorkspace). Review-comment /threads are
+// a separate, workspace-scoped system. No remote PRs here.
 
 function reviewBase(wsId: string): string {
   return reviewBaseForWorkspace(wsId)
@@ -56,10 +44,8 @@ interface WireBranchChat {
 
 // ── Mappers (wire → store slice types) ──────────────────────────────
 
-// The two attribution fields are carried as '' → undefined rather than through
-// verbatim: the wire omits them entirely on a human message and on every agent
-// message predating attribution, and an empty string would look like a real id to
-// every `find` downstream.
+// Missing attribution becomes undefined, not '': the wire omits it on human and older agent
+// messages, and '' would look like a real id to every `find` downstream.
 function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
   return {
     id: r.id,
@@ -131,10 +117,8 @@ export async function getReview(wsId: string): Promise<ReviewState> {
   }
 }
 
-/** One entry in the files-only branch-review summary (domain.ReviewFileSummary).
- *  It is the FULL changed-files picture for a path — committed-vs-fork-point AND
- *  working-tree — with +/- counts but NO line content. `additions`/`deletions`
- *  are -1 for binary files (numstat "-" convention). */
+/** One path's full change picture (committed and working tree), counts but no line content.
+ *  `additions`/`deletions` are -1 for binaries (numstat "-"). */
 export interface ReviewFileSummary {
   path: string
   old_path?: string
@@ -145,11 +129,8 @@ export interface ReviewFileSummary {
   staged: boolean
 }
 
-/** GET the files-only branch-review summary for a workspace. This is the cheap,
- *  O(file count) source for the always-mounted sidebar changed-files list: it
- *  returns the full branch picture WITHOUT the line-level diff body that
- *  getReview carries, so it can be fetched on every git-status tick without the
- *  refetch loop that made the full diff expensive. */
+/** The files-only summary: O(files) with no diff body, so the sidebar's changed-files list can
+ *  refetch it on every git-status tick. */
 export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummary[]> {
   const query = scope.commit ? `?sha=${encodeURIComponent(scope.commit)}` : ''
   const raw = await apiFetch<{ files: ReviewFileSummary[] }>(
@@ -160,11 +141,8 @@ export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummar
 
 // ── Writes ──────────────────────────────────────────────────────────
 
-/**
- * POST to merge the workspace branch into its parent; answers 202 with the
- * operation that runs it under `opId`. When deleteSource is true, the daemon
- * removes the now-merged child workspace after a clean merge (a conflict keeps it).
- */
+/** Merge the branch into its parent; 202 with the operation under `opId`. deleteSource removes
+ *  the merged child after a clean merge (a conflict keeps it). */
 export function mergeIntoParent(
   wsId: string,
   strategy: MergeStrategy,
@@ -224,7 +202,7 @@ export async function replyToThread(
   threadId: string,
   input: ReplyToThreadInput | string,
 ): Promise<ReviewThread> {
-  // Accept a plain string body for backward compat (old callers pass just the text).
+  // A plain string is the body alone.
   const payload: ReplyToThreadInput = typeof input === 'string' ? { body: input } : input
   const raw = await apiFetch<ThreadDTO>(
     `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}/replies`,

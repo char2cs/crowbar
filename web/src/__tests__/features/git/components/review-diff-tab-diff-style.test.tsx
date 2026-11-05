@@ -8,9 +8,7 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { useSettingsStore } from '@/features/settings/store'
 import type { GitDiff } from '@/features/git/types/git-types'
 
-// Live-reported: the Split/Inline toggle reset to Split every time the tab
-// was reopened. It's a display preference like sidebarPosition/theme, so it
-// belongs in the settings store (persisted) rather than component state.
+// Split/Inline is a display preference, persisted in settings, so it survives reopening the tab.
 const oneFile: GitDiff = {
   file_path: 'src/pricing.ts',
   is_new: false,

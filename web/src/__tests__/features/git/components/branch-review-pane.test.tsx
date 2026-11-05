@@ -94,11 +94,8 @@ beforeEach(() => {
   mocks.getReview.mockResolvedValue(review())
 })
 
-// Regression: the route records a workspace's scope with NO chat id; only the
-// sidebar's own async chat-list fetch later attaches owningChatId. getReview
-// resolves through reviewBaseForWorkspace, which throws without one — load()
-// caught that throw and set a PERMANENT 'error' diffStatus, with nothing to
-// ever retry it even once the id arrived. The pane must wait instead.
+// The route records a scope with no chat id (the sidebar attaches it later), and getReview
+// throws without one: the pane must wait for the id rather than settle into 'error'.
 describe('BranchReviewPane — owning-chat-id race', () => {
   it('does not fetch the review before an owning chat id is recorded', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })

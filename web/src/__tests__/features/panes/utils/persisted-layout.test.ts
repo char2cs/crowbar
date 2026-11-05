@@ -173,10 +173,8 @@ describe('validateLoadedBuffers', () => {
   })
 
   it('drops a buffer whose content type this build no longer has', () => {
-    // A saved layout outlives the code that wrote it. `diff` was the old Monaco
-    // commit-diff tab; a layout written before it was retired restores into a
-    // renderer that is gone, and the tab paints blank with nothing to say it is
-    // stale rather than broken. Graceful fallback, deliberately not migration.
+    // A saved layout outlives the code that wrote it: a type with no renderer would paint
+    // blank, so it is dropped (graceful fallback, not migration).
     const stale = {
       buffers: [
         { id: 'old-1', type: 'diff', path: 'diff://commit/abc/all-files', name: 'Commit abc' },

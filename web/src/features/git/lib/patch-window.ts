@@ -1,52 +1,23 @@
-// The materialisation planner for the windowed Branch Review renderer.
-//
-// The review surface reserves scroll space for every changed file from the
-// outline's hunk geometry, but only ever holds the PATCH TEXT of the handful of
-// files near the viewport. planWindow is the decision of which handful: given
-// where the viewport is and what is currently in memory, it answers which
-// patches to fetch and which to drop.
-//
-// It is deliberately pure — no React, no fetch, no timers — because this is the
-// one place the phase is either correct or thrashing, and purity is what lets it
-// be tested exhaustively without a DOM, a network or a virtualiser.
+// Decides which patches the windowed Branch Review holds: given the viewport and what is in
+// memory, which to fetch and which to drop. Pure (no React, fetch or timers) so the one place
+// that is either correct or thrashing can be tested exhaustively.
 
 /** How many files past each edge of the viewport are materialised ahead of time. */
 export const LOOKAHEAD_FILES = 6
 
-/**
- * How far a materialised file may drift from the viewport before it is dropped.
- *
- * This band is deliberately WIDER than LOOKAHEAD_FILES, and the gap between them
- * is the whole anti-thrash mechanism. Were the two equal, a file sitting exactly
- * at the boundary would be evicted by a one-row scroll and refetched by the
- * scroll back — a network request per frame, forever. The gap gives a file that
- * has left the fetch band somewhere to wait.
- */
+/** Drift allowed before a held file drops. Wider than LOOKAHEAD_FILES on purpose: equal bands
+ *  would evict and refetch a boundary file on every one-row scroll. */
 export const EVICT_BEYOND_FILES = 20
 
 /** Hard ceiling on how many files hold patch text at once. */
 export const MAX_MATERIALIZED_FILES = 40
 
-/**
- * Hard ceiling on the total diff lines held at once.
- *
- * The file cap alone does not bound memory: forty ordinary files are nothing,
- * while two generated ones are a million lines. This is the cap that actually
- * holds the renderer flat across a branch like the 1M-line fixture.
- */
+/** Hard ceiling on total diff lines held — what actually bounds memory, since two generated
+ *  files can outweigh forty ordinary ones. */
 export const MAX_MATERIALIZED_LINES = 60_000
 
-/**
- * The server's default per-file patch cap, mirrored here for budgeting.
- *
- * A file's ± count is what the diff CONTAINS; this is what a materialised file
- * actually COSTS, because the patch request is capped and the rest is never
- * fetched. Budgeting on the former made a single huge file unrenderable: the
- * fixture's 420,000-line monster measured as seven times the entire line
- * budget, so it was dropped from every plan and the reader was left staring at
- * blank space — no content, no notice, no way to ask for the rest. Nothing is
- * gained by refusing to fetch a file whose real cost is bounded.
- */
+/** The server's default per-file patch cap. Budgets count this, not the ± count: a capped fetch
+ *  is all a file costs, and budgeting the full diff would never fetch a huge file at all. */
 export const PATCH_LINE_CAP = 20_000
 
 export interface WindowInput {
@@ -83,25 +54,9 @@ interface Candidate {
 
 const EMPTY_PLAN: WindowPlan = { fetch: [], evict: [] }
 
-/**
- * Decide which patches this frame should hold.
- *
- * The plan is a pure function of the input, so applying it and re-planning at
- * the same scroll position yields an empty plan — the property that makes
- * scrolling converge rather than oscillate. Three rules produce it:
- *
- *  1. Everything within LOOKAHEAD_FILES of the viewport is fetched.
- *  2. Anything beyond EVICT_BEYOND_FILES is dropped; between the two bands a
- *     file is simply left alone (see EVICT_BEYOND_FILES).
- *  3. What survives is trimmed to the budgets, furthest-from-viewport first —
- *     and the trim is applied to the files this frame WOULD fetch as well as to
- *     the ones it already holds, so the budget can never be blown by a fetch and
- *     then immediately recovered by evicting it back.
- *
- * A VISIBLE file is exempt from rule 3 in both directions: it is on screen, and
- * showing the user a blank pane to stay under a memory budget is not a trade
- * worth making. A single 500,000-line file therefore renders, alone.
- */
+// Re-planning after applying a plan yields an empty one, so scrolling converges. Fetch within
+// LOOKAHEAD, drop past EVICT_BEYOND, then trim held and to-fetch files alike to budget, furthest
+// first — never a visible file, so even one huge file renders.
 export function planWindow(input: WindowInput): WindowPlan {
   const count = Math.min(input.total, input.paths.length)
   if (count <= 0) return { ...EMPTY_PLAN }
@@ -112,8 +67,7 @@ export function planWindow(input: WindowInput): WindowPlan {
   // repeated a path from producing that path twice in the plan.
   const held = new Set(input.materialized)
 
-  // A materialised path that is no longer in the file list describes a diff that
-  // no longer exists; it can only be dropped.
+  // A held path missing from the file list describes a diff that is gone; it can only drop.
   const evict = [...held].filter((p) => !indexOf.has(p))
   const viewed = input.viewed
 
@@ -187,14 +141,8 @@ function distanceFrom(index: number, first: number, last: number): number {
   return 0
 }
 
-/**
- * Trim the frame's candidates down to MAX_MATERIALIZED_FILES and
- * MAX_MATERIALIZED_LINES, returning what had to go.
- *
- * Trimming stops when the only candidates left are visible ones, even if the
- * budgets are still exceeded — the budgets bound what is held OFF screen, and
- * the user is looking at the rest.
- */
+/** Trims candidates to the file and line budgets, returning what went. Visible ones are never
+ *  trimmed: the budgets bound what is held off screen. */
 function applyBudgets(
   candidates: readonly Candidate[],
   lineCounts: Readonly<Record<string, number>>,
@@ -224,11 +172,8 @@ function byNearestFirst(a: Candidate, b: Candidate): number {
   return a.distance - b.distance || a.index - b.index
 }
 
-/**
- * Furthest from the viewport first. At equal distance the file ABOVE the
- * viewport goes first: scrolling forward is the common direction, so the file
- * the reader has already passed is the one less likely to be wanted back.
- */
+/** Furthest first; at equal distance the file above goes first, since readers mostly scroll
+ *  forward. */
 function byFurthestFirst(a: Candidate, b: Candidate): number {
   return b.distance - a.distance || a.index - b.index
 }

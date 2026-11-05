@@ -160,12 +160,8 @@ export function ReviewThreadItem({
   return (
     <div
       className={cn(
-        // `ui-font whitespace-normal`: a thread is slotted into the diff's
-        // <pre>, and inherits both its font AND its `white-space: pre`. The
-        // second one is the quieter bug — every newline between the tags a
-        // rendered comment is made of became a visible blank line, so a
-        // two-item list arrived with a gap between the bullets wide enough to
-        // read as separate paragraphs.
+        // A thread sits in the diff's <pre>: without these it inherits the code font and
+        // `white-space: pre`, which turns every newline between rendered tags into a blank line.
         'ui-font whitespace-normal my-1 rounded-lg border border-border',
         header ? 'w-full overflow-hidden bg-card' : 'max-w-xl bg-muted/20',
         thread.isResolved && 'opacity-60',

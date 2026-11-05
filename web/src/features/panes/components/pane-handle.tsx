@@ -13,12 +13,9 @@ import { viewMembers } from '../lib/view-state'
 import { windowPaneStore } from '../stores/window-pane-store'
 import type { PaneGroup } from '../types/pane'
 
-/**
- * The tab that hangs from a split pane's top edge: drag the chat out or give it
- * a tab of its own. Shown by CSS alone, only while the pointer is
- * over the pane (the pane carries `group/pane`) — never because it is active.
- * Absent when the pane is the only chat in its view.
- */
+// The tab hanging from a split pane's top edge: drag the chat out or give it its own tab. Shown
+// by CSS only while hovering the pane (`group/pane`), never for being active; absent when the
+// pane is its view's only chat.
 export function PaneHandle({ pane }: { pane: PaneGroup }) {
   const inSplit = useStore(
     windowPaneStore,

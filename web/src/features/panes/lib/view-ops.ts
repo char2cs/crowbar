@@ -24,14 +24,8 @@ import {
   type ViewState,
 } from './view-state'
 
-/**
- * The only structural writers. Every write that adds, removes or moves a pane
- * goes through `insertPane` / `removePane` / `movePane` (and `fillPane` for a
- * chat landing in a chatless pane), so the invariants `view-integrity.ts`
- * checks are kept in exactly one place. None of them repairs focus: every
- * write is applied through `commitViewWrite`, which settles it once at the
- * end, so no writer can forget to.
- */
+// The only structural writers (insert/remove/move/fillPane), so view-integrity.ts's invariants
+// are kept in one place. None repairs focus: commitViewWrite settles it once after each write.
 
 /** Apply one pane write; afterwards `activePaneId` names a pane on screen. */
 export function commitViewWrite<S extends ViewState>(state: S, recipe: (state: S) => void): void {
@@ -85,13 +79,9 @@ function promoteStage(state: ViewState, projectId: string): string {
   return id
 }
 
-/**
- * Add `pane` to the window. `split` carves it out of the target's share and
- * makes it a member of the target's view (a chat landing in the stage promotes
- * the stage); `view` mints a new record for it after `after`, or at the end.
- * Returns the view id the pane joined, `null` for stage/bottom, or undefined
- * when refused. Focus is the caller's decision.
- */
+/** `split` carves `pane` from the target into its view (a chat in the stage promotes it); `view`
+ *  mints a record after `after`. Returns the joined view id, null for stage/bottom, undefined
+ *  when refused. Focus is the caller's. */
 export function insertPane(
   state: ViewState,
   pane: PaneGroup,
@@ -149,11 +139,8 @@ function transferTabs(state: ViewState, closing: PaneGroup, survivorId: string):
   }
 }
 
-/**
- * Take `paneId` out of the window. Its editor tabs go to the pane that takes
- * its place; a view left without a chat is removed with it (invariant 2); an
- * emptied stage or bottom tray is reseeded with one empty pane.
- */
+/** Its tabs go to the pane taking its place; a view left chatless goes too (invariant 2); an
+ *  emptied stage or bottom tray is reseeded with one empty pane. */
 export function removePane(state: ViewState, paneId: string): void {
   const pane = state.panes[paneId]
   const home = homeOf(state, paneId)
@@ -186,11 +173,8 @@ export function removePane(state: ViewState, paneId: string): void {
   }
 }
 
-/**
- * Re-home an existing pane: as a split of a target (joining the target's
- * view), or as a new record of the same project placed after `after`. The
- * view it left is removed when that took its last chat.
- */
+/** Re-home a pane as a split of a target (joining its view) or as a new record after `after`;
+ *  the view it left goes when that took its last chat. */
 export function movePane(state: ViewState, paneId: string, at: InsertAt): boolean {
   const pane = state.panes[paneId]
   const from = homeOf(state, paneId)
@@ -249,11 +233,8 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
   return true
 }
 
-/**
- * A chat lands in a chatless pane — not a change of chat (invariant 5). A
- * stage pane promotes the stage into a record of `projectId`. Returns the
- * view the pane belongs to, or undefined when refused.
- */
+/** A chat lands in a chatless pane, never replacing one (invariant 5); a stage pane promotes
+ *  the stage to a record of `projectId`. Returns the pane's view, or undefined when refused. */
 export function fillPane(
   state: ViewState,
   paneId: string,

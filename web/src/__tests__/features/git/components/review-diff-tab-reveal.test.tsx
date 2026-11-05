@@ -77,9 +77,6 @@ beforeEach(() => {
 
 describe('ReviewDiffTab — reveal a file from the sidebar', () => {
   it('scrolls the surface to the path the changed-files tree asked for', async () => {
-    // The regression: this used to resolve a `path:index` key against a
-    // whole-diff cache the surface stopped loading, so the click opened the tab
-    // and did nothing else.
     const store = createWorkspaceStore('w1')
     await renderTab(store)
 

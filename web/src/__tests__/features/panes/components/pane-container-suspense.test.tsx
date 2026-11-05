@@ -71,8 +71,7 @@ vi.mock('@/features/tabs/components/tab-bar', () => ({
 import { PaneContainer } from '@/features/panes/components/pane-container'
 
 function PaneHost() {
-  // Task 26: panes are window-level now — read off windowPaneStore, not the
-  // per-workspace WorkspaceStoreContext.
+  // Panes are window-level: read off windowPaneStore, not WorkspaceStoreContext.
   const panes = useStore(windowPaneStore, (s) => s.panes)
   const pane = panes[ROOT_PANE_ID]
   if (!pane) return null
@@ -115,12 +114,8 @@ describe('PaneContainer Suspense boundary', () => {
       )
     })
 
-    // The diff buffer is active and its lazy chunk is suspended (diffResource
-    // has not resolved). Before the fix, the terminal map lived INSIDE the
-    // same <Suspense> as the lazy switch, so this suspension would hide the
-    // fallback (null) for the whole boundary — including the statically
-    // imported, always-mounted TerminalPane sibling. Getting it here at all
-    // (not queryBy) is the assertion that catches the regression.
+    // The diff buffer's lazy chunk is suspended; the always-mounted TerminalPane must sit outside
+    // that Suspense boundary, so getBy (not queryBy) is the assertion.
     const terminalBefore = screen.getByTestId('terminal-marker')
     expect(terminalBefore).toHaveAttribute('data-session-id', 'pty-1')
     expect(screen.queryByTestId('diff-pane-content')).not.toBeInTheDocument()

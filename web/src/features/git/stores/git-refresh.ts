@@ -1,16 +1,8 @@
 import { create } from 'zustand'
 
-/**
- * Per-workspace git refresh signals — the store-backed replacement for the
- * old global `git-status-updated` / `git-status-changed` window events, which
- * made every mounted workspace reload on any save anywhere.
- *
- *  - `requested[wsId]` bumps when something local (a save, push/pull) knows
- *    the workspace's git status is stale. The workspace's git effect reloads.
- *  - `changed[wsId]` bumps after that workspace's status actually reloaded or
- *    the daemon reported a git change; views derived from git (review outline,
- *    changed-files summary) refetch on it.
- */
+// Per-workspace git signals, so a save reloads only its own workspace. `requested` bumps when
+// something local knows status is stale (the git effect reloads); `changed` bumps after a reload
+// or a daemon git change, and git-derived views refetch on it.
 interface GitRefreshState {
   requested: Record<string, number>
   changed: Record<string, number>

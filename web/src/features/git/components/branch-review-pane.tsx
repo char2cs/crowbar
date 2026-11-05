@@ -34,13 +34,8 @@ export function BranchReviewPane({
   const store = useWorkspaceStore()
   // The Files changed controls render into the tab row; the diff tab keeps their state.
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null)
-  // reviewBaseForWorkspace(wsId) — which getReview below resolves through —
-  // throws without a recorded owning chat id. The sidebar's chat-list fetch
-  // that records one races WorkspaceView's own (often faster) hydration, so on
-  // a workspace whose review tab auto-restores on activation this can still be
-  // null. Subscribing makes the id a piece of React state so `load` below can
-  // wait for it instead of firing early and having its catch set a permanent
-  // 'error' status — same fix as useWorkspaceEffects' useOwningChatId.
+  // getReview throws until the owning chat id is recorded, which can trail a restored review
+  // tab's mount. Subscribing lets `load` wait for it rather than fail into a permanent 'error'.
   const owningChatId = useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
     () => getOwningChatId(wsId),
@@ -92,11 +87,8 @@ export function BranchReviewPane({
     setView('files')
   }
 
-  // Load the composite review read model on mount: description, merge strategy
-  // and conversations. The DIFF no longer comes from here — the surface reads
-  // /review/files + /review/outline and fetches patches per file.
-  // Threads are not sourced here: the workspace's ws: scope keeps them in the
-  // entity store for as long as the workspace is mounted.
+  // The read model gives description, merge strategy and conversations only: the diff surface
+  // reads files/outline/patches itself, and threads stream in on the workspace's ws: scope.
   const load = useCallback(async () => {
     const actions = store.getState()
     actions.setBranchReviewDiffStatus('loading')
@@ -106,9 +98,7 @@ export function BranchReviewPane({
       a.setBranchReviewDescription(review.description)
       a.setBranchReviewMergeStrategy(review.mergeStrategy)
       a.setBranchReviewConversations(review.conversations)
-      // Deliberately NOT storing review.diff. The pane renders from the
-      // files summary + outline now; keeping the composite's line-level diff
-      // would re-import the very payload this phase removed.
+      // review.diff is not stored: holding the line-level diff is what windowing avoids.
     } catch {
       store.getState().setBranchReviewDiffStatus('error')
     }
