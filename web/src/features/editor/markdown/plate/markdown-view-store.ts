@@ -19,10 +19,8 @@ export const useMarkdownViewStore = create<MarkdownViewState>((set) => ({
         [bufferId]: (s.views[bufferId] ?? 'rich') === 'rich' ? 'source' : 'rich',
       },
     })),
-  // Called when a buffer closes (buffer-slice's closeBuffer) so `views` doesn't
-  // accumulate an entry per markdown file ever opened. Returns the SAME state
-  // when there's nothing to drop, so the common "closed a non-markdown buffer"
-  // case doesn't churn a new object through every subscriber.
+  // Called on buffer close so `views` doesn't grow per markdown file ever opened. Returns the same
+  // state when nothing drops, so closing a non-markdown buffer doesn't notify every subscriber.
   clearView: (bufferId) =>
     set((s) => {
       if (!(bufferId in s.views)) return s

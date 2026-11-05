@@ -4,19 +4,9 @@ import { useEffect, useState } from 'react'
 import { createPlatePlugin, PlateElement, type PlateElementProps } from 'platejs/react'
 import { loadLocalImage, useMarkdownAsset } from './markdown-asset'
 
-/**
- * Renders markdown `![alt](src "title")` images. @platejs/markdown already
- * deserializes an mdast `image` into a Plate `img` node (`{ type:'img', url,
- * caption }`, alt stored as `caption`) and serializes it back — but this editor
- * ships no image kit, so that node had no component and was dropped. This adds
- * the missing renderer only; the markdown conversion stays @platejs's, so
- * `![alt](url)` round-trips byte-for-byte.
- *
- * Inline VOID element (an mdast `image` is phrasing — it can sit inside a
- * paragraph next to text), rendered as a real `<img>`. Local `src`s (README
- * screenshots/logos) resolve against the file's folder and load as data URLs,
- * exactly like the raw-HTML `<img>` path; remote/`data:` srcs load themselves.
- */
+/** Renderer for the `img` node @platejs/markdown already converts to and from `![alt](src)`
+ *  (alt as `caption`); without it this editor dropped images. Local srcs load as data URLs
+ *  against the file's folder, like the raw-HTML `<img>` path. */
 export interface MarkdownImageNode {
   type: 'img'
   url?: string
@@ -29,15 +19,8 @@ export function captionToAlt(caption: MarkdownImageNode['caption']): string {
   return typeof caption === 'string' ? caption : ''
 }
 
-/**
- * `url`, resolved against the current `MarkdownAssetContext` if there is one
- * (a local image loads as a data URL; a remote/`data:` src or the absence of
- * an asset context just returns `url` unchanged). Extracted from
- * `MarkdownImageElement` so `ChatAttachmentImageElement` (chat-markdown-
- * image-node.tsx) — which needs the SAME resolution but different chrome
- * around the `<img>` itself (a drag handle, a max-height cap) — doesn't have
- * to duplicate it.
- */
+/** `url` resolved against the current `MarkdownAssetContext` (a local image becomes a data URL;
+ *  otherwise `url` unchanged). Shared with ChatAttachmentImageElement, which differs in chrome. */
 export function useResolvedImageSrc(url: string): string {
   const asset = useMarkdownAsset()
   const [resolvedSrc, setResolvedSrc] = useState(url)
@@ -79,20 +62,15 @@ export function MarkdownImageElement(props: PlateElementProps) {
   )
 }
 
-/**
- * Inline void `img` element plugin — supplies the renderer for the `img` node
- * @platejs/markdown already emits. No markdown rules: the built-in
- * image↔markdown conversion is what keeps `![alt](url)` round-tripping.
- */
+/** Void `img` element plugin: the renderer only. No markdown rules, since the built-in
+ *  conversion is what keeps `![alt](url)` round-tripping. */
 export const MarkdownImageKit = [
   createPlatePlugin({
     key: 'img',
     node: {
       isElement: true,
-      // Block, matching how @platejs deserializes an `image` (it lifts one out
-      // of a paragraph into its own block). An image alone on a line — the
-      // common README case — round-trips exactly; an image inline among text is
-      // promoted to its own line, a harmless reflow, never dropped.
+      // Block, as @platejs deserializes an `image`: one alone on a line round-trips exactly, one
+      // among text is promoted to its own line, never dropped.
       isVoid: true,
       component: MarkdownImageElement,
     },
