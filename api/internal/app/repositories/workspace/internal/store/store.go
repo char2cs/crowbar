@@ -18,7 +18,7 @@ import (
 // below, which the delete reactor's ordering gate needs because it reflects only the DURABLE projection.
 type Store interface {
 	// List returns the durable projection at state/store/workspace.db DIRECTLY,
-	// WITHOUT lazy Replay repair. The boot orphan-sweep uses this path (spec §3.8)
+	// WITHOUT lazy Replay repair. The boot orphan-sweep uses this path
 	// so boot pays no replay and a lost model reaps nothing.
 	List(
 		ctx context.Context,
@@ -62,7 +62,7 @@ type service struct {
 
 // New builds the workspace read model over st, which the instance ax already
 // delivers to as a durable subscriber (projections.Subscriber). es is the log
-// ax wraps, kept so ListOrRebuild can enumerate its aggregates (§3.7).
+// ax wraps, kept so ListOrRebuild can enumerate its aggregates.
 func New(
 	st *projections.Store,
 	es asynxModels.Store,
@@ -96,7 +96,7 @@ func (s *service) List(
 
 // Get returns the durable read-model row for id (nil when absent), delegating to
 // the save-only store projection — the persisted view the delete reactor's
-// ordering gate observes (spec §3.6).
+// ordering gate observes.
 func (s *service) Get(
 	ctx context.Context,
 	id string,

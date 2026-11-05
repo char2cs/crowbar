@@ -27,7 +27,7 @@ type outgoing struct {
 }
 
 // connection orders every frame for one client. Live frames are bounded by
-// QueueSize; every frame, snapshots too, by HardQueueSize (index R8).
+// QueueSize; every frame, snapshots too, by HardQueueSize.
 type connection struct {
 	conn Conn
 	// scopes is what this connection holds, guarded by the hub's lock.

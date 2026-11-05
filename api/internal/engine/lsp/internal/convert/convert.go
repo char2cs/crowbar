@@ -1,5 +1,5 @@
 // Package convert translates between LSP wire types and the Crowbar domain
-// DTOs defined in internal/domain/lsp (10 §6). Each mapping is a small,
+// DTOs defined in internal/domain/lsp. Each mapping is a small,
 // pure function with no side effects.
 package convert
 

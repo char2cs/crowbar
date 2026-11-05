@@ -1,4 +1,4 @@
-// Package mutate performs structural filesystem mutations: create, copy, rename, delete (05 §4).
+// Package mutate performs structural filesystem mutations: create, copy, rename, delete.
 package mutate
 
 import (

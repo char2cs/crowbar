@@ -147,12 +147,12 @@ type Agent interface {
 	TransportFor(canonical string) string
 
 	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
-	// way (design spec P6b tag 2).
+	// way.
 	EventSurfaces(canonical string) []string
 
 	// SurfaceChannel is spec.Descriptor.SurfaceChannel, exposed the same
-	// narrow way: which delivery channel drives one SURFACE's facts (design
-	// spec 2.5's surfaces.<name>.channel), "" for an undeclared surface.
+	// narrow way: which delivery channel drives one SURFACE's facts
+	// (the descriptor's surfaces.<name>.channel), "" for an undeclared surface.
 	SurfaceChannel(surface string) string
 
 	// TelemetryChannel is where usage reports arrive; TelemetryOnSurface asks whether a chat on one

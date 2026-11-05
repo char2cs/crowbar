@@ -20,7 +20,7 @@ type Usecase interface {
 		in CreateChildInput,
 	) (domain.Workspace, error)
 	// CreateFromImport batch-imports branches as managed workspaces, PR-parented
-	// up to a protected/default root, creating missing ancestors (07 §import).
+	// up to a protected/default root, creating missing ancestors.
 	CreateFromImport(ctx context.Context, in ImportInput, p ImportProgress) error
 	MergeIntoParent(
 		ctx context.Context,
@@ -52,7 +52,7 @@ type Usecase interface {
 	) (domain.Workspace, error)
 	// DetachHolder frees a live holder off the placeholder's branch (with the
 	// caller's consent), clears the home row's branch when the holder is the repo
-	// home, then Retry-provisions in place (spec §3.5/§3.7).
+	// home, then Retry-provisions in place.
 	DetachHolder(
 		ctx context.Context,
 		wsID string,
@@ -141,7 +141,7 @@ func WithTerminalReaper(r TerminalReaper) Option {
 
 // New builds the hierarchy usecase. repos resolves a workspace's repository main
 // path (via RepoID) so worktree removal and branch deletion run against the repo,
-// never against a child's own worktree (07 §5).
+// never against a child's own worktree.
 func New(
 	workspaces workspace.Workspace,
 	git enginegit.Engine,

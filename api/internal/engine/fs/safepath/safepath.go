@@ -26,7 +26,7 @@ var ErrDanglingSymlink = problem.New(problem.InvalidArgument, "symlink target do
 
 // ErrFileTooLarge is returned by the content reader when a file exceeds the
 // maxReadBytes cap (25 MiB). The api libs error mapper maps it to HTTP 413
-// Request Entity Too Large (hardening finding R16).
+// Request Entity Too Large.
 var ErrFileTooLarge = problem.New(problem.TooLarge, "file too large")
 
 // Resolve validates rel is a safe path inside root and returns filepath.Join(root, rel). Lexically rel

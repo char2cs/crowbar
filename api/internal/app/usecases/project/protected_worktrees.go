@@ -82,7 +82,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 		return u.createPlaceholderWorkspace(ctx, repo, branch, wsID, outcome.HeldByPath)
 	}
 	// Free: provision the managed worktree at its human-readable derived path
-	// <home>/projects/<project>/<slug>/<branch> (spec §3.9).
+	// <home>/projects/<project>/<slug>/<branch>.
 	slug := worktreepath.RemoteSlug(repo)
 	siblings, err := worktreepath.SiblingRoots(crowbarHome, repo.ProjectID, slug)
 	if err != nil {

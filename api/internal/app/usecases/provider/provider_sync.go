@@ -38,7 +38,7 @@ type Engine interface {
 
 // Usecase polls the provider for a workspace and applies the result
 // via SyncProviderState. PollWorkspace is the on-view trigger; SyncFromState is
-// the background-sweep callback (08 §5).
+// the background-sweep callback.
 type Usecase interface {
 	// PollWorkspace loads the workspace, calls PollOnView, and applies the result.
 	PollWorkspace(

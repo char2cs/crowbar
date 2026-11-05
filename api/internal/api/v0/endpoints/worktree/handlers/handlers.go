@@ -62,13 +62,13 @@ type Hierarchy interface {
 		rootID string,
 		consent domain.DeleteConsent,
 	) error
-	// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
+	// RetryProvision re-provisions a placeholder workspace in place.
 	RetryProvision(
 		ctx context.Context,
 		wsID string,
 	) (domain.Workspace, error)
 	// DetachHolder frees the placeholder's branch from its holder (with consent),
-	// then re-provisions in place (spec §3.5/§3.7).
+	// then re-provisions in place.
 	DetachHolder(
 		ctx context.Context,
 		wsID string,

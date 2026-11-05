@@ -75,8 +75,7 @@ const (
 	ChannelHooks = spec.ChannelHooks
 )
 
-// Surface is which VIEW an event is worth ingesting on — design spec P6b
-// tag 2.
+// Surface is which VIEW an event is worth ingesting on.
 const (
 	SurfaceChat     = spec.SurfaceChat
 	SurfaceTerminal = spec.SurfaceTerminal

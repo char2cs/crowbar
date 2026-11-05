@@ -16,7 +16,7 @@ const (
 )
 
 // Workspace is the git-worktree aggregate; the single source of truth for the
-// sidebar row (00 §5.3). Mutated only through Asynx commands.
+// sidebar row. Mutated only through Asynx commands.
 type Workspace struct {
 	ID           string `json:"id"`
 	RepoID       string `json:"repoId"`

@@ -73,7 +73,7 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 
 // lockRepo takes the exclusive write lock for repoPath's clone, for any
 // operation that mutates the working tree, index, refs, or touches the
-// network (07 §3.1).
+// network.
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
 	return timedLock(mu.Lock, mu.Unlock, "lock.write")

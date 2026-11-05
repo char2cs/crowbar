@@ -50,7 +50,7 @@ func WithTimeout(
 }
 
 // Reconciler dispatches deduplicated, one-shot, background reconcile tasks off
-// the per-id read path (spec §3.8). OnOpen is safe for concurrent use.
+// the per-id read path. OnOpen is safe for concurrent use.
 type Reconciler struct {
 	derive    DeriveFunc
 	sendWait  SendWaitFunc

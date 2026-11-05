@@ -116,7 +116,7 @@ func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, f
 	var blob []byte
 	if force && !s.IsIdle() {
 		// Force-suspend of a LIVE app: teardown + notice + serialize in one session-lock
-		// hold so no live chunk can re-alt the model between them (§11.2).
+		// hold so no live chunk can re-alt the model between them.
 		blob = s.ForceSuspendSnapshot(
 			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n"),
 		)

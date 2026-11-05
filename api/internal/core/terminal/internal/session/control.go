@@ -31,7 +31,7 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 	cl := &client{send: make(chan OutputFrame, clientSendBuf)}
 
 	if s.model != nil {
-		// Sample the foreground-reset detector before serializing (§11.1 site #2) so a
+		// Sample the foreground-reset detector before serializing so a
 		// re-attach inside the pumpStep debounce window of a SIGKILLed app never bakes its
 		// stale alt/mouse modes into the new client.
 		s.checkForegroundResetLocked()

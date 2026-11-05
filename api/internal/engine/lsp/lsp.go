@@ -228,7 +228,7 @@ const restartTimeout = 30 * time.Second
 
 // DefaultRequestTimeout bounds each synchronous LSP feature request and each
 // document-sync notification. A wedged language server degrades to a timeout
-// error instead of hanging the handler goroutine forever (10 §5).
+// error instead of hanging the handler goroutine forever.
 const DefaultRequestTimeout = 10 * time.Second
 
 type engine struct {

@@ -147,7 +147,7 @@ func New(
 		return nil, c.abandon(ctx, err)
 	}
 	// After Recover, so these runs are not marked interrupted; settled before
-	// anything is served (invariant D5), each a recorded operation.
+	// anything is served, each a recorded operation.
 	if err := resumeDeletes(ctx, ucs.ProjectDelete, c.Operations); err != nil {
 		return nil, c.abandon(ctx, err)
 	}
@@ -313,7 +313,7 @@ func reconcileAgentRunners(
 	}
 }
 
-// startOwningChatReconcile runs the D4 boot reconcile (owning_chats_reconcile.go)
+// startOwningChatReconcile runs the owning-chat boot reconcile (owning_chats_reconcile.go)
 // SYNCHRONOUSLY, before anything is served. A listing failure is logged: the
 // daemon still boots, and the next boot tries again.
 func startOwningChatReconcile(

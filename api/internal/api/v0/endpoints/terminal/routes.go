@@ -20,7 +20,7 @@ func Register(
 
 	// GET .../terminals lists the chat's OWN live sessions. POST creates (201
 	// {sessionId}); DELETE kills (200). The raw PTY stream is co-located at
-	// .../terminals/:sessionId/ws (W7-2).
+	// .../terminals/:sessionId/ws.
 	chatScoped.GET("/terminals", h.ListSessions)
 	chatScoped.POST("/terminals", h.CreateSession)
 	chatScoped.DELETE("/terminals/:sessionId", h.KillSession)

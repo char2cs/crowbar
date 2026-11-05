@@ -5,16 +5,16 @@ import (
 )
 
 // ErrParentLocked is returned when a merge targets a locked parent workspace.
-// Locked parents (protected branches) may not receive local merges (07 §3.1).
+// Locked parents (protected branches) may not receive local merges.
 var ErrParentLocked = problem.New(problem.Conflict, "usecases: parent is locked")
 
 // ErrRebaseNonLeaf is returned when a rebase-strategy merge is requested for a
 // child that has its own children; rebasing would rewrite SHAs the descendants
-// fork from, so it is forbidden for non-leaf children (07 §3.1).
+// fork from, so it is forbidden for non-leaf children.
 var ErrRebaseNonLeaf = problem.New(problem.Conflict, "usecases: rebase forbidden for non-leaf child")
 
 // ErrChildHasChildren is returned when a re-parent is requested for a child that
-// is not a leaf; only leaf workspaces may be re-parented (07 §4).
+// is not a leaf; only leaf workspaces may be re-parented.
 var ErrChildHasChildren = problem.New(problem.Conflict, "usecases: child has children")
 
 // ErrCrossRepoWorktreeMove is returned when a re-parent would move a worktree-owning child under a parent

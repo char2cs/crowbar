@@ -25,7 +25,7 @@ import (
 var newModel = model.New
 
 // defaultScrollbackLines is the scrollback depth a create/restore with no explicit
-// value resolves to — mirroring the frontend's terminalScrollback default (§9.1).
+// value resolves to — mirroring the frontend's terminalScrollback default.
 const defaultScrollbackLines = 10000
 
 // responseReplyBufDepth bounds the device-query reply queue between the model's sink and the
@@ -268,7 +268,7 @@ func (s *Session) startResponseSink(
 }
 
 // resolveBirth returns the size, scrollback depth, and restore redraw bytes for a spawn,
-// applying the §9.1 defaults (80×24, scrollback 10000) and, for the restore path, parsing
+// applying the defaults (80×24, scrollback 10000) and, for the restore path, parsing
 // the CRWB1 header.
 func (s *Session) resolveBirth(
 	p spawnParams,
@@ -321,7 +321,7 @@ func resolveScrollback(
 
 // parseBlob splits a persisted blob into its CRWB1 header fields and the redraw body. A
 // malformed/absent header (including a stale raw .buf) returns zero size and a nil body,
-// which resolveBirth treats as an empty session at the default size (§12, no migration).
+// which resolveBirth treats as an empty session at the default size (no migration).
 func parseBlob(
 	blob []byte,
 ) (cols, rows, scrollbackLines int, body []byte) {

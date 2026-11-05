@@ -37,7 +37,7 @@ func asNotFound(
 
 // Usecase assembles and mutates the branch-review surface (09).
 type Usecase interface {
-	// Get assembles the composite branch-review read model for a workspace (09 §2).
+	// Get assembles the composite branch-review read model for a workspace.
 	Get(
 		ctx context.Context,
 		wsID string,
@@ -94,24 +94,24 @@ type Usecase interface {
 		query string,
 		opts gitdomain.SearchOpts,
 	) ([]gitdomain.SearchHit, bool, error)
-	// SetMergeStrategy updates the merge strategy for a workspace (09 §4).
+	// SetMergeStrategy updates the merge strategy for a workspace.
 	SetMergeStrategy(
 		ctx context.Context,
 		wsID string,
 		strategy gitdomain.MergeStrategy,
 	) error
-	// OpenThread opens a new review thread anchored to a file location (09 §3).
+	// OpenThread opens a new review thread anchored to a file location.
 	OpenThread(
 		ctx context.Context,
 		in OpenThreadInput,
 	) (domain.ReviewThread, error)
-	// Reply appends a reply message to an existing review thread (09 §3).
+	// Reply appends a reply message to an existing review thread.
 	Reply(
 		ctx context.Context,
 		threadID string,
 		body string,
 	) (domain.ReviewThread, error)
-	// SetThreadResolved marks a review thread resolved or reopens it (09 §3).
+	// SetThreadResolved marks a review thread resolved or reopens it.
 	SetThreadResolved(
 		ctx context.Context,
 		threadID string,

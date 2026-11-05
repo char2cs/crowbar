@@ -28,7 +28,7 @@ type Usecase interface {
 
 	// TouchProjectActivity is a best-effort lastActivity roll-up: it looks up
 	// the repo's projectId, updates the project row, and logs any failure
-	// without returning it (00 §5.1).
+	// without returning it.
 	TouchProjectActivity(
 		ctx context.Context,
 		repoID string,
@@ -196,7 +196,7 @@ func (u *projectUsecase) Get(
 
 // TouchProjectActivity is a best-effort lastActivity roll-up: it looks up the
 // repo's projectId, updates the project row, and logs any failure without
-// returning it (00 §5.1).
+// returning it.
 func (u *projectUsecase) TouchProjectActivity(
 	ctx context.Context,
 	repoID string,

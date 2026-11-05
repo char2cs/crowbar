@@ -10,7 +10,7 @@ import (
 // reviewReads is the branch-review surface of Engine: diffs against a base ref, read
 // per file and streamed so a huge branch is never held whole.
 type reviewReads interface {
-	// RangeDiff returns the three-dot diff between base and branch (09 §2).
+	// RangeDiff returns the three-dot diff between base and branch.
 	// Uses `git diff -M <base>...<branch>` to show commits reachable from
 	// branch but not from base. Commit metadata fields are always zero-value.
 	RangeDiff(

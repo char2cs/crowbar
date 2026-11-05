@@ -45,7 +45,7 @@ func (c *Container) QuiesceReactors(
 	}
 }
 
-// wireCallbacks registers the cross-aggregate reactions (spec §3.6): the workspace
+// wireCallbacks registers the cross-aggregate reactions: the workspace
 // delete reactor with the forgetDependents cascade and the worktree remover, all
 // joined to the drain gate Drain() hands the app layer's ordered shutdown.
 func (c *Container) wireCallbacks(
@@ -92,9 +92,9 @@ func (c *Container) forgetReviewThreads(
 	return nil
 }
 
-// forgetDependents removes what a deleted workspace owns besides its root on disk
-// (invariant D5). Each step tolerates what an interrupted run already removed, so
-// a re-drive converges; any other failure leaves the tombstone for the next one.
+// forgetDependents removes what a deleted workspace owns besides its root on disk.
+// Each step tolerates what an interrupted run already removed, so a
+// re-drive converges; any other failure leaves the tombstone for the next one.
 func (c *Container) forgetDependents(
 	ctx context.Context,
 	wsID string,

@@ -46,8 +46,8 @@ func chatDetailPath(
 	return repoScopePath(projectID, repoID, "/chats/"+chatID)
 }
 
-// flatChatPath addresses the shared-bucket surface spec §4.2 moved off the
-// workspace group entirely (git, files, review, search, identity, editor/LSP):
+// flatChatPath addresses the shared-bucket surface that lives off the
+// workspace group (git, files, review, search, identity, editor/LSP):
 // no project/repo prefix, just the chat that owns the worktree.
 func flatChatPath(
 	chatID string,

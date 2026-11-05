@@ -141,8 +141,8 @@ func (u *hierarchyUsecase) handleMergeError(
 			}
 		}
 	}
-	// A local merge/rebase conflict transitions the child to Status=pr-conflicts
-	// (07 §3.1, 00 §6.1): the HasConflicts sync input drives the status enum.
+	// A local merge/rebase conflict transitions the child to Status=pr-conflicts:
+	// the HasConflicts sync input drives the status enum.
 	_, err := u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
 		ID:           child.ID,
 		HasConflicts: true,

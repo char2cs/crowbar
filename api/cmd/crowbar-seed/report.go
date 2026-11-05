@@ -64,7 +64,7 @@ func (r *report) noteThreads(
 func (r *report) write() error {
 	// The route names the WORKSPACE the feature chat owns, not the chat itself:
 	// the frontend's /ide/:projectId/:repoId/:wsId route predates chat-scoping
-	// and was not part of this refactor (spec §8 step 6 left it alone).
+	// and was not part of this refactor.
 	route := fmt.Sprintf("/ide/%s/%s/%s", r.project.ID, r.repo.ID, r.workspace.WorkspaceID)
 	_, err := fmt.Fprintf(r.out, `
 Crowbar dev instance seeded.

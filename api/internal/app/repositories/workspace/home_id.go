@@ -14,7 +14,7 @@ func ProjectHomeID(projectID string) string {
 }
 
 // RepoHomeID derives a repo's home (IsDefault) workspace id from the repo id, for
-// ProjectHomeID's reason (invariant D2); namespaced apart from the project home's.
+// ProjectHomeID's reason; namespaced apart from the project home's.
 func RepoHomeID(repoID string) string {
 	return uuid.NewSHA1(homeWorkspaceNamespace, []byte("repo-home:"+repoID)).String()
 }

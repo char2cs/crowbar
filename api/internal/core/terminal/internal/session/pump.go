@@ -15,10 +15,10 @@ import (
 
 // foregroundSampleInterval debounces the per-chunk foreground-process-group sample so
 // the TIOCGPGRP ioctl (and the app-death-edge model teardown) stays off the hot path
-// while still converging within ~¼ s of an app exiting (§11.1 sampling site #1).
+// while still converging within ~¼ s of an app exiting.
 const foregroundSampleInterval = 250 * time.Millisecond
 
-// minEmitInterval is the model-driven frame clock (spec §3.3): interactive
+// minEmitInterval is the model-driven frame clock: interactive
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
 
@@ -36,7 +36,7 @@ func (s *Session) pumpStep(chunk []byte) {
 	if ok {
 		s.cwd = path
 	}
-	// Model-driven (spec §3.1): the model is written FIRST and clients receive the
+	// Model-driven: the model is written FIRST and clients receive the
 	// model-derived frame the frame clock schedules for it.
 	s.writeModelLocked(chunk)
 	s.scheduleEmitLocked()
@@ -170,7 +170,7 @@ func (s *Session) emitFrameLocked() {
 	}
 }
 
-// emitLocked / primeLocked wrap the emitter in the same §8.5 recover backstop as every
+// emitLocked / primeLocked wrap the emitter in the same recover backstop as every
 // other model access. A panic rebuilds the model; emitLocked then asks for a keyframe of it.
 func (s *Session) emitLocked() (data []byte, needKeyframe bool) {
 	defer func() {
@@ -207,7 +207,7 @@ func (s *Session) writeModelLocked(chunk []byte) {
 
 // serializeLocked renders the model's ground-state redraw. A Serialize that panics gets
 // the model rebuilt and the (blank) fresh model serialized instead, so a caller always
-// has a truthful keyframe to send (§8.5). Caller holds s.mu.
+// has a truthful keyframe to send. Caller holds s.mu.
 func (s *Session) serializeLocked() []byte {
 	if redraw, ok := s.trySerializeLocked(); ok {
 		return redraw
@@ -228,7 +228,7 @@ func (s *Session) trySerializeLocked() (redraw []byte, ok bool) {
 
 // mutateModelLocked runs a void model mutation under the same recover backstop as the
 // Write/Serialize paths, so a Resize-drain or teardown panic rebuilds the model instead of
-// escaping (§8.5). Caller holds s.mu.
+// escaping. Caller holds s.mu.
 func (s *Session) mutateModelLocked(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {

@@ -152,7 +152,7 @@ func (c *Container) WaitQuiescent() {
 }
 
 // enrichFrame adds the overlays the aggregate lacks — Working (an agent chat
-// mid-turn) and merge eligibility (spec §10) — in the ONE place the hub
+// mid-turn) and merge eligibility — in the ONE place the hub
 // projection and the agent-turn rebroadcasts share, so their frames agree.
 func (c *Container) enrichFrame(
 	ctx context.Context,

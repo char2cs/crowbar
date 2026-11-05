@@ -117,7 +117,7 @@ func (e *terminalEngine) flushOnce(ctx context.Context, ent *sessionEntry) {
 	if err != nil || dir == "" {
 		return
 	}
-	// Snapshot consumes the dirty bit; an unchanged session skips the disk write (§8.4).
+	// Snapshot consumes the dirty bit; an unchanged session skips the disk write.
 	blob, changed := ent.sess.Load().Snapshot()
 	if !changed {
 		return
@@ -246,7 +246,7 @@ func (e *terminalEngine) enforceCeiling(ctx context.Context) {
 	oldestFirst(cs)
 
 	// Reclaimable cache first: ModelBytes counts each live session's cached blob, so the
-	// ceiling can be tripped purely by cache (§9.4).
+	// ceiling can be tripped purely by cache.
 	for _, c := range cs {
 		if s := c.ent.live(); s != nil {
 			s.DropCachedBlob()
@@ -294,7 +294,7 @@ func (e *terminalEngine) evict(ctx context.Context, ent *sessionEntry) {
 }
 
 // Stats returns a point-in-time snapshot of session counts, estimated model memory, and
-// the parse-health surface (§9.4) across all registered sessions.
+// the parse-health surface across all registered sessions.
 func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int) {
 	for _, ent := range e.snapshot() {
 		ent.mu.Lock()

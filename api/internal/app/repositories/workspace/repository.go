@@ -39,7 +39,7 @@ type SyncInput struct {
 	HasCommits   bool
 }
 
-// ProviderInput carries a provider poll result (08 §5).
+// ProviderInput carries a provider poll result.
 type ProviderInput struct {
 	ID             string
 	Protected      bool
@@ -115,7 +115,7 @@ type Workspace interface {
 		id string,
 		forkPointSha string,
 	) (domain.Workspace, error)
-	// ProvisionInPlace attaches a worktree to a placeholder row (spec §3.3): it
+	// ProvisionInPlace attaches a worktree to a placeholder row: it
 	// records worktreePath + forkPointSha and clears HeldByPath, keeping Status.
 	ProvisionInPlace(
 		ctx context.Context,
@@ -123,7 +123,7 @@ type Workspace interface {
 		worktreePath string,
 		forkPointSha string,
 	) (domain.Workspace, error)
-	// ClearBranch blanks an existing aggregate's Branch to "" (spec §4/B6),
+	// ClearBranch blanks an existing aggregate's Branch to "",
 	// leaving every other field untouched. Used by the Detach-holder op when the
 	// holder is the repo home.
 	ClearBranch(

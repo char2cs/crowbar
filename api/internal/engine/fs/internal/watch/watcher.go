@@ -1,5 +1,5 @@
 // Package watch watches a workspace recursively (inotify on Linux, FSEvents on
-// darwin) and runs the fan-out pipeline defined in 05 §5 and 03 §5.
+// darwin) and runs the change fan-out pipeline.
 package watch
 
 import (

@@ -304,8 +304,8 @@ func (m *vtModel) HeaderState() (cols, rows int, alt bool, scrollbackLines int) 
 }
 
 // ModelBytes estimates the model's resident size: the live grid plus the emulator's
-// retained scrollback cells, at bytesPerCell each. The middle "retained cell window"
-// term of §9.4 is the scrollback x/vt itself holds at this pin.
+// retained scrollback cells, at bytesPerCell each. The retained-cell term is the
+// scrollback x/vt itself holds at this pin.
 func (m *vtModel) ModelBytes() int64 {
 	cols, rows := m.emu.Width(), m.emu.Height()
 	sb := m.emu.ScrollbackLen()

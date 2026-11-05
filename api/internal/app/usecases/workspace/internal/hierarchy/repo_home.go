@@ -25,7 +25,7 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		// Deterministic: a concurrent second adopt of the same folder is refused
-		// by the aggregate itself rather than minting a second default (D2).
+		// by the aggregate itself rather than minting a second default.
 		ID:           workspace.RepoHomeID(in.RepoID),
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,

@@ -15,7 +15,7 @@ import (
 
 // Merge POST /v0/chats/:chatId/git/merge is a slow git op: it validates the
 // target branch synchronously (4xx) then returns 202 and runs the merge in the
-// background (00 §4).
+// background.
 func (h *Handlers) Merge(
 	ctx *gin.Context,
 ) {
@@ -40,7 +40,7 @@ func (h *Handlers) Merge(
 
 // Rebase POST /v0/chats/:chatId/git/rebase is a slow git op: it validates the
 // onto branch synchronously (4xx) then returns 202 and runs the rebase in the
-// background (00 §4).
+// background.
 func (h *Handlers) Rebase(
 	ctx *gin.Context,
 ) {

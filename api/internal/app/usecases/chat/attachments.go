@@ -13,7 +13,7 @@ import (
 // used — see chat/handlers.UploadAttachment.
 type UploadAttachmentInput struct {
 	// ID is the client-supplied shortid (nanoid); the backend never mints one
-	// (design spec: it may need to match an Excalidraw fence-tag id).
+	// (it may need to match an Excalidraw fence-tag id).
 	ID           string
 	OriginalName string
 	Data         []byte

@@ -8,7 +8,7 @@ import (
 )
 
 // gitStatusProvider adapts the git engine to the watch.GitStatusProvider
-// surface the file watcher consumes (05 §5). It exists to invert the dependency
+// surface the file watcher consumes. It exists to invert the dependency
 // so the watch package never imports the git engine directly.
 type gitStatusProvider struct {
 	engine enginegit.Engine

@@ -1,5 +1,5 @@
 // Package discover walks a directory tree looking for git repositories,
-// bounded by a caller-specified depth limit (00 §5.7).
+// bounded by a caller-specified depth limit.
 package discover
 
 import (

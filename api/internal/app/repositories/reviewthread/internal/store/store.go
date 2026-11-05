@@ -73,7 +73,7 @@ func Open(
 
 // New builds the read model over p, whose instance ax was built with
 // Subscriber(p), and registers the hub projection on ax. es is the log ax
-// wraps, kept so List can rebuild a lost model (§3.7).
+// wraps, kept so List can rebuild a lost model.
 func New(
 	p *Projection,
 	es asynxModels.Store,
@@ -87,8 +87,7 @@ func New(
 }
 
 // List returns the durable read model, first healing it via a whole-model lazy
-// Replay repair when the model is empty but the event log still holds aggregates
-// (spec §3.7, decision 7).
+// Replay repair when the model is empty but the event log still holds aggregates.
 func (s *service) List(
 	ctx context.Context,
 ) ([]domain.ReviewThread, error) {

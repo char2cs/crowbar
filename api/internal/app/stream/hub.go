@@ -52,14 +52,14 @@ type Hub struct {
 	sources map[stream.ScopeKind]Source
 	encode  Encoder
 
-	// mu orders every snapshot against every live frame (index R7).
+	// mu orders every snapshot against every live frame.
 	mu     sync.Mutex
 	seq    uint64
 	closed bool
 	conns  map[*connection]struct{}
 	scopes map[string]map[*connection]struct{}
 	refs   *refcount
-	// stamps is the newest frame each entity key carried (index R19).
+	// stamps is the newest frame each entity key carried.
 	stamps map[string]stamp
 	// reads are the snapshot reads in flight, which Close ends and waits out.
 	reads   sync.WaitGroup
@@ -258,7 +258,7 @@ func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
 }
 
 // subLocked snapshots and registers scope under the lock, so every live frame
-// after it carries a higher version (index R7). It answers whether c holds scope.
+// after it carries a higher version. It answers whether c holds scope.
 func (h *Hub) subLocked(ctx context.Context, c *connection, scope stream.Scope, src Source, since int64) bool {
 	name := scope.String()
 	h.mu.Lock()

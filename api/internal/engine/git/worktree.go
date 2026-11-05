@@ -85,7 +85,7 @@ type worktrees interface {
 
 	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
 	// created branch starting at startPoint, returning the resolved start SHA so
-	// callers can record it as forkPointSha (07 §1).
+	// callers can record it as forkPointSha.
 	WorktreeAddBranch(
 		ctx context.Context,
 		repoPath string,

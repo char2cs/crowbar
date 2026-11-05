@@ -20,11 +20,11 @@ import (
 
 // importMaxDepth bounds repo discovery to three directory levels below the
 // import root — deep enough for the org/group/repo layouts crowbar targets,
-// shallow enough to avoid descending into vendored or nested trees (00 §5.7).
+// shallow enough to avoid descending into vendored or nested trees.
 const importMaxDepth = 3
 
 // defaultBranchCandidates is the ordered fallback list when origin/HEAD and the
-// repo HEAD cannot resolve a default branch (00 §5.2).
+// repo HEAD cannot resolve a default branch.
 var defaultBranchCandidates = []string{"main", "develop", "master"}
 
 // Store is the project persistence surface the import usecase needs.
@@ -255,7 +255,7 @@ type ImportDeps struct {
 
 // ImportUsecase imports a directory tree as a Project: it creates the
 // Project row, discovers repos, persists a Repository per repo, and adopts each
-// existing git worktree as a Workspace row (00 §5.7).
+// existing git worktree as a Workspace row.
 type ImportUsecase interface {
 	Import(
 		ctx context.Context,
@@ -450,7 +450,7 @@ func (u *projectImport) CreateHome(
 	project domain.Project,
 ) (domain.Workspace, error) {
 	home, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
-		// Deterministic, so a project can never get two homes (invariant D2).
+		// Deterministic, so a project can never get two homes.
 		ID:           workspace.ProjectHomeID(project.ID),
 		ProjectID:    project.ID,
 		WorktreePath: project.Path,

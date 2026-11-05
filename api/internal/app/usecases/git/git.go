@@ -77,7 +77,7 @@ type ReadEngine interface {
 
 // Usecase is the lifecycle/read git surface over a workspace's worktree.
 // Read methods pass through; mutating methods additionally trigger a working-tree
-// resync (00 §5.3).
+// resync.
 type Usecase interface {
 	Status(
 		ctx context.Context,

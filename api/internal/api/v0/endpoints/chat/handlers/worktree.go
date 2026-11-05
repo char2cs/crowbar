@@ -346,7 +346,7 @@ func (s *worktreeScope) placementOf(
 
 // OwnerOf answers the chat that owns ws: the row that records ownership, or ""
 // when none does. It is a pure read — the boot reconcile gives every live
-// workspace its owner (invariant D4), so a read never has to mint one.
+// workspace its owner, so a read never has to mint one.
 func (h *Handlers) OwnerOf(
 	ctx context.Context,
 	ws domain.Workspace,

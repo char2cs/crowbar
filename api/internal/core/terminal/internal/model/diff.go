@@ -75,7 +75,7 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 // alt-screen flip, scrollback shrink, DECSTBM/DECOM change, anchor loss, or lines committed under an
 // already-active region/origin mode (the client's CUP+LF trick fails there).
 //
-//nolint:gocyclo // Emit is a linear sequence of independent bail-to-keyframe guards (§ ordering); decomposing them would obscure the documented step order without lowering real complexity.
+//nolint:gocyclo // Emit is a linear sequence of independent bail-to-keyframe guards; decomposing them would obscure the documented step order without lowering real complexity.
 func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	vm := m.(*vtModel)
 	cols, rows := vm.emu.Width(), vm.emu.Height()

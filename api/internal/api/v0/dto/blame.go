@@ -4,7 +4,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// BlameEntryDTO is the wire shape of a single blame annotation (04 §3): the
+// BlameEntryDTO is the wire shape of a single blame annotation: the
 // line number, the last-changing commit hash, the author identity, the commit
 // timestamp, and the commit subject.
 type BlameEntryDTO struct {

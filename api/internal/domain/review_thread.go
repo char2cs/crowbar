@@ -6,7 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ReviewThread is the branch-review comment-thread aggregate (00 §6.3, 09 §3).
+// ReviewThread is the branch-review comment-thread aggregate.
 // Messages are kept inside the aggregate because a thread is bounded.
 type ReviewThread struct {
 	ID         string `json:"id"`
@@ -23,7 +23,7 @@ type ReviewThread struct {
 	CreatedAt time.Time          `json:"createdAt"`
 }
 
-// IsResolved reports whether the thread is resolved (09 §3 read model).
+// IsResolved reports whether the thread is resolved.
 func (t ReviewThread) IsResolved() bool {
 	return t.Status == ReviewThreadStatusResolved
 }

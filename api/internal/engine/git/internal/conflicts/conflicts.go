@@ -27,7 +27,7 @@ func getFileMutex(absPath string) *sync.Mutex {
 	return actual.(*sync.Mutex)
 }
 
-// ConflictedFiles returns the paths of files that have merge conflicts (04 §6).
+// ConflictedFiles returns the paths of files that have merge conflicts.
 func ConflictedFiles(
 	ctx context.Context,
 	repoPath string,
@@ -66,7 +66,7 @@ func HasConflicts(
 }
 
 // ParseFile parses conflict markers in a file and fetches the common ancestor
-// (base) content from the git object store (:1:<path>) (04 §6).
+// (base) content from the git object store (:1:<path>).
 func ParseFile(
 	ctx context.Context,
 	repoPath string,
@@ -112,7 +112,7 @@ func ParseFile(
 
 // ResolveHunk writes resolved content to the file, replacing the conflict
 // markers for the given hunk. When no conflict markers remain in the file,
-// it also stages the file via `git add <path>` (04 §6).
+// it also stages the file via `git add <path>`.
 func ResolveHunk(
 	ctx context.Context,
 	repoPath string,

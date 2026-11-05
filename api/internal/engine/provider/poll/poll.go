@@ -11,11 +11,11 @@ import (
 )
 
 // GlobalCronInterval is the cadence of the daemon-wide background sweep that
-// polls every workspace with a live PR, even ones nobody is watching (D10/§11).
+// polls every workspace with a live PR, even ones nobody is watching.
 const GlobalCronInterval = 5 * time.Minute
 
 // PerConnectionInterval is the cadence of the forge poll the stream runs for a
-// workspace while a client holds its forge: scope (D10/§11).
+// workspace while a client holds its forge: scope.
 const PerConnectionInterval = 1 * time.Minute
 
 // perTargetTimeout bounds one target's pollFn (network subprocesses), so one hung remote
@@ -81,8 +81,8 @@ type Sweeper interface {
 	)
 }
 
-// NewSweeper creates a Sweeper with the default 5-minute global cron interval
-// (D10/§11). newSweeperWithInterval stays the test seam for a short interval.
+// NewSweeper creates a Sweeper with the default 5-minute global cron interval.
+// newSweeperWithInterval stays the test seam for a short interval.
 func NewSweeper(
 	pollFn PollFn,
 	onStateChange OnStateChangeFn,

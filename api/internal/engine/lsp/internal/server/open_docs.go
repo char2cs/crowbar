@@ -7,7 +7,7 @@ import (
 
 // OpenDocs is the content-free set of currently open document URIs for a
 // language server. Add/Remove/List are safe for concurrent use. The server
-// replays didOpen for every tracked URI on respawn (10 §3).
+// replays didOpen for every tracked URI on respawn.
 type OpenDocs struct {
 	mu   sync.Mutex
 	uris map[string]struct{}

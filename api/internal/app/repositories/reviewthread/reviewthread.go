@@ -131,7 +131,7 @@ func Subscriber(
 
 // New builds the repository over ax, which must have been built with
 // Subscriber(rm), and the hub broadcast fan-out. es is the log ax wraps,
-// kept so the read model can heal itself by lazy Replay (§3.7).
+// kept so the read model can heal itself by lazy Replay.
 func New(
 	ax asynx.Asynx[domain.ReviewThread],
 	es asynxModels.Store,
@@ -268,7 +268,7 @@ func (r *reviewThread) Get(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
-	// Per-id reads fold the aggregate directly from the event log (§3.7), so Get is
+	// Per-id reads fold the aggregate directly from the event log, so Get is
 	// always current and needs no read-model rebuild.
 	got, err := r.ax.Get(ctx, id)
 	if errors.Is(err, asynxModels.ErrNotFound) {

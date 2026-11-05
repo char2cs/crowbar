@@ -13,14 +13,14 @@ import (
 )
 
 // ProjectDTO is the wire shape of a Project: the org-level node grouping
-// repositories (00 §5.1).
+// repositories.
 type ProjectDTO struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
 	// Status carries the tombstone marker on the Project broadcast channel: ""
 	// for a live project, "deleted" for a removal frame so the FE entity cache
-	// drops it (00 §6, one-type-per-channel). Read-path DTOs leave it empty.
+	// drops it (one type per channel). Read-path DTOs leave it empty.
 	Status       string    `json:"status,omitempty"`
 	LastActivity time.Time `json:"lastActivity"`
 	// Order is the project's dense index in the sidebar.

@@ -307,7 +307,7 @@ func (s *Service) Replay(
 }
 
 // knownLocked is the operation already recorded under id, if any. Same key,
-// kind and subject is the same request whatever its body (R3).
+// kind and subject is the same request whatever its body.
 func (s *Service) knownLocked(
 	ctx context.Context,
 	id string,

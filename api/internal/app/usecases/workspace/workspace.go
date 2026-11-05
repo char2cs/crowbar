@@ -146,26 +146,26 @@ type Usecase interface {
 		siblings []domain.Workspace,
 	) []MergeEligibility
 
-	// CreateChild creates a worktree-backed (or workspace-only) child (07 §4.1).
+	// CreateChild creates a worktree-backed (or workspace-only) child.
 	CreateChild(
 		ctx context.Context,
 		in CreateChildInput,
 	) (domain.Workspace, error)
 	// CreateFromImport batch-imports branches as managed workspaces, PR-parented
-	// up to a protected/default root, creating missing ancestors (07 §import).
+	// up to a protected/default root, creating missing ancestors.
 	CreateFromImport(
 		ctx context.Context,
 		in ImportInput,
 		p ImportProgress,
 	) error
 	// MergeIntoParent runs a local child→parent merge under one of the three
-	// strategies (07 §3.1).
+	// strategies.
 	MergeIntoParent(
 		ctx context.Context,
 		childID string,
 		strategy gitdomain.MergeStrategy,
 	) (MergeResult, error)
-	// Reparent rebases a leaf child onto a new parent's tip (07 §4).
+	// Reparent rebases a leaf child onto a new parent's tip.
 	Reparent(
 		ctx context.Context,
 		childID string,
@@ -185,18 +185,18 @@ type Usecase interface {
 		childID string,
 	) (domain.Workspace, error)
 	// RetryProvision re-runs holder resolution + provisioning for an existing
-	// placeholder (spec §3.3).
+	// placeholder.
 	RetryProvision(
 		ctx context.Context,
 		wsID string,
 	) (domain.Workspace, error)
 	// DetachHolder frees a live holder off the placeholder's branch, then
-	// Retry-provisions in place (spec §3.5/§3.7).
+	// Retry-provisions in place.
 	DetachHolder(
 		ctx context.Context,
 		wsID string,
 	) (domain.Workspace, error)
-	// DeleteCascade removes rootID and its unlocked descendants (07 §5).
+	// DeleteCascade removes rootID and its unlocked descendants.
 	// Without consent it refuses over work that exists nowhere else.
 	DeleteCascade(
 		ctx context.Context,

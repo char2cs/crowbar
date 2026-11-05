@@ -70,7 +70,7 @@ func (u *projectUsecase) UpdateRepo(
 
 // getRepoNode reads repoID's own Node row. Every repo mints one at import
 // (importOneRepo), so a missing row is an error, never a zero-value to mint
-// on the first drag — all data is on the Node model (spec §6.3).
+// on the first drag — all data is on the Node model.
 func (u *projectUsecase) getRepoNode(
 	ctx context.Context,
 	repoID string,

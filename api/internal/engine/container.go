@@ -27,7 +27,7 @@ type Container struct {
 	Terminal engineterminal.Engine
 	// LSP is the LSP host facade. It is always non-nil; graceful absence (no
 	// server installed for a language) is signalled by empty results rather than
-	// errors (10 §5).
+	// errors.
 	LSP      enginelsp.Engine
 	Identity *enginegit.IdentityEngine
 	// DaemonAddress is the address the daemon bound (unix:// or tcp://). Callbacks

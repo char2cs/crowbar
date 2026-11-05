@@ -50,8 +50,8 @@ type Session struct {
 	// excluded from suspend/evict (SuspendEligible).
 	command bool
 	// lastBlob caches the last live-session serialized blob (header + redraw) so a
-	// cadence flush of an unchanged session reuses it and skips the grid render (§8.4).
-	// It is reclaimable under memory pressure (DropCachedBlob, §9.4).
+	// cadence flush of an unchanged session reuses it and skips the grid render.
+	// It is reclaimable under memory pressure (DropCachedBlob).
 	lastBlob []byte
 	// modelPanics counts recovered session-level model panics (each rebuilds the model), surfaced via Stats;
 	// vtModel.Write's own parse panics are not counted.
@@ -63,7 +63,7 @@ type Session struct {
 	// a rebuilt model answers queries through the same queue.
 	replySink func([]byte)
 	// lastForegroundPgid latches the previous foreground process-group sample so the
-	// app→shell return edge fires OnForegroundReset exactly once (§11.1).
+	// app→shell return edge fires OnForegroundReset exactly once.
 	lastForegroundPgid int
 	lastFgSampleAt     time.Time
 	// sampleForegroundLocked is the foreground probe pumpStep runs last; a field so a test can pin the

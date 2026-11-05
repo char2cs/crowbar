@@ -72,7 +72,7 @@ func (h *Hub) runFollow(ctx context.Context, c *connection, scope stream.Scope, 
 }
 
 // followed queues one frame of f's hold, if it still holds. The replay waits
-// for room in the queue (index R8); only live frames count toward the bound.
+// for room in the queue; only live frames count toward the bound.
 func (h *Hub) followed(ctx context.Context, c *connection, name string, f *follow, fr stream.Frame) {
 	if !f.synced && !c.await(ctx) {
 		return

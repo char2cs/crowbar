@@ -8,18 +8,18 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Engine is the full git operation surface (04 §2).
+// Engine is the full git operation surface.
 type Engine interface {
 	worktrees
 	reviewReads
 
-	// Status computes the current GitStatus for a workspace (04 §3).
+	// Status computes the current GitStatus for a workspace.
 	Status(
 		ctx context.Context,
 		repoPath string,
 	) (gitdomain.GitStatus, error)
 
-	// Diff returns the working-tree diff for a workspace (04 §3).
+	// Diff returns the working-tree diff for a workspace.
 	// If staged is true, returns the staged diff (--cached).
 	Diff(
 		ctx context.Context,
@@ -27,14 +27,14 @@ type Engine interface {
 		staged bool,
 	) ([]gitdomain.FileDiff, error)
 
-	// CommitDiff returns the diff for a single commit (04 §3).
+	// CommitDiff returns the diff for a single commit.
 	CommitDiff(
 		ctx context.Context,
 		repoPath string,
 		sha string,
 	) (gitdomain.MultiFileDiff, error)
 
-	// Log returns paginated git log from HEAD (04 §3).
+	// Log returns paginated git log from HEAD.
 	Log(
 		ctx context.Context,
 		repoPath string,
@@ -42,33 +42,33 @@ type Engine interface {
 		skip int,
 	) ([]gitdomain.Commit, error)
 
-	// Blame annotates each line of filePath with its last-changing commit (04 §3).
+	// Blame annotates each line of filePath with its last-changing commit.
 	Blame(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) ([]gitdomain.BlameEntry, error)
 
-	// Branches returns all branches (local + remote) (04 §3).
+	// Branches returns all branches (local + remote).
 	Branches(
 		ctx context.Context,
 		repoPath string,
 	) ([]gitdomain.Branch, error)
 
-	// Stashes returns all stash entries (04 §3).
+	// Stashes returns all stash entries.
 	Stashes(
 		ctx context.Context,
 		repoPath string,
 	) ([]gitdomain.Stash, error)
 
-	// StageFile stages a file (04 §5).
+	// StageFile stages a file.
 	StageFile(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) error
 
-	// StageHunk stages a single hunk identified by hunkID (04 §4, §5).
+	// StageHunk stages a single hunk identified by hunkID.
 	StageHunk(
 		ctx context.Context,
 		repoPath string,
@@ -76,14 +76,14 @@ type Engine interface {
 		hunkID string,
 	) error
 
-	// UnstageFile unstages a file (04 §5).
+	// UnstageFile unstages a file.
 	UnstageFile(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) error
 
-	// UnstageHunk unstages a single hunk identified by hunkID (04 §4, §5).
+	// UnstageHunk unstages a single hunk identified by hunkID.
 	UnstageHunk(
 		ctx context.Context,
 		repoPath string,
@@ -92,14 +92,14 @@ type Engine interface {
 	) error
 
 	// Discard discards changes to a file. Tracked-modified files use
-	// git restore; untracked files are removed (04 §5).
+	// git restore; untracked files are removed.
 	Discard(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) error
 
-	// Commit creates a commit with subject and optional body (04 §5).
+	// Commit creates a commit with subject and optional body.
 	Commit(
 		ctx context.Context,
 		repoPath string,
@@ -107,13 +107,13 @@ type Engine interface {
 		body string,
 	) error
 
-	// Push pushes the current branch (04 §5).
+	// Push pushes the current branch.
 	Push(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// Fetch fetches from the remote (04 §5).
+	// Fetch fetches from the remote.
 	Fetch(
 		ctx context.Context,
 		repoPath string,
@@ -142,7 +142,7 @@ type Engine interface {
 		branch string,
 	) error
 
-	// Pull runs git pull. mode is "merge" or "rebase" (04 §5).
+	// Pull runs git pull. mode is "merge" or "rebase".
 	Pull(
 		ctx context.Context,
 		repoPath string,
@@ -150,7 +150,7 @@ type Engine interface {
 	) error
 
 	// CreateBranch creates a branch. If switchTo is true, also checks it out.
-	// source is optional (empty = HEAD) (04 §5).
+	// source is optional (empty = HEAD).
 	CreateBranch(
 		ctx context.Context,
 		repoPath string,
@@ -159,7 +159,7 @@ type Engine interface {
 		switchTo bool,
 	) error
 
-	// RenameBranch renames a branch (04 §5).
+	// RenameBranch renames a branch.
 	RenameBranch(
 		ctx context.Context,
 		repoPath string,
@@ -167,56 +167,56 @@ type Engine interface {
 		newName string,
 	) error
 
-	// DeleteBranch deletes a branch with -d (safe) (04 §5).
+	// DeleteBranch deletes a branch with -d (safe).
 	DeleteBranch(
 		ctx context.Context,
 		repoPath string,
 		name string,
 	) error
 
-	// ForceDeleteBranch deletes a branch with -D (workspace teardown) (04 §5).
+	// ForceDeleteBranch deletes a branch with -D (workspace teardown).
 	ForceDeleteBranch(
 		ctx context.Context,
 		repoPath string,
 		name string,
 	) error
 
-	// SwitchBranch checks out an existing branch (04 §5).
+	// SwitchBranch checks out an existing branch.
 	SwitchBranch(
 		ctx context.Context,
 		repoPath string,
 		name string,
 	) error
 
-	// StashPush stashes the current changes. message is optional (04 §5).
+	// StashPush stashes the current changes. message is optional.
 	StashPush(
 		ctx context.Context,
 		repoPath string,
 		message string,
 	) error
 
-	// StashApply applies a stash without removing it (04 §5).
+	// StashApply applies a stash without removing it.
 	StashApply(
 		ctx context.Context,
 		repoPath string,
 		id string,
 	) error
 
-	// StashPop applies and removes a stash (04 §5).
+	// StashPop applies and removes a stash.
 	StashPop(
 		ctx context.Context,
 		repoPath string,
 		id string,
 	) error
 
-	// StashDrop removes a stash without applying (04 §5).
+	// StashDrop removes a stash without applying.
 	StashDrop(
 		ctx context.Context,
 		repoPath string,
 		id string,
 	) error
 
-	// Reset runs git reset with the given mode (soft|mixed|hard) (04 §5).
+	// Reset runs git reset with the given mode (soft|mixed|hard).
 	Reset(
 		ctx context.Context,
 		repoPath string,
@@ -224,28 +224,28 @@ type Engine interface {
 		commit string,
 	) error
 
-	// Merge merges branch into the current branch (04 §5); MergeCommit never
+	// Merge merges branch into the current branch; MergeCommit never
 	// fast-forwards, so the current branch always gains a merge commit.
 	Merge(ctx context.Context, repoPath, branch string) error
 	MergeCommit(ctx context.Context, repoPath, branch string) error
 
-	// Rebase rebases the current branch onto onto (04 §5).
+	// Rebase rebases the current branch onto onto.
 	Rebase(ctx context.Context, repoPath, onto string) error
 
-	// ConflictedFiles returns paths with merge conflicts (04 §6).
+	// ConflictedFiles returns paths with merge conflicts.
 	ConflictedFiles(
 		ctx context.Context,
 		repoPath string,
 	) ([]string, error)
 
-	// ConflictHunks parses three-way conflict view for a file (04 §6).
+	// ConflictHunks parses three-way conflict view for a file.
 	ConflictHunks(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) ([]gitdomain.ConflictHunk, error)
 
-	// ResolveHunk resolves a single conflict hunk (04 §6).
+	// ResolveHunk resolves a single conflict hunk.
 	ResolveHunk(
 		ctx context.Context,
 		repoPath string,
@@ -255,13 +255,13 @@ type Engine interface {
 		resolvedContent string,
 	) error
 
-	// OperationContinue finalizes an in-progress merge/rebase/pull (04 §6.1).
+	// OperationContinue finalizes an in-progress merge/rebase/pull.
 	OperationContinue(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// OperationAbort aborts an in-progress merge/rebase/pull (04 §6.1).
+	// OperationAbort aborts an in-progress merge/rebase/pull.
 	OperationAbort(
 		ctx context.Context,
 		repoPath string,
@@ -322,7 +322,7 @@ type Engine interface {
 		pairs []MergePair,
 	) []MergeVerdict
 
-	// RevParse resolves rev to a full commit SHA (07 §1 / §3.1).
+	// RevParse resolves rev to a full commit SHA.
 	RevParse(
 		ctx context.Context,
 		repoPath string,
@@ -330,7 +330,7 @@ type Engine interface {
 	) (string, error)
 
 	// MergeSquash runs `git merge --squash branch` then `git commit -m subject`
-	// inside the repo lock (07 §3.1). Returns ErrConflict on conflicts.
+	// inside the repo lock. Returns ErrConflict on conflicts.
 	MergeSquash(
 		ctx context.Context,
 		repoPath string,
@@ -340,7 +340,7 @@ type Engine interface {
 
 	// RebaseThenFFMerge replays childWorktree onto parentBranch then fast-forwards
 	// parentWorktree to childBranch as one locked unit, so the parent cannot advance
-	// between the two steps and break the --ff-only (07 §3.1).
+	// between the two steps and break the --ff-only.
 	RebaseThenFFMerge(
 		ctx context.Context,
 		childWorktree string,

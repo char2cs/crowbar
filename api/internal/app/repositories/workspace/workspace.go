@@ -35,8 +35,8 @@ type workspace struct {
 // Option configures the workspace repository at construction.
 type Option func(*workspace)
 
-// WithReconciler wires the reconcile-on-open trigger consulted by Get (spec
-// §3.8): the first per-id open dispatches a deduped background reconcile. Absent
+// WithReconciler wires the reconcile-on-open trigger consulted by Get: the
+// first per-id open dispatches a deduped background reconcile. Absent
 // it, Get is a pure read-model fold with no reconcile.
 func WithReconciler(
 	r ReconcileOnOpener,
@@ -48,7 +48,7 @@ func WithReconciler(
 
 // New builds the Workspace repository over axWorkspace, which must have been
 // built with Subscriber(rm). es is the log axWorkspace wraps, kept so the read
-// model can heal itself by lazy Replay after a loss (§3.7).
+// model can heal itself by lazy Replay after a loss.
 func New(
 	ax asynx.Asynx[domain.Workspace],
 	es asynxModels.Store,
@@ -140,7 +140,7 @@ func (w *workspace) Get(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	// Per-id reads fold the aggregate directly from the event log (§3.7), so Get
+	// Per-id reads fold the aggregate directly from the event log, so Get
 	// is always current and needs no read-model rebuild. asynx returns ErrNotFound
 	// for an unknown id, which handlers map to 404.
 	got, err := w.ax.Get(ctx, id)

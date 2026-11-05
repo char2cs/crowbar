@@ -1,5 +1,5 @@
 // Package defaultbranch resolves the default branch of a local git repository
-// without executing real git commands — callers inject a RefRunner (00 §5.2).
+// without executing real git commands — callers inject a RefRunner.
 package defaultbranch
 
 import "strings"

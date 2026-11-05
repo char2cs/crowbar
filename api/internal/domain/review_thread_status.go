@@ -1,6 +1,6 @@
 package domain
 
-// ReviewThreadStatus is the open↔resolved lifecycle (00 §6.3).
+// ReviewThreadStatus is the open↔resolved lifecycle.
 type ReviewThreadStatus string
 
 const (

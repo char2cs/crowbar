@@ -7,7 +7,7 @@ import (
 )
 
 // Snapshot returns the session's persisted blob and whether it changed since the last
-// flush (§8.4). It samples the foreground reset, reuses lastBlob when clean, otherwise
+// flush. It samples the foreground reset, reuses lastBlob when clean, otherwise
 // serializes header+redraw under one s.mu hold and clears the dirty bit in that same hold.
 func (s *Session) Snapshot() (blob []byte, changed bool) {
 	s.mu.Lock()
@@ -42,7 +42,7 @@ func (s *Session) ScreenText(since uint64) (text string, gen uint64, changed boo
 }
 
 // header builds the mandatory CRWB1 size line, sourced entirely from the model's
-// HeaderState so it never re-parses the stream (§12). Caller holds s.mu; only live sessions
+// HeaderState so it never re-parses the stream. Caller holds s.mu; only live sessions
 // (model != nil) call it.
 func (s *Session) header() string {
 	cols, rows, alt, sb := s.model.HeaderState()
@@ -110,7 +110,7 @@ func (s *Session) Health() (degraded bool, parsePanics int) {
 }
 
 // ModelBytes returns the session's estimated resident size for the engine's memory ceiling:
-// the model's grid+scrollback estimate plus the cached blob (§9.4) and the diff emitter's
+// the model's grid+scrollback estimate plus the cached blob and the diff emitter's
 // retained lastGrid estimate.
 func (s *Session) ModelBytes() int64 {
 	s.mu.Lock()
@@ -125,7 +125,7 @@ func (s *Session) ModelBytes() int64 {
 	return total
 }
 
-// DropCachedBlob reclaims the blob cache under memory pressure (§9.4 Phase-3 pre-step): it
+// DropCachedBlob reclaims the blob cache under memory pressure: it
 // nils lastBlob and marks the session dirty so the next Snapshot re-serializes a correct,
 // current blob. Returns the bytes reclaimed.
 func (s *Session) DropCachedBlob() int64 {

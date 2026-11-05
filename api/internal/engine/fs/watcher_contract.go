@@ -3,8 +3,7 @@ package fs
 import "github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 
 // Watcher is the per-workspace file watcher returned by Engine.NewWatcher. The
-// caller owns its Start (blocking) and Stop (idempotent) lifecycle (05 §5,
-// 03 §6).
+// caller owns its Start (blocking) and Stop (idempotent) lifecycle.
 type Watcher = watch.Watcher
 
 // ErrWatchLimit is a FileWatcher arm the OS refused for want of watch resources.
@@ -16,13 +15,13 @@ type FileWatcher = watch.FileWatcher
 
 // Dispatcher receives the watcher fan-out callbacks (OnFileChange, OnGitStatus,
 // OnSyncWorkingTreeState). The delivery layer implements it to broadcast and to
-// issue the SyncWorkingTreeState command (03 §5).
+// issue the SyncWorkingTreeState command.
 type Dispatcher = watch.Dispatcher
 
 // SyncInput carries the recomputed working-tree summary delivered to
-// Dispatcher.OnSyncWorkingTreeState (00 §5.3, 03 §5).
+// Dispatcher.OnSyncWorkingTreeState.
 type SyncInput = watch.SyncInput
 
 // GitStatusProvider recomputes GitStatus from live git state for the watcher.
-// The delivery layer adapts the git engine to it (05 §5).
+// The delivery layer adapts the git engine to it.
 type GitStatusProvider = watch.GitStatusProvider

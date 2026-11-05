@@ -7,7 +7,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Dispatcher receives the fan-out callbacks from the file watcher (05 §5, 03 §5).
+// Dispatcher receives the fan-out callbacks from the file watcher.
 // The API/app layer provides the implementation that broadcasts and issues
 // SyncWorkingTreeState commands.
 type Dispatcher interface {
@@ -32,7 +32,7 @@ type Dispatcher interface {
 }
 
 // SyncInput carries the recomputed workspace summary fields for a
-// SyncWorkingTreeState command (00 §5.3, 03 §5).
+// SyncWorkingTreeState command.
 type SyncInput struct {
 	WsID         string
 	Added        int

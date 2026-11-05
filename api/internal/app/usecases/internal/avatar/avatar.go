@@ -1,5 +1,5 @@
 // Package avatar generates deterministic avatar labels and colors for repos from
-// their names (00 §5.7). Pure functions — no state.
+// their names. Pure functions — no state.
 package avatar
 
 import (

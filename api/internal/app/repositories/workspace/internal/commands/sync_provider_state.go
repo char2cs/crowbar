@@ -9,9 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SyncProviderState applies a provider poll result: PR status + protected flag
-// (08 §5). It only ever writes pr-* statuses (never touches "new"; you cannot
-// have a PR without commits) and `locked` (00 §6.1).
+// SyncProviderState applies a provider poll result: PR status + protected flag.
+// It only ever writes pr-* statuses (never touches "new"; you cannot
+// have a PR without commits) and `locked`.
 type SyncProviderState struct {
 	ID             string
 	Protected      bool

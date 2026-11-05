@@ -10,7 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
+// RetryProvision re-provisions a placeholder workspace in place.
 func (u *hierarchyUsecase) RetryProvision(
 	ctx context.Context,
 	wsID string,

@@ -1,6 +1,6 @@
 package domain
 
-// FileNodeType distinguishes files from directories in the tree (05 §2).
+// FileNodeType distinguishes files from directories in the tree.
 type FileNodeType string
 
 const (
@@ -8,7 +8,7 @@ const (
 	FileNodeTypeDirectory FileNodeType = "directory"
 )
 
-// FileNodeGitStatus is the git decoration on a file tree node (05 §2).
+// FileNodeGitStatus is the git decoration on a file tree node.
 // Conflicted files from git are collapsed to Modified for the tree view.
 type FileNodeGitStatus string
 
@@ -20,7 +20,7 @@ const (
 	FileNodeGitStatusRenamed   FileNodeGitStatus = "renamed"
 )
 
-// FileNode is a single entry in the lazy file tree (05 §2).
+// FileNode is a single entry in the lazy file tree.
 type FileNode struct {
 	Name      string             `json:"name"`
 	Path      string             `json:"path"`

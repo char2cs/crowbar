@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// Project is the org-level node grouping repositories (00 §5.1).
+// Project is the org-level node grouping repositories.
 type Project struct {
 	ID           string    `gorm:"primaryKey" json:"id"`
 	Name         string    `json:"name"`

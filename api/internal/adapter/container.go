@@ -234,7 +234,7 @@ func (c *Container) ReviewThreadView() *gormdb.DB {
 
 // WorkspaceES returns the workspace event log at state/events/workspace.db. This
 // is the singleton per-type handle: the app layer builds ONE axWorkspace over it
-// and routes every workspace id to a shard by hash (spec §3.3/§3.4).
+// and routes every workspace id to a shard by hash.
 func (c *Container) WorkspaceES() asynxModels.Store {
 	return c.workspaceEventStore
 }
@@ -246,8 +246,8 @@ func (c *Container) WorkspaceSS() asynxModels.SnapshotStore {
 }
 
 // WorkspaceView returns the workspace read-model DB at state/store/workspace.db,
-// opened as a read pool (decision 12). The workspace store projection folds
-// evt.Aggregate into it, and it doubles as the location index (spec §3.7).
+// opened as a read pool. The workspace store projection folds
+// evt.Aggregate into it, and it doubles as the location index.
 func (c *Container) WorkspaceView() *gormdb.DB {
 	return c.workspaceStoreDB
 }

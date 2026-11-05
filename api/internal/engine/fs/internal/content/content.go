@@ -1,4 +1,4 @@
-// Package content reads and writes file bytes; detects text vs binary (05 §3).
+// Package content reads and writes file bytes; detects text vs binary.
 package content
 
 import (
@@ -17,7 +17,7 @@ import (
 
 // maxReadBytes is the upper bound on file size for content reads. Files larger
 // than this threshold are rejected with ErrFileTooLarge to prevent OOM when a
-// caller requests a multi-GB file (security/hardening finding R16).
+// caller requests a multi-GB file.
 const maxReadBytes = 25 << 20 // 25 MiB
 
 // ErrFileTooLarge is re-exported from safepath for callers that import only

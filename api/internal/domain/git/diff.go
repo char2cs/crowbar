@@ -6,7 +6,7 @@ import (
 )
 
 // DiffLine is one line in a FileDiff's flat rendering. Changed lines carry
-// hunkId linking them to their Hunk (04 §4).
+// hunkId linking them to their Hunk.
 type DiffLine struct {
 	LineType      DiffLineType `json:"line_type"`
 	Content       string       `json:"content"`
@@ -15,7 +15,7 @@ type DiffLine struct {
 	HunkID        string       `json:"hunkId,omitempty"`
 }
 
-// DiffLineType classifies a single line in a unified diff (04 §3).
+// DiffLineType classifies a single line in a unified diff.
 type DiffLineType string
 
 const (
@@ -25,7 +25,7 @@ const (
 	DiffLineHeader  DiffLineType = "header"
 )
 
-// FileDiff is the parsed diff for a single file (04 §3, §4).
+// FileDiff is the parsed diff for a single file.
 type FileDiff struct {
 	FilePath      string     `json:"file_path"`
 	OldPath       string     `json:"old_path,omitempty"`
@@ -64,7 +64,7 @@ func (f FileDiff) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// MultiFileDiff is the diff for a commit (04 §3).
+// MultiFileDiff is the diff for a commit.
 type MultiFileDiff struct {
 	CommitHash        string     `json:"commitHash,omitempty"`
 	CommitMessage     string     `json:"commitMessage,omitempty"`
@@ -78,7 +78,7 @@ type MultiFileDiff struct {
 }
 
 // Hunk is a contiguous changed block in a FileDiff. StartLine and EndLine are
-// inclusive indices into FileDiff.Lines (04 §4).
+// inclusive indices into FileDiff.Lines.
 type Hunk struct {
 	HunkID    string `json:"hunkId"`
 	Header    string `json:"header"`

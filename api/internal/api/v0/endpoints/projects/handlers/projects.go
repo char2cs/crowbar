@@ -221,7 +221,7 @@ func (h *Handlers) Import(
 		libs.WriteErr(c, http.StatusBadRequest, "path does not exist")
 		return
 	}
-	// Named by the key, so a retry is the same subject and replays (R3).
+	// Named by the key, so a retry is the same subject and replays.
 	ref := domain.EntityRef{Kind: domain.EntityProject, ID: libs.IdempotencyKey(c)}
 	if ref.ID == "" {
 		ref.ID = uuid.NewString()
