@@ -66,7 +66,6 @@ function setup() {
       onTabSelect: () => {},
       onTabClick: () => {},
       onReorderBuffers: (oldIndex, newIndex) => reorderCalls.push([oldIndex, newIndex]),
-      onSplitPane: () => undefined,
     }),
   )
 
@@ -136,8 +135,7 @@ describe('useTabDrag — reordering within a pane’s own tab bar still works', 
         onTabSelect: () => {},
         onTabClick: () => {},
         onReorderBuffers: (oldIndex, newIndex) => reorderCalls.push([oldIndex, newIndex]),
-        onSplitPane: () => undefined,
-      }),
+        }),
     )
 
     act(() => {

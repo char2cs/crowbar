@@ -7,15 +7,10 @@ interface UseTabDragOptions {
   onTabSelect: (buffer: PaneContent) => void
   onTabClick: (bufferId: string) => void
   onReorderBuffers: (oldIndex: number, newIndex: number) => void
-  onSplitPane: (
-    targetPaneId: string,
-    direction: 'horizontal' | 'vertical',
-    bufferId?: string,
-    placement?: 'before' | 'after',
-  ) => string | undefined
 }
 
-/** dnd-kit drag state and handlers for one tab bar. Each TabBar mounts its own DndContext, so
+/** dnd-kit drag state and handlers for one tab bar. A dropped tab never creates a split: a pane
+ *  group groups chats, never tabs. Each TabBar mounts its own DndContext, so
  *  `event.over` only ever names this pane's tabs; never resolve a drop target past that (e.g. by
  *  DOM hit-testing), or tabs could cross into another pane. */
 export function useTabDrag({
@@ -23,8 +18,6 @@ export function useTabDrag({
   onTabSelect,
   onTabClick,
   onReorderBuffers,
-  // onSplitPane is accepted but unused: a dropped tab never creates a split (spec §7.3: a
-  // pane group groups chats, never tabs).
 }: UseTabDragOptions) {
   const [draggedBufferId, setDraggedBufferId] = useState<string | null>(null)
 

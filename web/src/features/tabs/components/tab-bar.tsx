@@ -66,7 +66,6 @@ const TabBar = ({
     activateEditorTabInPane,
     activateChatInPane,
     removeEditorTabFromPane,
-    splitPane,
     reorderEditorTabs,
   } = usePaneActions()
   const { closeBuffer, promotePreview, setPinned, setPendingClose } = useBufferActions()
@@ -195,8 +194,6 @@ const TabBar = ({
     onTabSelect: handleTabSelect,
     onTabClick: handleTabClick,
     onReorderBuffers: reorderBuffers,
-    onSplitPane: (targetPaneId, direction, bufferId, placement) =>
-      splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
   })
 
   const { tabBarRef, scrollRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel } =
