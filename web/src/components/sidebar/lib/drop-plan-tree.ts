@@ -16,10 +16,7 @@ import {
 } from '@/components/sidebar/lib/rendered-rows'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 
-/** One request `performSidebarDrop` fires, in the order it must land — the
- *  scoped-down `PlacementCall` from `drop-plan.ts` (git show 9ad89156), minus
- *  its `project`/`repo` variants (not reachable through this drag any more)
- *  and plus `chat` (a placement `drop-plan.ts` never had to express). */
+/** One request performSidebarDrop fires, in the order it must land. */
 export type RowPlacementCall =
   | { kind: 'reparent'; projectId: string; repoId: string; wsId: string; parentId: string }
   | {
@@ -35,9 +32,7 @@ export type RowPlacementCall =
       projectId: string
       repoId: string
       folderId: string
-      // Undefined for a pure reorder within the folder's own CURRENT
-      // container — see `planTreeRowDrop`'s own note on why that has to be
-      // OMITTED, not merely re-sent unchanged.
+      // Omitted (not re-sent) for a reorder within the folder's current container.
       parentId?: string
       order: number
     }
@@ -58,21 +53,9 @@ function containerKindOf(repo: Repo, id: string): 'workspace' | 'folder' | undef
   return repo.folders?.some((f) => f.id === id) ? 'folder' : undefined
 }
 
-/** The workspace whose fork-child space owns `containerId` — '' for a
- *  root-level container, which has no lineage to protect.
- *
- *  A folder's own `parentId` names whatever row it was filed under in ROW
- *  space, which for a workspace-owning row (a locked branch, or an ordinary
- *  fork once it has a chat) is that row's OWNING CHAT id, never the raw
- *  workspace id (`deriveRows`, the same id `performCreateFolder`
- *  sends as `parentId` for exactly this reason). Checking only
- *  `workspaceIds.has(cursor)` missed that translation: a folder filed
- *  directly under such a row walked straight past its real anchor to bare
- *  root the moment `cursor` became that owning-chat id, because neither
- *  `workspaceIds` (raw workspace ids) nor `folderById` (folder ids) recognise
- *  it. Caught live: filing a fork into a folder nested under its own locked
- *  fork parent read as a cross-parent move and silently rebased the fork
- *  onto the repo's default checkout instead. */
+// The workspace whose fork-child space owns `containerId`; '' for root, which has no lineage.
+// A folder filed under a workspace-owning row names that row's owning-chat id, so each step also
+// maps a chat id to its workspace; otherwise the walk overshoots to root and rebases the fork.
 function workspaceAnchor(repo: Repo, containerId: string): string {
   const workspaceIds = new Set(repo.workspaces.map((w) => w.id))
   const folderById = new Map((repo.folders ?? []).map((f) => [f.id, f]))
@@ -88,28 +71,16 @@ function workspaceAnchor(repo: Repo, containerId: string): string {
   return ''
 }
 
-/**
- * A `branch`/`folder` drop — adapts `drop-plan.ts`'s `planRowDrop` (git show
- * 9ad89156) to `SidebarRow`. Kept: the container/fork-lineage math
- * (`containerKindOf`/`workspaceAnchor`/`resolvesToFirstChild`) and the
- * folder-edge-vs-fork-parent precedence. Dropped: `project`/`repo` subjects
- * (out of this drag's scope now — see `SIDEBAR_DROP_POLICY`) and the
- * `writes`/`capturePlacement` optimistic half (this plan's no-optimistic-
- * write convention; the WS-driven cache applies the daemon's own confirmed
- * placement, same as `performRenameWorkspaceBranch`).
- */
+// A branch/folder drop: container and fork-lineage math, folder edge before fork parent. No
+// optimistic write — the cache applies the daemon's confirmed placement.
 export function planTreeRowDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
   mode: DropMode,
 ): RowPlacementCall[] {
   const { collapsed } = treeUiStore.getState()
-  // The tree the user actually sees (and dropped into) is removal-tray-
-  // filtered. Planning against the raw repos during an in-progress hold can
-  // count a held (about-to-vanish) sibling in `rest`/`insertIndex`'s math,
-  // or report a target as having children it no longer visibly has —
-  // silently upgrading a plain reorder into a first-child reparent the drag
-  // indicator never promised.
+  // Plan against the removal-tray-filtered tree the user dropped into: a held sibling would skew
+  // the index or turn a plain reorder into a first-child reparent the indicator never promised.
   const repos = visibleRepos()
   // `resolveRowRepo` is chat-blind by design; a CHAT sibling is still a
   // legal target for a branch/folder to reorder past (`allowedModes`).
@@ -164,23 +135,9 @@ export function planTreeRowDrop(
       // already have refused this, but nothing here should construct a call
       // for a folder id `placeFolder` can't recognise.
       if (!repo.folders?.some((f) => f.id === subject.id)) return
-      // `requestedRow` is the drop's own destination container, in the SAME
-      // untranslated ROW space `row.parentId` already carries — comparing
-      // them directly (never the WORKSPACE-space `containerId` below) is what
-      // proves this drop leaves the folder's container exactly as it is,
-      // regardless of which id space that container happens to be named in.
-      // A pure reorder like that must send NO `parentId` at all, never a
-      // freshly-recomputed one that merely happens to name the same place:
-      // the backend's own `MoveInput.ParentID *string` treats a nil field as
-      // "leave this exactly where it is," which is the only shape guaranteed
-      // never to trip `checkFolderContextMove`'s anchor walk (Go,
-      // usecases/chat/internal/tree/validate.go) — re-sending a value this
-      // planner derived independently compares ITS OWN anchor for that value
-      // against the backend's own stored one instead of skipping the check
-      // outright, and the two can disagree about a position both sides agree
-      // the folder never actually left. Caught live: dragging a folder to the
-      // top of its own sibling list 400'd with "a folder cannot move to a
-      // different context" for a drop that changed no parent at all.
+      // Compare in row space, which `row.parentId` uses: a reorder within the same container sends
+      // NO parentId — the daemon treats nil as "stay put", while a re-derived value re-runs
+      // checkFolderContextMove's anchor walk and can 400 a drop that changed no parent.
       const sameContainer = requestedRow === (row.parentId ?? '')
       calls.push({
         kind: 'folder',
@@ -228,22 +185,9 @@ export function planTreeRowDrop(
       return
     }
 
-    // Landing directly under the current fork parent drops any folder edge —
-    // but "dropped" is NOT bare '': a chat's Node.ParentID for a row sitting
-    // directly under a locked branch (no deeper folder) is that branch's OWN
-    // CHAT id (workspaceAnchorView/mergeHomeNode's convention throughout this
-    // package), the exact value `owningChatIdOfWorkspace` resolves — while
-    // '' names the true bare PROJECT root, a different level entirely.
-    // Sending '' here filed the row at the project root instead of back
-    // under its own fork parent, caught live: a fork dragged past a sibling
-    // fork under the SAME locked branch silently left that branch's own
-    // level, the panel never showing the reorder because the row was no
-    // longer even one of that level's members. Written unconditionally
-    // (never gated on the subject's OWN prior `ws.folderId`) since a
-    // never-yet-touched or previously-corrupted row needs the SAME correction
-    // a properly-placed sibling already carries, not a same-as-before no-op.
-    // A CHATLESS branch is addressed by its own workspace id — the Node row
-    // the daemon minted for it (`workspaceAnchorView`) — never bare ''.
+    // Landing directly under the current fork parent drops any folder edge, but the container is
+    // that workspace's owning-chat id (a chatless branch: its workspace id), never '' — '' is the
+    // project root. Written unconditionally so a misfiled row is corrected like its siblings.
     const directFolderId =
       containerKind === 'workspace'
         ? (owningChatIdOfWorkspace(repos, containerId) ?? containerId)

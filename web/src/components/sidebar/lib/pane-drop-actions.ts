@@ -9,10 +9,7 @@ import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-/**
- * Middle of a Recents row (spec §8.1: "into that view, opened"): every
- * dragged chat joins the target's view through `openChatIntoPane`'s own rules.
- */
+// Middle of a Recents row (spec §8.1): every dragged chat joins the target's view.
 function openRecentsEntryThenMerge(
   target: SidebarRow,
   targetChatId: string,
@@ -35,11 +32,8 @@ function openRecentsEntryThenMerge(
   }
 }
 
-/**
- * Above/below a Recents row (spec §8.1: "it moves to that slot"). A member
- * dragged out of a group leaves it first (`detachPane`); a whole row moves
- * within `viewOrder`.
- */
+// Above/below a Recents row (spec §8.1): a member dragged out of a group detaches first; a
+// whole view moves within `viewOrder`.
 function reorderRecentsEntries(
   subjectChatIds: readonly string[],
   targetChatId: string,
@@ -75,25 +69,9 @@ function reorderRecentsEntries(
   }
 }
 
-/**
- * A drop whose TARGET lives in a Recents band, not the tree — spec §8.1's
- * table gives this geometry a different meaning than the same drop over a
- * tree row: the middle opens the dragged chat(s) into that view, and
- * above/below reorders the band itself rather than writing a tree
- * placement.
- *
- * A Recents row is ALWAYS a chat — the band renders nothing else — but its
- * `kind` is not always `'chat'`: `view-row.tsx` spreads `chatIconIndex`'s
- * fields onto the row so a chat that owns a workspace draws the tree's real
- * branch/lock/PR glyph, and `kind: 'branch'` rides along with them. Filtering
- * on `kind === 'chat'` here therefore dropped every such row on the floor,
- * both as a subject and as a target — and since a workspace-owning chat is the
- * common Recents row in a real install, that read as "Recents rows can't be
- * reordered" (live-reported). `paneChatSubject` is the resolver this file
- * already uses for the same question one gesture over (a row dropped onto a
- * pane): it answers with the chat a row names for both kinds, and null for a
- * folder or a workspace row with no chat behind it.
- */
+// A drop onto a Recents row (spec §8.1): the middle opens the dragged chats into that view, the
+// edges reorder the band — no tree placement. Recents rows are always chats, but one owning a
+// workspace wears `kind: 'branch'`, so resolve through paneChatSubject, never `kind === 'chat'`.
 export function performRecentsDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
@@ -119,34 +97,11 @@ interface PaneChatSubject {
   workspaceId: string
 }
 
-/**
- * What a dragged row means to the PANE system: one chat, and its owning
- * workspace — or null for a row that names no chat at all.
- *
- * Two row kinds resolve, and they are the two the user can actually drag onto
- * a pane:
- *
- *   - a **chat** row (the tree's bubbles, and every Recents row — a Recents
- *     SET renders each member as its own draggable chat row, so a drag from
- *     the band always grabs exactly one chat, which is what makes "one chat
- *     per pane" fall out for free);
- *   - a **branch** row — a WORKSPACE row, and already a chat row wearing a
- *     workspace's clothes: `deriveRows` gives every workspace-owning
- *     row the id of the CHAT that owns its worktree. This used to be refused
- *     outright ("no pane has an 'open into' meaning for them yet"), which is
- *     exactly why dragging a workspace row onto the pane area did nothing.
- *     The chat is re-resolved through the sidebar's own tree
- *     (`owningChatIdOfWorkspace`, the same source the delete path reads)
- *     rather than trusting the row id blindly: a workspace whose owning chat
- *     has not arrived keeps its own workspace id as the row id, and opening
- *     THAT into a pane would point the pane at a chat that does not exist.
- *
- * A folder only folds and no 'workflow' row is produced anywhere yet, so both
- * stay null — a no-op rather than a guess at behaviour nothing has defined.
- */
+// What a dragged row means to the pane system: one chat and its workspace, or null. A chat row
+// answers directly; a branch row resolves its owning chat from the sidebar tree, since one whose
+// owner hasn't arrived would point the pane at no chat. Folders and workflows: null.
 function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
-  // The row carries the daemon's own answer for its workspace: that is what
-  // the view member records (C3).
+  // The row carries the daemon's own answer for its workspace, which the view member records.
   if (row.kind === 'chat') {
     return row.workspaceId ? { chatId: row.id, workspaceId: row.workspaceId } : null
   }

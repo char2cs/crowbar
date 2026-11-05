@@ -92,23 +92,9 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
   }
 }
 
-/**
- * Commit a row-to-row drop — reorder/reparent a workspace or folder, place a
- * chat within its own workspace's chat tree, or — when the drop TARGET lives
- * in a Recents tab (`targetInRecents`, threaded from `use-sidebar-drag.ts`'s
- * hit test) — open into that view or reorder the band itself
- * (`performRecentsDrop`, spec §8.1). `SIDEBAR_DROP_POLICY` has already
- * refused every other subject/target/mode combination, so this only ever has
- * to plan what it allows through.
- *
- * Calls fire in order, each awaited before the next: a multi-row move's
- * `order` is an index into the destination as it stands once the previous
- * call has landed, so firing them concurrently (`Promise.all`) could land
- * the move in an arbitrary arrangement (matches `sidebar-placement.ts`'s own
- * documented contract for `order`). No optimistic paint — the WS-driven
- * cache applies the daemon's confirmed state, same as every other row action
- * in this plan (`performRenameWorkspaceBranch`, `performCreateFolder`).
- */
+// Commit a row-to-row drop the policy allowed: a tree placement, or for a Recents target, open
+// into or reorder the band. Calls run in sequence: each `order` indexes the destination as the
+// previous call left it, so concurrent calls could land any arrangement.
 export async function performSidebarDrop(
   subjects: SidebarRow[],
   target: SidebarRow,

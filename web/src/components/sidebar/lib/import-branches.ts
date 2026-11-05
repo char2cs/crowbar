@@ -7,10 +7,8 @@ function importLabel(branches: readonly string[]): string {
   return branches.length === 1 ? `Import ${branches[0]}` : `Import ${branches.length} branches`
 }
 
-/**
- * Imports `branches` into `repoId` as one operation, minting each branch's chat
- * id so its row is drawn until the chat arrives; `lockedBranches` are created locked.
- */
+// Imports `branches` into `repoId` as one operation, minting each branch's chat id so its row is
+// drawn until the chat arrives; `lockedBranches` are created locked.
 export function performImportBranches(
   repoId: string,
   branches: readonly string[],

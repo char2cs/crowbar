@@ -7,13 +7,8 @@ import type { Repo } from '@/core/entities/repo-types'
 
 type NavigateFn = ReturnType<typeof useNavigate>
 
-/**
- * A Recents row's body: switch to the view, then route to the workspace of
- * the chat it focuses. The band is the view switcher — `setActivePane` brings
- * the owning view over — and `openChatRoute` is the tree click's own
- * home-or-repo resolve+open, so a project-home chat routes as well as a repo
- * one.
- */
+// A Recents row's body: switch to its view, then route to the focused chat's workspace through
+// the tree click's own home-or-repo resolve, so a project-home chat routes too.
 export function focusRecent(viewId: string, repos: readonly Repo[], navigate: NavigateFn): void {
   const { views, panes, mostRecentActivePaneIds, paneActions } = windowPaneStore.getState()
   const view = views[viewId]
