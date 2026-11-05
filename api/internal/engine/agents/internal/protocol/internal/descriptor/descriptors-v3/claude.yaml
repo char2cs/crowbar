@@ -9,12 +9,10 @@
 #
 # No owner: anywhere below (design spec P6b tag 1): owner: only resolves
 # which of TWO channels is authoritative, and claude speaks one. No
-# per-event surfaces: either (P6b tag 2) — the mechanism (Runners.
-# ShowingNativeView) is INERT for claude: hotswap: true below means the
-# terminal is a second live window onto a session Crowbar still drives, so
-# SwitchToTerminal is never called and ShowingNativeView reads false even
-# while the user is looking straight at the TUI. Live only for a
-# non-hotswap provider (codex) until that signal covers hotswap too.
+# per-event surfaces: either (P6b tag 2). hotswap: true below means the
+# terminal is a second live window onto a session Crowbar still drives: the
+# client moves between them itself and only records the move (SwitchTo*),
+# so ShowingNativeView reads true while the user is on the TUI alone.
 #
 # No `claude` binary/credentials were available to capture fixtures for P4
 # (attempted: `claude -p` refused "Not logged in"). P4b captured six real

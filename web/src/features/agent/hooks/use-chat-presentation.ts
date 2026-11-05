@@ -87,17 +87,19 @@ function shownPresentation(
 }
 
 /** Seeded from the preference, never subscribed, so an open chat keeps its surface when the
- *  setting changes. `held` is the daemon's view when it has only one (no hot-swap), else null. */
+ *  setting changes. `held` is the daemon's view when it has only one (no hot-swap), else null;
+ *  `recorded` is the surface the daemon remembers a hot-swap chat was last on, which a reload keeps. */
 export function useChatPresentation(
   shownChatId: string,
   splitContainerRef: {
     current: HTMLElement | null
   },
   held: LandingChatPresentation | null = null,
+  recorded: LandingChatPresentation | null = null,
 ) {
-  const [chosen, setChosenRaw] = useState<ChatPresentation>(
-    () => lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation(),
-  )
+  const seed = (chatId: string) =>
+    lastChosenByChatId.get(chatId) ?? recorded ?? getDefaultChatPresentation()
+  const [chosen, setChosenRaw] = useState<ChatPresentation>(() => seed(shownChatId))
   // Explicit picks are remembered per chat; the re-seed below restores through
   // `setChosenRaw` so a restore never rewrites the entry it reads.
   const setChosen = useCallback(
@@ -114,6 +116,13 @@ export function useChatPresentation(
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: the same documented pattern as the re-seed below; an effect would paint the hidden pick for a frame first.
     setHeldBefore(held)
     if (heldBefore !== null && held === null) setChosenRaw(heldBefore)
+  }
+  // The daemon's record lands with the chat list, after a reload has mounted the pane.
+  const [recordedBefore, setRecordedBefore] = useState(recorded)
+  if (recordedBefore !== recorded) {
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: the pattern above; an effect would paint the preference for a frame first.
+    setRecordedBefore(recorded)
+    if (recorded && !lastChosenByChatId.has(shownChatId)) setChosenRaw(recorded)
   }
   const splitEnabled = useSplitPresentationEnabled()
   // Derived, not corrected: a reload, a disabled split or the daemon moving the chat can
@@ -136,9 +145,7 @@ export function useChatPresentation(
     setSeededFor(shownChatId)
     // Split is a tool the user reached for, so it carries over to the next
     // chat; chat/terminal restore from that chat's own remembered pick.
-    if (!splitting) {
-      setChosenRaw(lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation())
-    }
+    if (!splitting) setChosenRaw(seed(shownChatId))
     setReturnOffered(false)
     setSplitFocus('chat')
   }

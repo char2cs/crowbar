@@ -103,7 +103,10 @@ export function AgentChatPaneBody({
   const providers = usePaneProviders(wsId, hostId)
   // Without hot-swap the daemon has one view of this chat, and the pane shows that one.
   const heldView = onTerminalSurface ? 'terminal' : 'chat'
-  const heldSurface = isHotswap(providers, activeProviderId).hotswap ? null : heldView
+  const hotswap = isHotswap(providers, activeProviderId).hotswap
+  const heldSurface = hotswap ? null : heldView
+  // With hot-swap the daemon holds both views, and records the one last shown.
+  const recordedSurface = useChatField(shownChatId, (c) => (hotswap ? (c?.surface ?? null) : null))
 
   // A prompt Crowbar cannot answer: undefined is none, '' is unidentified.
   const waitKind = useChatField(shownChatId, (c) => c?.terminalWait?.kind)
@@ -125,7 +128,7 @@ export function AgentChatPaneBody({
     splitSizes,
     setSplitSizes,
     splitStacked,
-  } = useChatPresentation(shownChatId, splitContainerRef, heldSurface)
+  } = useChatPresentation(shownChatId, splitContainerRef, heldSurface, recordedSurface)
   // Chat's prompts wait while the Terminal alone shows: one typed into the PTY garbles the TUI.
   const terminalOnly = presentation === 'terminal' && !splitting
   useEffect(

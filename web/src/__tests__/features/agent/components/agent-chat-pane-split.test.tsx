@@ -16,6 +16,8 @@ import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
+const switchToTerminal = vi.spyOn(commandsApi, 'switchToTerminal').mockResolvedValue('pty-1')
+vi.spyOn(commandsApi, 'switchToNative').mockResolvedValue()
 
 // Both surfaces are stubbed to the ONE thing this file is about: the liveness
 // each of them is told it has, plus something real to put the caret in. The chat
@@ -86,6 +88,7 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
 )
 
 import { ChatHeaderSlot, ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
+import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
@@ -449,5 +452,23 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
 
     await setWait(null)
     expect(showing()).toBe('chat')
+  })
+})
+
+// A reload empties the pane's memory: a hot-swap chat lands where the daemon
+// recorded it was last shown, even when that record arrives after the mount.
+describe('AgentChatPane — a hot-swap chat after a reload', () => {
+  it('lands on the recorded surface over the default, and records the next pick', async () => {
+    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() }) // lands on the terminal
+    resetChatPresentationMemoryForTests()
+    const store = seed()
+    await renderPane(store)
+    expect(showing()).toBe('terminal')
+
+    await act(async () => seedChats([{ ...liveChat(), surface: 'chat' }]))
+    expect(showing()).toBe('chat')
+
+    await choose('Terminal')
+    expect(switchToTerminal).toHaveBeenCalledWith('w1', 'c1')
   })
 })

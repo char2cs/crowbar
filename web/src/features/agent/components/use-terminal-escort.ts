@@ -37,6 +37,14 @@ export function useTerminalEscort(options: EscortOptions) {
   const { setReturnOffered, setSplitFocus, terminalApiRef, splitting } = options
   const escortRef = useRef<'none' | 'sent' | 'released'>('none')
 
+  // A hot-swap chat moves in the pane alone; the daemon records where, so a reload lands there.
+  const showHotswap = (next: ChatPresentation) => {
+    setPresentation(next)
+    const record =
+      next === 'terminal' ? switchToTerminal(wsId, chatId) : switchToNative(wsId, chatId)
+    void record.catch((err: unknown) => console.warn('crowbar: record the chat surface', err))
+  }
+
   const userIsWatching = useEffectEvent(
     () => options.isActivePane && options.isVisible && getActiveWorkspaceId() === wsId,
   )
@@ -45,7 +53,11 @@ export function useTerminalEscort(options: EscortOptions) {
   // terminal view. The override covers a switch that resolved before a re-render.
   const enterTerminal = (providerIdOverride?: string) => {
     const { provider, hotswap } = isHotswap(providers, providerIdOverride ?? activeProviderId)
-    if (hotswap || options.onTerminalSurface) {
+    if (hotswap) {
+      showHotswap('terminal')
+      return
+    }
+    if (options.onTerminalSurface) {
       setPresentation('terminal')
       return
     }
@@ -64,7 +76,7 @@ export function useTerminalEscort(options: EscortOptions) {
   const leaveTerminal = (next: ChatPresentation) => {
     const { provider, hotswap } = isHotswap(providers, activeProviderId)
     if (hotswap) {
-      setPresentation(next)
+      showHotswap(next)
       return
     }
     void (async () => {
@@ -113,8 +125,12 @@ export function useTerminalEscort(options: EscortOptions) {
     if (escortRef.current !== 'none') escortRef.current = next === 'terminal' ? 'released' : 'none'
     if (next !== 'terminal') setReturnOffered(false)
     if (next === 'split') setSplitFocus(presentation === 'terminal' ? 'terminal' : 'chat')
-    if (next === presentation || isHotswap(providers, activeProviderId).hotswap) {
+    if (next === presentation) {
       setPresentation(next)
+      return
+    }
+    if (isHotswap(providers, activeProviderId).hotswap) {
+      showHotswap(next)
       return
     }
     if (next === 'terminal') {

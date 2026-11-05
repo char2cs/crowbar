@@ -337,8 +337,8 @@ beforeEach(() => {
   submitPromptFn.mockReset()
   slashCatalogFn.mockReset()
   toastErrorFn.mockReset()
-  switchToTerminalFn.mockReset()
-  switchToNativeFn.mockReset()
+  switchToTerminalFn.mockReset().mockResolvedValue('')
+  switchToNativeFn.mockReset().mockResolvedValue(undefined)
   switchProviderFn.mockResolvedValue('r-new')
   resumeChatFn.mockResolvedValue('r-revived')
   // A chat that has been SPOKEN IN. A chat with no messages is the blank
