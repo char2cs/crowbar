@@ -1,11 +1,7 @@
-// Package tree is the sidebar's placement model: one Tree per project holds
-// where every row of that project hangs and in what order.
-//
-// Until the tree-containers step (S4 T3) a Tree carries today's three placement
-// records verbatim, each with today's meaning (a "" parent is the root of the
-// row's own scope): the position rows (Nodes), the folders' identities
-// (Folders) and each chat's own placement (Chats). They stay apart because the
-// same id can carry a position row and a chat placement that disagree.
+// Package tree is the sidebar's placement model: one Tree per project holds where
+// every row hangs and in what order. It keeps three records apart (position rows,
+// folder identities, chat placements) because one id can carry a position row and a
+// chat placement that disagree; a "" parent is the root of the row's own scope.
 package tree
 
 import (

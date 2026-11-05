@@ -12,10 +12,8 @@ type Project struct {
 	// column; rows written before it existed default to 0 and fall back to the id
 	// tiebreak, which the first reorder replaces with a dense sequence.
 	Order int `json:"order"`
-	// The project's icon, on the same three-state model a Repository's avatar
-	// uses (emoji > on-disk image > default). A project's default is the Library
-	// glyph the sidebar draws, not a generated letter tile, so there is no label
-	// or colour to carry — an unset icon is simply both of these empty/false.
+	// The project's icon, on a Repository avatar's three-state model (emoji > on-disk
+	// image > default). The default is the sidebar's Library glyph, so unset is both empty.
 	AvatarHasIcon bool `json:"avatarHasIcon"`
 	// AvatarVersion increments every time the on-disk icon bytes change, so the
 	// DTO's otherwise-stable proxy URL gets a query param that moves and the

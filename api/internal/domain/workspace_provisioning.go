@@ -1,9 +1,8 @@
 package domain
 
 // WorkspaceProvisioning is what stands behind a workspace's WorktreePath. It is
-// recorded explicitly when the workspace is created and changed only by the
-// command that changes it (ProvisionInPlace), never inferred from the path,
-// IsDefault or Kind (spec §7-D target 2, invariant D8).
+// recorded at creation and changed only by ProvisionInPlace, never inferred from the
+// path, IsDefault or Kind.
 type WorkspaceProvisioning string
 
 const (

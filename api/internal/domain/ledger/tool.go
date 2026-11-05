@@ -98,10 +98,9 @@ func (s State) HasToolInput(scope, toolID string) bool {
 	return s.keys.tools[ref(scope, toolID)].input != ""
 }
 
-// OpenTool is the newest tool call of scope named name that has not completed.
-// Given an input, it is the newest such call given that input, else the newest
-// whose input was never recorded. anyOpen reports whether any call of that name
-// is open, bound or not, from the same scan.
+// OpenTool is the newest uncompleted tool call of scope named name: with an input,
+// the newest given it, else the newest with no recorded input. anyOpen reports
+// whether any call of that name is open, bound or not.
 func (s State) OpenTool(scope, name, inputKey string) (id string, bound, anyOpen bool) {
 	var given, unknown newest
 	for key, t := range s.keys.tools {

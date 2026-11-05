@@ -47,19 +47,9 @@ type FileDiff struct {
 	Uncommitted bool `json:"uncommitted"`
 }
 
-// MarshalJSON emits a FileDiff whose slice fields are always arrays.
-//
-// A binary file never enters a hunk, so its Lines is never appended to and
-// stays nil — and a nil slice marshals to `null`, not `[]`. Clients declare the
-// field as a plain array and dereference it (`diff.lines.length`), so any
-// commit touching a binary file took down the whole diff pane with "null is not
-// an object". A JSON contract that promises an array has to send one even when
-// there is nothing in it.
-//
-// Normalised here rather than at each producer so the guarantee holds for every
-// endpoint that returns a FileDiff, including ones written later — the parser
-// leaving Lines nil for a binary file is correct, it is only the wire format
-// that must not expose it.
+// MarshalJSON emits a FileDiff whose slice fields are always arrays: a binary file's
+// Lines stays nil, and clients dereference the field as an array. Normalising here
+// keeps the guarantee for every endpoint while the parser stays honest.
 func (f FileDiff) MarshalJSON() ([]byte, error) {
 	// A local type sheds FileDiff's method set, so json.Marshal below cannot
 	// re-enter this function.

@@ -147,10 +147,9 @@ func Assign(st State, provider, sessionID string) (Row, error) {
 	return NewRow(KindSessionBound, "", "", body)
 }
 
-// Announce is what a CLI announcing sessionID adds: nothing for the bound
-// session, a binding, a change, or, when owner (another chat) holds the
-// session, a move or a conflict. Only leaving a session that turned is a
-// change: one that never turned held nothing, so it takes owner's session.
+// Announce is what a CLI announcing sessionID adds: nothing for the bound session, a
+// binding, a change, or a move/conflict when owner (another chat) holds it. Only leaving
+// a session that turned is a change; an unturned one takes owner's session.
 func Announce(st State, provider, sessionID, owner string) ([]Row, error) {
 	c, ok := st.Conversation(provider)
 	if ok && c.SessionID == sessionID && c.State == ConversationBound {
