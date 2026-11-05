@@ -1,13 +1,16 @@
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
+import { hasGrammar, type LanguageId } from '@/features/editor/monaco/language'
 
-const ANGULAR_TEMPLATE_LANGUAGE_ID = 'angular'
+const ANGULAR_TEMPLATE_LANGUAGE_ID: LanguageId = 'angular'
+const PLAIN_TEXT_LANGUAGE_ID: LanguageId = 'text'
 
 function isAngularTemplatePath(filePath: string): boolean {
   const fileName = filePath.split('/').pop()?.toLowerCase() ?? filePath.toLowerCase()
   return fileName.endsWith('.component.html') || fileName.endsWith('.ng.html')
 }
 
-const EXTENSION_TO_LANGUAGE: Record<string, string> = {
+// Typed by LanguageId so an id the resolver could produce without a Monaco mapping fails tsc.
+const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
   js: 'javascript',
   mjs: 'javascript',
   cjs: 'javascript',
@@ -98,7 +101,7 @@ const EXTENSION_TO_LANGUAGE: Record<string, string> = {
   lock: 'lockfile',
 }
 
-const FILENAME_TO_LANGUAGE: Record<string, string> = {
+const FILENAME_TO_LANGUAGE: Record<string, LanguageId> = {
   '.bashrc': 'bash',
   '.zshrc': 'bash',
   '.bash_profile': 'bash',
@@ -143,7 +146,7 @@ export function getLanguageIdFromExtension(extension: string): string | null {
   return EXTENSION_TO_LANGUAGE[normalized] || null
 }
 
-export const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
+const LANGUAGE_DISPLAY_NAMES: Partial<Record<LanguageId, string>> = {
   [ANGULAR_TEMPLATE_LANGUAGE_ID]: 'Angular Template',
   javascript: 'JavaScript',
   javascriptreact: 'JSX',
@@ -181,61 +184,47 @@ export const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   vue: 'Vue',
   svelte: 'Svelte',
   embedded_template: 'ERB',
-  text: 'Plain Text',
+  [PLAIN_TEXT_LANGUAGE_ID]: 'Plain Text',
   dockerfile: 'Dockerfile',
   gitattributes: 'Git Attributes',
   graphql: 'GraphQL',
-  makefile: 'Makefile',
-  cmake: 'CMake',
   gitignore: 'Git Ignore',
   scss: 'SCSS',
   sass: 'Sass',
   less: 'Less',
   xml: 'XML',
   restructuredtext: 'reStructuredText',
-  latex: 'LaTeX',
-  haskell: 'Haskell',
   fsharp: 'F#',
   clojure: 'Clojure',
-  lisp: 'Lisp',
   scheme: 'Scheme',
   shell: 'Shell',
   powershell: 'PowerShell',
   batch: 'Batch',
   ini: 'INI',
-  csv: 'CSV',
   protobuf: 'Protocol Buffers',
   ql: 'QL',
   r: 'R',
   terraform: 'Terraform',
-  vim: 'Vim',
   elm: 'Elm',
   elisp: 'Emacs Lisp',
   lockfile: 'Lockfile',
 }
 
 export function getLanguageDisplayName(languageId: string): string {
-  return LANGUAGE_DISPLAY_NAMES[languageId] || languageId
+  return (
+    (Object.hasOwn(LANGUAGE_DISPLAY_NAMES, languageId) &&
+      LANGUAGE_DISPLAY_NAMES[languageId as LanguageId]) ||
+    languageId
+  )
 }
 
+/** The picker's choices: every named language with a grammar, plus Plain Text to turn colour off. */
 export function getAllLanguages(): Array<{ id: string; displayName: string }> {
   return Object.entries(LANGUAGE_DISPLAY_NAMES)
-    .map(([id, displayName]) => ({ id, displayName }))
+    .flatMap(([id, displayName]) =>
+      id === PLAIN_TEXT_LANGUAGE_ID || hasGrammar(id) ? [{ id, displayName }] : [],
+    )
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
-}
-
-/** Every language id `getLanguageIdFromPath` can produce (table values plus inline special
- *  cases), for language-contributions.test.ts to check each has a Monaco mapping rather than
- *  falling back to an unregistered id (permanent plaintext). */
-export function __resolverLanguageIdsForTests(): string[] {
-  return [
-    ...Object.values(EXTENSION_TO_LANGUAGE),
-    ...Object.values(FILENAME_TO_LANGUAGE),
-    'dotenv', // isEnvFileName
-    'gitignore', // .git/info/exclude
-    'gitattributes', // .git/info/attributes
-    ANGULAR_TEMPLATE_LANGUAGE_ID,
-  ]
 }
 
 export function getLanguageIdFromPath(filePath: string): string | null {
@@ -251,14 +240,14 @@ export function getLanguageIdFromPath(filePath: string): string | null {
   const fileName = filePath.split('/').pop()?.toLowerCase() || ''
   const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase()
   if (normalizedPath.endsWith('/.git/info/exclude')) {
-    return 'gitignore'
+    return 'gitignore' satisfies LanguageId
   }
   if (normalizedPath.endsWith('/.git/info/attributes')) {
-    return 'gitattributes'
+    return 'gitattributes' satisfies LanguageId
   }
 
   if (isEnvFileName(fileName)) {
-    return 'dotenv'
+    return 'dotenv' satisfies LanguageId
   }
 
   const fromFilename = FILENAME_TO_LANGUAGE[fileName]
