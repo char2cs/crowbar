@@ -88,13 +88,7 @@ const REPO: Repo = {
     },
     // A plain thread — no `ownsWorktree`, no parent, no workspace ground —
     // exactly what a chat row with no folder yet to right-click looks like.
-    {
-      id: 'thread-1',
-      repoId: 'repo-1',
-      ownsWorktree: false,
-      title: 'A thread',
-      order: 2,
-    },
+    { id: 'thread-1', repoId: 'repo-1', ownsWorktree: false, title: 'A thread', order: 2 },
   ],
 }
 /** A plain (repo-scoped) thread's row id, addendum's own reported gap: no
@@ -263,9 +257,7 @@ describe('SidebarRowContextMenu', () => {
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', true)
   })
 
-  // Amended in fix round 1: a folder row with `ownsWorktree: true` (matching
-  // deriveRows's real output) must still not offer Lock/Unlock — the gate
-  // has to be kind-based, not `ownsWorktree`-based.
+  // A folder row carries `ownsWorktree` too, so the Lock gate is kind-based.
   it('right-clicking a folder row (ownsWorktree: true, matching real deriveRows output) offers only Rename', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
@@ -316,32 +308,17 @@ describe('SidebarRowContextMenu', () => {
     })
   })
 
-  // The daemon refuses a lock change on a workspace with no worktree (422), so a
-  // placeholder - the locked `main` the repo's own checkout holds - offers neither.
+  // A placeholder (the locked `main` the repo's own checkout holds) has no worktree to lock.
   it('right-clicking a LOCKED placeholder branch offers neither Lock nor Unlock', () => {
-    const main = { id: 'ws-main', branch: 'main', age: '', provisioning: 'placeholder' as const }
-    const repo: Repo = {
-      ...REPO,
-      workspaces: [...REPO.workspaces, { ...main, status: 'locked', owningChatId: 'main-row' }],
-      chats: [
-        ...(REPO.chats ?? []),
-        {
-          id: 'main-row',
-          repoId: 'repo-1',
-          ownsWorktree: true,
-          workspaceId: 'ws-main',
-          title: '',
-          order: 3,
-        },
-      ],
-    }
+    const placeholder = (w: Repo['workspaces'][number]) =>
+      w.id === 'ws-2' ? { ...w, provisioning: 'placeholder' as const } : w
+    const repo: Repo = { ...REPO, workspaces: REPO.workspaces.map(placeholder) }
     seedRepos([repo])
     rows = repoRows(repo)
     const { treeRef } = renderMenu()
-    rightClick(treeRef.current, 'main-row')
+    rightClick(treeRef.current, LOCKED_ROW_ID)
     expect(screen.getByText('New folder')).toBeInTheDocument()
-    expect(screen.queryByText('Unlock')).not.toBeInTheDocument()
-    expect(screen.queryByText('Lock')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^(Un)?lock$/i)).not.toBeInTheDocument()
   })
 
   it('clicking New folder on the repo-home row roots it at the repo', () => {
@@ -407,11 +384,8 @@ describe('SidebarRowContextMenu', () => {
     expect(screen.queryByText('Delete Repo')).not.toBeInTheDocument()
   })
 
-  // A repo's entry can be filed into a project-home folder (`repo.folderId`,
-  // deriveRows's header push) — it is still the repo, so its menu is
-  // the repo header's, not a plain branch row's. Identity was keyed on
-  // `parentId === null`, so the filed header lost Import/Delete Repo and
-  // gained a Lock that `performSetWorkspaceLock` silently no-ops for.
+  // A repo filed into a project-home folder (`repo.folderId`) is still the repo, so its
+  // menu is the repo header's, not a plain branch row's.
   it('a repo header filed into a home folder keeps the repo menu: Import and Delete Repo, never Lock', () => {
     const folder = { id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }
     const home = { workspaceId: 'home-ws-1', chats: [], folders: [folder] }
@@ -452,11 +426,8 @@ describe('SidebarRowContextMenu', () => {
       expect(toast.error).toHaveBeenCalledExactlyOnceWith("Can't delete repo yet")
     })
 
-    // The button sits inside the row's own click-to-open div, and every
-    // other trailing-cluster button relies on stopping that propagation on
-    // the way up. This listens in the capture phase specifically so it
-    // cannot lose that race — proven here by asserting the row's own click
-    // handler (onOpen) never fires alongside it.
+    // The button sits inside the row's click-to-open div; listening in the capture
+    // phase is what keeps the row's own onOpen from firing too.
     it("does not also trigger the row's own click-to-open", () => {
       const { treeRef } = renderMenu()
       const onOpen = vi.fn()
@@ -473,9 +444,7 @@ describe('SidebarRowContextMenu', () => {
     })
   })
 
-  // Caught live: a project-home folder is never in any repo's `folders`
-  // (home rides no repo), so `performCreateFolder`'s repo lookup found
-  // nothing and silently no-op'd — no request, no error, no new folder.
+  // A project-home folder is in no repo's `folders`, so a repo lookup would find nothing.
   it('right-clicking a project-home folder offers only Rename and New folder', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_FOLDER_ROW_ID)

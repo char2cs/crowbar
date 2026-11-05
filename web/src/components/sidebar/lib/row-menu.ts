@@ -146,9 +146,8 @@ export function rowMenuActions(
   const isProjectHome = row.repoIcon !== undefined
   const ids: RowMenuActionId[] = []
   if (!(row.kind === 'branch' && locked)) ids.push('rename')
-  if (row.kind === 'branch' && !isProjectHome && !row.isPlaceholder) {
-    ids.push(locked ? 'unlock' : 'lock')
-  }
+  const lockable = row.kind === 'branch' && !isProjectHome && !row.isPlaceholder
+  if (lockable) ids.push(locked ? 'unlock' : 'lock')
   if (isProjectHome) ids.push('import')
   if (row.kind === 'branch' || row.kind === 'folder' || row.kind === 'chat') {
     ids.push('new-folder')

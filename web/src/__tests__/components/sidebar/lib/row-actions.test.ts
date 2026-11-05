@@ -193,21 +193,6 @@ describe('row-actions', () => {
     expect(toasts).toHaveBeenLastCalledWith(expect.objectContaining({ description: undefined }))
   })
 
-  // The daemon's validation text for a lock on a workspace with no worktree means nothing
-  // to the user; a row read before it became a placeholder can still ask.
-  it('a lock refused for want of a worktree is worded for the user', async () => {
-    const toasts = watchToasts()
-    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(
-      refusal('set lock: workspace has no worktree: validation', 'unprocessable'),
-    )
-    await performSetWorkspaceLock('ws-1', false)
-    expectReported(
-      toasts,
-      'Failed to update lock',
-      '`feature-x` has no worktree of its own, so it can’t be locked or unlocked.',
-    )
-  })
-
   it('a rename refused while the daemon migrates shows the migrating state, not a toast', async () => {
     const toasts = watchToasts()
     vi.mocked(api.renameWorkspaceBranch).mockRejectedValueOnce(migratingRefusal())

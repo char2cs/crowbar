@@ -6,6 +6,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // SetLock records the user's lock decision and applies it to the status in the same
@@ -42,14 +43,20 @@ func (c SetLock) Validate(
 	// The home workspace is not a git worktree and has no branch to protect, so
 	// there is nothing for a lock to mean on it.
 	if current.Kind == domain.WorkspaceKindHome {
-		return fmt.Errorf("set lock: home workspace cannot be locked: %w", asynxModels.ErrValidation)
+		return refusedLock("The project's home checkout has no branch to lock.")
 	}
 	// A placeholder is locked because another checkout holds its branch; unlocking
 	// would promise writes to a directory that does not exist.
 	if current.Provisioning == domain.WorkspacePlaceholder {
-		return fmt.Errorf("set lock: workspace has no worktree: %w", asynxModels.ErrValidation)
+		return refusedLock("This branch has no worktree of its own, so it can't be locked or unlocked.")
 	}
 	return nil
+}
+
+// refusedLock is a lock change the workspace cannot take, worded for the user it
+// is shown to.
+func refusedLock(why string) error {
+	return &problem.Error{Code: problem.Unprocessable, Message: why, Err: asynxModels.ErrValidation}
 }
 
 func (c SetLock) EmitEvent(
