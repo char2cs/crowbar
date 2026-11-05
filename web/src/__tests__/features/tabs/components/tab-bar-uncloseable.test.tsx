@@ -10,7 +10,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 
-// I2: isUncloseable currently only hides the tab-bar-item's × button. Every
+// isUncloseable currently only hides the tab-bar-item's × button. Every
 // OTHER close affordance — middle-click, and the tab context menu's Close /
 // Close Others / Close All / Close to Right — must honour it too, or a pane's
 // sole editor tab (the one state the design calls unreachable: editorTabIds:
@@ -196,7 +196,7 @@ function setupTwoPaneStore(bufferOrder: 'root-first' | 'bottom-first' = 'root-fi
   return { store, rootBufs, bottomBufs }
 }
 
-describe('TabBar Close Others/All/to Right stay scoped to their own pane (I4)', () => {
+describe('TabBar Close Others/All/to Right stay scoped to their own pane', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })
@@ -271,7 +271,7 @@ describe('TabBar Close Others/All/to Right stay scoped to their own pane (I4)', 
   })
 })
 
-describe('TabBar honours isUncloseable (I2)', () => {
+describe('TabBar honours isUncloseable', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })

@@ -47,7 +47,7 @@ describe('describeSpawnError', () => {
     expect(notice.description).not.toMatch(/conflict/)
   })
 
-  it('C27: says the session was lost for a session_lost refusal, with no raw daemon text', () => {
+  it('says the session was lost for a session_lost refusal, with no raw daemon text', () => {
     const notice = describeSpawnError(
       new ApiError(
         'agent: the provider no longer has this chat’s session: conflict',

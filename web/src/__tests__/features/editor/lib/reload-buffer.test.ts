@@ -45,7 +45,7 @@ beforeEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-describe('reloadBufferFromDisk (P0-9)', () => {
+describe('reloadBufferFromDisk', () => {
   it('reads a tab whose document failed to load again, as a reopen does', async () => {
     const error = vi.spyOn(toast, 'error')
     const id = windowPaneStore

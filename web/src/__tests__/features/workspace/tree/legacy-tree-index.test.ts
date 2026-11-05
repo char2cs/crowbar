@@ -150,7 +150,7 @@ describe('an ordinary fork folds into its owning chat', () => {
 
 // `owningChatOf` (owning_chat.go) files a new child directly under its parent workspace's id, a row
 // every workspace (locked, home or fork) has from creation.
-describe('a fresh child parents directly onto the workspace id (Task 9)', () => {
+describe('a fresh child parents directly onto the workspace id', () => {
   it('a chat parented onto a locked branch’s raw workspace id resolves under its folded row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-locked', branch: 'develop', status: 'locked' },

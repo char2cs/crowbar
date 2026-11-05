@@ -11,7 +11,7 @@ import * as errors from '@/lib/errors/report'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 // jsdom measures 0×0, and a zero-height viewport windows down to no rows; the
-// opening gate keeps the list hidden (T6), so controls are found by label.
+// opening gate keeps the list hidden, so controls are found by label.
 const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800, x: 0, y: 0 }
 const originalRect = HTMLElement.prototype.getBoundingClientRect
 
@@ -102,7 +102,7 @@ describe('UserRow', () => {
     expect(actions.edit).toHaveBeenCalledWith(requestId, 'try me')
   })
 
-  it('C27: a prompt the lost session refused says so and offers Retry', () => {
+  it('a prompt the lost session refused says so and offers Retry', () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'hello?'), l.settle('r1', false, 'session_lost')])
     draw()

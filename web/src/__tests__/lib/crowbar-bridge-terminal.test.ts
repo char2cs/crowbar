@@ -77,7 +77,7 @@ describe('TerminalConnection', () => {
     expect(frames.map((f) => !f.exit && f.snapshot)).toEqual([true, false])
   })
 
-  // B4: the exit frame is the only thing that ends a terminal; the close that
+  // The exit frame is the only thing that ends a terminal; the close that
   // follows it is not a drop, so nothing reconnects an exited session.
   it('delivers the exit frame in order and does not report the following close as a drop', () => {
     const socket = fakeSocket()

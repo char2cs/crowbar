@@ -119,7 +119,7 @@ describe('editor tabs in a pane', () => {
     expect(activeOf()).toBeNull()
   })
 
-  it('refuses a tab that names no buffer — a tab id always names content (C2)', () => {
+  it('refuses a tab that names no buffer — a tab id always names content', () => {
     const store = withBuffers([{ id: 'tab-real', type: 'terminal', workspaceId: 'ws-test' }])
     const actions = store.getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-ghost', 'terminal'))
@@ -245,7 +245,7 @@ describe('reorder / preview / pinned / cycling', () => {
   })
 })
 
-describe('activateEditorTabInPane only activates a tab the pane holds (I4)', () => {
+describe('activateEditorTabInPane only activates a tab the pane holds', () => {
   it('ignores an id the pane does not hold, including one in another pane', () => {
     const actions = makePaneOnlyStore().getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-1'))
@@ -256,7 +256,7 @@ describe('activateEditorTabInPane only activates a tab the pane holds (I4)', () 
   })
 })
 
-describe('editor model release (C1)', () => {
+describe('editor model release', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })

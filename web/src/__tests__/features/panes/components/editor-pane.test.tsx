@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 
-// Records every MOUNT (not render) of the Plate surface: the pane remounts it per buffer (C1).
+// Records every MOUNT (not render) of the Plate surface: the pane remounts it per buffer.
 const plateMounts: { bufferId: string }[] = []
 vi.mock('@/features/editor/markdown/plate/markdown-editor-pane', () => ({
   MarkdownEditorPane: (props: { bufferId: string }) => {
@@ -206,7 +206,7 @@ describe('EditorPane', () => {
     expect(readDocument).toHaveBeenCalledTimes(1)
   })
 
-  // C1: the pane tree renders the active buffer without a key, so a `.md` ->
+  // The pane tree renders the active buffer without a key, so a `.md` ->
   // `.md` tab switch is a prop update. Plate parses its document once per
   // mount; unkeyed, file A's document would stay live under B's id.
   it('remounts the Plate surface when the buffer changes', async () => {

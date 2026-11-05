@@ -1,5 +1,5 @@
 /**
- * Tests for PaneSash unmount-mid-drag cleanup (R21).
+ * Tests for PaneSash unmount-mid-drag cleanup.
  *
  * Verifies:
  *   1. Starting a drag then unmounting removes window listeners and clears

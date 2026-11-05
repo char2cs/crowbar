@@ -62,7 +62,7 @@ describe('a repo header dropped relative to ANOTHER repo header', () => {
   })
 })
 
-// C7: after any sidebar drop, the order equals the daemon's answer — a
+// After any sidebar drop, the order equals the daemon's answer — a
 // refused reorder never paints, so there is nothing to revert.
 describe('a repo reorder the daemon refuses', () => {
   it('leaves the headers exactly where they were', async () => {

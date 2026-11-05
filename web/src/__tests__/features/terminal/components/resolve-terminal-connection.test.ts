@@ -51,7 +51,7 @@ describe('resolveTerminalSession', () => {
   })
 
   it.each([false, true])(
-    'B7: a bound session the daemon no longer has is gone, never replaced (attachOnly=%s)',
+    'a bound session the daemon no longer has is gone, never replaced (attachOnly=%s)',
     async (attachOnly) => {
       saveReconnect('ws-1', 'tab-1', 'pty-dead')
       listLive.mockResolvedValue(['someone-elses-pty'])

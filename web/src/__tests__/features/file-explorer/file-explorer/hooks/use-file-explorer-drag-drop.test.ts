@@ -28,7 +28,7 @@ const makeFile = (name: string, path: string, isDir = false): FileEntry => ({
 const mouseEvent = (type: string, x = 50, y = 50) =>
   new MouseEvent(type, { clientX: x, clientY: y, bubbles: true })
 
-describe('useFileExplorerDragDrop — stable listener subscription (H13)', () => {
+describe('useFileExplorerDragDrop — stable listener subscription', () => {
   // Spelled out rather than `ReturnType<typeof vi.spyOn>`: vi.spyOn is
   // overloaded, so bare ReturnType resolves the generic to its constraint and
   // yields Mock<Procedure> — whose mock.calls is any[], which makes the

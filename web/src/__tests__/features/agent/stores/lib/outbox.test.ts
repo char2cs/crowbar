@@ -116,7 +116,7 @@ describe('send outcomes', () => {
     expect(items[0]).toMatchObject({ state: 'failed', error: 'model is not in the catalogue' })
   })
 
-  it('C27: a send refused with session_lost says the session was lost, never that the provider may have it', () => {
+  it('a send refused with session_lost says the session was lost, never that the provider may have it', () => {
     const items = onSendFailed([item('a')], 'a', {
       status: 409,
       code: 'session_lost',
@@ -130,7 +130,7 @@ describe('send outcomes', () => {
     })
   })
 
-  it('C27: Retry after request_id_conflict uses a fresh request id', () => {
+  it('Retry after request_id_conflict uses a fresh request id', () => {
     for (const code of ['request_id_conflict', 'request_outcome_uncertain'] as const) {
       const items = onSendFailed([item('a')], 'a', { status: 409, code, message: 'refused' })
       expect(retryFailed(items, 'a', 'fresh')[0]?.requestId).toBe('fresh')
@@ -144,7 +144,7 @@ describe('send outcomes', () => {
     expect(retryFailed(crashed, 'a', 'fresh')[0]?.requestId).toBe('a')
   })
 
-  it('C27: Retry on a settled or refused prompt row sends the text under a fresh request id', () => {
+  it('Retry on a settled or refused prompt row sends the text under a fresh request id', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
       l.prompt('r1', 'one'),

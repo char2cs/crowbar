@@ -269,7 +269,7 @@ describe('hydrateWindowPaneLayout', () => {
  * First load after upgrading an install from the base build (70ec430). The
  * seeds are exactly what that build wrote: a layout row with no `version`,
  * chat panes with no `workspaceId`, the retired `sidebarWidth` fields, and
- * whatever buffers it held (it kept buffers no pane listed — P0-11).
+ * whatever buffers it held (it kept buffers no pane listed).
  */
 describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
   const P = 'p1'
@@ -413,7 +413,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     expect(state.viewOrder).toEqual(['view-kept'])
     expect(state.panes['pane-gone']).toBeUndefined()
     expect(state.panes['pane-kept'].workspaceId).toBe('ws-k')
-    // The unsaved buffer outlives its chat; the clean one is released (C2).
+    // The unsaved buffer outlives its chat; the clean one is released.
     expect(state.buffers.map((b) => b.id)).toEqual(['buf-dirty'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-dirty'))
     expect(holders).toHaveLength(1)
@@ -495,7 +495,7 @@ function pane(
     editorTabIds: [],
     activeEditorTabId: over.editorTabIds?.[0] ?? null,
     editorOpen: false,
-    // A current-shape member records its workspace (C3).
+    // A current-shape member records its workspace.
     workspaceId: over.chatId ? `ws-of-${over.chatId}` : null,
     ...over,
     viewId,

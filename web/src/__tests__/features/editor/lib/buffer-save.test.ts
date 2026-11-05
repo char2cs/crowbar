@@ -166,7 +166,7 @@ function textOf(ref: DocumentRef) {
 const openCleanBuffer = (workspaceId: string, path: string, content: string) =>
   openTestDocument(workspaceRef(workspaceId, path), content)
 
-describe('buffer-save — P0-10: autosave is per buffer and never mislabels edits', () => {
+describe('buffer-save — autosave is per buffer and never mislabels edits', () => {
   beforeEach(() => {
     // IndexedDB (the drafts) runs on setImmediate, which stays real.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })

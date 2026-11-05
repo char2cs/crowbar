@@ -166,7 +166,7 @@ describe('WorkspaceHost — warm-switch span', () => {
   })
 })
 
-describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
+describe('WorkspaceHost — sole owner of the registry', () => {
   it('registry keys are exactly the mounted slots, through switches and evictions', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     expect([...registry.keys()].sort()).toEqual(mountedSlots())

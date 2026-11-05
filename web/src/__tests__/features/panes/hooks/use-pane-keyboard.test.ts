@@ -389,7 +389,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
   })
 })
 
-describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
+describe('usePaneKeyboard — agent.newChat chord', () => {
   const pressChord = () => press('n')
 
   it('creates a chat with the first enabled provider and opens it as its own new view', async () => {

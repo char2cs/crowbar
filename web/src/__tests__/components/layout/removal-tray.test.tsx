@@ -112,8 +112,8 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 // one) — read the tree back by the labels it draws, in document order, which
 // is exactly the hierarchical order the tree renders in. Scoped to
 // `[data-sidebar-row-label]` (sidebar-row.tsx's own double-click-to-rename
-// delegation marker), not the whole treeitem's textContent: since Task 5
-// (icon personalization) the project-home row's glyph draws real text too —
+// delegation marker), not the whole treeitem's textContent: the project-home row's glyph
+// draws real text too —
 // the repo's own letter tile (e.g. "C" for crowbar) — so the unscoped
 // textContent would read "Ccrowbar" instead of "crowbar".
 const rows = () =>
@@ -172,7 +172,7 @@ beforeEach(() => {
   stubDaemonWrites()
   renders.count = 0
   // jsdom does not implement scrollTo — SpaceScroller (mounted for real via
-  // SidebarTreeSurface as of Task 30) calls it to align its panel on every
+  // SidebarTreeSurface) calls it to align its panel on every
   // activeProjectId/projects change, including on mount.
   HTMLElement.prototype.scrollTo = vi.fn()
   // NOT `shouldAdvanceTime`: the deadline is a wall-clock instant, so a fake

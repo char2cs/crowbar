@@ -64,7 +64,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe('golden: no remote ever paired (I3) — the bare /v0 strings the literals produced', () => {
+describe('golden: no remote ever paired — the bare /v0 strings the literals produced', () => {
   it('projectBase and repoBase', () => {
     expect(projectBase(P)).toBe('/v0/projects/p1')
     expect(repoBase(P, R)).toBe('/v0/projects/p1/repos/r1')

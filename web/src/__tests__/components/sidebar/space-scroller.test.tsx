@@ -560,7 +560,7 @@ describe('SpaceScroller', () => {
       expect(repoIndex).toBeLessThan(testingIndex)
     })
 
-    // Task 3's own backend regression
+    // The backend regression
     // (TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero) drags a
     // repo to a NON-ZERO position among real home siblings and asserts the
     // wire order lands exactly there. This is that same drag, asserted at

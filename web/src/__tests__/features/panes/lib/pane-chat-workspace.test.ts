@@ -23,7 +23,7 @@ beforeEach(() => {
 
 /**
  * `resolveChatWorkspaceId` — "which workspace does this chat belong to". A
- * chat on screen answers from its view member's record (C3); anything else
+ * chat on screen answers from its view member's record; anything else
  * from the caller's own row. No workspace store is consulted.
  */
 describe('resolveChatWorkspaceId', () => {

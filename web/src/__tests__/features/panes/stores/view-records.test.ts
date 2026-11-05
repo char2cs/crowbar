@@ -42,7 +42,7 @@ describe('view records carry their members’ identity', () => {
     ])
   })
 
-  it('a runner move changes the chat a pane follows, never the views or the workspace (C1, C3)', () => {
+  it('a runner move changes the chat a pane follows, never the views or the workspace', () => {
     actions().openChat('c1', { workspaceId: 'ws-a', runnerId: 'r1' })
     const before = store.getState().viewOrder
     actions().retargetPane(paneOf('c1'), 'c1-next', 'r1')
@@ -53,7 +53,7 @@ describe('view records carry their members’ identity', () => {
     ])
   })
 
-  it('a project switch creates and deletes no view (C1)', () => {
+  it('a project switch creates and deletes no view', () => {
     actions().openChat('c1', { workspaceId: 'ws-a', projectId: 'p1' })
     actions().openChat('c2', { workspaceId: 'ws-b', projectId: 'p2' })
     const views = Object.keys(store.getState().views).sort()

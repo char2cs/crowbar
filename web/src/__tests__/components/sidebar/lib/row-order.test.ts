@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
-// REGRESSION (K3): the tree drew a tied level in arrival order while the drop
+// The tree drew a tied level in arrival order while the drop
 // planner counted it in another, and the daemon in a third — so the first
 // drag out of an all-zero level landed slots off. One comparator now serves
 // the tree (`SidebarTree`) and the planner (`renderedSiblings`), and it is

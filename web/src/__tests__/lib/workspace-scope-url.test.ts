@@ -156,7 +156,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe('golden: no remote ever paired (I3) — byte-identical to the pre-host-aware builders', () => {
+describe('golden: no remote ever paired — byte-identical to the pre-host-aware builders', () => {
   it.each(BUILDERS)('$name returns the recorded bare path for a repo workspace', (b) => {
     expect(b.call(urls, REPO_WS)).toBe(b.repo)
   })

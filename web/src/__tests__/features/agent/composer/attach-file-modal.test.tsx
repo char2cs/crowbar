@@ -69,7 +69,7 @@ describe('AttachFileModal', () => {
     )
   })
 
-  // Finding C3: a browsed CSV that resolves cleanly as a small table is
+  // A browsed CSV that resolves cleanly as a small table is
   // inlined directly as a markdown table — never uploaded at all.
   it('resolves a small, well-formed browsed CSV inline as a markdown table, without uploading', async () => {
     const onInsertMarkdown = vi.fn()

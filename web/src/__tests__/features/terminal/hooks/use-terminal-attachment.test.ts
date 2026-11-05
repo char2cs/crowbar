@@ -184,7 +184,7 @@ describe('useTerminalAttachment', () => {
     expect(bridge.created).toBe(0)
   })
 
-  // B7: a tab never spawns a PTY because an existing one exited.
+  // A tab never spawns a PTY because an existing one exited.
   it('a drop whose session has ended reports it ended and spawns nothing', async () => {
     useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
     const { result, onEnded, settle } = render()

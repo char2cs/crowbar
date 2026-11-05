@@ -133,7 +133,7 @@ describe('createChatPastePlugin', () => {
     expect(handled).toBe(true)
   })
 
-  // Finding I4: an over-threshold paste that ALSO exceeds the shared inline
+  // An over-threshold paste that ALSO exceeds the shared inline
   // size cap must not become an unsendable inline fence — it uploads as a
   // `.txt` file instead.
   it('uploads an over-cap pasted text as a file instead of wrapping it inline', async () => {

@@ -283,7 +283,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  // The daemon sends the branch's entities before the operation's succeeded (R16).
+  // The daemon sends the branch's entities before the operation's succeeded.
   it('a branch create draws its row from the operation and opens the chat once it succeeded', async () => {
     resetWindowPaneStoreForTests()
     offerProviders({ id: 'claude', enabled: true })

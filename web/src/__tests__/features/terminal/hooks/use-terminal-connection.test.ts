@@ -343,7 +343,7 @@ describe('useTerminalConnection — theme propagation', () => {
   })
 })
 
-// P0-6 / B4: the daemon's exit frame is the only thing that ends a terminal. Typing
+// The daemon's exit frame is the only thing that ends a terminal. Typing
 // "exit" is ordinary input — inside ssh, a REPL or an agent TUI it ends nothing.
 describe('useTerminalConnection — exit is daemon-authoritative', () => {
   beforeEach(() => {})

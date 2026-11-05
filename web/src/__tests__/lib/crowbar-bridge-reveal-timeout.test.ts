@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
 
-describe('crowbar-bridge revealItemInFinder timeout guard (Task 30)', () => {
+describe('crowbar-bridge revealItemInFinder timeout guard', () => {
   let invoke: ReturnType<typeof vi.fn>
 
   beforeEach(() => {

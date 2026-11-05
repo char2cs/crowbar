@@ -88,7 +88,7 @@ describe('TerminalTab — the phone key bar', () => {
 })
 
 // Clicking into a pane terminal activates its already-open tab in place.
-describe('TerminalTab — activating a pane terminal (I8)', () => {
+describe('TerminalTab — activating a pane terminal', () => {
   it('activates the tab and the pane it belongs to, without throwing, when paneId is known', () => {
     seedTerminalBuffer(BOTTOM_PANE_ID, 'buf-term-1')
     windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)

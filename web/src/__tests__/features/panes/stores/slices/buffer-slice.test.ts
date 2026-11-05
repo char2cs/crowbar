@@ -109,7 +109,7 @@ describe('buffer-slice', () => {
     expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(id)
   })
 
-  it('openContent lands in the pane it names, whatever has focus (C8)', () => {
+  it('openContent lands in the pane it names, whatever has focus', () => {
     const id = store
       .getState()
       .bufferActions.openContent(editor('/src/index.ts'), { paneId: BOTTOM_PANE_ID })
