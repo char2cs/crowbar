@@ -1,7 +1,4 @@
-// web/src/features/window/stores/toast-store.ts
-// Thin imperative toast API backed by CossUI toastManager.
-// No Zustand, no sonner — just delegates to @base-ui/react/toast via the
-// generated component wrapper.
+// Thin imperative toast API over base-ui's toastManager; no store of its own.
 import { toastManager } from '@/lib/toast-manager'
 
 interface ShowOptions {

@@ -1,21 +1,13 @@
-/* @font-face declarations moved to theme-fonts.css and the `@theme inline`
-   token map to theme-vars.css — both imported right before this file — to
-   keep this one under the repo's file-size cap. The tests in
-   __tests__/styles/{theme,zen}-theme-tokens.test.ts read the `:root`/`.dark`
-   blocks below directly off disk, so those two stay put. */
+/* Fonts live in theme-fonts.css and the `@theme inline` map in theme-vars.css (file-size cap).
+   __tests__/styles/{theme,zen}-theme-tokens.test.ts read the `:root`/`.dark` blocks off disk. */
 
 :root {
   --radius: 0.625rem;
   --background: #fcfcfa;
   --pane-background: #fcfcfa;
   --foreground: #1b1b19;
-  /* The other theme's own --background/--foreground, literally — never derived
-     from this theme's tokens. A deliberate "break the theme" surface (an
-     active sidebar row, see ROW_ACTIVE in workspace-row-base.ts): the row
-     that's selected reads as selected precisely because it does NOT sit in
-     the ambient palette the rest of the sidebar does. Kept in sync by hand
-     with .dark's own --background/--foreground below, the same way every
-     other per-theme pair on this page is. */
+  /* The other theme's --background/--foreground, literally: the active sidebar row (ROW_ACTIVE)
+     reads as selected because it leaves the ambient palette. Kept in sync with .dark by hand. */
   --background-inverse: #1c1c1a;
   --foreground-inverse: #f2f0ea;
   --card: var(--color-white);
@@ -69,20 +61,8 @@
   --sidebar-element-hover: oklch(0 0 0 / 8%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 8%, transparent);
   --elevated-highlight: color-mix(in oklch, var(--foreground) 16%, transparent);
-  /* ROW_ACTIVE's OWN top-edge token (workspace-row-base.ts). Production
-     (develop) never had a separate token here at all — its own ROW_ACTIVE
-     sits on plain `bg-background`/`text-foreground` (no inversion) and just
-     reuses `--elevated-highlight` above, verbatim, the same as every button
-     and tab. Every round on THIS token before this one — before-overlay,
-     colored, card-polarity-flipped, hand-tuned alpha/blur/offset — was
-     solving a problem production's own recipe doesn't have: this branch's
-     ROW_ACTIVE deliberately inverts to `--background-inverse` (kept, by
-     explicit instruction), so the token that actually pairs with it isn't
-     `--foreground` (production's own — wrong theme's text color, once
-     inverted) but `--foreground-inverse`, the one already defined to be read
-     against `--background-inverse` for exactly this row. Same formula
-     (`color-mix`, 16%), same plain `0_1px`, zero blur, zero hand-tuning —
-     just the inverted foreground standing in for the ambient one. */
+  /* ROW_ACTIVE's top edge: `--elevated-highlight`'s recipe, but mixed from --foreground-inverse,
+     since the row sits on --background-inverse and --foreground would be the wrong theme's. */
   --row-active-highlight: color-mix(in oklch, var(--foreground-inverse) 16%, transparent);
 
   --code: var(--color-white);
@@ -104,10 +84,8 @@
   --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
   --chrome-bg: color-mix(in oklch, #fcfcfa 60%, transparent);
-  /* The chat/editor pane box's own fill — distinct from `--chrome-bg` above
-     (body's wash, which the sidebar shows through with no fill of its own):
-     the pane surface wants far less of the desktop showing through it than
-     the sidebar does. */
+  /* The pane box's own fill, apart from `--chrome-bg` (the body wash the sidebar shows through):
+     panes let far less of the desktop through. */
   --pane-chrome-bg: color-mix(in oklch, #fcfcfa 90%, transparent);
 
   --app-ui-scale: 1;
@@ -231,13 +209,7 @@
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
   --sidebar-element-hover: oklch(1 0 0 / 10%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 7%, transparent);
-  /* See :root's own copy of this token for the full history: production
-     (develop) never needed a separate token here, it just reuses
-     `--elevated-highlight` (`color-mix` off `--foreground`) because its own
-     ROW_ACTIVE never inverts. This branch's does (kept, deliberately), so
-     this mixes `--foreground-inverse` instead — the token already meant to
-     be read against `--background-inverse` — rather than `--foreground`,
-     which would pair it with the wrong theme once inverted. */
+  /* Mixed from --foreground-inverse, as in :root: the active row sits on --background-inverse. */
   --row-active-highlight: color-mix(in oklch, var(--foreground-inverse) 16%, transparent);
   --code: var(--background);
   --code-foreground: var(--foreground);
@@ -253,9 +225,8 @@
   --sidebar-count-added: #b9cf98;
   --sidebar-count-deleted: #f1a493;
 
-  /* Same L/C, mix % and structure the handbook's Surface board documented —
-     only the hue moved, off the old blue-accent system's 264.5° and onto the
-     ink family's ~107°, same as every other retinted near-black in this file. */
+  /* The handbook Surface board's L/C and mix, on the ink family's ~107° hue like every
+     near-black in this file. */
   --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 106.7) 65%, transparent);
   /* Same value as --chrome-bg above — dark's pane/sidebar split is untouched;
      only light gets distinct opacities for the two surfaces (see :root). */
@@ -318,19 +289,9 @@
   }
 }
 
-/* Linux and iOS have no native window vibrancy (see zen.css for the full explanation
-   and tauri.linux.conf.json, which turns off window transparency itself).
-   --chrome-bg/--pane-chrome-bg are the default "Crowbar" theme's own wash
-   over the vibrancy blur, translucent for the same reason Zen's surfaces
-   are. These are the ACTUAL flattened result of compositing each token over
-   :root/.dark's own --background, not the same percentage at 100% (which
-   would shift the hue/lightness). Any theme that doesn't override these two
-   tokens itself — including Zen, which only overrides --chrome-bg and
-   inherits --pane-chrome-bg from here — gets the opaque fallback for free.
-   A theme.css selector out-specifies a theme file's own `[data-theme='x']`
-   rule only when that file doesn't also gate on `[data-platform='linux']`
-   (equal specificity falls back to source order); zen.css already does, so
-   its own --chrome-bg override still wins there. */
+/* No window vibrancy on Linux/iOS: the translucent washes, flattened over --background (not set to
+   100%, which shifts the tone), for any theme that doesn't override them. zen.css gates on
+   data-platform too, so its own --chrome-bg still wins by source order. */
 :root[data-platform='linux'],
 :root[data-platform='ios'] {
   --chrome-bg: oklch(0.989 0 0);
@@ -339,9 +300,7 @@
 
 .dark[data-platform='linux'],
 .dark[data-platform='ios'] {
-  /* Same L/C as before (the flattened-opaque equivalent), hue only —
-     264.5deg/266.8deg (old blue system) to ~107deg (ink), matching the
-     macOS values above. */
+  /* The flattened-opaque equivalent of the values above, on the ink hue (~107deg). */
   --chrome-bg: oklch(0.182 0.005 106.7);
   --pane-chrome-bg: oklch(0.182 0.005 106.7);
 }

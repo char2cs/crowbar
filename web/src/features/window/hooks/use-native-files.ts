@@ -88,10 +88,8 @@ function useActiveFilePath(): string | null {
   return getExplorerTargetPath(buffer) ?? null
 }
 
-/**
- * Feeds the phone's file drawer with `wsId`'s tree, filtered and git-marked as the desktop
- * explorer draws it, and carries out what the drawer asks: fold a folder, open a file, close.
- */
+/** Feeds the phone's file drawer `wsId`'s tree, filtered and git-marked like the desktop explorer,
+ *  and carries out its asks: fold a folder, open a file, close. */
 export function useNativeFiles(wsId: string, chatId: string) {
   const header = useDrawerHeader(chatId, wsId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)

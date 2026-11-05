@@ -39,10 +39,8 @@ function closeTab(paneId: string, bufferId: string) {
   bufferActions.closeBuffer(bufferId)
 }
 
-/**
- * Feeds the IDE's native tab strip with `paneId`'s editor tabs and carries out what it asks:
- * show a tab, close one, or open what its + menu picked.
- */
+/** Feeds the native tab strip `paneId`'s editor tabs and carries out its asks: show a tab, close
+ *  one, or open what its + menu picked. */
 export function useNativeTabs(paneId: string, wsId: string) {
   const tabIds = useStore(windowPaneStore, (s) => s.panes[paneId]?.editorTabIds)
   const activeId = useStore(windowPaneStore, (s) => s.panes[paneId]?.activeEditorTabId ?? null)

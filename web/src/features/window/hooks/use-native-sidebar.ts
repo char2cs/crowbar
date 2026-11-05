@@ -227,10 +227,8 @@ function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
   return useMemo(() => new Set(key.split('\n')), [key])
 }
 
-/**
- * Keeps the phone's native chat list showing the sidebar, and carries out what the user asks
- * of it there. The list holds no state of its own: every push is the whole snapshot.
- */
+/** Keeps the phone's native chat list showing the sidebar and carries out its intents. The list
+ *  holds no state: every push is the whole snapshot. */
 export function useNativeSidebar({
   activeProjectId,
   projects,
