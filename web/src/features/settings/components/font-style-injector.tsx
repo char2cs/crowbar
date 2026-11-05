@@ -45,10 +45,7 @@ function buildFontVariable(primary: string, fallback: string): string {
   return `"${normalized}", ${fallback}`
 }
 
-/**
- * FontStyleInjector - Updates CSS variables when font settings change
- * Font fallbacks are defined in styles.css @theme directive
- */
+// Font fallbacks live in styles.css's @theme directive.
 export const FontStyleInjector = () => {
   const settings = useSettingsStore((s) => s.settings)
 

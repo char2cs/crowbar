@@ -118,11 +118,8 @@ export function ProvidersSettingsView({
         <p className="ui-font ui-text-sm px-1 py-2 text-muted-foreground">No agents available.</p>
       ) : (
         <>
-          {/* WHAT THE HEADER CANNOT SAY. The column titles now name each
-              control, so this line no longer has to describe the dot. What a
-              one-word header still cannot convey is the CONSEQUENCE of turning
-              Tools off — that the agent keeps running and only loses its way
-              into Crowbar — and that is what is left here. */}
+          {/* What a one-word column header can't say: turning Tools off keeps the agent running
+              and only cuts its way into Crowbar. */}
           <p className="ui-font ui-text-sm px-1 pb-1 text-muted-foreground">
             Drag to set which agent a new chat opens first, and turn one off to hide it from every
             New chat surface. Tools lets that agent use Crowbar itself — reading your workspaces and

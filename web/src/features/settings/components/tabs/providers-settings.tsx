@@ -13,24 +13,9 @@ import { ChatPresentationSetting } from './chat-presentation-setting'
 import { DefaultPermissionLevelSetting } from './default-permission-level-setting'
 import { ProvidersSettingsView } from './providers-settings-view'
 
-/**
- * The Agents settings tab: the enriched, priority-ordered provider list, drag to
- * reorder priority, a switch to disable one.
- *
- * "Agents" is the USER-FACING name only (spec §11). `usecases/agent`,
- * `agentrunner` and `agentchat` already overload that word inside Crowbar, and
- * Claude has its own `--agent`, so nothing below the copy moves: the tab id, the
- * component, the store, the DTOs and the wire all still say provider.
- *
- * It edits the LOCAL daemon's list through the global route, whichever workspace
- * (on whichever host) is in view, so the dialog opens from anywhere; it fetches
- * on open and offers a retry.
- *
- * This is the first backend-persisted settings tab: on any change it PUTs the
- * COMPLETE ordered preference set and reconciles from the server's freshly
- * resolved response (server truth) — deliberately NOT the localStorage
- * `updateSetting` path other tabs use, because provider state is server-owned.
- */
+// "Agents" is only the user-facing name ("agent" is overloaded internally); code and wire say
+// provider. Edits the local daemon's list from anywhere, and PUTs to the server rather than
+// `updateSetting`'s localStorage, since provider state is server-owned.
 export const ProvidersSettings = () => {
   const { providers, status, retry, toggle, toggleTools, reorder } = useProvidersSettings()
   const [uploading, setUploading] = useState(false)
