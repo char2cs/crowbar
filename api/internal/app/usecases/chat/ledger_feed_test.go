@@ -13,6 +13,7 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -203,4 +204,30 @@ func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	assert.Empty(t, f.bcKinds(t))
 	assert.True(t, f.busy(t, chatID), "B still runs")
 	assert.Len(t, ledgerRows(t, f, chatID), written, "the late stop closes A no second time")
+}
+
+// A pick the first send stages divides nothing: no model or effort marker may
+// stand ahead of the chat's first message.
+// The pick reaches the live CLI or rides the launch of a dormant chat's.
+func TestLedger_TheFirstSendsStagedPickRecordsNoDivider(t *testing.T) {
+	for name, dormant := range map[string]bool{"live CLI": false, "dormant chat": true} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			writeDescriptor(t, f, "claude", selectingDescriptorBody)
+			chatID, _ := f.spawn(t, "claude")
+			if dormant {
+				require.NoError(t, f.usecase.KillChat(f.ctx, chatID))
+				f.wait()
+			}
+
+			_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "first", uuid.NewString(), "",
+				&domain.ChatSelection{Model: "opus", Effort: "high"})
+			require.NoError(t, err)
+
+			assert.Equal(t, "opus", f.chat(t, chatID).Model, "the pick is the chat's")
+			for _, m := range f.markers(t, chatID) {
+				assert.NotRegexp(t, "^(model|effort)_changed:", m, "a divider ahead of the first message")
+			}
+		})
+	}
 }

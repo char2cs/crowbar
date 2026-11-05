@@ -137,6 +137,17 @@ func TestRegression_SwitchingToTheSameProviderRecordsNoMarker(t *testing.T) {
 	assert.Empty(t, readInterruptions(t, h, imported, chatID))
 }
 
+// stubExchange is one turn of switchablestub's CLI: a pick divides a chat only
+// once it has said something.
+func stubExchange(t *testing.T, h *harness, imported importedRepo, runnerID string) {
+	t.Helper()
+	base := repoBase(imported)
+	postHook(t, h, base, "switchablestub", runnerID, "session_start", `{"session_id":"s-1"}`)
+	postHook(t, h, base, "switchablestub", runnerID, "user_prompt", `{"prompt":"hi"}`)
+	postHook(t, h, base, "switchablestub", runnerID, "turn_stop", `{"session_id":"s-1","last_assistant_message":"ok"}`)
+	h.Quiesce()
+}
+
 // TestRegression_SelectionChangeRecordsModelAndEffortMarkers is the
 // integration counterpart of chat_test.go's SetChatSelection unit coverage:
 // drives the real PATCH .../selection endpoint the model/effort pickers
@@ -147,7 +158,8 @@ func TestRegression_SelectionChangeRecordsModelAndEffortMarkers(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "switchablestub", switchableStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
-	chatID, _ := createStubChat(t, h, imported, "switchablestub")
+	chatID, runnerID := createStubChat(t, h, imported, "switchablestub")
+	stubExchange(t, h, imported, runnerID)
 
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
 		map[string]string{"model": "opus", "effort": "high"}, http.StatusNoContent)
@@ -169,7 +181,8 @@ func TestRegression_SelectionChangeOfOnlyOneHalfRecordsOneMarker(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "switchablestub", switchableStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
-	chatID, _ := createStubChat(t, h, imported, "switchablestub")
+	chatID, runnerID := createStubChat(t, h, imported, "switchablestub")
+	stubExchange(t, h, imported, runnerID)
 
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
 		map[string]string{"model": "", "effort": "low"}, http.StatusNoContent)

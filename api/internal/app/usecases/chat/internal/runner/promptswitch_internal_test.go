@@ -103,8 +103,14 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 			if !runs {
 				h.rs.term = unforkable{}
 			}
+			opened, err := ledger.NewRow(ledger.KindTurnStarted, "T-0", "", ledger.TurnStarted{Provider: "claude", RunnerID: "r-0"})
+			require.NoError(t, err)
+			closed, err := ledger.NewRow(ledger.KindTurnEnded, "T-0", "", ledger.TurnEnded{Status: "done", RunnerID: "r-0"})
+			require.NoError(t, err)
+			_, _, err = h.rs.ledger.Append(t.Context(), h.chatID, opened, closed)
+			require.NoError(t, err)
 
-			_, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(),
+			_, err = h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(),
 				"carrier-test", &domain.ChatSelection{Model: "deep"})
 
 			if !runs {
@@ -188,7 +194,7 @@ func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T
 	case err := <-done:
 		done <- err
 	}
-	said, err := ledger.NewRow(ledger.KindAssistantText, "T-1", "", ledger.AssistantText{MessageID: "m-1", Text: "said"})
+	said, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{Provider: "p", RunnerID: "r-1"})
 	require.NoError(t, err)
 	_, _, err = rs.ledger.Append(t.Context(), "chat-1", said)
 	require.NoError(t, err)
@@ -198,6 +204,6 @@ func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T
 	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	assert.Equal(t, ledger.KindAssistantText, rows[0].Kind)
+	assert.Equal(t, ledger.KindTurnStarted, rows[0].Kind)
 	assert.Equal(t, ledger.KindMarker, rows[1].Kind, "the divider follows the hook's row")
 }

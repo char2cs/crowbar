@@ -123,7 +123,8 @@ func (rs *Runners) holdsSelection(ctx context.Context, chatID string, selection 
 }
 
 // setChatSelectionLocked commits model/effort and records a divider for
-// whichever of the two actually changed.
+// whichever of the two actually changed, once a turn has run: before that a
+// pick divides nothing, and its divider would stand above the first message.
 func (rs *Runners) setChatSelectionLocked(
 	ctx context.Context,
 	chatID, model, effort string,
@@ -132,7 +133,8 @@ func (rs *Runners) setChatSelectionLocked(
 	if err := rs.conversations.SetChatSelection(ctx, chatID, model, effort); err != nil {
 		return err
 	}
-	if beforeErr != nil {
+	st, err := rs.ledger.State(ctx, chatID)
+	if _, turned := st.LastTurn(); beforeErr != nil || err != nil || !turned {
 		return nil
 	}
 	if model != before.Model {

@@ -1076,7 +1076,8 @@ func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
 // taken without the drain is a read of the row set one event ago.
 func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
+	chatID, runnerID := f.spawn(t, "claude")
+	exchange(t, f, runnerID, "claude", "a chat that has said something")
 
 	t.Run("model and effort both change from empty", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
@@ -1173,7 +1174,8 @@ func TestSetChatSelection_RefusesAValueOutsideTheDeclaredCatalogue(t *testing.T)
 // carry a "changed to" entry for the OTHER caller's, never corrected.
 func TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
+	chatID, runnerID := f.spawn(t, "claude")
+	exchange(t, f, runnerID, "claude", "a chat that has said something")
 
 	start := make(chan struct{})
 	done := make(chan error, 2)
@@ -1590,7 +1592,8 @@ func TestSubmitPrompt_ANilStagedSelectionLeavesTheStickyPairAlone(t *testing.T) 
 func TestRegression_SubmitPrompt_ReplayingAStagedSelectionStaysAtMostOnce(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
-	chatID, _ := f.spawn(t, "claude")
+	chatID, runnerID := f.spawn(t, "claude")
+	exchange(t, f, runnerID, "claude", "a chat that has said something")
 	requestID := uuid.NewString()
 	staged := &domain.ChatSelection{Model: "opus", Effort: "high"}
 
