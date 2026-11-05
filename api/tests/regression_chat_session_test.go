@@ -244,6 +244,9 @@ func TestRegression_Symptom2_AnAnnouncedSessionChangeStaysOnTheChat(t *testing.T
 	assert.Equal(t, []string{s, s2}, ids[len(ids)-2:])
 }
 
+// A chat holding a conversation of its own never takes another chat's session
+// its CLI resumes: it keeps its binding and that CLI is ended, so nothing it
+// does goes unrecorded. A chat that holds nothing takes it (agent_runner_moves).
 func TestRegression_Symptom2_ASessionOwnedByAnotherChatIsNeverTaken(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -252,12 +255,11 @@ func TestRegression_Symptom2_ASessionOwnedByAnotherChatIsNeverTaken(t *testing.T
 	chatB, lb := createFakeChat(t, h, imported, fake)
 	hookBase := h.url + repoBase(imported)
 	sa, sb := uuid.NewString(), uuid.NewString()
-	postSessionHook(t, la, hookBase, "claude", "session_start", map[string]any{"session_id": sa, "source": "startup"})
-	postSessionHook(t, lb, hookBase, "claude", "session_start", map[string]any{"session_id": sb, "source": "startup"})
-	h.QuiesceReactors()
+	completeTurn(t, h, la, hookBase, "claude", sa, "one")
+	completeTurn(t, h, lb, hookBase, "claude", sb, "one")
 
 	postSessionHook(t, lb, hookBase, "claude", "session_start", map[string]any{"session_id": sa, "source": "resume"})
-	h.QuiesceReactors()
+	untilExitedWith(t, h, chatB, "displaced")
 
 	var listed []agentChatDTO
 	h.get(repoBase(imported)+"/chats", &listed)
@@ -266,12 +268,21 @@ func TestRegression_Symptom2_ASessionOwnedByAnotherChatIsNeverTaken(t *testing.T
 		ids[c.ID] = true
 	}
 	assert.True(t, ids[chatA] && ids[chatB], "both chats are still listed")
-	assert.Equal(t, la.RunnerID, readChatSession(t, h, imported, chatA).LiveRunnerID)
-	assert.Equal(t, lb.RunnerID, readChatSession(t, h, imported, chatB).LiveRunnerID,
-		"the CLI that resumed another chat's session stays on its own chat")
+	a := readChatSession(t, h, imported, chatA)
+	assert.Equal(t, la.RunnerID, a.LiveRunnerID, "the chat that holds the session keeps its CLI")
+	require.NotNil(t, a.Conversation)
+	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: sa, State: "bound"}, *a.Conversation)
+	b := readChatSession(t, h, imported, chatB)
+	assert.Empty(t, b.LiveRunnerID, "the CLI that resumed another chat's session is ended")
+	require.NotNil(t, b.Conversation)
+	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: sb, State: "bound"}, *b.Conversation,
+		"chat B keeps its own conversation")
+	conflicts := rowsOf(t, chatRows(t, h, chatB), ledger.KindMarker,
+		func(m ledger.Marker) bool { return m.Kind == ledger.MarkerSessionConflict && m.Detail == sa })
+	assert.Len(t, conflicts, 1, "chat B shows why its CLI ended")
 
-	killAndAwaitExit(t, h, recordSidebar(t, h), chatB, lb)
 	next := promptLaunch(t, h, imported, fake, chatB, "again", "")
+	assert.Equal(t, sb, argAfter(next.Argv, "--resume"), "chat B's next prompt resumes its own session")
 	assert.NotContains(t, next.Argv, sa, "chat B never takes chat A's session")
 }
 
