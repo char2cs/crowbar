@@ -86,3 +86,16 @@ spawns:
   contract changed; check every consumer, not only the first prompt.
 - Latency: the first prompt no longer finds a warm CLI, but today's warm CLI is
   already discarded, so no regression.
+
+## Status (2026-11-05)
+
+Not implemented; the double launch is still there for every restart_tui
+provider (claude), and it does not depend on the prompt's selection: with no
+pick, the same pick, or a new one, `SpawnChat` then the first `SubmitPrompt`
+fork two CLIs (measured in the chat usecase fixture with the shipped claude
+descriptor). Passing the selection at create would not remove it, since
+restart_tui delivers every prompt through a new CLI's argv. Option A remains
+the fix. Its cost beyond this plan: 18 black-box tests create a claude-fake
+chat through `createFakeChat` and wait for the create's launch, and
+`createStubChat` requires a live runner after create; both helpers change with
+the contract.
