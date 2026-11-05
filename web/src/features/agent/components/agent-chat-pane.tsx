@@ -23,7 +23,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneAttachment } from '@/features/agent/components/use-pane-attachment'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
-import { missingAgentNote } from '@/features/agent/lib/missing-agent'
 import {
   SPLIT_MIN_HALF_PX,
   SPLIT_MIN_STACKED_PX,
@@ -156,7 +155,6 @@ export function AgentChatPaneBody({
       providerName,
       presentation,
       promptReplacing: deliveryPending,
-      missingAgent: missingAgentNote(activeProviderId, providers),
     })
 
   // At most one blank-chat signpost: waiting needs a live runner, reviving none.

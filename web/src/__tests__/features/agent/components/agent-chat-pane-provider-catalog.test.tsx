@@ -282,6 +282,7 @@ describe('a chat that records no agent', () => {
     expect(submitPromptFn).not.toHaveBeenCalled()
     expect(resumeChatFn).not.toHaveBeenCalled()
     expect(toastErrorFn).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('pane-resume')).toBeNull()
   })
 
   it('asks for a pick when an agent is installed', async () => {
