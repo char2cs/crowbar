@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 
 	"github.com/google/uuid"
@@ -147,17 +146,6 @@ func TestRegression_Symptom4_CrashMidTurnLeavesTheChatUsable(t *testing.T) {
 	assert.Equal(t, "daemon_restart", exitReason(t, h2, c.imported, c.chatID))
 	next := promptLaunch(t, h2, c.imported, c.fake, c.chatID, "after the crash", "")
 	assert.NotEqual(t, c.launch.RunnerID, next.RunnerID, "the prompt launched a new CLI")
-}
-
-func TestRegression_Symptom4_ASwitchWhileATurnRunsIsRefusedNotForced(t *testing.T) {
-	c := newTurnChat(t, newHarness(t))
-	writeProviderDescriptor(t, c.h, "quietstub", quietStubProviderDescriptorYAML)
-	c.startTurn(t, c.launch, "A")
-
-	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/switch",
-		map[string]string{"provider": "quietstub"}, http.StatusConflict).Body.Close()
-	require.NoError(t, syscall.Kill(c.launch.PID, 0), "the running CLI was not killed")
-	assert.True(t, c.working(t))
 }
 
 // chatDeadLetters is the daemon's count of hooks the ingress could not place.

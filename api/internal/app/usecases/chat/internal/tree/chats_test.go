@@ -452,18 +452,18 @@ func TestCreateChat_OwnWorktree_AcceptsAWorktreeOwningChatParentInAnotherWorkspa
 // new chat's workspaceID happening to be "". An ordinary (non-ownWorktree)
 // thread can ALSO be created with workspaceID=="" (a workspace-less bubble
 // thread — see handlers.Create's own doc comment), and for THAT caller the
-// cross-workspace refusal must still fire: a thread inherits its parent's cwd,
-// and a thread claiming no workspace of its own placed under a chat that owns
-// a DIFFERENT one is exactly the meaningless case ErrCrossWorkspace exists to
-// catch. A fix that bypassed the check whenever workspaceID == "" — rather
-// than whenever the caller is actually creating an own-worktree chat — would
-// wrongly let this one through too.
+// refusal must still fire: a thread inherits its parent's cwd, so one naming
+// no workspace under a chat that owns one has left out the parent's workspace,
+// which the caller is told it must name. A fix that bypassed the check whenever
+// workspaceID == "" — rather than whenever the caller is actually creating an
+// own-worktree chat — would wrongly let this one through too.
 func TestCreateChat_RefusesAChatParentInAnotherWorkspaceEvenWithNoWorkspaceOfItsOwn(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
 
 	_, _, err := createChat(context.Background(), uc, "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
-	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
+	require.ErrorIs(t, err, tree.ErrThreadNeedsWorkspace)
+	assert.Equal(t, problem.InvalidArgument, problem.Of(err).Code, "a missing field, not a conflict")
 	assert.Empty(t, chats.Minted)
 }
 

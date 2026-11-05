@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -30,10 +31,8 @@ func (u *chatFolderUsecase) CreateChat(
 	if err := u.checkWorkspaceProvisioned(ctx, in.WorkspaceID); err != nil {
 		return CreatedChat{}, err
 	}
-	if in.ParentID != "" {
-		if err := u.checkNewChatParent(ctx, in.WorkspaceID, in.ParentID, false); err != nil {
-			return CreatedChat{}, err
-		}
+	if err := u.checkThreadParent(ctx, in.WorkspaceID, in.ParentID); err != nil {
+		return CreatedChat{}, err
 	}
 	chatID, err := u.agent.MintChat(ctx, in.ID, in.WorkspaceID, in.ProviderID, in.Surface)
 	if err != nil {
@@ -49,6 +48,20 @@ func (u *chatFolderUsecase) CreateChat(
 		return CreatedChat{}, u.discard(ctx, chatID, err)
 	}
 	return CreatedChat{ChatID: chatID, RunnerID: runnerID}, nil
+}
+
+// checkThreadParent is checkNewChatParent for a plain create. Under a chat that
+// runs in a workspace, a create naming none left that workspace out: it is told
+// to name it rather than that it crossed one.
+func (u *chatFolderUsecase) checkThreadParent(ctx context.Context, workspaceID, parentID string) error {
+	if parentID == "" {
+		return nil
+	}
+	err := u.checkNewChatParent(ctx, workspaceID, parentID, false)
+	if workspaceID == "" && errors.Is(err, ErrCrossWorkspace) {
+		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, ErrThreadNeedsWorkspace)
+	}
+	return err
 }
 
 // createImportChat is CreateChat's WorktreeImport branch: a single create the
