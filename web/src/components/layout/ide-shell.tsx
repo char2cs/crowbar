@@ -42,11 +42,8 @@ function IdeShellBody() {
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
   const theme = useSettingsStore((state) => state.settings.theme)
   const themeMode = useSettingsStore((state) => state.settings.themeMode)
-  // macOS only, and only meaningful once the pane/sidebar chrome below is on
-  // screen to measure — see the hook's own doc for the geometry it re-derives.
-  // themeKey re-runs the sync after every theme switch: applying a theme pins
-  // the native vibrancy view's appearance, which resets the traffic lights as
-  // a side effect (see the hook's own doc).
+  // macOS only. The theme key re-runs the sync after a theme switch, which pins the vibrancy
+  // view's appearance and resets the traffic lights as a side effect.
   useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
   useSidebarFocusMode()
@@ -114,10 +111,7 @@ function IdeShellBody() {
     </SidebarPeek>
   )
 
-  // See ide-shell-workspace-content.tsx's own doc for why WorkspaceHost/
-  // Outlet live in their own component rather than inline here — this
-  // subtree only ever needs the three resolved workspace-id sets below, none
-  // of the sidebar/route state the rest of this shell carries.
+  // Its own component: it needs only the resolved workspace-id sets, none of the shell's state.
   const contentEl = (
     <IdeShellWorkspaceContent
       effectiveActiveWorkspaceId={effectiveActiveWorkspaceId}
@@ -165,31 +159,9 @@ function IdeShellBody() {
   )
 }
 
-/**
- * `useNavigationHistory` as a LEAF, not as a call in `IDEShell`'s own body.
- *
- * The hook returns void — it renders nothing, it only records into the jump
- * list — but it subscribes to `panes[activePaneId].activeEditorTabId`, which
- * moves every time focus crosses between a pane holding an editor tab and one
- * that doesn't. Called directly in `IDEShell`, that put a WINDOW-WIDE value in
- * the app root's render path, and nothing below `IDEShell` is memoized: each
- * such click walked ~810 fibers — the whole sidebar, every row's Tooltip and
- * Dropdown, the file-explorer card, the settings dialog — for a render whose
- * output was identical. Measured live in the Tauri app, three panes tiled in
- * ONE workspace view (so no workspace switch is involved, unlike the
- * `useActivePaneWorkspaceId` fix this sits beside), 15 focus clicks: 9,159
- * rendered fibers and 78fps, against 120fps idle.
- *
- * Isolating it here leaves the subscription — and its React-effect timing,
- * which the jump list's retarget handshake depends on (the marker is
- * moved onto the reopened buffer's brand-new id AFTER the pane-store write
- * that reveals it, so a recorder running synchronously with that write would
- * record the jump as a fresh navigation and truncate the forward branch) —
- * exactly as it was, while confining the re-render to this one childless
- * fiber. Still mounted at shell level rather than in `SidebarProjectHeader`,
- * whose back/forward arrows it feeds, so history keeps accruing while that
- * header is hidden behind a nav screen and survives it unmounting.
- */
+// A childless leaf for `useNavigationHistory`: its active-editor-tab subscription would otherwise
+// re-render the unmemoized shell on every pane-focus change. Effect timing is unchanged (the jump
+// list's retarget depends on it); shell-level so history accrues while its header is hidden.
 function NavigationHistoryRecorder(): null {
   useNavigationHistory()
   return null
