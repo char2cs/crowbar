@@ -22,26 +22,27 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// exitLedger counts onExit deliveries per session id.
+// exitLedger counts onExit deliveries per session, keyed by the slot the
+// session was created in: a session can exit before CreateCommand returns its id.
 type exitLedger struct {
 	mu    sync.Mutex
-	exits map[string]int
+	exits map[int]int
 }
 
-func newExitLedger() *exitLedger { return &exitLedger{exits: make(map[string]int)} }
+func newExitLedger() *exitLedger { return &exitLedger{exits: make(map[int]int)} }
 
-func (l *exitLedger) onExit(sid *string) func(terminal.Exit) {
+func (l *exitLedger) onExit(slot int) func(terminal.Exit) {
 	return func(terminal.Exit) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
-		l.exits[*sid]++
+		l.exits[slot]++
 	}
 }
 
-func (l *exitLedger) exitsOf(sid string) int {
+func (l *exitLedger) exitsOf(slot int) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.exits[sid]
+	return l.exits[slot]
 }
 
 // waitGone blocks until sid has left the registry and its .buf and meta row are deleted.
@@ -147,13 +148,10 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		sleep := fmt.Sprintf("0.0%d", rng.Intn(9)+1)
-		idx := i
 		id, err := eng.CreateCommand(context.Background(), "chat-b1", t.TempDir(),
-			[]string{"/bin/sh", "-c", "sleep " + sleep + "; exit 7"}, nil, ledger.onExit(&ids[idx]))
+			[]string{"/bin/sh", "-c", "sleep " + sleep + "; exit 7"}, nil, ledger.onExit(i))
 		require.NoError(t, err)
-		ledger.mu.Lock()
 		ids[i] = id
-		ledger.mu.Unlock()
 
 		op := rng.Intn(4)
 		delay := time.Duration(rng.Intn(60)) * time.Millisecond
@@ -178,8 +176,8 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 	wg.Wait()
 	eng.Shutdown() // joins every reaper: every owed callback has RUN when this returns
 
-	for _, id := range ids {
-		require.Equal(t, 1, ledger.exitsOf(id), "session %s: exactly one onExit", id)
+	for i, id := range ids {
+		require.Equal(t, 1, ledger.exitsOf(i), "session %s: exactly one onExit", id)
 		require.False(t, eng.SessionExists(context.Background(), id))
 	}
 }
