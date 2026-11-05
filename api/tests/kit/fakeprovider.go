@@ -30,6 +30,9 @@ import (
 // shippedDescriptors is where the descriptors the daemon embeds live, from api/.
 const shippedDescriptors = "internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3"
 
+// recordedServeTurns holds the live app-server captures a served fake replays, from api/.
+const recordedServeTurns = "internal/engine/agents/internal/protocol/testdata/fixtures"
+
 // runnerTokenHeader is the header an HTTP hook proves its runner with.
 const runnerTokenHeader = "X-Crowbar-Runner-Token"
 
@@ -166,6 +169,14 @@ func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any 
 		var events map[string]any
 		require.NoError(tb, yaml.Unmarshal([]byte(spec.EventsYAML), &events), "kit: EventsYAML")
 		doc["events"] = events
+	}
+	// An api-transport base serves from the fake too, replaying its recorded app-server turn.
+	if api, ok := block(tb, doc, "runtime")["api"].(map[string]any); ok {
+		fixtures := filepath.Join(apiDir(), recordedServeTurns, spec.Base)
+		api["serve"] = []any{cli, "app-server", dir, "{segid}", fixtures}
+		if attach, ok := api["attach"].([]any); ok && len(attach) > 0 {
+			attach[0] = cli
+		}
 	}
 	doc["hooks_injection"] = []any{
 		setEnv("FAKECLI_DIR", dir),

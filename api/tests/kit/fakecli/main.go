@@ -1,7 +1,8 @@
 //go:build integration
 
 // Command fakecli stands in for a provider CLI in tests. It records how it was
-// launched, optionally refuses a resume, and otherwise behaves like `cat`.
+// launched, optionally refuses a resume, and otherwise behaves like `cat`; as
+// `app-server` it replays a recorded app-server turn (serve.go).
 package main
 
 import (
@@ -28,6 +29,9 @@ type launch struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "app-server" {
+		os.Exit(serveApp(os.Args[2:]))
+	}
 	// Before the capture exists, so a SIGTERM sent the moment a test sees it is handled.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)

@@ -353,3 +353,21 @@ func TestFakeProvider_TerminalFirstLaunchesOnTheTerminal(t *testing.T) {
 	require.NotEmpty(t, born.LiveRunnerID, "a terminal create launches with the create")
 	requireOneLaunch(t, other, other.AwaitLaunch(t, born.LiveRunnerID))
 }
+
+// An api-transport chat is dormant until used too: its first prompt forks the
+// one app-server, and the recorded turn it replays streams back as the reply.
+func TestFakeProvider_AnAppServerChatLaunchesOnItsFirstPrompt(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "codex"})
+	chatID := createChat(t, h, imported, fake.ID)
+	assert.Empty(t, fake.LaunchedRunners(t), "the create launches nothing")
+
+	l := promptLaunch(t, h, imported, fake, chatID, "Reply with exactly: OK", "")
+	require.Eventually(t, func() bool {
+		return slices.Contains(assistantTexts(readRecordedMessages(t, h, imported, chatID)), "OK")
+	}, 10*time.Second, 5*time.Millisecond, "the replayed reply never reached the chat")
+
+	assert.Equal(t, "app-server", l.Argv[0], "the launch is the app-server, not a TUI")
+	requireOneLaunch(t, fake, l)
+}
