@@ -30,12 +30,9 @@ type mintCodeResponse struct {
 	ServerFingerprint string `json:"serverFingerprint"`
 }
 
-// runPair mints a pairing code and prints it, alongside the daemon's TLS
-// fingerprint, for the operator to hand to a client. The fingerprint is the
-// trust-on-first-connect check: a human compares it against what the
-// pairing client shows for the host it just dialed, since the code alone
-// only proves possession of this socket, not which daemon a later TLS
-// connection actually reaches.
+// runPair mints a pairing code and prints it with the daemon's TLS fingerprint.
+// The code only proves possession of this socket; the operator compares the
+// fingerprint to what the client shows to confirm which daemon TLS reaches.
 func runPair(socket string, out io.Writer) error {
 	got, err := postJSON[mintCodeResponse](socket, "/v0/pair/code")
 	if err != nil {

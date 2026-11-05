@@ -9,10 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
-// clientTimeout bounds a CLI command's round trip to the local daemon. A
-// human waiting on a terminal can tolerate more than the in-PTY hook
-// callback's own short budget (ipc.DefaultTimeout), so this is generous
-// instead.
+// clientTimeout bounds a CLI command's round trip to the local daemon; a human at
+// a terminal tolerates more than the hook callback's ipc.DefaultTimeout.
 const clientTimeout = 30 * time.Second
 
 // envelope is the {success,data,error} shape every /v0 route answers with.

@@ -16,27 +16,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
-// mcpRelayTimeout bounds ONE relayed MCP message.
-//
-// It is not the ipc default (5s), and the difference is the point. A hook or a
-// handoff callback is a small read against local state; a TOOL CALL can be
-// several git subprocesses — get_review_scope resolves the merge base and reads
-// the whole branch diff, post_review_comment reads the diff geometry before it
-// writes — and the daemon bounds each of those at its own GitOpTimeout of 60s,
-// chosen as "far above any healthy local git command". Under the 5s default that
-// ceiling was unreachable from this path: no tool call could spend more than five
-// seconds of git, however large the repository.
-//
-// Two seconds' work is not what makes this worth fixing. The failure was that
-// the relay pre-empted work the daemon was still legitimately doing, and then
-// reported it as `crowbar daemon unreachable` — which is false, points the model
-// at a recovery that cannot help, and (for an unkeyed write that had already
-// committed) invites a retry that duplicates the finding.
-//
-// 120s is two of the daemon's own git ceilings: enough for a call that chains a
-// ref resolution and a diff read to hit that ceiling and return the daemon's own
-// error, and short enough that a genuinely wedged daemon still surfaces to the
-// model inside one turn rather than hanging the CLI.
+// mcpRelayTimeout bounds one relayed MCP message. A tool call can chain git
+// subprocesses the daemon bounds at 60s each, so this is two of those ceilings:
+// the daemon's own error surfaces first, yet a wedged daemon still fails in a turn.
 const mcpRelayTimeout = 120 * time.Second
 
 func newMCPCmd() *cobra.Command {
@@ -65,11 +47,9 @@ func newMCPCmd() *cobra.Command {
 	return cmd
 }
 
-// runMCPRelay is the whole relay: read one JSON-RPC message per line, hand it
-// to the daemon, write back whatever the daemon says to write. It understands
-// nothing about MCP itself — which methods exist, what a tool does, whether a
-// message deserves a reply are all daemon-side decisions, so a stale crowbar
-// binary can never disagree with the daemon it is talking to.
+// runMCPRelay reads one JSON-RPC message per line, hands it to the daemon and
+// writes back whatever the daemon says. All MCP semantics live daemon-side, so a
+// stale crowbar binary can never disagree with its daemon.
 func runMCPRelay(
 	in io.Reader, out io.Writer,
 	post func(path string, body any) (int, []byte, error),
@@ -119,12 +99,8 @@ func relayLine(
 		return
 	}
 	if status < 200 || status > 299 {
-		// PostJSON returns err == nil for a non-2xx: a bad request, a tool
-		// surface not configured, or a stale binary hitting a route that
-		// 404s. That body carries no rpc field either, which would otherwise
-		// be indistinguishable from the 204 silence below — answering an
-		// application error with silence hangs the client forever on a
-		// request it is entitled to a reply for, so it becomes an error too.
+		// A non-2xx body carries no rpc field, indistinguishable from the 204 silence
+		// below; a request is owed a reply, so it becomes an error instead of a hang.
 		writeTransportError(writer, line, fmt.Errorf("daemon returned HTTP %d: %s", status, raw))
 		return
 	}
@@ -147,10 +123,8 @@ func relayLine(
 // nothing better to do with the error than say so exactly once.
 var stdoutBroken sync.Once
 
-// writeLine writes payload and flushes immediately. An MCP client blocks on
-// stdout waiting for this reply, so a buffered response is a hang. A failure
-// here (a broken pipe) is reported to stderr, never stdout — stdout is the
-// protocol channel a client is parsing as JSON-RPC.
+// writeLine writes payload and flushes immediately: the MCP client blocks on this
+// reply. Failures go to stderr, since stdout is the JSON-RPC channel.
 func writeLine(w *bufio.Writer, payload []byte) {
 	if _, err := w.Write(payload); err != nil {
 		reportBrokenStdout(err)
@@ -180,20 +154,9 @@ func writeTransportError(w *bufio.Writer, line string, cause error) {
 	}
 }
 
-// transportError turns a daemon-reachability failure into a JSON-RPC error
-// echoing the request's id, so the client can match the failure to its call.
-//
-// It returns nil — no reply at all — for a NOTIFICATION: a line that parsed
-// cleanly and carried no id. JSON-RPC 2.0 forbids any response to a
-// notification, and permits "id":null only for a request whose id could not be
-// DETERMINED, which is the different case of a line too malformed to parse.
-// Telling those apart is the whole reason the unmarshal error is inspected
-// rather than discarded.
-//
-// The distinction is not academic: notifications/initialized is a notification
-// sent during the handshake, which is the likeliest moment for a transient
-// daemon failure, and answering it produced an unsolicited {"id":null,"error":…}
-// on stdout that the client never asked for.
+// transportError turns a daemon-reachability failure into a JSON-RPC error echoing
+// the request's id. It returns nil for a notification (parsed, no id): JSON-RPC
+// forbids replying to one, and "id":null is only for an unparseable line.
 func transportError(line string, cause error) []byte {
 	var request struct {
 		ID json.RawMessage `json:"id"`

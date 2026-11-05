@@ -64,10 +64,9 @@ func branchFiles() []sourceFile {
 	}
 }
 
-// ensureFixture generates the throwaway repo the seed imports, and reports
-// whether it had to create it. An existing repo is reused untouched: once
-// Crowbar has imported it, its worktrees and branches are live state that
-// regenerating would strand.
+// ensureFixture generates the throwaway repo the seed imports and reports whether
+// it had to create it. An existing repo is reused untouched: once imported, its
+// worktrees and branches are live state that regenerating would strand.
 func ensureFixture(
 	repoPath string,
 ) (*gitRepo, bool, error) {

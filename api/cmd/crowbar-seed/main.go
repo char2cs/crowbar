@@ -1,15 +1,10 @@
-// Command crowbar-seed fills a running Crowbar DEV daemon with usable state:
-// a generated throwaway git repo, a project and repo importing it, a feature
-// workspace with a real diff on it, and two review threads on that diff. It
-// exists so starting work on a new workspace does not begin with ten minutes of
-// clicking through import dialogs.
+// Command crowbar-seed fills a running Crowbar DEV daemon with usable state: a
+// generated throwaway git repo, a project and repo importing it, a feature
+// workspace with a real diff, and two review threads on that diff.
 //
-// It is deliberately its own binary and not a `crowbar` subcommand: this is dev
-// tooling and must not ship. Run it through `make seed`, which exports the same
-// CROWBAR_HOME the dev targets use.
-//
-// Everything it does is idempotent. A second run reuses the project, repo,
-// workspace, commit and threads the first one created, and says so.
+// It is its own binary rather than a `crowbar` subcommand because dev tooling must
+// not ship; run it through `make seed`, which exports the dev CROWBAR_HOME.
+// Every step is idempotent: a second run reuses what the first one created.
 package main
 
 import (
@@ -121,14 +116,9 @@ func finish(
 	return rep.write()
 }
 
-// seedRoot puts the throwaway repo under the crowbar home CROWBAR_HOME names.
-// It is disposable state that already lives outside the source tree, and
-// under a dev CROWBAR_HOME it is thrown away with the rest of the dev
-// instance.
-//
-// A dev home is REQUIRED, not defaulted: a silent fallback to the user's own
-// home is how a stray "Crowbar Seed" project ends up in production the one
-// time this binary runs directly instead of through `make seed` (Makefile:11).
+// seedRoot puts the throwaway repo under CROWBAR_HOME. A dev home is required,
+// not defaulted: falling back to the user's real home would seed production when
+// the binary runs outside `make seed`.
 func seedRoot() (string, error) {
 	h, err := home.Resolve()
 	if err != nil {

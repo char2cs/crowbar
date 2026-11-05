@@ -9,12 +9,9 @@ import (
 
 const tcpScheme = "tcp://"
 
-// transport is the three calls this tool needs from a daemon connection. All
-// three report the HTTP status separately from err, and all return err == nil
-// for a non-2xx — decodeEnvelope is what turns a daemon refusal into a
-// failure. PatchJSON is used by exactly one call: renaming a freshly forked
-// chat's server-generated branch back to the seed's own fixed name (see
-// ensureFeatureChat).
+// transport is the three calls this tool needs from a daemon connection. Each
+// reports the HTTP status separately and returns err == nil for a non-2xx;
+// decodeEnvelope is what turns a daemon refusal into a failure.
 type transport interface {
 	Get(
 		ctx context.Context,
@@ -32,10 +29,9 @@ type transport interface {
 	) (int, []byte, error)
 }
 
-// newTransport dials whichever wire the dev daemon is on. `make dev-desktop`
-// runs its sidecar on a unix socket whose path is an FNV hash of CROWBAR_HOME —
-// ipc.NewClient derives that, which is why this tool is a Go program and not a
-// shell script — while `make dev-api` serves plain TCP on 127.0.0.1:3737.
+// newTransport dials whichever wire the dev daemon is on: `make dev-desktop` uses
+// a unix socket whose path ipc.NewClient derives from CROWBAR_HOME, while
+// `make dev-api` serves plain TCP on 127.0.0.1:3737.
 func newTransport(
 	host string,
 ) (transport, error) {

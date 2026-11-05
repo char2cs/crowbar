@@ -9,29 +9,16 @@ import (
 	"strings"
 )
 
-// gitRepo runs git against exactly one repository and cannot reach any other.
-//
-// That guarantee is the whole point of the type. The throwaway fixture lives
-// under CROWBAR_HOME, and on a dev machine CROWBAR_HOME is <workspace>/.crowbar
-// — a directory inside a Crowbar checkout, which is itself a linked worktree
-// whose .git is a file. Git's repository discovery walks UP, so a seed command
-// aimed at a directory that is not, or is no longer, a repository silently
-// resolves the enclosing Crowbar source repository and reads — or commits —
-// there. Two independent fences make that impossible rather than unlikely:
-//
-//   - fenceEnv pins git's upward search to the repository root, so a miss
-//     fails with "not a git repository" instead of escaping.
-//   - verifyToplevel asks git which worktree it actually resolved and refuses
-//     anything else, so a run whose ceiling did not apply — a symlinked path,
-//     an inherited GIT_DIR — is still caught.
+// gitRepo runs git against exactly one repository. The fixture lives under a dev
+// CROWBAR_HOME inside a Crowbar checkout, so git's upward discovery would otherwise
+// reach the Crowbar repo; fenceEnv and verifyToplevel are two independent fences.
 type gitRepo struct {
 	root string
 }
 
-// gitEnvOverrides are the inherited variables that would let git resolve a
-// repository the seed did not choose. GIT_DIR and its relatives bypass
-// discovery outright, and an inherited ceiling would win over the appended one
-// on platforms whose getenv answers with the first match rather than the last.
+// gitEnvOverrides are inherited variables that would let git resolve a repo the
+// seed did not choose: GIT_DIR and relatives bypass discovery, and an inherited
+// ceiling can win over the appended one where getenv returns the first match.
 var gitEnvOverrides = []string{
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 	"GIT_CEILING_DIRECTORIES",
@@ -72,10 +59,8 @@ func (g *gitRepo) output(
 	return runGit(g.root, args...)
 }
 
-// commonDir is the repository directory a worktree shares with every other
-// worktree of the same repository. Comparing it is what proves that a path the
-// daemon handed the seed really belongs to the fixture, and not to whatever
-// checkout happens to enclose it.
+// commonDir is the repository directory a worktree shares with its siblings;
+// comparing it proves a daemon-reported path belongs to the fixture.
 func (g *gitRepo) commonDir() (string, error) {
 	out, err := g.output("rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
@@ -84,10 +69,9 @@ func (g *gitRepo) commonDir() (string, error) {
 	return realPath(strings.TrimSpace(out))
 }
 
-// verifyToplevel is the fence that does not depend on git honouring an
-// environment variable: it asks git which worktree root it just resolved and
-// refuses anything but dir. env is a parameter so the check can be exercised
-// with the ceiling deliberately absent.
+// verifyToplevel asks git which worktree root it resolved and refuses anything
+// but dir, a fence that does not rely on git honouring an env var. env is a
+// parameter so the check can be exercised with the ceiling absent.
 func verifyToplevel(
 	dir string,
 	env []string,
@@ -106,10 +90,8 @@ func verifyToplevel(
 	return nil
 }
 
-// fenceEnv stops git's repository discovery from climbing above dir.
-// GIT_CEILING_DIRECTORIES names directories git refuses to chdir up into, and
-// the search starts at the working directory itself, so listing dir's parent
-// leaves exactly one candidate: dir.
+// fenceEnv stops git's repository discovery from climbing above dir: listing
+// dir's parent in GIT_CEILING_DIRECTORIES leaves dir as the only candidate.
 func fenceEnv(
 	dir string,
 ) []string {
@@ -160,10 +142,8 @@ func gitWithEnv(
 	return string(out), nil
 }
 
-// realPath is how two paths are compared anywhere in this package. macOS routes
-// both the temp dir and the home dir through symlinks, so a raw string compare
-// between what the caller asked for and what git answered would fail on paths
-// that are in fact the same directory.
+// realPath is how this package compares paths: macOS routes the temp and home
+// dirs through symlinks, so a raw string compare would miss identical directories.
 func realPath(
 	path string,
 ) (string, error) {

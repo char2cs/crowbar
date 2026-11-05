@@ -9,17 +9,9 @@ import (
 
 const worktreeRegistryDir = "worktrees"
 
-// ensureWorktree opens the workspace worktree at path as a worktree of fixture,
-// repairing it first if an earlier run left it dangling, and reports whether it
-// had to.
-//
-// Crowbar provisions that worktree from the fixture repo, which registers it at
-// <fixture>/.git/worktrees/<name>. Regenerating the fixture, or moving and
-// removing workspaces, leaves the two halves of the registration out of step,
-// and every git command in the worktree then dies with
-// "fatal: not a git repository: .../.git/worktrees/<name>". The seed owns the
-// whole fixture, so it can put the two halves back together instead of asking a
-// developer to delete their dev state.
+// ensureWorktree opens the worktree at path as a worktree of fixture, repairing it
+// first if its registration under <fixture>/.git/worktrees fell out of step, and
+// reports whether it had to. The seed owns the fixture, so it can safely repair.
 func ensureWorktree(
 	fixture *gitRepo,
 	path string,
@@ -64,13 +56,9 @@ func openWorktree(
 	return worktree, nil
 }
 
-// repairWorktree rebuilds the worktree at path from the fixture repo.
-//
-// Neither half of a broken registration heals on its own: `git worktree prune`
-// only drops registrations whose directory is gone, `git worktree repair`
-// refuses a .git file that references no repository, and `git worktree add`
-// rejects an existing path even with --force. So both halves are cleared and
-// the worktree is created again.
+// repairWorktree clears both halves of a broken registration and recreates the
+// worktree: prune only drops entries whose directory is gone, repair refuses a .git
+// file pointing nowhere, and add rejects an existing path even with --force.
 func repairWorktree(
 	fixture *gitRepo,
 	path string,
@@ -85,10 +73,9 @@ func repairWorktree(
 	return addWorktree(fixture, path, branch)
 }
 
-// clearOrphan removes the directory a vanished registration left behind.
-// os.RemoveAll on a path the daemon merely reported is only safe once the
-// directory has proved it is a worktree of this fixture whose registration is
-// genuinely gone; anything else is left untouched and refused by name.
+// clearOrphan removes the directory a vanished registration left behind, but only
+// once it has proved to be a worktree of this fixture with no registration;
+// anything else is refused by name.
 func clearOrphan(
 	fixture *gitRepo,
 	path string,
@@ -126,7 +113,7 @@ func addWorktree(
 }
 
 // orphanedOf reports whether path is a worktree of fixture whose registration
-// inside the fixture repo no longer exists.
+// inside the fixture repo is gone.
 func orphanedOf(
 	fixture *gitRepo,
 	path string,

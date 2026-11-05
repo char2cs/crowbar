@@ -1,11 +1,8 @@
 package main
 
-// The fixture is a small checkout service rather than filler text: the whole
-// point of seeding is that the diff, review and file panes have something a
-// human can actually read and reason about. The `main` sources carry real
-// defects (a loop that walks one past the end, an average that divides by a
-// zero-length cart, a tax rate that is accepted and then dropped) so the review
-// surface has something worth commenting on.
+// The fixture is a small checkout service rather than filler so the diff,
+// review and file panes have readable content. The `main` sources carry real
+// defects (off-by-one loop, divide by empty cart, dropped tax rate) worth reviewing.
 
 const readmeSource = `# checkout
 

@@ -57,11 +57,8 @@ func runServe(
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Apply the user's login-shell PATH process-wide BEFORE anything execs
-	// external tools or spawns PTYs. A daemon launched by macOS launchd (the
-	// packaged .app) inherits a minimal PATH without Homebrew/npm/go dirs —
-	// without this, gh/glab, language servers and terminal children all see a
-	// crippled environment. Degrades to the inherited PATH on failure.
+	// Apply the login-shell PATH before anything execs tools or spawns PTYs: a daemon
+	// launched by launchd inherits a minimal PATH. Degrades to the inherited PATH.
 	shellenv.ApplyLoginShellPath(ctx)
 
 	staticFS, err := embeddedStaticFS()
