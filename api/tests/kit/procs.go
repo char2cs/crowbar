@@ -25,11 +25,9 @@ const procTagEnv = "CROWBAR_TEST_PROC_TAG"
 // (a server child is asked to stop gracefully, then waited on).
 const procReapBound = 10 * time.Second
 
-// RequireNoLeakedProcesses fails tb if any process started during it — child,
-// grandchild or orphan — is still running when every other cleanup is done.
-// Call it before anything is started, so its cleanup runs last. Leaked
-// processes are killed so one failure does not pile up behind the next test.
-// It reads /proc; where there is none it checks nothing.
+// RequireNoLeakedProcesses fails tb if any process started during it is still running
+// after every other cleanup, and kills it. Call it first so its cleanup runs last. It
+// reads /proc; without one it checks nothing.
 func RequireNoLeakedProcesses(tb testing.TB) {
 	tb.Helper()
 	if _, err := os.Stat("/proc/self/environ"); err != nil {

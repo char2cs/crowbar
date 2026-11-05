@@ -17,11 +17,9 @@ type Message struct {
 	Provider               string
 }
 
-// Said is what rows say, in the order a client shows it: each prompt (a
-// Crowbar one once its turn took it, where that turn started) and each settled
-// message of the main agent where it began. It is a deliberately independent
-// reader of the rows, not the production turn fold; the two were checked
-// against each other on random row sequences.
+// Said is what rows say, in client order: each prompt (a Crowbar one where its turn
+// started) and each settled main-agent message where it began. It is a reader
+// independent of the production turn fold, so tests cross-check the two.
 func Said(rows []ledger.Row) []Message {
 	var out []Message
 	var text ledger.MessageFold

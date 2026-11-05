@@ -32,9 +32,8 @@ func (e *Env) chatScope(
 	return "/v0/chats/" + chatID
 }
 
-// OwningChatID returns the chat that OWNS the workspace (minted chat-first, so it already exists).
-// It reads in-process because workspaces are no longer addressable over HTTP, using the same
-// ListChatsByWorkspace + domain.ResolveOwningChat calls as the wire resolver.
+// OwningChatID returns the chat that owns the workspace. It reads in-process, as
+// workspaces are not addressable over HTTP, using the wire resolver's own calls.
 func (e *Env) OwningChatID(
 	t *testing.T,
 	wsID string,

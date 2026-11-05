@@ -19,10 +19,8 @@ type WSWatcher struct {
 	conn *websocket.Conn
 }
 
-// Dial opens a WebSocket connection to rawURL using the supplied dialer and
-// returns a watcher. The dialer is the env's Unix-socket dialer (host-agnostic:
-// it routes to the socket regardless of rawURL's host). The connection is closed
-// automatically via t.Cleanup.
+// Dial opens a WebSocket to rawURL through dialer (the env's Unix-socket dialer, which
+// ignores rawURL's host) and returns a watcher; the connection closes on t.Cleanup.
 func Dial(
 	t *testing.T,
 	dialer *websocket.Dialer,
@@ -139,10 +137,8 @@ func (w *WSWatcher) ReadMsg(
 	return w.ReadUntil(t, timeout, func(_ map[string]any) bool { return true })
 }
 
-// AssertNoMessage asserts that no WebSocket message arrives within timeout.
-// It returns true if the read times out cleanly (expected), or fails the test
-// if a message arrives before the deadline. It never calls t.Fatal on timeout —
-// a timeout is the success condition.
+// AssertNoMessage fails the test if a WebSocket message arrives within timeout and
+// returns true on a clean timeout, which is the success condition.
 func (w *WSWatcher) AssertNoMessage(
 	t *testing.T,
 	timeout time.Duration,
@@ -170,11 +166,8 @@ func (w *WSWatcher) AssertNoMessage(
 	return false
 }
 
-// AssertNoMatch drains messages until timeout and fails the test if any message
-// satisfies match. Non-matching messages (legitimate in-prefix frames) are
-// ignored. A clean timeout is the success condition. This is the negative
-// prefix-filtering idiom: assert an out-of-prefix frame NEVER arrives while
-// tolerating the subscriber's own in-prefix traffic. Returns true on success.
+// AssertNoMatch drains messages until timeout and fails the test if any satisfies
+// match, tolerating the subscriber's own in-prefix traffic. Returns true on success.
 func (w *WSWatcher) AssertNoMatch(
 	t *testing.T,
 	timeout time.Duration,

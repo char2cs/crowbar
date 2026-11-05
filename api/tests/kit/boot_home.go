@@ -15,10 +15,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// BootHome does what the daemon does to dir before it opens any store: it
-// takes the home and runs the pre-open migration steps. Pass the session to
-// app.New and close it after the stores. A halted boot returns the session
-// with its *migrate.Halt; any other failure returns no session.
+// BootHome does what the daemon does to dir before opening any store: takes the home
+// and runs the pre-open migrations. Pass the session to app.New and close it after the
+// stores; a halted boot returns the session with its *migrate.Halt, other failures none.
 func BootHome(
 	ctx context.Context,
 	dir string,

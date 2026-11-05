@@ -59,10 +59,9 @@ func run(
 	return code
 }
 
-// isolateHome points the binary at a throwaway Crowbar home. A CROWBAR_HOME
-// naming a non-default home inside os.TempDir() is honoured; anything else,
-// unset included, is silently replaced. It returns the directory to remove,
-// or "" if none.
+// isolateHome points the binary at a throwaway Crowbar home: a non-default
+// CROWBAR_HOME inside os.TempDir() is honoured, anything else is replaced. It returns
+// the directory to remove, or "".
 func isolateHome() string {
 	if h, err := home.Resolve(); err == nil && !h.IsDefault() {
 		return ""

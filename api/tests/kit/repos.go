@@ -206,12 +206,9 @@ func TrimNewline(
 	)
 }
 
-// InitRepoWithRemoteBranch creates a working repo (default branch main, one
-// commit) wired to a fresh bare origin remote, and pushes an extra branch to the
-// remote that does NOT exist as a local head. It returns the working repo path
-// and the name of the remote-only branch. This is the fixture for the §3
-// remote-branch-exists decision: CreateChild on the remote-only branch must
-// fetch + checkout it; CreateChild on any absent branch must fork from parent.
+// InitRepoWithRemoteBranch creates a repo (main, one commit) with a bare origin and
+// pushes a branch that has no local head; it returns the repo path and that branch, so
+// CreateChild can be tested fetching a remote-only branch.
 func InitRepoWithRemoteBranch(
 	t *testing.T,
 	remoteBranch string,

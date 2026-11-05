@@ -8,10 +8,8 @@ import (
 	"testing"
 )
 
-// RequirePermissionEnforcement skips a test that provokes a failure through
-// file permissions (a read-only dir, a 0o000 file) when the OS will not
-// enforce them: on Windows, and when running as root (as in CI containers),
-// where every chmod is bypassed and the expected error never happens.
+// RequirePermissionEnforcement skips a test that relies on file permissions failing
+// when the OS will not enforce them: on Windows, and as root, which bypasses chmod.
 func RequirePermissionEnforcement(tb testing.TB) {
 	tb.Helper()
 	if runtime.GOOS == "windows" {

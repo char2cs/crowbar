@@ -12,10 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// projectDirOf mirrors worktreepath.ProjectDir for the oracle's path-shape
-// assertion. The worktreepath package is doubly-internal (under
-// app/usecases/internal) and therefore not importable from tests/kit, so the
-// UUID layout is reconstructed here from the same contract (spec §1/§8).
+// projectDirOf mirrors worktreepath.ProjectDir for the oracle's path-shape assertion,
+// rebuilt from the layout contract rather than imported.
 func projectDirOf(
 	home string,
 	projectID string,
@@ -23,15 +21,9 @@ func projectDirOf(
 	return filepath.Join(home, "projects", projectID)
 }
 
-// worktreePathOf mirrors worktreepath.Derive for a no-remote repo (spec
-// §3.5/§3.9, decision 13): the crowbar-created worktree dir for a workspace,
-// <home>/projects/<project>/<slug>/<branch>/worktree, where the slug degrades to
-// the repo's on-disk name (filepath.Base(repoPath)), a nested branch maps to
-// nested directories, and the trailing "worktree" leaf makes <slug>/<branch> a
-// workspace root sibling of "chats" (the workspace-root split). The
-// worktreepath package is doubly-internal (under app/usecases/internal) and not
-// importable from tests/kit, so the friendly layout is reconstructed here from
-// the same contract — the exact layout Task 17's paths_test.go computes.
+// worktreePathOf mirrors worktreepath.Derive for a no-remote repo:
+// <home>/projects/<project>/<base(repoPath)>/<branch>/worktree. It is rebuilt from the
+// layout contract rather than imported, so the oracle never echoes the code under test.
 func worktreePathOf(
 	home string,
 	projectID string,
@@ -46,14 +38,8 @@ func worktreePathOf(
 	)
 }
 
-// AssertWorkspaceConsistency verifies that the workspace read-model is consistent
-// with what is stored on disk for wsID.
-//
-// It checks:
-//   - The workspace exists in the read-model (Get)
-//   - The workspace appears in List
-//   - The worktree directory exists on disk
-//   - The current branch on disk matches Branch in the read model
+// AssertWorkspaceConsistency verifies that wsID's read model matches disk: it is in
+// Get and List, its worktree dir exists, and the on-disk branch matches Branch.
 func AssertWorkspaceConsistency(
 	t *testing.T,
 	env *Env,
@@ -97,10 +83,8 @@ func AssertWorkspaceConsistency(
 	)
 
 	if ws.WorktreePath != "" {
-		// A crowbar-created child worktree (one living under the crowbar home's
-		// projects tree) must follow the human-readable layout (spec §3.9,
-		// decision 13): <home>/projects/<project>/<slug>/<branch>. An adopted main
-		// worktree points at the user's real on-disk repo path and is exempt.
+		// A Crowbar-created child worktree must follow <home>/projects/<project>/<slug>/<branch>;
+		// an adopted main worktree points at the user's own repo path and is exempt.
 		if strings.HasPrefix(ws.WorktreePath, projectDirOf(env.homeDir, ws.ProjectID)) {
 			assert.Equal(
 				t,
