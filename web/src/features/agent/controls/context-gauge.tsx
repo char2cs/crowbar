@@ -4,10 +4,8 @@ import { cn } from '@/lib/utils'
 /** Past this, a compaction is imminent. */
 const WARN_AT = 85
 
-/**
- * No bar until the provider reports: "not reported" is not 0%. Compaction is an
- * unrelated capability, so it is still offered bar-less without a report.
- */
+/** No bar until the provider reports: "not reported" is not 0%. Compaction is an
+ *  unrelated capability, so it is still offered bar-less without a report. */
 export function AgentContextGauge({
   telemetry,
   onCompact,
