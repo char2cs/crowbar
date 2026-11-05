@@ -1,8 +1,5 @@
-/**
- * CSS-first color resolution. The canonical color values live in theme.css as
- * CSS custom properties (OKLCH / rgb / hex). Monaco and xterm cannot read CSS
- * variables, so we resolve them off the DOM and convert to #hex here.
- */
+// CSS-first color resolution: canonical colors are custom properties in theme.css. Monaco and
+// xterm can't read CSS variables, so they are resolved off the DOM and converted to #hex here.
 
 function clamp255(n: number): number {
   return Math.max(0, Math.min(255, Math.round(n)))
@@ -54,11 +51,8 @@ function parseAlpha(raw: string | undefined): number {
   return Number.parseFloat(t)
 }
 
-/**
- * Convert a CSS color string to #rrggbb (or #rrggbbaa when alpha < 1).
- * Supports the formats used in theme.css: #hex/#rgb, rgb()/rgba(), oklch().
- * Returns null if the value is empty or unrecognized.
- */
+/** A CSS color as #rrggbb (#rrggbbaa when alpha < 1), from the formats theme.css uses: #hex/#rgb,
+ *  rgb()/rgba(), oklch(). Null when empty or unrecognized. */
 export function cssColorToHex(value: string): string | null {
   const v = value.trim().toLowerCase()
   if (!v) return null
@@ -143,18 +137,9 @@ export const TERMINAL_ANSI_KEYS = [
 ] as const
 export type TerminalAnsiKey = (typeof TERMINAL_ANSI_KEYS)[number]
 
-/**
- * Resolve a CSS variable to #hex, or null if unset/unparseable.
- *
- * `getComputedStyle().getPropertyValue()` for custom properties returns the
- * *specified* value, not the computed one. When a variable is defined as
- * `--syntax-comment: var(--muted-foreground)`, the API returns that literal
- * string rather than the resolved color.
- *
- * When the value is a var() reference we assign it to a concrete CSS property
- * on a temporary element so the browser resolves the full chain, then read it
- * back as an rgb() value that cssColorToHex can parse.
- */
+/** Resolve a CSS variable to #hex, or null. getPropertyValue returns a custom property's specified
+ *  value (a literal `var(--x)`), so a var() reference is assigned to a real property on a temp
+ *  element and read back as rgb() for the browser to resolve the chain. */
 export function resolveCssVar(name: string, el: Element = document.documentElement): string | null {
   const raw = getComputedStyle(el).getPropertyValue(name).trim()
   if (!raw) return null

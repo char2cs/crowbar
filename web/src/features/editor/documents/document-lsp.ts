@@ -22,11 +22,8 @@ function pickedLanguage(state: WindowPaneState, ref: DocumentRef): string | null
   return buffer.languageOverride ?? null
 }
 
-/**
- * Lives exactly as long as `model`: its dispose, which every release and reopen
- * performs, is the one teardown. The buffer's picked language, not Monaco's id
- * (tsx and ts share one), is what the server is told.
- */
+/** Lives exactly as long as `model`: its dispose (every release and reopen does one) is the one
+ *  teardown. The server gets the buffer's picked language, not Monaco's id (tsx and ts share). */
 export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextModel): void {
   if (ref.authority === 'host' || isUntitledRef(ref)) return
   const { workspaceId, path } = ref

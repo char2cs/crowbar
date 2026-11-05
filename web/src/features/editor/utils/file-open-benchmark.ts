@@ -135,11 +135,8 @@ export const fileOpenBenchmark = {
     const fileType = meta.fileType ?? getFileType(path)
     logger.info('FileOpenBenchmark', summary.text)
     console.info(
-      // No square brackets. Tailwind's source scanner reads a bracketed
-      // property/value pair in ANY scanned file — comments and log strings
-      // included — as an arbitrary-property class, and emits a CSS rule for it.
-      // Bracketing this prefix shipped a junk rule declaring a `crowbar:`
-      // property in every build. Do not reintroduce the brackets here.
+      // No square brackets: Tailwind's scanner reads a bracketed pair in any file, strings
+      // included, as an arbitrary-property class and ships a junk `crowbar:` rule in every build.
       `crowbar:file-open file=${shortPath(path)} type=${fileType} lines=${meta.lineCount ?? 'unknown'} seconds=${seconds.toFixed(3)} chars=${meta.contentLength ?? 'unknown'} large=${meta.largeContentMode ?? 'unknown'}`,
     )
     frontendTrace(level, 'bench:file-open', shortPath(path), {
