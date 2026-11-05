@@ -281,11 +281,8 @@ function documentFor(absolutePath: string, workspaceId: string | undefined): Doc
   return resolvedHostOf({ wsId: workspaceId }) === LOCAL_HOST.id ? { absolutePath } : null
 }
 
-/**
- * Links open in the terminal's own view, never the active one. A relative path resolves
- * against the session cwd, else that workspace's root; a terminal of no workspace opens
- * absolute paths only.
- */
+/** Links open in the terminal's own view, never the active one. Relative paths resolve against the
+ *  session cwd, else the workspace root; a terminal of no workspace opens absolute paths only. */
 export function terminalLinksFor(
   getSessionId: () => string,
   getView: () => Partial<TerminalView>,

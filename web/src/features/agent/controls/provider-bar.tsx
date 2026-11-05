@@ -27,10 +27,8 @@ interface ProviderBarProps {
   onCompact?: () => void
 }
 
-/**
- * Every control renders nothing when the provider declares nothing — never a
- * disabled control. `.underbar .left`'s negative margin aligns it to the composer.
- */
+/** Every control renders nothing when the provider declares nothing — never a
+ *  disabled control. `.underbar .left`'s negative margin aligns it to the composer. */
 export function ProviderBar({
   provider,
   providers,

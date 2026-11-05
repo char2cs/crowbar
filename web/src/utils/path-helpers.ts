@@ -1,8 +1,3 @@
-/**
- * Normalize a file path by replacing backslashes with forward slashes
- * @param path - The path to normalize
- * @returns The normalized path
- */
 export const normalizePath = (path: string): string => {
   return path.replace(/\\/g, '/')
 }
@@ -71,12 +66,6 @@ export const pathStartsWithRoot = (fullPath: string, rootPath: string): boolean 
   return fullPathForCompare === rootPathForCompare || fullPathForCompare.startsWith(rootPrefix)
 }
 
-/**
- * Get the relative path from the root folder
- * @param fullPath - The full file path
- * @param rootFolderPath - The root folder path
- * @returns The relative path
- */
 export const getRelativePath = (
   fullPath: string,
   rootFolderPath: string | null | undefined,

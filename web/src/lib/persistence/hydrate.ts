@@ -22,12 +22,9 @@ import { loadSidebarUI } from './sidebar-ui'
 import { parseSidebarTab, treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 
-/**
- * One-time, window-level hydration of pane/buffer layout — awaited at boot
- * BEFORE `renderApp()`: a surface that mounts first and has its layout
- * replaced a frame later crashes. Local reads only; a restored member the
- * cache could not place is answered by `placeRestoredPanesOnceSynced` afterwards.
- */
+// Window-level hydration of pane/buffer layout, awaited before renderApp(): a surface whose layout
+// is replaced a frame after mount crashes. Local reads only; restored members the cache couldn't
+// place are answered later by placeRestoredPanesOnceSynced.
 export async function hydrateWindowPaneLayout(): Promise<void> {
   const stored = await loadWindowPaneLayout()
   if (!stored) return
@@ -59,15 +56,9 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
   restoreDocuments().catch((err: unknown) => console.error('Restoring documents failed:', err))
 }
 
-/**
- * The one load-time upgrade of an older saved layout to the current shape.
- * Idempotent: a layout already at `WINDOW_LAYOUT_VERSION` is returned as is.
- *
- * v1 → v2: a chat pane records the workspace its chat belongs to; one without it
- * stays unplaced (null) until the projects scope answers for it.
- * v2 → v3: buffers name their documents (`upgradeLegacyBuffers`).
- * v3 → v4: buffers drop their text; unsaved text is written as drafts first.
- */
+// The one idempotent load-time upgrade to WINDOW_LAYOUT_VERSION. v2: a chat pane records its
+// workspace (unplaced, null, until the projects scope answers). v3: buffers name their documents.
+// v4: buffers drop their text, written as drafts first.
 export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
   const version = layout.version ?? 1
   if (version >= WINDOW_LAYOUT_VERSION) return layout
@@ -120,11 +111,8 @@ export function placeRestoredPanesOnceSynced(): void {
   })
 }
 
-/**
- * The persisted views, repaired: a record, pane or pointer that breaks an
- * invariant is dropped and every valid one is kept. A record without views
- * restores an empty band around its stage. No older shape is read.
- */
+// The persisted views, repaired: a record, pane or pointer breaking an invariant is dropped, every
+// valid one kept. A record without views restores an empty band around its stage.
 export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
   const views = layout.views ?? {}
   return repairViewState({
@@ -145,11 +133,9 @@ export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
 export async function hydrateSidebar(): Promise<void> {
   const sidebarUI = await loadSidebarUI()
   if (!sidebarUI) return
-  // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
-  // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
+  // Retired keys the pre-restyle tree wrote (see schemas.ts), never replayed.
   treeUiStore.setState({
-    // Absent on a record written before the Chats panel was collapsible —
-    // replays as "nothing folded", the product default (see schemas.ts).
+    // Absent on older records: replays as "nothing folded", the product default.
     collapsed: new Set(sidebarUI.collapsedChatRows ?? []),
     activeTab: parseSidebarTab(sidebarUI.activeTab),
   })

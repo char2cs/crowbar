@@ -4,10 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Regression coverage for the empty chat document's (`.docwrap`/`.doc`,
- * agent-empty-document.tsx) two typographic bugs: no horizontal scrollbar on
- * overflow, and a font-size that no longer matches the transcript's rendered
- * turn output.
+ * The empty chat document (`.docwrap`/`.doc`, agent-empty-document.tsx) never scrolls
+ * horizontally on overflow, and its font-size matches the transcript's rendered turns.
  *
  * These assert against the raw stylesheet source rather than jsdom — jsdom
  * does not run layout, so there is nothing to measure a real scrollbar or
@@ -59,11 +57,8 @@ describe('empty chat document — overflow-x', () => {
     expect(doc['overflow-x']).toBe('auto')
   })
 
-  // REGRESSION: a retired `.sheet`-placeholder rule shares the exact same
-  // `.agent-chat .doc` selector and sits LATER in the file. Its `overflow:
-  // hidden` had equal specificity and later source order, so it silently
-  // beat the live rule's own `overflow-x` for the one real `.doc` element on
-  // screen — adding `overflow-x: auto` to the live rule alone did nothing.
+  // The retired `.sheet` rule reuses the `.agent-chat .doc` selector later in the file; its
+  // `overflow: hidden` must not beat the live rule's `overflow-x`.
   it('is not clobbered by the retired .sheet-era .doc rule further down the file', () => {
     const occurrences = [...composerCss.matchAll(/\.agent-chat \.doc\s*\{/g)]
     expect(occurrences.length).toBeGreaterThan(1)
@@ -79,22 +74,15 @@ describe('empty chat document — font size', () => {
     expect(doc['font-size']).toBe(agentProse['font-size'])
   })
 
-  // REGRESSION: `.doc` used to sit at 16px, a deliberate "drafting vs.
-  // reading" size difference from the transcript — that call is now
-  // overridden, so 16px must not come back.
+  // No separate 16px "drafting" size: the document reads at the transcript's size.
   it('is no longer the old 16px drafting size', () => {
     const doc = cascadedDeclarations(composerCss, '.agent-chat .doc')
     expect(doc['font-size']).not.toBe('16px')
   })
 })
 
-// REGRESSION: `.agent-chat .underbar` used `flex-wrap: wrap`, so once `.left`
-// (the model/effort/switcher cluster) and `.right` (queued count + the
-// context gauge/Compact chip) could not both fit on one line, `.right`
-// dropped to its own wrapped line — pushed toward, sometimes through, the
-// dock's bottom edge. Measured live at a 640px viewport: three lines, the
-// gauge on the last pixel row. `.right` must stay on the baseline row always;
-// `.left` absorbs the pressure instead.
+// `.right` (queued count, gauge, Compact) must stay on the baseline row however narrow the dock;
+// `.left` absorbs the pressure, else a wrapped `.right` is pushed through the dock's bottom edge.
 describe('underbar — .right never leaves the baseline row', () => {
   it('the row itself does not wrap', () => {
     const underbar = cascadedDeclarations(composerCss, '.agent-chat .underbar')

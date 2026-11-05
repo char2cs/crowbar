@@ -1,7 +1,5 @@
-/**
- * The one way to read or change a document's text outside the Monaco surface.
- * The text lives in the document's Monaco model; callers never see where.
- */
+// The one way to read or change a document's text outside the Monaco surface. The text lives in
+// the document's Monaco model; callers never see where.
 import type { DocumentRef } from '@/lib/api/documents'
 import {
   getEditorHost,

@@ -27,10 +27,8 @@ export function repoBase(projectId: string, repoId: string): string {
   return qualify(hostIdForProject(projectId), path)
 }
 
-/**
- * A URL the webview can load for a project's or repo's icon: the DTO's bare `/v0/...` path,
- * resolved against the project's own host, never the local daemon.
- */
+// A loadable URL for a project's or repo's icon: the DTO's bare `/v0/...` path resolved against
+// the project's own host, never the local daemon.
 export function projectAssetURL(projectId: string, path: string): string {
   return assetURL(qualify(hostIdForProject(projectId), path))
 }

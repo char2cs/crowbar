@@ -18,10 +18,8 @@ const back = () => useMobileScreenStore.getState().back()
 const openFiles = () => useMobileScreenStore.getState().setFilesOpen(true)
 const closeFiles = () => useMobileScreenStore.getState().setFilesOpen(false)
 
-/**
- * The phone's IDE: the focused chat's own editor tabs (terminals, branch review) full screen.
- * Kept mounted while hidden, so a terminal keeps its screen between visits.
- */
+/** The phone's IDE: the focused chat's own editor tabs (terminals, branch review) full screen.
+ *  Kept mounted while hidden, so a terminal keeps its screen between visits. */
 export function MobileIdeScreen({ hidden }: { hidden: boolean }) {
   const pane = useStore(windowPaneStore, (s) => s.panes[s.activePaneId] ?? null)
   if (!pane?.chatId || !pane.workspaceId) return null

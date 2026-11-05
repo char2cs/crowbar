@@ -8,12 +8,8 @@ interface SplitToggleButtonProps {
   onToggle: () => void
 }
 
-/**
- * Leads the whole pane-top row, before the chat head, outside the editor-tab
- * scroller (spec §7.1). Same toolbar-button recipe as its neighbours
- * (`TabAddButton`/`CloseViewButton`/`TabNavigationButtons`): icon-sm,
- * rounded-sm, the sidebar hover token.
- */
+/** Leads the pane-top row, before the chat head and outside the editor-tab scroller (spec §7.1).
+ *  Same toolbar-button recipe as its neighbours. */
 export function SplitToggleButton({ active, onToggle }: SplitToggleButtonProps) {
   return (
     <Button

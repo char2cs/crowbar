@@ -15,10 +15,7 @@ vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   deleteChat,
 }))
-// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
-// the real resolver needs an async fetch+cache round trip these tests have
-// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
-// this mock since they take `homeWorkspaceId` as a direct argument instead.
+// The real home resolver needs a fetch+cache round trip these tests don't exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -57,10 +54,8 @@ beforeEach(() => {
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   resetEntities()
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
+  // Creating a workspace starts a CLI, so it needs a provider from the global store (there is no
+  // workspace yet to scope a per-workspace read through).
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
@@ -82,12 +77,8 @@ describe('handleTrash', () => {
     expect(treeUiStore.getState().removals).toEqual([])
   })
 
-  // Task 25 review round 1, Important: a user-locked, non-home workspace
-  // still shows a trash button (only the project-home row hides it), but
-  // `draftFor` refuses to draft a locked workspace — the caller (the
-  // delete-confirm dialog's onConfirm) needs this reported so it can tell
-  // the user rather than silently swallowing a click it just walked them
-  // through a confirmation for.
+  // A locked non-home workspace still shows a trash button, but `draftFor` refuses it; the caller
+  // must hear so, to tell the user rather than swallow a confirmed click.
   it('is a no-op for a locked (non-home) workspace, and reports it', () => {
     seedRepos([
       repo({

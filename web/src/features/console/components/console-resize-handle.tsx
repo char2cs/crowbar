@@ -16,10 +16,8 @@ function growth(dock: ConsoleDock, dx: number, dy: number): number {
   return dock === 'left' ? dx : -dx
 }
 
-/**
- * The drag edge on the side facing the app. During a drag only the panel's CSS
- * variable moves; the store (and storage) see the size once, on release.
- */
+/** The drag edge facing the app. Mid-drag only the panel's CSS variable moves; the store (and
+ *  storage) see the size once, on release. */
 export function ConsoleResizeHandle({ panel }: { panel: RefObject<HTMLElement | null> }) {
   const dock = useConsoleStore((s) => s.dock)
   const size = useConsoleStore((s) => s.size)

@@ -19,10 +19,8 @@ interface UseFileExplorerInlineEditingProps {
   showAlertDialog: (title: string, message: string) => void
 }
 
-// Clear the inline-edit flags on the node at `path`. Rename START is an
-// idempotent SET in the store; cancel and commit must clear the flag here so the
-// editable state is never left stuck on a node — a stuck isRenaming made the next
-// double-click toggle the input OFF, i.e. "rename sometimes does nothing".
+// Clear the inline-edit flags on the node at `path`. Starting a rename only sets the flag, so
+// cancel and commit must clear it: a stuck isRenaming makes the next double-click close the input.
 function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
   return items.map((item) =>
     item.path === path
@@ -33,12 +31,9 @@ function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
   )
 }
 
-// Strip every in-progress "new item" placeholder from the tree. A New File/Folder
-// dismissed without committing can leave its placeholder behind (the "already
-// exists" early-return in finishInlineEditing, or a spurious blur on appear), and
-// a second placeholder shares the same empty root path — colliding on React keys,
-// which silently breaks rendering so the next inline input never appears (the
-// "can't create files until reload" bug). startInlineEditing clears these first.
+// Strip every uncommitted "new item" placeholder (one can survive a dismissal). Two share the
+// empty root path and collide on React keys, which stops the next inline input from rendering,
+// so startInlineEditing clears them first.
 function removeNewItems(items: FileEntry[]): FileEntry[] {
   const result: FileEntry[] = []
   for (const i of items) {
@@ -69,10 +64,8 @@ export function useFileExplorerInlineEditing({
       // removeNewItems). Operate on the cleaned tree throughout.
       const baseFiles = removeNewItems(files)
 
-      // The workspace root is addressed by its absolute path (=== rootFolderPath)
-      // even though the tree's own nodes use root-relative paths (root === '').
-      // Normalise that to the empty-string root so the new item lands at the top
-      // level and finishInlineEditing derives an empty parent directory.
+      // The root target arrives as its absolute path (=== rootFolderPath) but tree nodes are
+      // root-relative, so normalise it to '' and finishInlineEditing derives an empty parent.
       const isRootTarget = !parentPath || parentPath === rootFolderPath
 
       const newItem: FileEntry = {
@@ -118,19 +111,14 @@ export function useFileExplorerInlineEditing({
       if (!onUpdateFiles) return
 
       if (newName.trim()) {
-        // An empty parentPath is the (valid) workspace root: tree paths are
-        // root-relative, so the create handlers join the name onto '' to write
-        // at the worktree root. Do NOT substitute rootFolderPath here — that is
-        // the absolute wsId path and would create at wsId/<name> instead.
+        // '' is the valid workspace root: create handlers join the name onto it. Never substitute
+        // rootFolderPath, the absolute wsId path, which would create at wsId/<name>.
         const parentPath = stripTrailingPathSeparators(item.path)
 
         if (item.isRenaming) {
           const trimmed = newName.trim()
-          // Only hit the rename API if the name actually changed (a blur with the
-          // pre-filled name should not round-trip a no-op rename). onRenamePath is
-          // fire-and-forget here, so surface a rejected rename (locked workspace,
-          // name collision, a daemon-contract mismatch …) as a toast instead of
-          // letting it fail silently — mirroring the duplicate/reveal file ops.
+          // Rename only when the name changed (a blur with the pre-filled name is a no-op).
+          // onRenamePath is fire-and-forget, so a rejection (locked, name collision …) is toasted.
           if (trimmed !== item.name) {
             Promise.resolve(onRenamePath?.(item.path, trimmed)).catch((error: unknown) => {
               report(error, { action: 'Rename failed' })

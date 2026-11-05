@@ -51,11 +51,8 @@ function released(uri: string): void {
   for (const dispose of held) dispose()
 }
 
-/**
- * Loads Monaco and builds the host on the first editor need, so cold launch
- * never pays for it. Every caller shares one load; a failed chunk load is
- * forgotten so the next caller retries.
- */
+/** Loads Monaco and builds the host on first need, so cold launch never pays for it. Callers
+ *  share one load; a failed chunk load is forgotten so the next caller retries. */
 export function loadEditorHost(): Promise<EditorHost> {
   // buffer-save loads here too: through the pane store it imports this module.
   loading ??= Promise.all([

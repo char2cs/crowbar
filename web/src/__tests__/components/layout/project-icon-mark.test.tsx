@@ -16,11 +16,7 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
   apiFetch,
 }))
 
-/**
- * The mark a project shows, wherever it is shown. It exists because the context
- * pill used to draw its own <Library>, so a project with an icon rendered that
- * icon in the sidebar row and the default glyph in the pill above it.
- */
+/** The mark a project shows, wherever it is shown, so the sidebar row and the pill agree. */
 describe('ProjectIconMark', () => {
   const project = { id: 'p1', name: 'Crowbar' }
 

@@ -14,36 +14,17 @@ interface PaneSashProps {
   secondPaneRef: React.RefObject<HTMLDivElement | null>
   /** Commit final percentages on pointer-up. */
   onResizeCommit: (sizes: [number, number]) => void
-  /**
-   * Smallest pixel size either side may be dragged to. Defaults to the pane
-   * grid's own minimum — a pane collapsed to a sliver is still a pane, and the
-   * user can always drag it back. A caller whose content stops MEANING anything
-   * below a width (a fixed-column TUI reflows into uselessness) raises it.
-   */
+  /** Smallest pixel size either side may be dragged to; defaults to the pane grid's minimum.
+   *  Raised by content that is useless below a width (a fixed-column TUI). */
   minPx?: number
-  /** Extra classes merged onto the sash element — e.g. the chat/editor
-   *  sash's own `bg-chrome-bg`, so it paints the same translucent fill the
-   *  chat box beside it does instead of showing whatever's behind the whole
-   *  pane (nothing, now that the shared pane box stopped painting a fill of
-   *  its own for the chat's real vibrancy to work). A generic pane-splitting
-   *  sash has no such need, so this is opt-in, not a hard-coded default. */
+  /** Extra sash classes, e.g. the chat/editor sash's `bg-chrome-bg` so it matches the chat's
+   *  translucent fill (the pane box paints none, to keep the chat's vibrancy). */
   className?: string
 }
 
-/**
- * VSCode-style imperative pixel sash. During a drag the two sibling pane
- * elements have their flex-basis set directly in pixels (no React state, no
- * store writes) for reflow-free movement. On pointer-up the final ratio is
- * committed back to the authoritative layout tree as percentages.
- *
- * The `data-pane-resizing` attribute on <html> and the `pane-resize-end`
- * window event are preserved exactly — the Monaco perf fix depends on them.
- * Both are entered lazily on the first real `pointermove`, not on
- * `pointerdown`: a plain click (down+up, no movement) must be a total no-op,
- * since the attribute globally GPU-layer-promotes every mounted
- * `.monaco-editor` (including off-screen/retained ones), and toggling that
- * on a click that resizes nothing can visibly glitch WKWebView's compositor.
- */
+// Imperative pixel sash: a drag sets the siblings' flex-basis directly (no React state) and
+// commits percentages on pointer-up. Monaco's perf path relies on `data-pane-resizing` and
+// `pane-resize-end`, raised from the first move, so a bare click toggles neither.
 export function PaneSash({
   direction,
   sizes,
@@ -62,12 +43,8 @@ export function PaneSash({
 
   // Track whether a drag is currently active (for unmount cleanup).
   const isDraggingRef = useRef<boolean>(false)
-  // Whether the pointer has actually moved since pointerdown. A plain click
-  // (pointerdown -> pointerup with zero pointermove) must be a no-op: it must
-  // not toggle `data-pane-resizing`, since that attribute globally promotes
-  // every mounted `.monaco-editor` (including off-screen/retained ones) onto
-  // a GPU compositing layer and back within one tick, which can visibly glitch
-  // WKWebView's compositor even though nothing was actually resized.
+  // Whether the pointer moved since pointerdown. `data-pane-resizing` GPU-promotes every mounted
+  // `.monaco-editor`; flipping it on a bare click visibly glitches WKWebView's compositor.
   const hasMovedRef = useRef<boolean>(false)
   // React's own inline flex-basis, captured at pointerdown. A drag overwrites it
   // imperatively; React will not rewrite it if the committed sizes are unchanged.
@@ -97,10 +74,7 @@ export function PaneSash({
     return Math.max(0, total - sashPx)
   }, [containerRef, isHorizontal])
 
-  /**
-   * Shared teardown: removes window listeners and clears the resizing
-   * attribute. Safe to call multiple times (idempotent via isDraggingRef).
-   */
+  // Removes the window listeners and clears the resizing attribute; idempotent via isDraggingRef.
   const teardownDrag = useCallback(() => {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
@@ -127,15 +101,9 @@ export function PaneSash({
     hasMovedRef.current = false
   }, [firstPaneRef, secondPaneRef])
 
-  /**
-   * Unmount-mid-drag cleanup: if a drag is in progress when the component is
-   * removed from the tree, tear down the window listeners and clear the
-   * resizing attribute so the rest of the app is not left in a broken state.
-   * This is a NO-OP when no drag is active.
-   */
+  // Unmounting mid-drag must not leave window listeners or the resizing attribute behind.
   useEffect(() => {
     return () => {
-      // Only the teardown path matters here; teardownDrag is idempotent.
       if (isDraggingRef.current) {
         teardownDrag()
       }

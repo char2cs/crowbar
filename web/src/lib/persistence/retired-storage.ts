@@ -1,10 +1,7 @@
 import { removeLocal } from '@/lib/local-storage'
 
-/**
- * Storage an earlier build wrote that nothing in this build reads: the retired
- * settings (editor engine, formatter, lint-on-save, external editor), the
- * scroll-debug overlay's switch, and the tree-sitter parser cache database.
- */
+// Storage earlier builds wrote that nothing reads now: retired settings (editor engine, formatter,
+// lint-on-save, external editor), the scroll-debug switch, and the tree-sitter parser cache.
 const RETIRED_LOCAL_STORAGE_KEYS = [
   'crowbar:settings:editorEngine',
   'crowbar:settings:formatter',

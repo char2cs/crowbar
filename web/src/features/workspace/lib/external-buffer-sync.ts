@@ -58,11 +58,9 @@ export function flagExternalChange(ref: DocumentRef): void {
   )
 }
 
-/**
- * Disk text read for an open document, begun at save mark `since`: a clean document takes
- * it as saved; a dirty one keeps its edits and is flagged only when disk holds neither its
- * saved text nor its own. A read older than the document's latest save or open never lands.
- */
+/** Disk text read at save mark `since`: a clean document takes it as saved; a dirty one keeps its
+ *  edits, flagged only when disk holds neither its saved text nor its own. A read older than the
+ *  document's latest save or open never lands. */
 export function takeDiskText(ref: DocumentRef, disk: string, since: number): void {
   const text = documentText(ref)
   if (text === null || documentSaveMark(ref) !== since) return
@@ -70,11 +68,8 @@ export function takeDiskText(ref: DocumentRef, disk: string, since: number): voi
   if (disk !== savedDocumentText(ref) && disk !== text) flagExternalChange(ref)
 }
 
-/**
- * Reconcile an open editor buffer with an external on-disk change (`git restore`, another
- * tool writing the file): own-save echoes (marked via markPendingSave) are consumed, and
- * whatever disk now holds goes through `takeDiskText`.
- */
+/** Reconcile an open buffer with an external disk change: own-save echoes (markPendingSave) are
+ *  consumed; whatever disk now holds goes through `takeDiskText`. */
 export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
   const { pendingSaves, clearPendingSave } = useFileWatcherStore.getState()
   if (pendingSaves.has(ref.path)) {
@@ -99,11 +94,8 @@ const changesText = (frame: unknown) => {
 // A host document is the local daemon's alone: no remote serves its doc: scope.
 const docScope = (ref: HostRef) => `doc:${ref.path}`
 
-/**
- * Follows a host document's file through its `doc:` scope. Resolves with the way to stop
- * once the daemon has armed the watch, so a read made after it misses no change; rejects,
- * holding nothing, when the daemon refuses the watch.
- */
+/** Follows a host document through its `doc:` scope. Resolves with `stop` once the watch is armed,
+ *  so a read made after misses no change; rejects, holding nothing, if the daemon refuses. */
 export function followHostDocument(ref: HostRef): Promise<() => void> {
   const scope = docScope(ref)
   return new Promise((resolve, reject) => {
@@ -171,12 +163,9 @@ export async function refollowHostDocument(buffer: EditorContent): Promise<void>
   if (ref.authority === 'host' && heldUnwatched(buffer)) await followAgain(ref)
 }
 
-/**
- * Reconcile a workspace's documents with disk after it sat hidden (its watcher is
- * active-only). Only disk diverging from the saved text counts, or every dirty buffer
- * would warn on each activation; a missing file that came back reopens. A host document
- * is its watch's alone, unless it holds none: then it follows again.
- */
+/** Reconcile a workspace's documents with disk after it sat hidden (its watcher is active-only).
+ *  Only disk diverging from saved text counts, or every dirty buffer would warn on activation; a
+ *  returned file reopens. A host document is its watch's alone, unless unwatched: then refollow. */
 export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<void> {
   const refusals = new Map<string, string>()
   // An untitled tab has no file to sync, but one that failed to load retries too.

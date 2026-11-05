@@ -53,11 +53,8 @@ function pasteInto(targetDir: string, workspaceId: string | null, onRefresh?: (p
     })
 }
 
-/**
- * Delegated pointer and keyboard handlers for the tree container: rows carry
- * `data-file-path`/`data-is-dir`, so one set of handlers serves every
- * virtualized row.
- */
+/** Delegated pointer and keyboard handlers for the tree container: rows carry
+ *  `data-file-path`/`data-is-dir`, so one set of handlers serves every virtualized row. */
 export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
   const {
     workspaceId,

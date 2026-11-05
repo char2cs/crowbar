@@ -1,24 +1,6 @@
-/**
- * Shiki semantic tokens — the grammar tier beside the language servers' tokens.
- *
- * Shiki carries the same TextMate grammars VSCode ships (~240 languages), so
- * every file gets identifier coloring (function, type, constant, property …)
- * on top of Monarch, whether or not a language server covers it.
- *
- * SYNCHRONOUS by construction. `semantic-tokens-provider.ts` documents why the
- * provider must never await: Monaco wraps every call in createCancelablePromise
- * and _cancelAll() (scroll/resize) silently drops anything resolved later. A
- * grammar is async only while it loads (`shiki-grammars.ts`), so a request that
- * arrives before it is ready returns null (Monarch coloring stands) and the
- * provider re-requests once `onGrammarReady` announces it.
- *
- * TextMate tokenization is stateful — row N needs row N-1's rule stack — so a
- * viewport cannot be tokenized in isolation. Per model we keep the rule stack
- * entering each row and resume from the nearest known one, which keeps both
- * scrolling and typing O(viewport). An edit truncates the stacks at its first
- * changed row. A jump further than MAX_ADVANCE_LINES past the last known stack
- * yields no tokens for that pass and advances the stacks on a background timer.
- */
+// The shiki grammar tier: VSCode's TextMate grammars color identifiers over Monarch for every file.
+// Synchronous (see semantic-tokens-provider.ts); rule stacks are kept per row so scroll and typing
+// stay O(viewport), and a far jump yields nothing while stacks advance on a background timer.
 import type { StateStack } from 'shiki/textmate'
 import { grammarFor, type ShikiGrammar } from '@/features/editor/lib/shiki-grammars'
 import { toMonacoLanguageId } from './language'
@@ -59,25 +41,9 @@ export interface ShikiToken {
 
 // ── Scope → category ──────────────────────────────────────────────────────────
 
-/**
- * TextMate scope → semantic category, `null` meaning "leave it to Monaco".
- *
- * Deliberately covers only what a Monarch grammar structurally cannot know —
- * which identifier is a function, a type, a constant, a property. Keywords,
- * strings, comments, numbers, operators and punctuation map to `null` because
- * Monarch already colors those for every language Monaco registers; re-emitting
- * them would fight the base grammar for no gain and multiply the token count.
- *
- * Keys are matched exact first, then with trailing
- * `.segments` dropped — which also strips the per-grammar language suffix
- * (`entity.name.function.ts` → `entity.name.function`). Longer keys therefore
- * win over their own prefixes (`support.type.property-name` over `support.type`).
- *
- * Entries verified against the installed grammars' real output, not guessed —
- * `meta.function-call.generic` (python's callee), `entity.name.function.support`
- * (go), `variable.other.enummember` (hcl) and `meta.attribute` (python members)
- * are all scopes those grammars actually emit.
- */
+// TextMate scope → category, `null` meaning "leave it to Monaco": only what Monarch can't know
+// (function, type, constant, property). Matched exact, then dropping trailing `.segments` (and
+// the language suffix), so longer keys win. Entries are scopes the installed grammars really emit.
 const SCOPE_CATEGORY = new Map<string, ShikiCategory | null>([
   // function
   ['entity.name.function', 'function'],
@@ -132,11 +98,8 @@ const SCOPE_CATEGORY = new Map<string, ShikiCategory | null>([
   ['support', null],
 ])
 
-/**
- * For a language Monaco has no grammar for (its Monaco id is plaintext, e.g.
- * nix, dotenv), nothing else colors keywords, strings, comments or numbers, so
- * the grammar tier emits them too. Checked before SCOPE_CATEGORY's nulls.
- */
+/** For a language Monaco has no grammar for (plaintext, e.g. nix, dotenv), nothing else colors
+ *  keywords, strings, comments or numbers, so this tier does. Checked before SCOPE_CATEGORY. */
 const STRUCTURAL_CATEGORY = new Map<string, StructuralCategory>([
   ['keyword.operator', 'operator'],
   ['keyword', 'keyword'],
@@ -145,15 +108,9 @@ const STRUCTURAL_CATEGORY = new Map<string, StructuralCategory>([
   ['constant.numeric', 'number'],
 ])
 
-/**
- * Classify one TextMate token by its scope stack (outermost → innermost).
- *
- * Innermost wins, since that is the scope that named the token; outer scopes are
- * only consulted when the inner one is unknown down to its root. A token any
- * part of whose stack is a comment is never re-colored — jsdoc/doc-comment
- * grammars emit real `entity.name.type` scopes *inside* a comment, and coloring
- * those would paint prose as code. `structural` adds STRUCTURAL_CATEGORY.
- */
+/** Classify a token by its scope stack (outermost → innermost); innermost wins. Anything inside a
+ *  comment is never re-colored, since doc-comment grammars emit code scopes in prose.
+ *  `structural` adds STRUCTURAL_CATEGORY. */
 export function scopeCategory(scopes: readonly string[], structural = false): ShikiCategory | null {
   for (const scope of scopes) {
     if (scope === 'comment' || scope.startsWith('comment.')) return structural ? 'comment' : null
@@ -186,11 +143,8 @@ const MAX_ADVANCE_LINES = 1_000
 
 const WHITESPACE = /\s/
 
-/**
- * Tokenize rows [startRow, endRow] and append their categorized tokens to `out`.
- * `stacks[row]` is the rule stack entering `row`; the array is extended as rows
- * are consumed. Exported for tests, which pass a fake grammar.
- */
+/** Tokenize rows [startRow, endRow], appending categorized tokens to `out`. `stacks[row]` is the
+ *  rule stack entering `row`, extended as rows are consumed. Exported for fake-grammar tests. */
 export function tokenizeRows(
   grammar: ShikiGrammar,
   getLine: (row: number) => string,
@@ -229,10 +183,8 @@ export function tokenizeRows(
   }
 }
 
-/**
- * Walk the rule stacks forward to `targetRow` without emitting tokens, spending
- * at most `budget` rows. Returns true when `stacks` now covers `targetRow`.
- */
+/** Walk the rule stacks forward to `targetRow` without emitting tokens, at most `budget` rows;
+ *  true once `stacks` covers `targetRow`. */
 function advanceStacks(
   grammar: ShikiGrammar,
   getLine: (row: number) => string,
@@ -370,16 +322,9 @@ function scheduleCatchUp(
   state.catchUpTimer = setTimeout(step, 0)
 }
 
-/**
- * Grammar-backed tokens for rows [startRow, endRow] (0-based, inclusive).
- *
- * Returns null — meaning "nothing to add this pass, keep Monarch's colors" —
- * when the grammar is still loading or has none, when the language's rules have
- * not been compiled against real code yet, or when the viewport is too far past
- * the last known rule stack to reach synchronously. In the last two cases
- * `onReady` is called once the situation resolves so the provider can fire
- * onDidChange and have Monaco re-request; a grammar landing is `onGrammarReady`.
- */
+/** Grammar tokens for rows [startRow, endRow] (0-based, inclusive), or null to keep Monarch's
+ *  colors: grammar loading or absent, rules not yet compiled, or viewport too far past the last
+ *  stack. For the last two `onReady` fires once resolved; a grammar landing is onGrammarReady. */
 export function shikiTokensInRange(
   model: TokenizerModel,
   languageId: string,

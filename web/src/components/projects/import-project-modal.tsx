@@ -23,10 +23,8 @@ interface ImportProjectModalProps {
   onImport: (project: Project) => void
 }
 
-// The backend imports a project from an absolute path on its own filesystem,
-// so the dialog takes the path as text. A browser folder picker cannot supply
-// one (webkitdirectory yields only the folder *name*), which used to send
-// garbage paths like "my-repo" to the import endpoint.
+// The daemon imports from an absolute path on its own filesystem, so the path is typed: a browser
+// folder picker (webkitdirectory) yields only the folder name.
 export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProjectModalProps) {
   const [selectedPath, setSelectedPath] = useState('')
   const [projectName, setProjectName] = useState('')

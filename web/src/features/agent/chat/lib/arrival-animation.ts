@@ -14,10 +14,8 @@ export function arrivalOffset(
   return dy === 0 ? null : dy
 }
 
-/**
- * Pins the dock's first paint over the handle it replaced, then eases it to rest.
- * `data-arriving` holds `.underbar`'s reveal until the slide ends (composer.css).
- */
+/** Pins the dock's first paint over the handle it replaced, then eases it to rest.
+ *  `data-arriving` holds `.underbar`'s reveal until the slide ends (composer.css). */
 export function playArrival(node: HTMLElement, origin: { top: number } | null): void {
   const dy = arrivalOffset(origin, node.getBoundingClientRect())
   if (dy === null) return

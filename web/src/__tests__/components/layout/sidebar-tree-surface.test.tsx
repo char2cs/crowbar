@@ -1,12 +1,6 @@
-/**
- * `SidebarTreeSurface` wires `SpaceScroller` + the hoisted chrome
- * (RemovalTray/dialogs/context menu) against the real removal-tray-filtered
- * `repos` — the thing `sidebar-tree-panel.tsx` used to do for one flat tree,
- * now scoped per project. Individual pieces (derivers, handlers, RecentsBand
- * wiring) have their own focused unit tests; this one checks the WIRING:
- * real multi-project repos genuinely produce one tree per project, each
- * excluding the other's rows.
- */
+// The WIRING of `SpaceScroller` and its hoisted chrome against the removal-filtered repos: real
+// multi-project repos give one tree per project, each excluding the others' rows (pieces have
+// their own unit tests).
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 
@@ -142,8 +136,7 @@ describe('SidebarTreeSurface', () => {
     expect(panels[1]).not.toHaveTextContent('repo-a')
   })
 
-  // RemovalTray no longer mounts here: it mounts once in the IDE shell
-  // (ide-shell.test.tsx covers that).
+  // RemovalTray mounts once in the IDE shell (ide-shell.test.tsx), not here.
 
   // Explicit product request: an X on a row transforms it IN PLACE (its
   // countdown + Keep/undo control) instead of hiding it while a separate
@@ -182,13 +175,8 @@ describe('SidebarTreeSurface', () => {
     expect(document.querySelector('[data-removal-secs]')).toBeInTheDocument()
   })
 
-  // Addendum §1/§2: the row no longer carries a trash button at all — a
-  // click-driven confirm-and-delete flow (Task 25's real-flow insertion
-  // point, replaced here) is superseded by a drag-to-trash gesture built
-  // elsewhere on the same removal-tray machinery. This is the wiring half of
-  // that removal: no row here — a workspace, a locked branch, or a chat —
-  // exposes a `Delete …` control any more, and `SidebarTreeSurface` no
-  // longer mounts a `DeleteConfirmDialog` of its own to drive one.
+  // Addendum §1/§2: deleting is a drag-to-trash gesture, so no row (workspace, locked branch or
+  // chat) exposes a `Delete …` control and no DeleteConfirmDialog is mounted here.
   it('no row exposes a delete control any more — deleting moved off the row', () => {
     seedRepos([
       repo({
@@ -291,15 +279,8 @@ describe('SidebarTreeSurface — before the projects scope answers', () => {
   })
 })
 
-/**
- * `SidebarTreeChrome`'s `rows` prop (which `SidebarRowContextMenu` and the
- * double-click-to-rename listener both look a right-clicked/double-clicked
- * id up in) used to come ONLY from `treeRepos.flatMap(deriveRows)` — a
- * project-home chat or folder was never a member of it, so right-clicking
- * (or double-clicking) one found no matching row and did nothing at all: no
- * menu, no inline editor. Caught live as "can't create folders with right
- * click" / "can't rename folders", for exactly the home-scoped ones.
- */
+// The rows the context menu and double-click rename look ids up in must include project-home
+// chats and folders, or right-clicking or double-clicking one does nothing.
 describe('SidebarTreeSurface — a project-home row is reachable by the context menu', () => {
   it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', async () => {
     seedHomeTree('p1', {

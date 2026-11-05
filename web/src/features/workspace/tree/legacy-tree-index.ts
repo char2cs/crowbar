@@ -163,10 +163,8 @@ function emit(out: TreeNode[], level: readonly Built[], parentId: string): void 
   })
 }
 
-/**
- * The one home chat kept off the tree: the home worktree's owner. A chat GET /home names
- * that the list marks as NOT owning the worktree is a conversation, and is drawn.
- */
+/** The one home chat kept off the tree: the home worktree's owner. A chat GET /home names that
+ *  the list marks as not owning the worktree is a conversation, and is drawn. */
 export function homeOwnerRowId(
   homeWorkspaceId: string,
   chats: readonly Chat[],

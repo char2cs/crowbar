@@ -11,9 +11,8 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
 
 const mockLayout: WorkspaceLayout = {
-  // Task 26: pane/buffer layout is window-level now — the object store's
-  // keyPath is still literally `workspaceId`, but the value written there is
-  // always the fixed WINDOW_SESSION_ID (saveWorkspaceLayout stamps it).
+  // Layout is window-level: the keyPath is still `workspaceId`, but saveWorkspaceLayout always
+  // stamps the fixed WINDOW_SESSION_ID there.
   workspaceId: WINDOW_SESSION_ID,
   panes: {
     [ROOT_PANE_ID]: {

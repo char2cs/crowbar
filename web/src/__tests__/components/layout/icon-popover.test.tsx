@@ -22,19 +22,18 @@ vi.mock('@/components/ui/avatar', () => ({
   AvatarFallback: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+import * as fetchApi from '@/lib/api/fetch'
+import * as nativeDialog from '@/lib/native-dialog'
+import * as bridge from '@/lib/crowbar-bridge'
+
+const realApiFetch = fetchApi.apiFetch
 const apiFetch = vi.fn().mockResolvedValue(undefined)
-vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
-
+vi.spyOn(fetchApi, 'apiFetch').mockImplementation((...args) => apiFetch(...args))
 const openDialog = vi.fn()
-vi.mock('@/lib/native-dialog', () => ({
-  openNativeDialog: (...args: unknown[]) => openDialog(...args),
-}))
-
+vi.spyOn(nativeDialog, 'openNativeDialog').mockImplementation((...args) => openDialog(...args))
 const isTauri = vi.fn(() => false)
-vi.mock('@/lib/crowbar-bridge', () => ({
-  isTauri: () => isTauri(),
-  convertFileSrc: (path: string) => `asset://staged${path}`,
-}))
+vi.spyOn(bridge, 'isTauri').mockImplementation(() => isTauri())
+vi.spyOn(bridge, 'convertFileSrc').mockImplementation((path) => `asset://staged${path}`)
 
 import { IconPopover } from '@/components/layout/icon-popover'
 import {
@@ -231,8 +230,7 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
 
   it('says the host is no longer paired, and sends it nothing, when it was removed meanwhile', async () => {
     const toasts = watchToasts()
-    const actual = await vi.importActual<typeof import('@/lib/api/fetch')>('@/lib/api/fetch')
-    apiFetch.mockImplementation(actual.apiFetch)
+    apiFetch.mockImplementation(realApiFetch)
     pairRemoteHost('h1', 'Studio Mac')
     let pick!: (path: string) => void
     openDialog.mockReturnValue(new Promise((resolve) => (pick = resolve)))

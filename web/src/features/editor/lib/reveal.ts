@@ -1,13 +1,6 @@
-/**
- * Reveal a file position in the editor — the one navigation path for
- * go-to-definition, references, jump-list Back/Forward and "open at line".
- *
- * The cursor is placed once the pane's retained Monaco widget actually shows
- * the target model ({@link placeWhenShown}), not after a guessed delay: the old
- * 100–150 ms timers raced the lazy editor chunk and the model swap, and placed
- * the cursor by a character offset computed from whichever buffer happened to
- * be active — the wrong file on a slow switch, the wrong line on a large one.
- */
+// The one navigation path for definition, references, jump-list Back/Forward and "open at line".
+// The cursor is placed once the pane's retained widget shows the target model, never after a
+// guessed delay, which races the lazy editor chunk and the model swap.
 import type * as Monaco from 'monaco-editor'
 import type { DocumentTarget } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -43,12 +36,9 @@ function placeCursor(editor: CodeEditor, target: RevealTarget): void {
   editor.focus()
 }
 
-/**
- * Places the cursor in the pane's editor the moment it shows `uri` and resolves
- * with that editor, or null if the pane moves to another tab (or the buffer
- * closes) first. No timeout: the pane either shows the buffer or the user
- * navigated away.
- */
+/** Place the cursor the moment the pane's editor shows `uri` and resolve with that editor; null
+ *  if the pane moves to another tab or the buffer closes first. No timeout: the pane either shows
+ *  the buffer or the user navigated away. */
 function placeWhenShown(
   paneId: string,
   uri: string,
@@ -90,14 +80,9 @@ function placeWhenShown(
   })
 }
 
-/**
- * Open (or switch to) `target.doc` and place the cursor. Resolves with the
- * editor the cursor was placed in, or null when the document could not be
- * opened (the open reports why) or the user navigated away before it showed.
- * A remount (dev StrictMode's first mount) may since have replaced that editor:
- * the survivor restores the cursor from the pane's view state, and
- * usePaneEditorSatellites focuses it when it shows the model on the active surface.
- */
+/** Open (or switch to) `target.doc` and place the cursor; resolves with that editor, or null if
+ *  the open failed (it reports why) or the user navigated away. A remount may replace the editor;
+ *  the survivor restores the cursor from view state and usePaneEditorSatellites focuses it. */
 export async function revealInEditor(target: RevealTarget): Promise<CodeEditor | null> {
   const bufferId = await openDocument(target.doc, { beforeShow: target.beforeShow })
   if (!bufferId) return null

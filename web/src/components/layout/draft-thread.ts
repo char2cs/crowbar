@@ -45,10 +45,8 @@ export function draftLanding(prompt: DraftPrompt): {
   return { presentation: 'chat', providerId: prompt.provider }
 }
 
-/**
- * The draft became a chat: its first prompt goes to that chat's outbox, which
- * sends it once the chat can take it, and the pane re-points at it in the same step.
- */
+/** The draft became a chat: its first prompt goes to that chat's outbox, which
+ *  sends it once the chat can take it, and the pane re-points at it in the same step. */
 export function finishDraftThread(draft: DraftSpec, chatId: string, prompt: DraftPrompt): void {
   sendPrompt(draft.workspaceId, chatId, { ...prompt, steer: false })
   const { panes, paneActions } = windowPaneStore.getState()

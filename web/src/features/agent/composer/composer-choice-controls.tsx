@@ -7,13 +7,9 @@ import type {
 } from '@/features/agent/api/agent-chat-activity'
 import { optionLabel } from '@/features/agent/composer/lib/ask-labels'
 
-/** Every question the prompt asks, and ONE send for all of them.
- *
- *  The send is a separate step and not a side effect of picking, because the
- *  provider is answered once: three questions produce one call carrying every
- *  pick. The send control lives in the BAR and stays disabled until every question
- *  has one, which is what makes a partial answer impossible from here — the shape
- *  that stranded a live agent. */
+/** Every question the prompt asks. Picking does not send: the provider is answered once, by the
+ *  bar's send, which stays disabled until every question has a pick (a partial answer strands
+ *  the agent). */
 export function ChoiceQuestions({
   questions,
   picked,
@@ -43,12 +39,8 @@ export function ChoiceQuestions({
   )
 }
 
-/** One question's own controls: radios when it takes a single answer, checkboxes
- *  when it takes several.
- *
- *  Which of the two is the QUESTION's own property, not the prompt's — claude
- *  carries multiSelect per question — so a card can legitimately hold both at
- *  once, and the control has to say which one this is. */
+/** Radios for a single-answer question, checkboxes for multi-select. Per question, not per
+ *  prompt, so one card can hold both. */
 function ChoiceQuestionGroup({
   question,
   ordinal,
@@ -214,17 +206,9 @@ export function ChoiceButtons({
   )
 }
 
-/** What the provider offered but Crowbar cannot send.
- *
- *  Written down, and written down as PROSE. It used to be a row of disabled
- *  buttons, which still reads as a control — something greyed out now that will
- *  work in a moment — and the labels on them were claude's own internal type names
- *  (`addRules`), so it read as a real choice spelled in a language nobody outside
- *  the CLI's source uses. There is no declared answer template for a suggestion,
- *  so pressing one could only ever produce a 400; a note cannot be pressed, which
- *  is how that failure stops being reachable from here at all. Why Crowbar can't
- *  send them isn't said here either — the Terminal button in the bar below is the
- *  answer to that, for this reason and every other one. */
+/** What the provider offered but Crowbar cannot send, as prose, not disabled buttons: a
+ *  suggestion has no answer template, so a button could only 400. The bar's Terminal button
+ *  is where it can be answered. */
 export function ChoiceSuggestions({ options }: { options: AgentChoiceOption[] }) {
   return (
     <ul className="flex flex-col gap-0.5 text-xs" data-testid="agent-choice-suggestions">
@@ -238,13 +222,8 @@ export function ChoiceSuggestions({ options }: { options: AgentChoiceOption[] })
   )
 }
 
-/** A prompt nobody here can answer: pending, but with no relay holding the gate,
- *  or a relay that just closed one.
- *
- *  It is still the whole question — what is being asked and what the answers are —
- *  because the CLI genuinely IS asking it. Where to answer it is the bar's job
- *  below, not this list's: it draws the Terminal button whenever there's nothing
- *  else it can offer. */
+/** A prompt pending with no relay holding its gate, still shown whole because the CLI is
+ *  really asking it. The bar offers the Terminal to answer it. */
 export function ChoiceReadOnly({
   options,
   questions,
@@ -268,11 +247,8 @@ export function ChoiceReadOnly({
   )
 }
 
-/** The form an elicitation is asking for, as the provider described it.
- *
- *  Shown VERBATIM (pretty-printed where it parses) and never interpreted into
- *  fields: reading a JSON Schema well enough to render a form is a job this
- *  surface has not done, and half-reading one would ask for the wrong things. */
+/** The elicitation's schema verbatim (pretty-printed where it parses), never rendered as a
+ *  form: half-reading a JSON Schema would ask for the wrong things. */
 export function ChoiceSchema({ schema }: { schema: string }) {
   return (
     <details className="text-xs" data-testid="agent-choice-schema">

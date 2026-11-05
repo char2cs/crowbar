@@ -2,22 +2,9 @@ import { apiFetch } from '@/lib/api/fetch'
 import { isNotFoundError } from '@/lib/errors/api-error'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 
-// This module holds the REAL file operations. Everything here talks to the
-// daemon and lets a failure reject.
-//
-// The rule the rest of this file exists to keep: NEVER answer a filesystem
-// question with a fabricated success value. A previous `readFileContent` stub
-// returned '' unconditionally, so callers got a plausible empty file instead of
-// an error and every failure was silent — jump navigation reopened closed files
-// as blank buffers for as long as it lived. `readDirectory` returning [] and
-// `exists` returning false were the same bug wearing different types: "Open All
-// Files" opened nothing (the [] skipped both the caller's catch-and-fall-back
-// and its length guard) and every relative link in the Markdown preview was
-// dead. Do not reintroduce a reader that fabricates a success value — if the
-// operation cannot be performed, throw.
-//
-// Every operation names its workspace: the active one may not own the file
-// (another worktree, or on a paired install another host).
+// The real file operations: each talks to the daemon and lets a failure reject. Never answer a
+// filesystem question with a fabricated success ('' content, [] entries, false); callers take it
+// as fact. Each names its workspace: the active one may not own the file (other worktree/host).
 
 /** One directory level, as the file explorer and breadcrumb consume it. */
 export interface DirectoryEntry {
@@ -35,14 +22,9 @@ interface FileTreeNode {
   type: 'file' | 'directory'
 }
 
-/**
- * List ONE level of `path` (workspace-relative; '' is the workspace root) via the
- * daemon's lazy tree route — the same route the file explorer is populated from.
- * Callers that need a recursive walk drive it themselves, one level per call.
- *
- * Rejects on a daemon failure. Callers depend on that: "Open All Files" catches
- * and falls back to the already-loaded tree.
- */
+/** List ONE level of `path` ('' is the workspace root) via the daemon's lazy tree route, the one
+ *  the explorer loads from; recursive walks drive it a level per call. Rejects on a daemon
+ *  failure, which "Open All Files" relies on to fall back to the loaded tree. */
 export async function readDirectory(workspaceId: string, path: string): Promise<DirectoryEntry[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
   const nodes = await apiFetch<FileTreeNode[]>(`${filesBaseForWorkspace(workspaceId)}/tree${query}`)
@@ -58,14 +40,9 @@ export async function readDirectory(workspaceId: string, path: string): Promise<
   })
 }
 
-/**
- * Whether `path` (workspace-relative) is present in the workspace, resolved by
- * listing its parent directory — the daemon exposes no stat/HEAD verb, and one
- * lazy directory listing is far cheaper than reading the file's bytes.
- *
- * A missing PARENT (404) is an honest `false`. Any other failure rejects: "the
- * daemon errored" must never be reported to the user as "the file is not there".
- */
+/** Whether `path` exists, by listing its parent: the daemon has no stat verb, and a lazy listing
+ *  is far cheaper than reading the bytes. A missing parent (404) is `false`; any other failure
+ *  rejects, so a daemon error is never shown as "the file is not there". */
 export async function exists(workspaceId: string, path: string): Promise<boolean> {
   const normalized = path.replace(/^\/+/, '').replace(/\/+$/, '')
   // The workspace root is always present and has no parent to list.

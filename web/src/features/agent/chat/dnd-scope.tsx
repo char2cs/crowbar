@@ -35,23 +35,9 @@ function ScopeChildrenOutlet() {
   return useContext(ScopeChildren)
 }
 
-/**
- * The drag-and-drop scope for attachment reordering, one per chat view.
- * `AgentChatView` is the common ancestor of every Plate tree that renders an
- * attachment node live: the transcript's streaming `MarkdownMessage` and the
- * composer's `ChatMarkdownEditor`.
- *
- * dnd-kit's `PointerSensor` drives the drag from ordinary pointer events, never
- * the native Drag and Drop API — which Tauri's own OS-file-drop interception
- * (`dragDropEnabled`, see tauri-file-drop.ts) swallows before it reaches the
- * DOM. External file drops keep going through Tauri's `onDragDropEvent`,
- * unrelated to this in-page reordering. The 4px activation distance keeps a
- * click on the handle a click.
- *
- * This component owns the one piece of drag state — the highlighted drop
- * target — and clears it on every end or cancel, so no drop line can outlive
- * the drag that drew it.
- */
+// One attachment-reorder scope per chat view (the common ancestor of the transcript's and the
+// composer's Plate trees). PointerSensor, not native DnD, which Tauri's OS file-drop intercepts;
+// the drop-target highlight is cleared on every end/cancel so it cannot outlive the drag.
 export function DndScope({ children }: { children: ReactNode }) {
   const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS))
   const [target, setTarget] = useState<AttachmentDropTarget | null>(null)

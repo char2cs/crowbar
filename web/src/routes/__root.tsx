@@ -9,17 +9,9 @@ import { DaemonHealthListener } from '@/features/window/components/daemon-health
 import { ConnectionIndicator } from '@/components/layout/connection-indicator'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
 
-// Note: there is deliberately NO global viewport for `toastManager` here.
-// SidebarToastOverlay is its one viewport, mounted by IDEShell or the OOBE (one
-// route at a time): a second Toast.Provider on the same manager renders every
-// toast twice. The watchers that raise toasts live here, so no route misses one.
-// The anchored manager is separate and keeps its own root-level viewport.
-//
-// Boot hydration (main.tsx's `hydrateCriticalStores`) runs and resolves
-// BEFORE this ever mounts — there is no gate here. See that function's own
-// doc for why: a `WorkspaceView`/`EditorSurface` mounted against an
-// empty/default pane layout, only to have it replaced a frame later by the
-// real persisted one, is a real crash, not just a flash.
+// No `toastManager` viewport here: SidebarToastOverlay (IDEShell or OOBE) is its only one, as a
+// second renders every toast twice; the toast watchers live here so no route misses one. Boot
+// hydration resolves before this mounts, so nothing renders against an empty pane layout.
 function RootComponent() {
   return (
     <ErrorBoundary>

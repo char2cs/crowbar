@@ -4,16 +4,9 @@ import { NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-/**
- * Regression for "a project-home chat/folder can never reorder past a repo
- * header row": the live per-frame hit test rebuilds its target off the DOM
- * attributes `SIDEBAR_DRAG_ROW_SPEC` declares (`tree-dnd/drop-dom.ts`'s
- * `read()`), which never include `repoIcon` — so the two remaining
- * `target.repoIcon` reads in `sidebar-drop-policy.ts` both resolved
- * `undefined` live and refused every mode, while the hand-built full
- * `SidebarRow` in the sibling `sidebar-drop-policy.test.ts` kept passing.
- * Every target here is built the way `read()` builds one.
- */
+// A project-home chat/folder must reorder past a repo header row as a live drag sees it: targets
+// are rebuilt from SIDEBAR_DRAG_ROW_SPEC's DOM attributes, which never include `repoIcon`, so
+// every target here is built the way drop-dom's `read()` builds one.
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,

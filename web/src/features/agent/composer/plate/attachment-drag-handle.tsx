@@ -12,10 +12,8 @@ import { type PlateEditor, useComposedRef, useEditorRef } from 'platejs/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-/**
- * `outline`'s other states are partial-alpha, which shows a photo through the
- * button. `--popover` is the only solid neutral token, hence no hover shift.
- */
+/** `outline`'s other states are partial-alpha, which shows a photo through the
+ *  button. `--popover` is the only solid neutral token, hence no hover shift. */
 export const ATTACHMENT_BUTTON_OPAQUE_BG = cn(
   'bg-popover dark:bg-popover',
   'hover:bg-popover dark:hover:bg-popover',

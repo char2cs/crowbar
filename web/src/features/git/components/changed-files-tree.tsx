@@ -71,11 +71,8 @@ function adaptDiffToEntries(diffs: GitDiff[]): ChangedFileEntry[] {
   }))
 }
 
-/**
- * Flatten the nested folder tree into display order — each folder (single-child
- * chains folded into one row) followed by its own subtree, then that level's
- * files. A collapsed folder contributes its own row and none of its descendants.
- */
+/** Display order: each (chain-folded) folder then its subtree, then that level's files. A
+ *  collapsed folder contributes only its own row. */
 function flattenChangedFilesTree(
   root: GitFolderNode,
   collapsedFolders: ReadonlySet<string>,
@@ -146,10 +143,8 @@ export function ChangedFilesTree({
     estimateSize: () => SIDEBAR_FILE_ROW_HEIGHT,
     getScrollElement: () => scrollRef.current,
     overscan: 8,
-    // Mirror useFileExplorerVisibleRows: while a sidebar/pane drag is in progress
-    // (data-pane-resizing on <html>) suppress ResizeObserver callbacks — otherwise
-    // the drag drives 120fps re-renders — and flush the last deferred measurement
-    // on the pane-resize-end event.
+    // As useFileExplorerVisibleRows: skip ResizeObserver callbacks during a resize drag (they
+    // would re-render at 120fps) and flush the last measurement on pane-resize-end.
     observeElementRect: (instance, cb) => {
       const element = instance.scrollElement
       if (!element) return

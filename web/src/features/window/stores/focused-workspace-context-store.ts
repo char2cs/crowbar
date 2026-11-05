@@ -1,10 +1,7 @@
 import { create } from 'zustand'
 
-/**
- * The workspace the focused pane is scoped to — the single authority for the
- * sidebar panel (its tab strip, each tab's availability, each tab body) and
- * any future panel extension. Never read the route to scope panel content.
- */
+// The focused pane's workspace: the single authority scoping the sidebar panel's tabs and bodies.
+// Never read the route to scope panel content.
 export interface FocusedWorkspaceContext {
   projectId: string | null
   workspaceId: string | null

@@ -18,10 +18,8 @@ import {
   useRowMetrics,
 } from '@/components/sidebar/lib/row-metrics'
 
-/**
- * A row held in the removal tray, drawn in place: its glyph and label, with
- * the countdown, Keep and the "+N" count where its actions were.
- */
+// A row held in the removal tray, drawn in place: its glyph and label, with the countdown, Keep
+// and the "+N" count where its actions were.
 export function RemovingSidebarRow({
   row,
   depth,
@@ -93,9 +91,8 @@ export function RemovingSidebarRow({
             <path d="M6 3L2.5 6.5 6 10M2.5 6.5H10a3.5 3.5 0 0 1 0 7H7" />
           </svg>
         </button>
-        {/* `data-essential-motion` keeps this under prefers-reduced-motion:
-            not decoration, it is how long is left before something is
-            deleted — same reasoning as `removal-tray.tsx`'s own hairline. */}
+        {/* `data-essential-motion` keeps this under prefers-reduced-motion: it shows how long is
+            left before a delete, not decoration. */}
         <span
           data-removal-drain=""
           data-essential-motion=""

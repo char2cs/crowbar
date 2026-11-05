@@ -83,12 +83,9 @@ const typing = (target: EventTarget) =>
 const readsUp = (event: React.KeyboardEvent) =>
   READ_UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
 
-/**
- * Keeps a transcript on its newest line while the reader is there, and out of
- * their way once they scroll up. Growth eases (follow-scroll); anything that is
- * not content arriving lands in one write. A scroll of under a row (STICK_SLACK)
- * while a reply streams is pulled back on purpose: a burst outruns a frame.
- */
+// Keeps a transcript on its newest line while the reader is there, out of their way once they
+// scroll up. Growth eases (follow-scroll), anything else lands in one write; a sub-row scroll
+// (STICK_SLACK) mid-stream is pulled back on purpose, since a burst outruns a frame.
 export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): TranscriptAnchor {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stuck = useRef(options.initialPosition?.stuck ?? true)

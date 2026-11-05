@@ -7,10 +7,8 @@ import {
 } from '@/features/editor/lib/asset-data-url'
 import { siblingRef } from '@/features/editor/documents/document-ref'
 
-/**
- * Loads one local asset reference (as written in the HTML) as a URL the
- * sandboxed preview can fetch — a `data:` URL — or null to leave it as-is.
- */
+/** Loads one local asset reference (as written in the HTML) as a `data:` URL the sandboxed
+ *  preview can fetch, or null to leave it as-is. */
 export type LoadAsset = (reference: string) => Promise<string | null>
 
 /** A local reference inlined: as a `data:` URL, or a stylesheet link as its CSS. */
@@ -153,12 +151,9 @@ async function inlineReferences(
   return resolved.size === 0 ? html : rewriteTags(html, resolved)
 }
 
-/**
- * The preview document for `html`: every local resource reference (img/
- * script/video/audio/source `src`, `poster`, `srcset`, and `<link href>`)
- * inlined via `loadAsset`; an iframe's local text document becomes its
- * `srcdoc`. References that do not load are left untouched.
- */
+/** The preview document for `html`: every local resource reference (src, poster, srcset,
+ *  `<link href>`) inlined via `loadAsset`, an iframe's local text document as its `srcdoc`.
+ *  References that fail to load are left untouched. */
 export function buildHtmlPreviewDocument(html: string, loadAsset: LoadAsset): Promise<string> {
   return inlineReferences(html, async (reference) => {
     const url = await loadAsset(reference)
@@ -183,10 +178,8 @@ function subtreeRef(doc: DocumentRef, reference: string): DocumentRef | null {
   return ref.path.startsWith(dir) ? ref : null
 }
 
-/**
- * A host document's preview under a policy of inline styles and data images: only its own subtree's
- * stylesheets (as `<style>`) and images (as `data:` URLs) are read.
- */
+/** A host document's preview, under a policy of inline styles and data images: only its own
+ *  subtree's stylesheets (as `<style>`) and images (as `data:` URLs) are read. */
 export async function buildHostPreviewDocument(
   html: string,
   doc: DocumentRef,

@@ -22,11 +22,9 @@ interface DraftDeps {
   history: { reset: () => void }
 }
 
-/**
- * The composer's text, the slash picker that filters on it, its stashes and its
- * one error line. The text lives in the editor only: this reads it on demand and
- * loads text into it through the handle.
- */
+/** The composer's text, the slash picker that filters on it, its stashes and its
+ *  one error line. The text lives in the editor only: this reads it on demand and
+ *  loads text into it through the handle. */
 export function useComposerDraft({ wsId, chatId, providerId, catalogActive, history }: DraftDeps) {
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const slash = useSlashCatalog({ wsId, chatId, providerId, active: catalogActive })

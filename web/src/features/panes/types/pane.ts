@@ -5,14 +5,9 @@ export interface PaneGroup {
   chatId: string | null
   /** The runner (vendor-CLI process) the chat is following, or null when dormant. */
   runnerId: string | null
-  /**
-   * The workspace `chatId` belongs to — set once, by the gesture that put the
-   * chat here (C3), and never re-derived: the opener always knows it (a
-   * sidebar row carries it). Together with `chatId` this is the view's member
-   * record; every "which workspace is this chat in" question about something
-   * on screen reads it here instead of scanning workspace stores. Null for a
-   * chatless pane.
-   */
+  /** `chatId`'s workspace, set once by the gesture that placed it (C3) and never re-derived.
+   *  With `chatId` it is the view's member record: on-screen workspace lookups read it here.
+   *  Null for a chatless pane. */
   workspaceId?: string | null
   /** For a draft thread: the row its chat will be placed under, '' being the panel root. */
   draftParentId?: string
@@ -21,18 +16,9 @@ export interface PaneGroup {
   activeEditorTabId: string | null
   /** Split toggle state — chat-only vs. chat+editor. */
   editorOpen: boolean
-  /**
-   * In the collapsed ('tabs') presentation only: is the CHAT the selected
-   * surface, or a real editor tab? Deliberately separate from
-   * `activeEditorTabId` — that field must keep naming the tab editor-view
-   * content actually renders (Monaco/terminal/etc.) even while the chat is
-   * selected, or switching to chat and back would unmount and remount
-   * whatever editor surface was showing, losing its live state (scroll,
-   * undo history, a terminal's PTY). Optional (not every constructed/
-   * persisted PaneGroup sets it, including a layout saved before this field
-   * existed) — always read as `!== false` so a missing value defaults to
-   * showing the chat, same as a fresh pane.
-   */
+  /** Collapsed ('tabs') presentation: chat selected over the editor. Apart from activeEditorTabId
+   *  so the editor stays mounted (scroll, undo, PTY) while the chat shows. Read as `!== false`:
+   *  missing means the chat. */
   chatSelected?: boolean
   locked?: boolean
   /** The view record this pane belongs to; null for stage and bottom-tray panes. */
@@ -45,12 +31,8 @@ export interface ViewMember {
   workspaceId: string | null
 }
 
-/**
- * A Recents row: one view, its project, and its tiling tree. Its members are
- * the chat panes of `layout` (`viewMembers`), each carrying `{chatId,
- * workspaceId}` — held on the pane rather than in a second list beside the
- * layout, so membership has exactly one writer and cannot drift from it.
- */
+/** A Recents row: one view, its project, its tiling tree. Members are the chat panes of
+ *  `layout` (`viewMembers`), held on the panes rather than a second list so they can't drift. */
 export interface ViewRecord {
   id: string
   projectId: string

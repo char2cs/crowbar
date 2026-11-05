@@ -31,11 +31,8 @@ function showRowMenu(rowId: string, node: HTMLElement, actions: NativeSidebar['a
   })
 }
 
-/**
- * The phone's chat list: the desktop sidebar's switcher and rows, drawn from the snapshot the
- * main webview pushes. It owns no state and opens no connection; every pick goes back as an
- * intent. Gear and New thread are native buttons floating over its foot.
- */
+/** The phone's chat list, drawn from the main webview's snapshot. Owns no state and opens no
+ *  connection; picks go back as intents. Gear and New thread are native buttons over its foot. */
 export function MobileSidebarPage() {
   useSurfaceThemeColor()
   const [snapshot, setSnapshot] = useState<NativeSidebar | null>(null)

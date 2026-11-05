@@ -110,13 +110,8 @@ describe('TabBarItem ghost restyle', () => {
     expect(screen.queryByLabelText(/close/i)).not.toBeInTheDocument()
   })
 
-  // The active+dirty tab used to render as a `rounded-full` blue pill with an
-  // alpha shadow. It now borrows the same raised-row shape/top-shadow
-  // treatment ROW_ACTIVE gives any other active row (workspace-row-base.ts),
-  // signaling "unsaved" with ONLY a blue border — every attempt to also tint
-  // the fill blue (translucent, `color-mix`, then solid `bg-primary`) was
-  // tried and rejected: the tab strip's normal muted active fill was already
-  // correct, it just needed the border to turn blue on top of it.
+  // Active+dirty signals "unsaved" with ONLY a blue border over the normal muted active fill,
+  // with ROW_ACTIVE's raised shape (workspace-row-base.ts); never a blue pill or tinted fill.
   it('active+dirty tab gets a blue border on the normal muted active fill', () => {
     const buffer: EditorContent = { ...editorBuffer, isDirty: true }
     render(<TabBarItem buffer={buffer} isActive {...shared} />)

@@ -9,10 +9,8 @@ import {
   rowsToMarkdownTable,
 } from '@/features/agent/composer/plate/attachments/resolve-csv'
 
-/**
- * A small, clean CSV file inlines as a table without touching the network.
- * Everything else uploads — including a host path, which has no client-side bytes.
- */
+/** A small, clean CSV file inlines as a table without touching the network.
+ *  Everything else uploads — including a host path, which has no client-side bytes. */
 export async function uploadAttachmentMarkdown(
   wsId: string,
   chatId: string,

@@ -110,12 +110,9 @@ const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
   remove: { label: 'Remove', icon: X, symbol: 'trash', destructive: true },
 }
 
-/**
- * The hover buttons a row earns, in the desktop's left-to-right order (SidebarRowActions draws
- * them from this). A holder leaves Detach as the only remedy, a failed provision Retry; a row
- * with no worktree offers nothing that needs one; a chat never forks; the project home's
- * removal is its menu's Delete Repo, and a locked branch is not removable.
- */
+// The hover buttons a row earns, in the desktop's left-to-right order. A holder leaves Detach as
+// the only remedy, a failed provision Retry; no worktree, nothing that needs one; a chat never
+// forks; the project home is removed via Delete Repo, and a locked branch not at all.
 export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButtonVerb[] {
   const verbs: RowButtonVerb[] = []
   const isBranch = row.kind === 'branch'
@@ -139,11 +136,9 @@ export function rowIsLocked(rowId: string): boolean {
   return repos.some((repo) => repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'))
 }
 
-/**
- * A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock is for a real
- * workspace branch, never the project-home row (the checkout that must stay put); "New thread in
- * Terminal" is left out when the provider a new chat would start under has no terminal.
- */
+// A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock only for a real
+// workspace branch, never the project-home checkout; "New thread in Terminal" is left out when
+// the provider a new chat would start under has no terminal.
 export function rowMenuActions(
   row: SidebarRow,
   { locked, canStartOnTerminal }: { locked: boolean; canStartOnTerminal: boolean },
@@ -161,10 +156,8 @@ export function rowMenuActions(
   return ids.map((id) => ({ id, ...ACTIONS[id] }))
 }
 
-/**
- * Every verb a row has on the desktop, menu and hover buttons together: what the phone's one
- * long-press menu offers. The destructive verb goes last, as iOS menus put it.
- */
+// Every desktop verb, menu and hover buttons together: the phone's one long-press menu. The
+// destructive verb goes last, as iOS menus put it.
 export function rowVerbs(
   row: SidebarRow,
   ctx: { locked: boolean; canStartOnTerminal: boolean },

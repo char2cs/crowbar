@@ -1,10 +1,5 @@
-/**
- * Hooks for reading effective keybindings from the keymap store.
- *
- * Components/hooks subscribe to the active preset + overrides and receive a
- * memoized commandId -> chord map (or a single chord). Because they subscribe
- * narrowly, changing the preset or an override re-resolves bindings live.
- */
+// Subscribe narrowly to the active preset + overrides and memoize the resolved chords, so a
+// preset or override change re-resolves bindings live.
 import { useMemo } from 'react'
 import { useKeymapStore } from '@/features/keymaps/stores/store'
 import { getEffectiveChordMap } from '@/features/keymaps/utils/effective-keymaps'

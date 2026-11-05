@@ -328,12 +328,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherLineage)).toEqual(NO_MODES)
   })
 
-  // Live-reported AGAIN after the sibling-only fix below: "still can't move a
-  // branch into a folder" whenever the folder wasn't the row's literal
-  // current neighbour, even when it shared the exact same (bare-root) fork
-  // anchor — e.g. any OTHER root-level folder, not just the one already
-  // sitting beside the row. Comparing anchors, not raw `parentId` strings,
-  // fixes the general case: no lineage change, so nothing here refuses it.
+  // Anchors are compared, not raw `parentId`s: any folder at the row's fork anchor (here the bare
+  // root) is a legal destination, not only its current neighbour.
   it('a locked row may be filed into ANY same-anchor folder, not just its current neighbour', () => {
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     // folder-1 lives in the same repo, at the bare repo root — a DIFFERENT
@@ -457,13 +453,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
   it('a folder row resolves through the folders array, not workspaceId', () => {
     const subject = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
     const target = makeRow({ id: 'ws-1' }) // same repo (repo-1)
-    // Reorder is legal — folder-1 and ws-1 are both bare-repo-root siblings,
-    // the SAME context. Nesting INTO ws-1 is not: that crosses folder-1 from
-    // the bare root into ws-1's own branch context, refused by the golden
-    // rule's finer grain (§2.6) the same way the backend's own
-    // TestMove_RefusesRootToBranchContext pins it — this used to assert
-    // ALL_MODES, a real pre-existing gap this task's own golden-rule parity
-    // check (2026-09-08 sidebar-placement-unification Task 10) closes.
+    // Reorder is legal (both sit at the bare repo root); nesting INTO ws-1 crosses into its
+    // branch context, refused by the golden rule (§2.6) as TestMove_RefusesRootToBranchContext.
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(REORDER_MODES)
   })
 
@@ -553,10 +544,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(REORDER_MODES)
     })
 
-    // Regression: the indicator offered before/after on ANY branch row, so a
-    // home chat dragged beside a repo's locked branch promised a move the
-    // daemon then refused 409 ("a chat and its chat parent must be in the
-    // same workspace") as a raw Go error toast.
+    // Past a branch row on another level, the daemon refuses the move with 409 ("a chat and its
+    // chat parent must be in the same workspace"), so the indicator must not offer it.
     describe('a chat may only reorder past a branch row whose level is its own workspace', () => {
       beforeEach(() => {
         getHomeWorkspaceId.mockImplementation((projectId: string) =>
@@ -647,12 +636,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
       })
     })
 
-    // The literal "can't group chats into a folder" gap, caught live: a
-    // `kind: 'folder'` row is one aggregate in the current unified row
-    // model (deriveRows's folder push is the same
-    // `AgentChatFolder`/`ChatsFolderWireDTO` `planChatDrop` targets), not
-    // the two separate "repo folder" / "chat folder" concepts an earlier,
-    // pre-unification version of this policy refused to mix.
+    // A folder row is one aggregate in the unified model, the same one planChatDrop targets.
     it('allows a chat onto a folder row — filing it in is a real move now', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
@@ -669,9 +653,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // Project-home folders (deriveRows) ride no repo at all — the
-  // literal "can't drag/group a home folder" gap, caught live: `resolveRowRepo`
-  // can never see them, so the repo-scoped walk below refused every one.
+  // Project-home folders ride no repo, so resolveRowRepo never sees them.
   describe('project-home folders are project-scoped, not repo-scoped', () => {
     const homeFolderRow = (id: string, over: Partial<SidebarRow> = {}) =>
       makeRow({ id, kind: 'folder', workspaceId: null, ...over })
@@ -715,14 +697,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(NO_MODES)
     })
 
-    // Caught live: "New folder" (a project-home folder) could reorder past
-    // another home FOLDER but never past a home CHAT — the two share one
-    // sibling order space, so nothing about the target being a chat rather
-    // than a folder should matter. Root cause: the block above this one
-    // (`kind === 'chat' || target.kind === 'chat'`) used to catch a FOLDER
-    // subject dragged onto a CHAT target too, saw the subject's kind was not
-    // 'chat', and refused before this block — the one that actually knows
-    // how to resolve a home chat target — was ever reached.
+    // Folders and chats share one sibling order, so a home folder may reorder past a home chat:
+    // the chat-subject block must not catch a folder subject dropped on a chat target.
     it('allows filing/reordering a home folder relative to a home CHAT in the SAME project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {
@@ -751,11 +727,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(NO_MODES)
     })
 
-    // Reported live: dragging a plain home chat/thread onto a home folder
-    // never nests it — it lands as a sibling reorder instead, every time.
-    // Every other case in this block drags the FOLDER; this is the one
-    // direction nothing here actually pins: a home CHAT as the SUBJECT, a
-    // home folder as the TARGET.
+    // A home chat as the subject and a home folder as the target: the chat must nest, not
+    // land as a sibling. Every other case in this block drags the folder.
     it('allows filing a home CHAT into a home folder in the SAME project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {
@@ -817,12 +790,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // Caught live: dragging a repo's own header row did nothing at all —
-  // `planTreeRowDrop` had no call to construct for it, and this matrix had no
-  // branch that recognised it either, so it fell into the generic same-repo
-  // walk and was refused outright (`resolveRowRepo` never resolves a repo's
-  // own id). Its placement lives on `domain.Repository`, a different
-  // aggregate from every ordinary branch/chat/folder row above.
+  // A repo header's placement lives on the Repository aggregate, so it is scoped to its
+  // project's home rather than the same-repo walk (resolveRowRepo never resolves a repo's id).
   describe('a repo header row is project-home-scoped, not repo-scoped', () => {
     const repoRow = (
       id: string,
@@ -894,13 +863,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(ALL_MODES)
     })
 
-    // Caught live: "New folder" sits nested inside a home CHAT (a legal spot
-    // for a folder) — reordering a repo "past" it silently promised a move
-    // that would file the repo under that CHAT, refused server-side with a
-    // raw 400 the drag indicator never should have offered in the first
-    // place. Nesting INTO that same folder is still fine — it is the
-    // container the FOLDER itself sits in that disqualifies a reorder, not
-    // the folder as a destination.
+    // Reordering a repo past a home folder nested in a chat would file the repo under that chat
+    // (the daemon refuses with 400). It is the folder's container that disqualifies the reorder,
+    // so nesting INTO the folder stays legal.
     it('refuses to reorder past a home folder that is itself nested inside a CHAT — but still allows nesting INTO it', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {

@@ -10,10 +10,9 @@ export interface FileNodeDTO {
   gitStatus?: string
 }
 
-// Map a backend file node onto the AppFile shape the explorer renders. A
-// directory with no `children` key is "not yet loaded" — represented as
-// `children: undefined` — which the lazy loader uses as its fetch sentinel; an
-// empty loaded directory becomes `children: []`.
+// Map a backend file node onto the explorer's AppFile. A directory without a `children` key is
+// not yet loaded (`children: undefined`, the lazy loader's fetch sentinel); a loaded empty one
+// is `children: []`.
 export function toAppFile(node: FileNodeDTO): AppFile {
   const isDir = node.type === 'directory'
   return {
@@ -36,10 +35,9 @@ export async function fetchFileTree(wsId: string, path?: string): Promise<AppFil
   return nodes.map(toAppFile)
 }
 
-// File-tree mutations against the workspace files endpoint. Paths are
-// workspace-relative (the same `path` the tree nodes carry). On success the tree
-// refreshes automatically: the daemon signals a structural file_change on the
-// workspace's files: scope, which use-workspace-file-tree reconciles — so callers do NOT refetch.
+// Mutations on the workspace files endpoint; paths are workspace-relative, as on tree nodes.
+// Callers do not refetch: the daemon's structural file_change on the workspace's files: scope
+// is reconciled into the tree by use-workspace-file-tree.
 
 /** Create a file (`type: 'file'`) or directory (`type: 'dir'`) at `path`. */
 export async function createFileNode(
@@ -72,13 +70,9 @@ export async function deleteFileNode(wsId: string, path: string): Promise<void> 
   })
 }
 
-/**
- * Copy `sourcePath` to `destPath` (both workspace-relative) via the daemon's
- * server-side copy verb: byte-faithful (binary files stay intact — a client-side
- * read/write composition would round-trip them through the base64 content read
- * and corrupt them) and recursive for directories. An existing destination is a
- * 409; the daemon's structural FileChangeEvent reconciles the tree.
- */
+/** Copy `sourcePath` to `destPath` with the daemon's server-side copy: recursive, and
+ *  byte-faithful where a client read/write would corrupt binaries through the base64 content
+ *  read. An existing destination is a 409. */
 export async function copyFileNode(
   wsId: string,
   sourcePath: string,

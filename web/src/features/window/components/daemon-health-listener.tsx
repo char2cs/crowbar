@@ -3,22 +3,9 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
 
-/**
- * Mount-once bridge from the desktop supervisor's daemon lifecycle events to
- * user-visible toasts. Without this, a daemon wedge or crash-restart cycle is
- * silent — the UI just goes quietly stale, which is exactly how the
- * 2026-07-04 daemon death went unnoticed for hours.
- *
- * `daemon:terminated` is deliberately not toasted: it fires on every exit,
- * including the intentional one during app shutdown, and every unexpected
- * exit is followed by either `daemon:restarted` or `daemon:dead`.
- *
- * `daemon:halted` is a daemon that is alive but refused to open its home; its
- * payload is the reason. It goes to the halt store, which the root renders in
- * place of every route, and `daemon:restarted` clears it. A halt from before
- * this page mounted reaches the same store through the first refused request
- * or socket (lib/api/fetch, lib/ws/daemon-probe).
- */
+// Surfaces the supervisor's daemon lifecycle so a wedge or crash loop isn't silent. Not
+// `terminated` (also fires on intentional shutdown; restarted/dead follow a crash). `halted` goes
+// to the halt store, cleared by `restarted`; an earlier halt arrives via the first refused request.
 export function DaemonHealthListener() {
   useEffect(() => {
     if (!isTauri()) return

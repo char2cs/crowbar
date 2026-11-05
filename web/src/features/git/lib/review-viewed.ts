@@ -5,14 +5,8 @@ import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/u
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
-/**
- * A fingerprint of a file as the files summary describes it: change kind, old
- * path and ± counts. A file marked viewed stays viewed only while this holds.
- *
- * The summary carries no content hash, so an edit that leaves the counts alone
- * (one line rewritten in place) is NOT detected; the cost of a stronger check
- * would be fetching every patch.
- */
+/** A viewed file stays viewed while this holds: kind, old path, ± counts. With no content hash, an
+ *  edit that keeps the counts goes unseen; a stronger check would mean fetching every patch. */
 function fileSignature(file: GitDiff): string {
   const kind = file.is_new ? 'A' : file.is_deleted ? 'D' : file.is_renamed ? 'R' : 'M'
   return `${kind}|${file.old_path ?? ''}|${file.additions ?? 0}|${file.deletions ?? 0}`
@@ -50,20 +44,14 @@ function useViewedOf(store: WorkspaceStore, enabled: boolean): ReviewViewed {
   return { viewed, loaded, setFilesViewed }
 }
 
-/**
- * Viewed state for the review surface, from the ambient workspace store.
- * Calling it loads the persisted map, so mount it only where the review is
- * shown.
- */
+/** Viewed state from the ambient workspace store. It loads the persisted map, so mount it only
+ *  where the review is shown. */
 export function useReviewViewed(): ReviewViewed {
   return useViewedOf(useWorkspaceStore(), true)
 }
 
-/**
- * The same state for a surface outside the workspace provider (the sidebar),
- * addressed by an explicit `wsId`. Loads only while `enabled`, and never for a
- * workspace that is not mounted (the registry then hands back a detached store).
- */
+/** The same for a surface outside the provider (the sidebar), by `wsId`. Loads only while
+ *  `enabled` and the workspace is mounted (otherwise the registry returns a detached store). */
 export function useReviewViewedById(wsId: string, enabled: boolean): ReviewViewed {
   const store = useRegisteredWorkspaceStore(wsId)
   return useViewedOf(store, enabled && wsId !== '' && store.getState().workspaceId === wsId)

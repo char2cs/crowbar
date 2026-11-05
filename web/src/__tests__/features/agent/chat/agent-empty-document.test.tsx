@@ -61,11 +61,8 @@ describe('AgentEmptyDocument handle', () => {
   })
 })
 
-// REGRESSION: `place()` used to position the handle at the CARET's line when
-// one existed in the document, and only fell back to the last line once the
-// document lost focus entirely — so clicking back into an earlier sentence
-// to fix a word dragged the send button up the page with the caret. It must
-// always sit under the last written line, full stop.
+// The handle always sits under the last written line, never the caret's: editing an earlier
+// sentence must not drag the send button up the page.
 describe('lastLineTop', () => {
   function docWithParagraphs(bottoms: number[], docTop = 0): HTMLDivElement {
     const doc = document.createElement('div')
@@ -105,11 +102,8 @@ describe('lastLineTop', () => {
     expect(lastLineTop(doc)).toBeCloseTo(48 + 23.8)
   })
 
-  // REGRESSION: the pane's overlay chat header floats over this document
-  // with no flex space of its own, so a genuinely empty document's fallback
-  // position has to add the SAME clearance `.doc`'s own top padding gets
-  // (composer.css's `--agent-header-clearance`) or the handle renders above
-  // where the (padded-down) first line actually sits.
+  // The overlay chat header takes no flex space, so an empty document's fallback position adds
+  // the same clearance as `.doc`'s top padding (`--agent-header-clearance`).
   it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
     expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 23.8)
   })
@@ -156,16 +150,8 @@ describe('AgentEmptyDocument header clearance', () => {
   })
 })
 
-// REGRESSION: `selectionchange` is a DOCUMENT event, and this box listened to
-// it unconditionally to keep its handle under the last line. Monaco mirrors the
-// editor selection into a hidden textarea, so a drag-select in a code pane fires
-// one per pointer move / auto-scroll tick (~120/s) — and every mounted chat
-// composer answered each of them with `place()`: two getBoundingClientRect reads
-// (a forced layout of the whole document) followed by a style write that dirties
-// it again. Measured live in the Tauri app: 239 synthetic selectionchange events
-// produced 478 rect reads on `.doc` — two per open chat — while the person was
-// doing nothing in any chat at all. The listener must ignore selections that are
-// not inside THIS document.
+// `selectionchange` is a document event that Monaco fires ~120/s during a drag-select; each
+// `place()` forces a layout, so the listener must ignore selections outside THIS document.
 describe('AgentEmptyDocument selectionchange gating', () => {
   const FALLBACK_TRANSFORM = 'translateY(76px)' // 48 + 23.8 + HANDLE_LEAD, rounded
 
@@ -236,11 +222,8 @@ describe('AgentEmptyDocument selectionchange gating', () => {
 })
 
 describe('AgentEmptyDocument stop control', () => {
-  // REGRESSION: this surface hand-duplicates composer-handle.tsx's own
-  // send/stop button, and used to gate `stopping` on the document being
-  // empty the same way — hiding the only way to interrupt a turn already
-  // running (a background handoff can start one before anything is typed)
-  // the instant a person started writing.
+  // This surface duplicates composer-handle.tsx's send/stop button; Stop must not depend on the
+  // document being empty, since a background handoff can start a turn before anything is typed.
   it('stops a running turn even with text already in the document', () => {
     const onStop = vi.fn()
     draw({ hasText: true, working: true, canStop: true, onStop })
@@ -279,12 +262,8 @@ describe('AgentEmptyDocument hasText', () => {
   })
 })
 
-// REGRESSION: the reviving/idle/trust-wait signpost used to render as its own
-// row ABOVE this whole document (agent-chat-pane.tsx), free-floating over the
-// model/effort/attach/send row rather than on it — a resize could visibly
-// separate the two, since they had independent positions. It now occupies
-// THIS component's own control-bar slot, sharing the ONE `place()` transform
-// the ordinary row rides, so there is nothing left for it to drift apart from.
+// The reviving/idle/trust-wait signpost takes the control row's slot and shares its one
+// `place()` transform, so a resize cannot separate the two.
 describe('AgentEmptyDocument banner overlay', () => {
   it('renders the banner inside the handle in place of the control row when one is given', () => {
     const { container } = draw({

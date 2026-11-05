@@ -105,10 +105,8 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
   filename: string
 }
 
-/**
- * The controls are siblings of the `<a>`, not children: a `<button>` inside an
- * anchor is invalid HTML. `nodeRef` and Slate's ref still sit on the anchor itself.
- */
+/** The controls are siblings of the `<a>`, not children: a `<button>` inside an
+ *  anchor is invalid HTML. `nodeRef` and Slate's ref still sit on the anchor itself. */
 function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
   const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
   const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(

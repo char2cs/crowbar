@@ -56,11 +56,9 @@ function attachmentOf(
   return { state: 'idle', message: describeDormant(exitReason) }
 }
 
-/**
- * The pane's view of its chat's session: liveness from the entity snapshot, the
- * exit from the last `runner_exited` row. The pane never orchestrates a revive:
- * a send revives a dormant chat server-side, and startSession is the one intent.
- */
+/** The pane's view of its chat's session: liveness from the entity snapshot, the
+ *  exit from the last `runner_exited` row. The pane never orchestrates a revive:
+ *  a send revives a dormant chat server-side, and startSession is the one intent. */
 export function usePaneAttachment({
   wsId,
   chatId,

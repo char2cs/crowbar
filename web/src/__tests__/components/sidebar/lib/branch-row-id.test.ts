@@ -24,13 +24,8 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
-/**
- * 2026-09-08 sidebar-placement-unification Task 9 stops minting/retyping a
- * `'branch'`-typed chat to mark a repo/project home's owning row — these pin
- * that neither direction of the id-space translation depends on `Chat.type`
- * any more, reading `Repo.defaultOwningChatId` (or, absent that, the
- * type-agnostic `ownsWorktree` fallback) instead.
- */
+// Neither direction of the translation depends on `Chat.type`: both read
+// `Repo.defaultOwningChatId`, else the type-agnostic `ownsWorktree` fallback.
 describe('owningChatIdOfWorkspace', () => {
   it('resolves a locked branch directly off Workspace.owningChatId', () => {
     const repo = makeTestRepo({

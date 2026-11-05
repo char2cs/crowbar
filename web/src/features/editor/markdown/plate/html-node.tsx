@@ -6,18 +6,9 @@ import { createPlatePlugin, PlateElement, type PlateElementProps } from 'platejs
 import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 import { loadLocalImage, useMarkdownAsset } from './markdown-asset'
 
-/**
- * A void block that carries a raw HTML string verbatim. READMEs routinely open
- * with a raw HTML header (`<div align="center"><img><h1>…</h1></div>`); remark
- * parses such a block as a single mdast `html` node, and this element both
- * RENDERS it (sanitized) and preserves its exact source on save — see
- * `markdown-html-rules.ts`, which round-trips the raw string byte-for-byte
- * through an mdast `html` node (which remark stringifies without escaping).
- *
- * The block is VOID: its HTML is not rich-editable in place (it's a rendered
- * preview of source the editor owns as an opaque string). To change it, edit
- * the file in Source view — same contract as YAML frontmatter here.
- */
+/** A void block carrying a raw HTML string (a README's `<div align="center">` header): rendered
+ *  sanitized, saved byte-for-byte via markdown-html-rules.ts. Not editable in place; change it in
+ *  Source view, as with YAML frontmatter. */
 export interface HtmlElementNode {
   type: 'html'
   html: string
@@ -42,11 +33,9 @@ export function HtmlElement(props: PlateElementProps) {
   const linkWorkspace = useLinkWorkspace()
   const ref = useRef<HTMLDivElement>(null)
 
-  // Local `<img src="./logo.png">` references (common in README headers) don't
-  // resolve in the webview — the base URL is the dev server, not the file's
-  // folder. After the sanitized HTML paints, rewrite each local image src to a
-  // `data:` URL read from the workspace. Remote/data srcs are left untouched.
-  // Runs whenever the HTML or the file's location changes; cancels late reads.
+  // Local `<img src="./logo.png">` refs don't resolve in the webview (its base URL is the dev
+  // server), so after paint each local src is rewritten to a `data:` URL read from the workspace.
+  // Remote and data srcs are left alone; late reads are cancelled.
   useEffect(() => {
     const el = ref.current
     if (!el || !asset) return
@@ -61,15 +50,9 @@ export function HtmlElement(props: PlateElementProps) {
     return () => controller.abort()
   }, [clean, asset])
 
-  // Anchor clicks are delegated with a NATIVE listener rather than a React
-  // `onClick` prop, because the container is not itself a control — the
-  // interactive elements are the `<a>`s inside HTML this component does not own
-  // and cannot annotate. They are natively focusable and Enter on a focused
-  // anchor dispatches a click, so keyboard users reach this path through the
-  // anchor, not through the container; giving the container a `role` and key
-  // handler of its own would advertise an interactive element that isn't one.
-  // A plain anchor click inside the Tauri WKWebView navigates the whole app
-  // view, so every one must be cancelled and routed to the OS browser.
+  // A native delegated listener, not onClick: the controls are `<a>`s in HTML we don't own (Enter
+  // on one dispatches a click), so the container takes no role. Every anchor click is cancelled and
+  // routed to the OS browser, since in the Tauri WKWebView it would navigate the whole app.
   useEffect(() => {
     const el = ref.current
     if (!el) return

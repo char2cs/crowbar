@@ -30,13 +30,8 @@ interface WorkspaceSwitcherMenuProps {
   onClose: () => void
 }
 
-/**
- * Searchable command menu listing every workspace across repos. Selecting one
- * navigates the route only — the sidebar tab/content is never touched.
- *
- * Filtering is handled internally by the Command/Autocomplete primitive based on
- * the typed query, matching against each item's `itemToStringValue` string.
- */
+/** Searchable menu of every workspace across repos. Selecting navigates the route only; the
+ *  primitive filters by each item's `itemToStringValue`. */
 export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -54,16 +49,9 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
     [repos, activeWorkspaceId, isHomeRoute, activeProjectId, projects],
   )
 
-  // base-ui's `autoHighlight="always"` parks the selection cursor on the first row
-  // on open and exposes no controlled-highlight prop. So on open we walk the cursor
-  // down to the current workspace's row *in place* — list order is untouched, only the
-  // highlight moves to where the active workspace already sits.
-  //
-  // We can't just count key presses to the current index: base-ui's initial highlight
-  // settles asynchronously (sometimes "nothing", sometimes row 0), so a fixed count
-  // races and lands off-by-one. Instead we drive its own ArrowDown navigation one step
-  // per frame and stop once the current row actually carries `data-highlighted` — this
-  // self-corrects regardless of the starting state and scrolls the row into view.
+  // base-ui has no controlled highlight and settles its initial one asynchronously, so a counted
+  // key sequence lands off-by-one. Instead, step its own ArrowDown one per frame until the current
+  // workspace's row carries `data-highlighted`; list order is untouched.
   const rootRef = useRef<HTMLDivElement>(null)
   // Latches only once the cursor has actually landed — set at start it would be
   // cleared by StrictMode's double-invoke (first run schedules the frame, its cleanup

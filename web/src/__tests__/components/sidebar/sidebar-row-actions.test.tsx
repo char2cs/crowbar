@@ -52,11 +52,8 @@ describe('SidebarRowActions', () => {
     expect(controlsOf(provisioned)).toEqual(['thread', 'fork', 'fold'])
   })
 
-  // Caught live: the amber "Branch needs provisioning" row still offered both
-  // verbs. A placeholder workspace has no worktree on disk (`localPath: null`,
-  // lib/workspace/placeholder.ts), so the chat either verb spawns has nowhere
-  // to run — the daemon answered 201 and the new chat then 500'd on every read
-  // ("catalog worktree is invalid") with no error anywhere in the UI.
+  // A placeholder workspace has no worktree on disk, so a chat either verb spawns has nowhere to
+  // run: the create succeeds and every read in it fails.
   it('offers neither Thread nor Fork on a placeholder branch row', () => {
     const controls = controlsOf({ ...provisioned, isPlaceholder: true })
     expect(controls).not.toContain('thread')

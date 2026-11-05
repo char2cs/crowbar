@@ -1,12 +1,6 @@
-/**
- * Pure LSP ⇄ Monaco conversions for the daemon-backed Monaco providers
- * (monaco-lsp-providers.ts). No runtime Monaco import: Monaco's enums are
- * plain numbers, mirrored here, so this stays unit-testable and out of any
- * chunk that does not already load Monaco.
- *
- * Positions: LSP is 0-based line/character (UTF-16), Monaco is 1-based
- * lineNumber/column (UTF-16) — a plain ±1 on both axes.
- */
+// Pure LSP ⇄ Monaco conversions. Monaco's enums are mirrored as numbers, so nothing imports Monaco
+// at runtime and this stays out of chunks that don't load it. LSP positions are 0-based, Monaco's
+// 1-based (both UTF-16): a plain ±1 on each axis.
 import type * as Monaco from 'monaco-editor'
 import type {
   CodeAction,

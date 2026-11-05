@@ -16,31 +16,20 @@ import { toast } from '@/features/window/stores/toast-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
-}))
-vi.mock('@/components/layout/trash-actions', async (importOriginal) => ({
-  ...(await importOriginal<typeof trashActions>()),
-  handleTrashRepo: vi.fn(),
-}))
-vi.mock('@/components/layout/create-actions', async (importOriginal) => ({
-  ...(await importOriginal<typeof createActions>()),
-  handleCreate: vi.fn(),
-}))
-
 // handleCreate's fallback needs a router `navigate`.
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }))
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof api>()),
-  setWorkspaceLock: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
-  ...(await importOriginal<typeof sidebarPlacement>()),
-  createFolder: vi.fn().mockResolvedValue({
+// The menu's verbs are asserted at their API boundary; `resolveHomeRowScope` gets a resolved home
+// workspace id rather than exercising its async fetch.
+function stubMenuVerbs() {
+  vi.spyOn(toast, 'error').mockImplementation(() => '')
+  vi.spyOn(toast, 'success').mockImplementation(() => '')
+  vi.spyOn(trashActions, 'handleTrashRepo').mockImplementation(() => false)
+  vi.spyOn(createActions, 'handleCreate').mockResolvedValue(undefined)
+  vi.spyOn(api, 'setWorkspaceLock').mockResolvedValue(undefined)
+  vi.spyOn(sidebarPlacement, 'createFolder').mockResolvedValue({
     folder: {
       id: 'folder-new',
       repoId: 'repo-1',
@@ -49,8 +38,9 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
       order: 0,
     },
     shifted: [],
-  }),
-  createHomeFolder: vi.fn().mockResolvedValue({
+    shiftedRows: [],
+  })
+  vi.spyOn(sidebarPlacement, 'createHomeFolder').mockResolvedValue({
     folder: {
       id: 'home-folder-new',
       repoId: '',
@@ -59,15 +49,10 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
       order: 0,
     },
     shifted: [],
-  }),
-}))
-
-// `resolveHomeRowScope` needs a resolved home workspace id; real resolution is
-// an async fetch this file has no business exercising.
-vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
-  ...(await importOriginal<typeof homeWorkspaceResolver>()),
-  getHomeWorkspaceId: () => 'home-ws-1',
-}))
+    shiftedRows: [],
+  })
+  vi.spyOn(homeWorkspaceResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1')
+}
 
 // The fixture is the store and the rows are derived from it, id space included: hand-written
 // row ids hid every id-space bug on this seam (a row id that was `w.id` matched a check on `w.id`).
@@ -207,6 +192,7 @@ const homeThreadRow: SidebarRow = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  stubMenuVerbs()
   seedRepos([REPO])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   seedHomeTree('proj-1', {

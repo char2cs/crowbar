@@ -248,10 +248,8 @@ describe('useSidebarDrag', () => {
     expect(onDrop).not.toHaveBeenCalled()
   })
 
-  // Observed live: the browser throws NotFoundError from `setPointerCapture`
-  // for a still-connected element when this pointerId is no longer the one
-  // it has down — a real, uncaught exception that used to abort the rest of
-  // `beginDrag` (the ghost/draggingRef/data-row-dragging setup never ran).
+  // The browser throws NotFoundError from setPointerCapture for a connected element whose
+  // pointerId is no longer down; beginDrag must still set up the ghost and drag state.
   it('a drag still starts even if setPointerCapture throws', () => {
     const rowA = makeRow(baseRow, 0)
     Element.prototype.setPointerCapture = () => {
@@ -279,13 +277,8 @@ describe('useSidebarDrag', () => {
   })
 
   it('drops onto a row: onDrop fires with the subjects, the REAL target row, and the resolved mode', () => {
-    // A real SidebarRow, not the partial shape the DOM hit test reconstructs
-    // ({kind, id, parentId, path, expanded, hasChildren} — the fields the
-    // matrix itself needs, nothing else): order/label/ownsWorktree/
-    // workspaceId/working/hasView all differ from baseRow's on purpose, so a
-    // regression that hands the caller the DOM-reconstructed stand-in
-    // (missing every one of them, and 'parentId: ""' instead of `null`)
-    // fails this on every extra field, not just `id`.
+    // A full SidebarRow whose fields all differ from baseRow, so handing the caller the
+    // DOM-reconstructed stand-in instead fails on every extra field, not just `id`.
     const target: SidebarRow = {
       id: 'b',
       kind: 'branch',
@@ -313,12 +306,8 @@ describe('useSidebarDrag', () => {
     expect(result.current.dragging).toBe(false)
   })
 
-  // Reported live: dragging a chat onto a folder never nests it — it lands
-  // as a sibling reorder instead, every time, no matter where on the row it
-  // is released. `sidebar-drop-policy.ts`'s own matrix says this IS allowed
-  // (ALL_MODES for a chat subject on any folder target — see
-  // sidebar-drop-policy.test.ts's own coverage), so if this fails, the
-  // defect is in THIS geometry/hit-test layer, not the policy.
+  // The policy allows a chat into any folder (ALL_MODES), so a release dead-centre on a folder must
+  // resolve "into" here; a failure is in this geometry/hit-test layer, not the policy.
   it('drops a chat dead-centre on a folder row: the resolved mode is "into", not a reorder', () => {
     const chatSubject: SidebarRow = {
       id: 'chat-a',
@@ -402,11 +391,8 @@ describe('useSidebarDrag', () => {
     expect(onPaneDrop).toHaveBeenCalledWith([baseRow], 'pane-1', 'left')
   })
 
-  // Fix round 1 (real, reviewer-verified gap): §8.2's "the entry about to
-  // take a drop wears the same ring a pane wears" needs a PANE half too — a
-  // neutral indicator marking which pane a release would land in. Painted
-  // straight onto the DOM (`paintPaneHit`), reading the exact same
-  // PANE_DROP_ATTR value the hit test itself resolves against.
+  // §8.2: the pane a release would land in wears the drop ring, painted onto the DOM off the same
+  // PANE_DROP_ATTR the hit test resolves.
   describe('the pane-hit indicator (spec §8.2)', () => {
     it('marks the hovered pane with PANE_HIT_ATTR, and only that pane', () => {
       const rowA = makeRow(baseRow, 0)
@@ -488,22 +474,9 @@ describe('useSidebarDrag', () => {
       expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
     })
 
-    // Fix round 2 (real, reviewer-verified regression in this same round's
-    // new code): `WorkspaceHost` keeps every retained workspace mounted at
-    // once — hidden via display:none, never unmounted — and each one's
-    // `WorkspaceView` renders its own full pane tree regardless of whether
-    // it's the active workspace. `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are literal
-    // constants every workspace store shares, so TWO elements on the page can
-    // legitimately carry the identical `data-pane-drop="root-pane"` value —
-    // one hidden/off-screen, one the pointer is actually over. The original
-    // `paintPaneHit` re-resolved its target with
-    // `document.querySelector('[data-pane-drop="…"]')`, which answers with
-    // the FIRST document-order match regardless of visibility — exactly the
-    // shared-pane-id-across-hidden-workspaces hazard the cross-workspace
-    // commit fix (Fix round 1) already closed for `performSidebarPaneDrop`,
-    // reopened here in the ring's own lookup. The fix threads the REAL
-    // element `elementsFromPoint` resolved (`ResolvedPaneHit.el`) straight
-    // through instead of re-deriving one by attribute.
+    // Every retained workspace stays mounted (hidden), so two elements can share
+    // `data-pane-drop="root-pane"`. The ring must mark the element the hit test resolved
+    // (`ResolvedPaneHit.el`), not the first attribute match in document order.
     it('marks the element the pointer is actually over — not the first same-paneId node in the document', () => {
       const rowA = makeRow(baseRow, 0)
       // A hidden OTHER workspace's pane sharing the exact same paneId,
@@ -665,13 +638,8 @@ describe('useSidebarDrag', () => {
     expect(onDrop).toHaveBeenCalledTimes(1)
   })
 
-  // Live-reported: "can't drag a chat that is working... there should be
-  // nothing stopping me from making a split." A working row used to be
-  // refused at PICKUP itself (`onPointerDownDrag`), before a drag was ever
-  // armed, which blocked the pane-split gesture along with reordering. A
-  // working row now arms a drag exactly like an idle one — see the pane-drop
-  // test below for the gesture this was blocking, and the reorder-refusal
-  // test after it for what stays refused.
+  // A working row arms a drag like an idle one: pickup must allow the pane-split gesture, and
+  // only reordering stays refused (see the next two tests).
   it('a working row arms a drag like any other — pickup is no longer refused', () => {
     const workingRow: SidebarRow = { ...baseRow, working: true }
     const rowA = makeRow(workingRow, 0)
@@ -793,16 +761,8 @@ describe('useSidebarDrag', () => {
     expect(result.current.paneHit).toBeNull()
   })
 
-  // Live-reported regression: a chat with a live view renders through TWO
-  // `SidebarRow` instances sharing one id (its own tree row, and Recents'
-  // mirror of it). The ghost used to resolve the pressed row back through
-  // `rowDom.elementFor` — an `[attr="id"]` `querySelector` with no way to
-  // prefer one instance over the other, so it always returned whichever
-  // comes first in DOM order (the tree's copy) regardless of which one was
-  // actually pressed. Dragging the SECOND (Recents) copy then cloned and
-  // measured the FIRST (tree) one instead — same id, different styling —
-  // reported live as "when dragging that active row, the background is not
-  // active" (the tree copy carries no ROW_ACTIVE ground at all).
+  // A live chat renders in the tree and in Recents under one id; the ghost must clone the
+  // pressed element, not the first DOM node with that id (the tree's copy).
   it('clones the ACTUAL pressed element, not the first DOM node sharing its id', () => {
     const treeCopy = makeRow(baseRow, 0)
     treeCopy.setAttribute('data-test-marker', 'tree')
@@ -837,15 +797,9 @@ describe('useSidebarDrag', () => {
     expect(onPaneDrop).not.toHaveBeenCalled()
   })
 
-  // Reported live: text selection stopped working on every Plate surface
-  // (chat composer, rendered messages, the markdown editor) and stayed
-  // broken until a full reload. Root cause: pressing a row arms a
-  // document-wide `selectstart` guard (see use-sidebar-drag.ts's own doc on
-  // it) that only comes off on a `pointerup`/`pointercancel` window sees —
-  // and a real release delivered outside the webview (past the window edge
-  // before SIDEBAR_DRAG_THRESHOLD_PX, or the window losing focus mid-press)
-  // never fires either, leaving selection blocked everywhere for the rest of
-  // the session.
+  // Pressing a row blocks `selectstart` document-wide until window sees a release. A release
+  // outside the webview, or the window losing focus mid-press, must still lift it, or text
+  // selection stays broken everywhere until reload.
   describe('selectstart guard recovery', () => {
     function selectstartBlocked(): boolean {
       const ev = new Event('selectstart', { cancelable: true })
@@ -937,11 +891,8 @@ describe('useSidebarDrag', () => {
   // Addendum §2 removed the drag-to-trash gesture entirely — explicit
   // product correction: removal now happens ONLY through a row's own X
   // button (sidebar-row.tsx), never by dragging a row onto some target.
-  // Regression: a hit test that still recognised a trash-target element
-  // (the gesture's old `data-sidebar-trash-drop` attribute) would silently
-  // resurrect it even with no caller left to render one — this pins the hit
-  // test itself refusing to special-case that attribute at all, not just
-  // "no UI renders it."
+  // The hit test itself must not special-case `data-sidebar-trash-drop`, so a stray element
+  // carrying it can never become a drop target.
   it('a stray element carrying the old trash-drop attribute is not treated as a drop target', () => {
     const rowA = makeRow(baseRow, 0)
     const stray = document.createElement('div')

@@ -6,10 +6,6 @@ import type { WorkspaceState } from './workspace-store.types'
 
 export const WorkspaceStoreContext = createContext<WorkspaceStore | null>(null)
 
-/**
- * Returns a value from the active workspace store using a selector.
- * Must be called inside a component tree wrapped with WorkspaceStoreContext.Provider.
- */
 export function useWorkspaceStoreContext<T>(selector: (state: WorkspaceState) => T): T {
   const store = useContext(WorkspaceStoreContext)
   if (!store)

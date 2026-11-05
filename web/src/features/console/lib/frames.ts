@@ -1,8 +1,5 @@
-/**
- * Decoding the daemon's log stream defensively: a frame this file does not
- * understand becomes a `raw` frame carrying its text, so a newer daemon shows
- * up as odd output rather than a crash.
- */
+// Defensive decoding of the daemon's log stream: an unknown frame becomes a `raw` frame
+// carrying its text, so a newer daemon shows up as odd output rather than a crash.
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 

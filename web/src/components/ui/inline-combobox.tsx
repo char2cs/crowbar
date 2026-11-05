@@ -1,8 +1,5 @@
-// Ported from the Plate registry (`https://platejs.org/r/inline-combobox.json`,
-// a dependency of `slash-node.tsx`). Verbatim aside from formatting — this is
-// a self-contained Ariakit combobox wrapper with no dependency on any of this
-// app's hand-customized `components/ui/*` primitives, so there is no
-// collision to adapt around.
+// Ported from the Plate registry (inline-combobox.json, a dependency of `slash-node.tsx`),
+// verbatim aside from formatting: a self-contained Ariakit wrapper touching none of our primitives.
 'use client'
 
 import * as React from 'react'
@@ -98,10 +95,7 @@ const InlineCombobox = ({
     [setValueProp, hasValueProp],
   )
 
-  /**
-   * Track the point just before the input element so we know where to
-   * insertText if the combobox closes due to a selection change.
-   */
+  /** The point just before the input, where to insertText if a selection change closes it. */
   const insertPointRef = React.useRef<PointRef | null>(null)
 
   React.useEffect(() => {
@@ -168,10 +162,7 @@ const InlineCombobox = ({
 
   const items = store.useState('items')
 
-  /**
-   * If there is no active ID and the list of items changes, select the first
-   * item.
-   */
+  /** If there is no active ID and the list of items changes, select the first item. */
   React.useEffect(() => {
     if (!store.getState().activeId) {
       store.setActiveId(store.first())
@@ -211,12 +202,8 @@ const InlineComboboxInput = ({
 
   const ref = useComposedRef(propRef, contextRef)
 
-  /**
-   * To create an auto-resizing input, we render a visually hidden span
-   * containing the input value and position the input element on top of it.
-   * This works well for all cases except when input exceeds the width of the
-   * container.
-   */
+  // Auto-resizing input: a visually hidden span holds the value and the input sits over it (except
+  // when the value outgrows the container).
 
   return (
     <>

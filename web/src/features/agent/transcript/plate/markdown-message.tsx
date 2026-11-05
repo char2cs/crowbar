@@ -23,11 +23,9 @@ interface MarkdownMessageProps {
   className?: string
 }
 
-/**
- * A streaming message, on the composer's own Plate plugin set (one engine, one
- * appearance). Interactive only so `applyStreamedValue` can patch the document
- * in place as tokens arrive; a message settled at mount renders static.
- */
+/** A streaming message, on the composer's own Plate plugin set (one engine, one
+ *  appearance). Interactive only so `applyStreamedValue` can patch the document
+ *  in place as tokens arrive; a message settled at mount renders static. */
 export function MarkdownMessage({ children, settled = false, className }: MarkdownMessageProps) {
   const initialValueRef = useRef<Value | undefined>(undefined)
   const appliedChildrenRef = useRef(children)

@@ -33,22 +33,9 @@ import type * as Monaco from 'monaco-editor'
 // the daemon's /lsp routes; registered once, with the editor chunk.
 registerLspProviders()
 
-/**
- * How often the cursor/selection store write is allowed to land WHILE a
- * selection drag is in flight.
- *
- * Monaco emits one selection change per pointer move and per auto-scroll tick —
- * ~120/s on this display — and each one used to schedule a store write that
- * React turned into a commit through the app's whole provider chain. The only
- * things that RENDER from it are the status bar's `line:col` chip and the
- * completion popup (which is never open mid-drag); everything else reads the
- * store imperatively, after the gesture. Measured live in the Tauri app on an
- * 896-line file: 200 selection changes cost 76fps with a commit each and 83fps
- * with none, and a real drag-select went 89 → 94 fps median (50 → 11 commits).
- * 100ms keeps the chip visibly live at 10Hz — past what the eye resolves on a
- * moving caret — and `flush()` on pointer-up lands the exact final position, so
- * nothing downstream ever sees a stale value at rest.
- */
+/** How often the cursor/selection store write may land during a selection drag. Monaco emits
+ *  ~120 changes/s mid-drag and only the line:col chip renders from them; 10 Hz keeps it live, and
+ *  `flush()` on pointer-up lands the exact final position. */
 const SELECTION_DRAG_SYNC_MS = 100
 
 export interface EditorSurfaceProps {
@@ -62,19 +49,9 @@ export interface EditorSurfaceProps {
   breadcrumbProps?: BreadcrumbProps
 }
 
-/**
- * Stable per-pane editor shell. Mounted ONCE per pane (keyed by `paneId` by the
- * parent). A buffer/tab switch is driven imperatively by
- * {@link usePaneEditorController} (model swap + content/cursor seam) and the
- * retained widget's satellite concerns are retargeted by
- * {@link usePaneEditorSatellites} — NOT by remounting this subtree.
- *
- * Crucially this component's RENDER reads NO active-buffer state
- * (`activeBufferId`/`value`/`filePath`). Everything buffer-dependent lives in
- * leaf children that each subscribe independently, so a tab switch updates only
- * those leaves instead of reconciling this whole subtree:
- *  - {@link Breadcrumb} self-resolves the active path via `paneId`.
- */
+/** Stable per-pane editor shell, mounted once per pane. Tab switches go through
+ *  usePaneEditorController and usePaneEditorSatellites, and its render reads no active-buffer
+ *  state, so only self-subscribing leaves (e.g. Breadcrumb) update on a switch. */
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive editor surface — hosts one Monaco viewport plus its overlays/resize observer sharing the same editor ref; splitting fragments that ref coordination.
 export function EditorSurface({
   paneId,
@@ -94,11 +71,8 @@ export function EditorSurface({
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
 
-  // ── Imperative buffer-switch controller (model swap) ───────────────────────
-  // Cursor/selection sync is rAF-COALESCED off the per-cursor hot path: a burst
-  // of cursor moves / keystrokes schedules a single trailing frame that reads
-  // the editor's CURRENT position+selection once and writes them in ONE batched
-  // store update. The pending frame is cancelled on dispose.
+  // Cursor/selection sync is rAF-coalesced off the keystroke path: a burst schedules one trailing
+  // frame that reads the live position and selection into one store update; cancelled on dispose.
   const flushCursorSync = useCallback(() => {
     const editor = manager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
     const model = editor?.getModel()
@@ -181,12 +155,9 @@ export function EditorSurface({
       }
       window.addEventListener('pane-resize-end', handlePaneResizeEnd)
 
-      // A selection drag is in flight: GPU-promote Monaco so per-frame
-      // selection-overlay updates are compositor-composited rather than triggering
-      // WKWebView CPU tile re-rasterization across each selected line (the CSS
-      // half, keyed on `data-editor-selecting`), and throttle the cursor/selection
-      // store write the drag would otherwise fire at pointer-move rate (the JS
-      // half, via `isSelectionDragging` in the coalescer above).
+      // During a selection drag, GPU-promote Monaco (CSS, via `data-editor-selecting`) so
+      // overlay updates don't re-rasterize WKWebView tiles per line, and throttle the store write
+      // the drag fires at pointer-move rate (JS, via `isSelectionDragging` in the coalescer).
       let dragHeld = false
       const handlePointerDown = (e: PointerEvent) => {
         if (e.button !== 0 || dragHeld) return

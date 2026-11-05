@@ -149,12 +149,8 @@ describe('the sidebar as it reads with rows held', () => {
   })
 })
 
-// Regression: a project-home chat/folder rides no repo at all, so the repo
-// lookup every OTHER chat/folder draft needs found nothing for one and
-// `handleTrash` refused it outright (reported live as "Can't delete X
-// yet"). `draftFor` now resolves a home row FIRST, via the same
-// `resolveHomeRowScope` `handleOpen`/`handleCreate` already check before
-// anything repo-scoped.
+// A project-home chat or folder rides no repo, so `draftFor` resolves it via
+// `resolveHomeRowScope` before the repo lookup.
 describe('a project-home chat or folder', () => {
   it('drafts a chat removal scoped to the home workspace, taking its threads with it', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')

@@ -1,7 +1,5 @@
-/**
- * A leading bold line is the provider's own title for the thought; otherwise the
- * first line is the heading. The body is the rest, so the heading never draws twice.
- */
+/** A leading bold line is the provider's title for the thought, else the first line is; the body
+ *  is the rest, so the heading never draws twice. */
 export function reasoningHeadline(text: string): { headline: string; body: string } {
   const plain = text.replace(/^\s+/, '')
   const title = /^\*{2}([^*\n]+)\*{2}[ \t]*(?:\n|$)/.exec(plain)

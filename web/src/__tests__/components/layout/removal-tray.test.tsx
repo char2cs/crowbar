@@ -12,15 +12,8 @@
  * pass. jsdom runs no animations, which is precisely why the timer and the bar
  * are two separate things: the bar is what you see, the timer is what fires.
  *
- * Driven through `SidebarTreeSurface` (Task 30) — SpaceScroller's real mount
- * point — so a held row is proven to disappear from a REAL tree, not just
- * from the tray's own list. `TestSidebar` below mounts the real
- * `<RemovalTray />` as a sibling by hand — this suite is about
- * hold/cancel/drain/commit behavior, not about where the shell mounts it.
- *
- * That hand-mount is exactly why this suite stayed green through a live bug
- * where no row could be deleted at all: the tray was gated behind a panel
- * the shell unmounted on an empty stage, so the real app had no commit clock. `ide-shell.test.tsx` owns the mount point now.
+ * Driven through `SidebarTreeSurface`, so a held row is proven to leave a REAL tree. The
+ * tray is hand-mounted beside it; `ide-shell.test.tsx` owns where the shell mounts it.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -46,46 +39,12 @@ vi.mock('@tanstack/react-router', () => ({
   useMatch: () => null,
 }))
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  deleteRepo: vi.fn(() => Promise.resolve({ items: [] })),
-}))
-
-// A worktree is taken by deleting the CHAT that holds it — DELETE .../chats/:id
-// cascades the worktree teardown now, so there is no workspace DELETE left to
-// spy on. Note the argument order: `deleteChat(wsId, chatId)`, where the first
-// is only the workspace the URL is scoped by.
-vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
-  deleteChat: vi.fn(() => Promise.resolve<string[]>([])),
-}))
-
-vi.mock('@/lib/api/sidebar-placement', () => ({
-  placeWorkspace: vi.fn(() => Promise.resolve()),
-  placeFolder: vi.fn(() =>
-    Promise.resolve({
-      folder: { id: 'f1', repoId: 'r1', projectId: 'p1', name: 'spikes', order: 0 },
-      shifted: [],
-    }),
-  ),
-  placeRepo: vi.fn(() => Promise.resolve()),
-  placeProject: vi.fn(() => Promise.resolve()),
-  createFolder: vi.fn(() =>
-    Promise.resolve({
-      folder: { id: 'new-folder', repoId: 'r1', projectId: 'p1', name: 'New folder', order: 0 },
-      shifted: [],
-    }),
-  ),
-  // Task 34: DELETE .../chats/folders/:folderId answers {shifted: [...]},
-  // not void — commitRemoval applies it (and the deletion's own tombstone)
-  // to the sidebar store directly, since folders have no dedicated push
-  // channel any more.
-  deleteFolder: vi.fn(() => Promise.resolve([])),
-}))
 import { deleteRepo } from '@/lib/api'
 import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
-import { deleteFolder } from '@/lib/api/sidebar-placement'
+import * as placement from '@/lib/api/sidebar-placement'
+import * as api from '@/lib/api'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
@@ -186,8 +145,31 @@ const heldRows = () =>
   )
 const heldRow = () => heldRows()[0]
 
+// The daemon writes a removal makes. A worktree goes by deleting the CHAT that holds it
+// (`deleteChat(wsId, chatId)`, the workspace only scoping the URL); placements answer as the
+// real endpoints do, since the commit applies their responses to the sidebar store.
+function stubDaemonWrites() {
+  vi.spyOn(api, 'deleteRepo').mockResolvedValue({ items: [] })
+  vi.spyOn(chatCommands, 'deleteChat').mockResolvedValue([])
+  vi.spyOn(placement, 'placeWorkspace').mockResolvedValue(undefined as never)
+  vi.spyOn(placement, 'placeFolder').mockResolvedValue({
+    folder: { id: 'f1', repoId: 'r1', projectId: 'p1', name: 'spikes', order: 0 },
+    shifted: [],
+    shiftedRows: [],
+  })
+  vi.spyOn(placement, 'placeRepo').mockResolvedValue(undefined)
+  vi.spyOn(placement, 'placeProject').mockResolvedValue(undefined)
+  vi.spyOn(placement, 'createFolder').mockResolvedValue({
+    folder: { id: 'new-folder', repoId: 'r1', projectId: 'p1', name: 'New folder', order: 0 },
+    shifted: [],
+    shiftedRows: [],
+  })
+  vi.spyOn(placement, 'deleteFolder').mockResolvedValue([])
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  stubDaemonWrites()
   renders.count = 0
   // jsdom does not implement scrollTo — SpaceScroller (mounted for real via
   // SidebarTreeSurface as of Task 30) calls it to align its panel on every
@@ -290,7 +272,7 @@ describe('the countdown', () => {
       vi.advanceTimersByTime(8000)
     })
 
-    expect(deleteFolder).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'f1')
+    expect(placement.deleteFolder).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'f1')
     expect(deleteChat).not.toHaveBeenCalled()
   })
 })

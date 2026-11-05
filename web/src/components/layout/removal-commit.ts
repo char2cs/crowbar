@@ -23,13 +23,8 @@ import { holdsWorkspace } from '@/core/entities/repo-queries'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 
-/**
- * Committing a hold — the one step of the removal path that destroys anything.
- *
- * Everything before this is reversible by construction: the rows were hidden,
- * not deleted, and Cancel puts the ids back. Here the daemon is finally told,
- * and from this point the tray has nothing left to undo.
- */
+// Committing a hold: the one step of the removal path that destroys anything. Before this the
+// rows were only hidden; here the daemon is told, and the tray has nothing left to undo.
 
 /** Where a committed removal sends you when it took the workspace you were in. */
 export interface RemovalNavigate {
@@ -57,13 +52,8 @@ function stillPresent(s: EntityState, ids: readonly string[]): boolean {
   )
 }
 
-/**
- * Stop hiding the entry's rows once the daemon has actually taken them.
- *
- * The tray row goes the instant the request is sent, but the rows themselves
- * stay hidden across the round trip — releasing them with the request in flight
- * would flash every one of them back on screen until the tombstones arrive.
- */
+/** Unhides the entry's rows only once the daemon has taken them; releasing with the request in
+ *  flight would flash them back on screen until the tombstones arrive. */
 function releaseWhenGone(entry: RemovalEntry): void {
   const ids = entry.hiddenIds
   const release = () => treeUiStore.getState().release(ids)
@@ -107,22 +97,9 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
   const opts: [RequestInit] | [] = sendInit ? [sendInit] : []
   switch (entry.kind) {
     case 'workspace': {
-      // A worktree is taken by deleting the CHAT that holds it: DELETE
-      // .../chats/:id now cascades the worktree teardown, so this is the same
-      // destruction the workspace route did, addressed by the only id a route
-      // may name. No fallback to a workspace route — that group is gone.
-      // Rejected rather than thrown, so `flushDrainingRemovals`'s `.catch` on
-      // an unloading page still catches it.
-      //
-      // Resolved from the SIDEBAR TREE first (`owningChatIdOfWorkspace` — the
-      // same union `deriveRows` renders the row from), and only then
-      // from `workspace-scope.ts`'s side registry. That order is the fix: the
-      // registry is a second copy of this fact, written on navigation and on
-      // seed, and a workspace the user has only ever SEEN as a row — never
-      // opened — could legitimately be absent from it. Asking it first turned
-      // that absence into a rejected delete on a perfectly valid row, and since
-      // the row had already been optimistically hidden, the removal looked like
-      // it worked right up until the next reseed brought it back.
+      // A worktree goes by deleting the CHAT that holds it (DELETE .../chats/:id cascades the
+      // teardown). Owner read off the sidebar tree first: the scope registry misses never-opened
+      // rows. Rejected, not thrown, so `flushDrainingRemovals`'s `.catch` still catches it.
       const owningChatId =
         owningChatIdOfWorkspace(readSelect(selectRepos), entry.id) ?? getOwningChatId(entry.id)
       if (!owningChatId) {
@@ -150,12 +127,8 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
     case 'repo':
       return sendOperation((opId) => deleteRepo(entry.projectId, entry.repoId, opId, ...opts))
     case 'project':
-      // A space owns its content's lifetime (project-scoped panes §8, Zen's
-      // `#deleteWorkspaceOwnedTabs`): its views go through the real
-      // `closeView` teardown — every member's CLI stopped, every workspace
-      // evicted — rather than being left parked where nothing can ever reach
-      // or close them again. Before the DELETE, while the chats are still
-      // resolvable.
+      // A space owns its views' lifetime (§8): close them through the real teardown, BEFORE the
+      // DELETE while their chats still resolve, or they would be parked where nothing can reach.
       windowPaneStore.getState().paneActions.closeViewsForProject(entry.projectId)
       return sendOperation((opId) => deleteProject(entry.projectId, opId, ...opts))
     case 'chat':
@@ -182,33 +155,14 @@ function announceTaken(entry: RemovalEntry): (taken: string[]) => void {
   }
 }
 
-/**
- * Send every removal that was only waiting on its clock, because the page is
- * going away.
- *
- * The tray holds a row for eight seconds before the delete is sent, and the tray
- * is memory. Anything that ends the page inside that window — a reload, an HMR
- * update, quitting the app — used to drop the intent silently: the row had
- * already been hidden, so the removal LOOKED done, and the next boot read it
- * straight back off the daemon. That is not an undo, it is a lost write, and the
- * user has no way to tell the two apart.
- *
- * Only the draining entries go. A repo or a project sits in the tray with no
- * clock, waiting on an explicit answer, and an unload is not that answer — those
- * are dropped, which is the safe direction for the two removals that cascade.
- *
- * `keepalive` is what makes this work at all: a request issued from a pagehide
- * handler is normally cancelled with the document. It caps the body at 64KB,
- * which a DELETE with no body is comfortably inside.
- */
+// On unload, send every removal still draining on its clock: the hidden row LOOKS removed, so
+// dropping it would be a lost write. Clockless repo/project holds await an answer and are dropped.
+// `keepalive` keeps a pagehide request from being cancelled with the document (64KB body cap).
 export function flushDrainingRemovals(): void {
   for (const entry of treeUiStore.getState().removals) {
     if (entry.deadlineAt === null) continue
-    // Settled BEFORE the send, which makes this idempotent: the tray is drawn in
-    // two places now (the workspace tree and the Chats panel), both are mounted
-    // at once inside the sidebar carousel, and both register the pagehide
-    // handler that calls this — so without it one unload would post every
-    // pending delete twice.
+    // Settled BEFORE the send so this is idempotent: every mounted tray registers a pagehide
+    // handler, and one unload must not post a delete twice.
     treeUiStore.getState().settle(entry.entryId)
     // No await: the document is unloading and there is nothing to roll back to;
     // a refusal still reaches the user if the page outlives it.
@@ -218,18 +172,9 @@ export function flushDrainingRemovals(): void {
   }
 }
 
-/**
- * Fire the removal `entry` has been holding.
- *
- * The tray row leaves first: from the moment the request is out there is nothing
- * left to cancel, and a row that still offers Cancel would be lying. A refusal
- * puts the rows back and says why — this is the only path that can surface one,
- * because the user has already walked away from the gesture that started it.
- *
- * A refusal over work that exists nowhere else is a question, not a failure:
- * the entry goes back in the tray, still hidden, for the confirm dialog to list
- * that work and ask whether to delete it anyway.
- */
+// Fires the held removal. The tray row leaves first (nothing is cancellable once sent); a refusal
+// puts the rows back and reports it. A refusal over unsaved work instead re-holds the entry so the
+// confirm dialog can ask whether to discard it.
 export async function commitRemoval(entry: RemovalEntry, context: RemovalContext): Promise<void> {
   treeUiStore.getState().settle(entry.entryId)
 
@@ -274,13 +219,8 @@ function dismissCreatesOf(ids: readonly string[]): void {
   }
 }
 
-/**
- * Leave a route whose workspace has just been removed.
- *
- * The fallback was resolved when the row was held, against a tree that still
- * had it — by now the answer is gone from the tree, which is the whole reason
- * it is carried on the entry.
- */
+/** Leaves a route whose workspace was just removed, using the fallback resolved at hold time,
+ *  while the tree still had the row. */
 function leaveIfRemoved(
   entry: RemovalEntry,
   { activeWorkspaceId, navigate }: RemovalContext,

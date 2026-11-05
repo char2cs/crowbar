@@ -48,11 +48,8 @@ function indexOfLine(rows: readonly Row[], side: ReviewThread['side'], line: num
   return rows.findIndex((r) => (side === 'old' ? r.oldNo : r.newNo) === line)
 }
 
-/**
- * The few lines of one file's unified patch around a thread's anchor, as a
- * patch of its own, or null when the anchor is not in the patch (outdated, or
- * past the server's per-file line cap).
- */
+/** The few patch lines around a thread's anchor, as a patch of its own; null when the anchor is
+ *  not in the patch (outdated, or past the server's per-file cap). */
 export function sliceThreadPatch(
   patch: string,
   thread: Pick<ReviewThread, 'filePath' | 'side' | 'lineNumber' | 'startLine'>,

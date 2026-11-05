@@ -25,29 +25,14 @@ interface RepoImportDialogProps {
   defaultBranch: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Fires the import for the selected branches, plus which of THOSE branches
-   *  the user chose to lock (a subset of `branches`, empty when none were
-   *  chosen — importing with no lock choice behaves exactly as it always has).
-   *  The tree owns the optimistic loading rows + the batch API call, so the
-   *  dialog just closes afterwards. */
+  /** Fires the import for the selected branches plus the subset to lock. The tree owns the
+   *  optimistic loading rows and the batch call; the dialog just closes. */
   onImport: (branches: string[], lockedBranches: string[]) => void
 }
 
-/**
- * Branch-import modal: a virtualized, searchable list of the repo's remote
- * branches with a live "creates N parents" hint. Fetches branches and the
- * open-PR graph in parallel on open; both are network calls (the branch list
- * refreshes origin server-side before listing, so it reports the remote as it
- * is now rather than as the clone last heard it), so the list carries a real
- * loading state instead of rendering as momentarily empty. Import posts the
- * whole selection in one batch; the daemon PR-parents and creates missing
- * ancestors server-side (the client hint is advisory).
- *
- * A checked row also carries its own lock toggle (Task 6): each branch chooses
- * its post-import locked state right here, rather than requiring a separate
- * Lock action from the row context menu afterwards. The daemon creates a
- * locked branch's workspace locked (see `performImportBranches`).
- */
+// Virtualized, searchable remote-branch picker with a per-row lock toggle. The branch list (origin
+// refreshed server-side) and PR graph load in parallel, so the list has a real loading state; the
+// daemon PR-parents and creates missing ancestors (the "creates N parents" hint is advisory).
 export function RepoImportDialog({
   projectId,
   repoId,
@@ -62,18 +47,13 @@ export function RepoImportDialog({
   const [prLinks, setPrLinks] = useState<PRLink[]>([])
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  // Per-branch lock choice (Task 6): which of the SELECTED branches should
-  // come in locked. `toggle` clears a row's entry here when it deselects it,
-  // so this is always a subset of `selected`; handleImport still intersects
-  // with `selected` as a belt-and-suspenders guard.
+  // Which SELECTED branches come in locked; deselecting clears an entry, and handleImport still
+  // intersects with `selected`.
   const [lockedBranches, setLockedBranches] = useState<Set<string>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch on open; the branch list and PR graph load independently so the hint
-  // never holds the list back. A reopen re-fetches rather than showing the
-  // previous open's branches — the whole point of the server-side refresh is
-  // that the remote may have moved since.
-  //
+  // Fetch on open, list and PR graph independently so the hint never holds the list back. A reopen
+  // re-fetches: the remote may have moved since.
   // react-doctor-disable-next-line no-reset-all-state-on-prop-change -- the harm the rule names ("users briefly see stale state") cannot happen here: `loadState` is reset to 'loading' in this same synchronous body and is what gates the list's render below, so a reopen shows "Fetching branches from the remote…" and never the previous open's branches. The prescribed fix — mount/key the body on `open` — would unmount it during the Dialog's exit animation, leaving an empty popup for the length of the close.
   useEffect(() => {
     if (!open || !hostResolved) return
@@ -166,10 +146,8 @@ export function RepoImportDialog({
 
   function handleImport() {
     if (selected.size === 0) return
-    // Hand off to the tree, which drops optimistic loading rows in immediately
-    // and fires the batch import; close the modal so that feedback is visible.
-    // Lock choice is filtered down to branches actually being imported — a
-    // deselected branch's stale lock choice must never leak into the call.
+    // The tree shows optimistic rows and fires the batch; closing makes that visible. Lock choices
+    // are filtered to imported branches so a deselected one never leaks into the call.
     onImport(
       [...selected],
       [...lockedBranches].filter((b) => selected.has(b)),

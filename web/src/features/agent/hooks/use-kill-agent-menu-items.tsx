@@ -8,10 +8,8 @@ import { entityStore } from '@/core/entities/entity-store'
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
 
-/**
- * The menu entry that ends the agent running on `chatId`, or nothing when none
- * is. Closing a chat only detaches from it, so this is the one way to stop it.
- */
+/** The menu entry that ends the agent running on `chatId`, or nothing when none
+ *  is. Closing a chat only detaches from it, so this is the one way to stop it. */
 export function useKillAgentMenuItems(chatId: string | undefined): ContextMenuItem[] {
   const session = useStore(entityStore, (s) =>
     chatId ? selectActiveSession(s, chatId) : undefined,

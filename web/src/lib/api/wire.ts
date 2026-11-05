@@ -1,12 +1,7 @@
 import type { FolderDTO } from '@/lib/types'
 
-/**
- * The wire shape of one folder row a placement write answers with: a folder-typed
- * domain.Chat rendered through dto.AgentChatDTO (Task 34 — the dedicated
- * `/folders` resource was deleted; folders are Chat rows now). Neither repoId
- * nor projectId travel on it — the URL is the only place either is known —
- * and its display text is `title`, not `name`.
- */
+// The wire shape of a folder row a placement write answers with. It carries no repoId/projectId
+// (only the URL knows them), and its display text is `title`, not `name`.
 export interface ChatsFolderWireDTO {
   id: string
   /** The row's kind: a folder, or — among a write's `shifted` siblings — a

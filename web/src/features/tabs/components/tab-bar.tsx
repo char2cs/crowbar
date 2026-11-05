@@ -44,12 +44,8 @@ interface TabBarProps {
    *  workspace rather than whichever one happens to be globally active. */
   wsId?: string | null
   onTabClick?: (bufferId: string) => void
-  /**
-   * Chats/pane redesign: draw the chat as the FIRST entry in the tab strip
-   * (`ChatTabItem`) — the collapsed presentation's "chat is just another
-   * tab." Set by pane-container.tsx, which owns `presentation`; TabBar
-   * itself has no opinion on when this is true, only on how to draw it.
-   */
+  /** Draw the chat as the strip's first tab (collapsed presentation). pane-container.tsx owns
+   *  when; TabBar only draws it. */
   showChatTab?: boolean
 }
 
@@ -76,9 +72,7 @@ const TabBar = ({
   const { closeBuffer, promotePreview, setPinned, setPendingClose } = useBufferActions()
   const paneBufferIds = pane?.editorTabIds ?? []
   const hasEditorTabs = paneBufferIds.length > 0
-  // Projected, rendered-field-gated subscription (see useRenderedPaneBuffers):
-  // TabBar no longer re-renders on content flushes, only on tab-appearance
-  // changes.
+  // Gated on rendered fields (see useRenderedPaneBuffers), so content flushes don't re-render.
   const buffers = useRenderedPaneBuffers(paneBufferIds)
   const activeBufferCandidate = pane ? pane.activeEditorTabId : globalActiveBufferId
   const activeBufferId =
@@ -139,11 +133,8 @@ const TabBar = ({
   // back to a collapsed sidebar.
   const isEmptyPane = pane !== null && !pane.chatId && !hasEditorTabs
 
-  // A thread has no branch of its own to review — it runs on the worktree its
-  // parent owns, and `wsId` names that INHERITED ground, so it can never gate
-  // the shortcut below. An editor-only pane names no chat at all and keeps it:
-  // there is no thread to suppress, and its buffers' workspace is a real
-  // worktree either way.
+  // A thread runs on its parent's worktree and has no branch of its own to review, so it hides
+  // the review shortcut; an editor-only pane (no chat) keeps it.
   const chatIsThread = useChatIsThread(pane?.chatId ?? null)
 
   const [contextMenu, setContextMenu] = useState<TabMenuState>({
@@ -220,10 +211,8 @@ const TabBar = ({
 
   const { onNewTab } = usePaneNewTabActions(wsId, paneId ?? '')
 
-  // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
-  // sidebar (when open, the sidebar header owns the toggle). It appears on the
-  // window-edge pane matching the configured sidebar side.
-  // `isAtTopEdge`: with the view-tab strip above the panes, the strip owns the toggle.
+  // The sidebar-reopen toggle is a fallback for a collapsed sidebar, shown on the window-edge pane
+  // on the sidebar's side; `isAtTopEdge` because a view-tab strip above the panes owns it instead.
   const showReopenToggleLeft =
     !sidebarOpen && !isBottomPane && sidebarPosition === 'left' && isAtLeftEdge && isAtTopEdge
   const showReopenToggleRight =
@@ -256,10 +245,8 @@ const TabBar = ({
     tabRefs.current = tabRefs.current.slice(0, sortedBuffers.length)
   }, [sortedBuffers.length])
 
-  // Takes the item's own buffer (not an index into sortedBuffers) so its deps
-  // stay stable across content flushes — sortedBuffers is rebuilt on every
-  // keystroke, and closing over it here would give every tab a fresh handler
-  // reference and defeat TabBarItem's memo.
+  // Takes the buffer, not an index into sortedBuffers (rebuilt every keystroke), so the handler
+  // reference stays stable and TabBarItem's memo holds.
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent, buffer: PaneContent) => {
       e.preventDefault()
@@ -301,11 +288,8 @@ const TabBar = ({
     onCloseTab: closeTab,
   })
 
-  // Keyboard nav genuinely needs the whole (index-addressed) buffer list to find
-  // neighbours, so useTabKeyboardNav's callback is rebuilt whenever sortedBuffers
-  // changes — i.e. on every content flush. Route it through a latest-ref so the
-  // reference handed to every tab stays stable (memo-friendly) while still
-  // invoking the up-to-date logic.
+  // Keyboard nav needs the index-addressed list, so its handler changes on every flush; a
+  // latest-ref keeps the reference handed to tabs stable.
   const handleKeyDownRef = useRef(handleKeyDown)
   handleKeyDownRef.current = handleKeyDown
   const handleTabKeyDown = useCallback(

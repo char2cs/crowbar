@@ -11,10 +11,8 @@ import type { FileExplorerDialogs } from '../components/file-explorer-dialogs'
 
 type OpenHandler = (path: string, isDir: boolean) => void | Promise<void>
 
-/**
- * The explorer's modal flows — an alert, the delete confirmation and "Open
- * All" (confirmed past a threshold) — as state plus the props that render them.
- */
+/** The explorer's modal flows (an alert, the delete confirmation, and "Open All", confirmed
+ *  past a threshold) as state plus the props that render them. */
 export function useFileExplorerDialogs({
   workspaceId,
   filteredFiles,

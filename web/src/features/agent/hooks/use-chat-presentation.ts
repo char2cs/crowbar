@@ -12,11 +12,9 @@ export const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
 export const SPLIT_MIN_STACKED_PX = 160
 export const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
-/**
- * Measures the CONTAINER, never the window, so a narrow pane inside a wide
- * window answers correctly. Reads `clientWidth`/`clientHeight` so a plain
- * object double can drive it in tests.
- */
+/** Measures the CONTAINER, never the window, so a narrow pane inside a wide
+ *  window answers correctly. Reads `clientWidth`/`clientHeight` so a plain
+ *  object double can drive it in tests. */
 function useSplitMeasure<T>(
   active: boolean,
   containerRef: { current: HTMLElement | null },

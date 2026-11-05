@@ -17,20 +17,9 @@ export function insertIndex(rest: string[], targetId: string, mode: 'before' | '
   return mode === 'after' ? at + 1 : at
 }
 
-/**
- * The repos as the tree draws them — removal-tray-filtered, like the tree input.
- *
- * Through `renderedHiddenIds`, not the tray store's raw `hiddenIds`: the two
- * differ by every LIVE entry's own primary row, which stays on screen
- * transformed in place (`RemovingSidebarRow`). Reading the raw set modelled a
- * tree the user is not looking at — a held FOLDER was gone from it with its
- * children re-homed to the folder's parent (`applyPendingRemovals`), while the
- * rendered tree still drew the folder with those children nested under it, so
- * every sibling index a drop computed during an eight-second hold was counted
- * over a different list than the one it was aimed at. The raw set is still the
- * base, so rows committed but not yet tombstoned stay hidden here exactly as
- * they are on screen.
- */
+// The repos as the tree draws them. Uses renderedHiddenIds, not the tray's raw hiddenIds: a live
+// entry's primary row stays on screen in place, so the raw set models a tree the user isn't
+// looking at and skews every drop index computed during a hold.
 export function visibleRepos(): Repo[] {
   const tray = treeUiStore.getState()
   return applyPendingRemovals(

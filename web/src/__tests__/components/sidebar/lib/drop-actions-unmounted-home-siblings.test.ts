@@ -1,33 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { stubDropBoundary } from '@/__tests__/__fixtures__/drop-boundary'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 
 // A home chat dropped beside another home chat plans its `order` off the
 // rendered home tree, which is drawn whether or not that workspace is mounted.
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
-}))
-vi.mock('@/lib/api/sidebar-placement', () => ({
-  placeWorkspace: vi.fn(),
-  placeFolder: vi.fn(),
-  placeHomeFolder: vi.fn(),
-  placeRepo: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/lib/api/workspace', () => ({ reparentWorkspace: vi.fn() }))
-vi.mock('@/features/agent/api/agent-chat-commands', () => ({
-  setChatPlacement: vi.fn(
-    async (workspaceId: string, chatId: string, patch: { parentId?: string; order?: number }) => ({
-      chat: { id: chatId, workspaceId, parentId: patch.parentId ?? '', order: patch.order ?? 0 },
-      shifted: [],
-    }),
-  ),
-}))
-const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  getHomeWorkspaceId,
-  getHomeOwningChatId: () => null,
-}))
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
@@ -50,9 +26,10 @@ const homeRow = (id: string, order: number): SidebarRow => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  stubDropBoundary()
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  getHomeWorkspaceId.mockReturnValue('home-ws-1')
+  vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
   // Three home chats, as the sidebar renders them — and NO workspace store
   // for home: its pane is not open.
   seedHomeTree('proj-1', {

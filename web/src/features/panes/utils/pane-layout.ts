@@ -60,12 +60,8 @@ export function getFirstLeafId(root: LayoutNode): string {
   return getFirstLeafId(root.first)
 }
 
-/**
- * `leafId` names the leaf to insert instead of minting one. Used by the MOVE
- * half of a merge (`movePane`): the pane already exists and has been
- * lifted out of the tree that held it, so the split has to re-home THAT id
- * rather than create a second pane and leave the first stranded.
- */
+/** `leafId` re-homes an existing pane (movePane lifts it out first) instead of minting a new
+ *  one, which would leave the original stranded. */
 export function splitLayout(
   root: LayoutNode,
   paneId: string,
@@ -79,21 +75,9 @@ export function splitLayout(
   return { layout: result, newPaneId }
 }
 
-/**
- * Add a leaf as a PEER of everything already in `root`.
- *
- * The counterpart to `splitLayout`, and deliberately not a special case of it:
- * `splitLayout` subdivides ONE named pane, so whatever pane it is given pays
- * for the new one out of its own half. That is the right shape for a drop
- * ("into this view, on that side" — spec §8.1) and the wrong one for a click
- * ("clicking a chat makes its own view" — §8.4), which names no pane at all
- * and must not cost the pane you were looking at half its width.
- *
- * The new leaf joins at the TOP of the tree, then every peer in the flattened
- * row is given an equal share, so n opened views are n equal columns rather
- * than the 50/25/12.5 cascade repeated subdividing produces. Splits of the
- * other direction are one entry in that row and keep their own internal sizes.
- */
+/** A leaf as a peer of all of `root`, not a split of one pane (a click names no pane, §8.4).
+ *  Every entry of the flattened row gets an equal share — n views, n equal columns, not a
+ *  50/25/12.5 cascade; cross-direction splits keep their inner sizes. */
 export function appendLeaf(
   root: LayoutNode,
   direction: 'horizontal' | 'vertical' = 'horizontal',

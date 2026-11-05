@@ -86,7 +86,7 @@ beforeEach(() => {
   })
 })
 
-// I1: whatever happens in a test, no request ever leaves for a host it was not opened on.
+// Whatever happens in a test, no request ever leaves for a host it was not opened on.
 afterEach(() => {
   expect(requests.filter((r) => r.hostId !== 'h1' && r.hostId !== 'h2')).toEqual([])
 })

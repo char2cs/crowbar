@@ -4,20 +4,13 @@ import { report } from '@/lib/errors/report'
 import { useHostResolved } from '@/lib/host-resolve'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 
-// Per-workspace in-memory cache so re-renders and sibling mounts do not
-// re-fetch. The cache lives for the lifetime of the page — a full navigation
-// (new project load) will naturally create a fresh hook instance.
+// Per-workspace cache for the page's lifetime, so re-renders and sibling mounts don't refetch.
 const cache = new Map<string, IdentityDTO>()
 // In-flight fetches so concurrent resolveIdentity() callers share one request.
 const inFlight = new Map<string, Promise<IdentityDTO | null>>()
 
-/**
- * Eagerly resolve the workspace identity, awaiting the network fetch if it is
- * not cached yet. Use this in event handlers (e.g. posting a comment) so the
- * author is ALWAYS the real GitHub login — the hook returns `null` while the
- * fetch is in flight, which previously caused comments posted before identity
- * loaded to be stored with an empty author.
- */
+/** Resolves the identity, awaiting the fetch if uncached. Event handlers (posting a comment) use
+ *  this, not the hook, which is null while loading and would post with an empty author. */
 export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null> {
   const cached = cache.get(wsId)
   if (cached) return cached
@@ -38,10 +31,7 @@ export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null>
   return promise
 }
 
-/**
- * Fetches the GitHub/GitLab identity for the given workspace once and caches
- * the result in memory. Returns `null` while loading or if the fetch failed.
- */
+/** The workspace's forge identity, fetched once and cached; null while loading or on failure. */
 export function useCurrentIdentity(wsId: string): IdentityDTO | null {
   const [identity, setIdentity] = useState<IdentityDTO | null>(() => cache.get(wsId) ?? null)
   // The identity route needs the owning chat id, which the sidebar may record

@@ -25,11 +25,8 @@ export function specWorkspaceId(spec: OpenEditorTabSpec): string {
   }
 }
 
-/**
- * The open buffer `spec` would duplicate — what `openContent` shows instead of
- * creating another. A document is one buffer whichever workspace asks; a New
- * Tab page is unique per pane only (`paneTabIds`).
- */
+/** The open buffer `spec` would duplicate, which openContent shows instead. A document is one
+ *  buffer whichever workspace asks; a New Tab page is unique per pane only (`paneTabIds`). */
 export function findOpenBuffer(
   buffers: readonly PaneContent[],
   spec: OpenEditorTabSpec,

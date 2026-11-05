@@ -254,9 +254,7 @@ describe('ProvidersSettings', () => {
       expect(within(header).getByText('Enabled')).toBeInTheDocument()
     })
 
-    // THE POINT OF THE HEADER: the word "Tools" used to be printed on every row
-    // because that was the only legend the row could carry. With a titled column
-    // it is noise — and two rows meant two copies of it.
+    // The titled column is the legend, so a per-row "Tools" caption would only repeat it.
     it('retires the per-row Tools caption now the column is titled', () => {
       seedProviders([
         provider('codex', 'Codex', true, true),

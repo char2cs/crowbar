@@ -117,10 +117,8 @@ describe('markdown round-trip (callout)', () => {
 })
 
 describe('markdown round-trip (mermaid)', () => {
-  // A ```mermaid block MUST remain an ordinary fenced code block in the
-  // document model (Task 11's core constraint) — it is rendered specially in
-  // the rich editor (see mermaid-code-block.tsx) but must round-trip through
-  // deserialize/serialize exactly like any other ```lang code block.
+  // A ```mermaid block stays an ordinary fenced code block in the document model: rendered
+  // specially in the rich editor (mermaid-code-block.tsx) but round-tripped like any ```lang block.
   it('preserves a mermaid code fence byte-exactly', () => {
     const md = '```mermaid\nflowchart LR\n  A --> B\n```\n'
     expect(roundTrip(md)).toBe(md)
@@ -151,8 +149,7 @@ describe('markdown round-trip (math + callout fixed point)', () => {
     expect(first).toContain('x^2 + y^2 = z^2')
   })
 
-  // Task 11: a mermaid block alongside a table and math must reach a fixed
-  // point too — `roundTrip(roundTrip(md)) === roundTrip(md)`, so a pristine
+  // A mermaid block alongside a table and math must reach a fixed point too, so a pristine
   // open-then-save of a doc mixing all three never rewrites it a second time.
   it('is a fixed point with a mermaid block, a table, and math all present', () => {
     const md =

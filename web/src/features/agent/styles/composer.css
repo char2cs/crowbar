@@ -1,16 +1,8 @@
-/* The composer, lifted from the design canvas.
- *
- * Everything here is scoped under `.agent-chat` so the design's own class names
- * survive verbatim — parity with the artboards is a diff of two stylesheets
- * rather than a judgement about whether a utility class rounded a value.
- *
- * Values are Crowbar tokens throughout. Nothing here invents a colour. */
+/* The composer, lifted from the design canvas. Scoped under `.agent-chat` so the design's class
+   names survive verbatim (parity is a diff of two stylesheets). Crowbar tokens only. */
 
-/* The affirmative accent: Crowbar's green, legible on both grounds.
- *
- * MIXED IN OKLAB, NOT OKLCH. The green sits at hue 130 and `--foreground` is
- * achromatic, so an oklch mix interpolates 130deg toward 0 and lands on olive.
- * oklab moves through the rectangular space and keeps the hue. */
+/* The affirmative accent. Dark mode mixes in OKLAB, not OKLCH: an oklch mix toward the
+   achromatic foreground interpolates the green's hue toward 0 and lands on olive. */
 .agent-chat {
   --emph: var(--primary);
   --warn-text: var(--warning-foreground);
@@ -39,20 +31,10 @@
   max-width: 768px;
   margin: 0 auto;
   padding: 0 24px 14px;
-  /* NO fill here. A colour — even a translucent one — is a tint that never
-     matches whatever it sits over (that was the original --background bug,
-     and swapping in --pane-background just made it a fainter version of the
-     same mistake). The dock stays genuinely colourless; only the pill and
-     the chips paint anything, each with its own opaque surface. */
-  /* Regression, reported live: a scroll gesture anywhere in this box's own
-     (invisible) padding did NOTHING — not "short of the true bottom", the
-     wheel itself had no effect, because `.scroll` sits UNDER this the whole
-     height of the pane (`.agent-chat.chat`'s own containing block; see its
-     own comment) and this box, absolutely positioned with no fill, was still
-     the hit-test target across its entire empty area. `pointer-events: none`
-     here lets a gesture over that empty space fall through to `.scroll`
-     underneath; `auto` on each real child below restores it exactly where
-     something is actually painted and clickable. */
+  /* No fill: any colour, even translucent, is a tint that never matches what it sits over.
+     Only the pill and chips paint, each with its own opaque surface. */
+  /* `.scroll` runs under this box the full pane height, so its empty padding must not take the
+     hit test: `none` lets wheel gestures fall through, `auto` on each child restores clicks. */
   pointer-events: none;
 }
 .agent-chat .dock > * {
@@ -62,17 +44,8 @@
 .agent-chat .composer-note {
   text-align: center;
 }
-/* The arrival slide's own JS (agent-chat-view.tsx: playArrival, in
-   chat/lib/arrival-animation.ts) drives `.dock`'s own `transform` directly —
-   there is nothing to declare here for that part, an inline style beats a
-   class for a one-shot transform driven by a measured pixel value. This is
-   the OTHER half: the underbar stays invisible for exactly as long as
-   `data-arriving` is on the dock, then transitions in on its own once that
-   attribute is lifted (the JS removes it the instant the slide's own
-   `transitionend` fires — see the same file). `[data-arriving]`, not
-   `[data-arriving='true']`: the attribute is either present for the ONE
-   render that plays the animation, or absent for every other mount, so the
-   value never needs reading. */
+/* arrival-animation.ts drives the dock's slide as an inline transform; this keeps the underbar
+   hidden while `data-arriving` is present (one render), then fades it in once JS lifts it. */
 .agent-chat .dock .underbar {
   transition:
     opacity 200ms ease-out,
@@ -83,45 +56,12 @@
   transform: translateY(-4px);
   pointer-events: none;
 }
-/* The dissolve: text passing under the dock gets progressively BLURRED and
-   faded — pure distortion, no colour of its own, so it reads as glass rather
-   than a tinted panel. Opacity lives on the transcript's own text (.scroll,
-   in transcript.css) as a mask; blur can't ramp from one `backdrop-filter` —
-   a single blur value is uniform wherever it applies — so it's faked with
-   stacked layers, each blurring more and masked into a lower band, following
-   the layered-mask recipe at https://kennethnym.com/blog/progressive-blur-in-css/.
-   Sharp edge starts a clear band ABOVE the dock's own top (the input's top
-   edge) — .scroll's padding-bottom is taller than this zone on purpose, so
-   the newest message stays clear of it entirely; only older text scrolled
-   back into view does. Most blurred at the dock's own bottom, the switches
-   line.
-
-   A SIBLING of .dock, not a child of it: the dock is a centred 768px column
-   (it only needs to be as wide as the controls it holds), but the transcript
-   underneath runs the full pane, so the glass has to too — sized off
-   --agent-dock-h directly instead of borrowing the dock's own narrow box.
-
-   STOPS SHORT OF THE SCROLLBAR, on the right. `.scroll` sits right under this
-   (see agent-transcript.tsx) and its native scrollbar is part of ITS OWN
-   painting — this is a sibling drawn on TOP, so without the inset its blur
-   sampled (and visually sat over) the scrollbar track too, smudging the one
-   thing on screen that must stay sharp to read as a control. --agent-scrollbar-w
-   is measured once (agent-chat-view.tsx, scrollbar-width.ts) rather than
-   hand-picked, because the real width is a platform fact, not a design value.
-
-   That measurement is LAYOUT SPACE — 0 wherever the platform draws an
-   overlay scrollbar (macOS with a trackpad, by default), not "no scrollbar
-   exists". An overlay thumb still paints on top of content during a scroll
-   gesture even though it reserves nothing, so a bare `var()` leaves this
-   glass with zero protection on exactly the systems whose scrollbar is
-   easiest to smudge. `max()` keeps a small floor under it regardless of what
-   got measured — real reserved space still wins once it's wider than the
-   floor, same as before. */
+/* Progressive blur under the dock (stacked backdrop-filter layers, each masked to a lower band);
+   a sibling of .dock so it spans the full pane. `right` stops short of the scrollbar, with a floor
+   for overlay scrollbars that reserve 0px of layout but still paint. */
 .agent-chat .dissolve {
   --dissolve-h: calc(var(--agent-dock-h, 92px) + 24px);
-  /* An overlay thumb's own painted width, platform-observed rather than
-     derived from anything else here — the floor `right` below never goes
-     under it. */
+  /* An overlay scrollbar thumb's painted width; `right` never goes under it. */
   --overlay-scrollbar-floor: 10px;
   position: absolute;
   left: 0;
@@ -130,30 +70,18 @@
   height: var(--dissolve-h);
   z-index: 1;
   pointer-events: none;
-  /* Every child here is `position: absolute; inset` within this box (none of
-     them paint outside it, none of them are affected by anything outside
-     it) — `contain: paint` is a fact about this layout, not a guess, and it
-     bounds the invalidation region the browser has to consider whenever any
-     one of the 7 backdrop-filter children below repaints. Without it, an
-     un-isolated backdrop-filter stack this size is exactly the kind of thing
-     that can starve OTHER GPU-composited layers sharing the same window —
-     the native sidebar's own vibrancy view among them — of frames under
-     load, not just cost this element its own. */
+  /* Every child is absolutely inset within this box, so `contain: paint` is safe; it bounds the
+     repaint of the 7 backdrop-filter layers, which can otherwise starve other composited layers
+     (e.g. the native sidebar's vibrancy) of frames. */
   contain: paint;
 }
 .agent-chat .dissolve-layer {
   position: absolute;
   left: 0;
   right: 0;
-  /* top/bottom set per layer below — each layer only spans the band its own
-     mask actually reveals, plus a margin equal to its own blur radius (blur
-     sampling reads backdrop pixels from outside its box even though the
-     OUTPUT stays clipped to the box, so shrinking the box doesn't change
-     what's visible — it changes how much area the browser recomputes every
-     frame). Mask stops are absolute `calc()` offsets from each layer's own
-     (now-smaller) top, not percentages of the full dissolve height — that
-     keeps them landing at the same pixel regardless of the box's new size,
-     which itself varies with the dynamic --agent-dock-h. */
+  /* Each layer spans only its mask's band plus its blur radius (less area recomputed per frame).
+     Mask stops are absolute calc() offsets from the layer's own top, so they land on the same pixel
+     whatever --agent-dock-h is. */
 }
 .agent-chat .dissolve-layer:nth-child(1) {
   --top: 0px;
@@ -307,11 +235,8 @@
   padding: 8px 14px;
   transition: box-shadow 0.18s ease;
 }
-/* Stadium on one line, 18px once it wraps — INSTANT, not eased. This used to
-   ease over 180ms on the theory that a snap reads as the box being replaced
-   rather than growing; live, while actually typing, that read as the box's
-   own outline lagging a beat behind text that had already wrapped. The one
-   thing typed into this box that must never feel delayed is the box itself. */
+/* Stadium on one line, 18px once it wraps. Instant, not eased: an eased outline visibly lags
+   text that has already wrapped. */
 .agent-chat .pill.multi {
   border-radius: 18px;
 }
@@ -362,11 +287,8 @@
 }
 
 /* ── the editable's blocks ─────────────────────────────── */
-/* THE PILL IS ONE LINE UNTIL IT IS TWO. Plate's block components carry the
-   registry's Tailwind margins, and on an empty box that margin is pure height:
-   the bar stood ~14px taller than its own line with nothing typed in it. Zero
-   them here and let the pill's own padding do the spacing. Unlayered, so it
-   beats the registry's `utilities` layer without `!important`. */
+/* One line until it is two: Plate's blocks carry the registry's Tailwind margins, which on an
+   empty box are pure height. Zeroed unlayered, so this beats the `utilities` layer. */
 .agent-chat .pill .field [data-slate-node='element'] {
   margin: 0;
   padding: 0;
@@ -384,10 +306,8 @@
 .agent-chat .doc [data-slate-node='element']:last-child {
   margin-bottom: 0;
 }
-/* Instrument Serif ships weight 400 only (Type.dc.html: "never bold"), so
-   these drop the bold/semibold this block used under the old sans-only face.
-   h3's size also moves from 1.25em (~20px) to 1.4em (~22px): the same rule's
-   floor for the serif face is 22px. */
+/* Instrument Serif ships weight 400 only ("never bold", Type.dc.html); h3 is 1.4em because the
+   serif face's floor is 22px. */
 .agent-chat .doc h1 {
   font-family: var(--font-heading);
   font-size: 2em;
@@ -448,9 +368,7 @@
   text-underline-offset: 2px;
 }
 
-/* Rides the field's own growth. INSTANT, not eased — it used to ease its
-   Y-offset over 160ms as `fieldHeight` grew, which while actively typing read
-   as the button lagging a beat behind text that had already wrapped. */
+/* Rides the field's growth instantly: an eased offset lags text that has already wrapped. */
 .agent-chat .handle {
   position: absolute;
   right: 4px;
@@ -467,10 +385,8 @@
   margin: 0 4px;
 }
 
-/* 28px inside the pill's 36px padding box, inset 4px on EVERY side: the circle
-   overhangs the 20px line by exactly the pill's 8px vertical padding minus 4,
-   and `right: 4px` matches it horizontally. Change the diameter or the padding
-   and the two stop agreeing — they are one number, (36 - d) / 2 = right. */
+/* A 28px circle inset 4px on every side of the pill's 36px padding box: (36 - d) / 2 = right.
+   Diameter, padding and `right` are one number; change them together. */
 .agent-chat .send {
   display: grid;
   place-items: center;
@@ -490,15 +406,8 @@
     background-color 0.12s ease,
     border-color 0.12s ease;
 }
-/* :not([class*='size-']) — the same opt-out Button/Tabs/Select/Badge/Toolbar
-   already use (see flicker-strip.ts's own comment) — because this rule isn't
-   only sizing StopIcon/UpIcon (which already set width/height={16} inline;
-   only the stroke-width below does real work for them). It is also a
-   descendant of FlickerSpinner's sprite strip, whose own single <svg> carries
-   `class="size-full"` and needs to size itself as a PERCENTAGE of its
-   (frames-wide) strip container. A flat 16px override collapsed that whole
-   multi-frame-wide viewBox into a 16px box — squashing the spinner into a
-   thin, "skinny" sliver instead of the icon it should read as. */
+/* The Button/Tabs `size-` opt-out: FlickerSpinner's sprite <svg> is `size-full`, sized as a
+   percentage of its frames-wide strip, and a flat 16px would squash it to a sliver. */
 .agent-chat .send svg:not([class*='size-']) {
   width: 16px;
   height: 16px;
@@ -521,17 +430,13 @@
   box-shadow: none;
 }
 
-/* The plus button's own left margin is unset — see handle-geometry.ts's
-   fieldRightPadding() derivation. `.handle`'s flex `gap: 2px` is the ONLY
-   spacing between it and `.send`; keeping `.send`'s base margin-left: 5px
-   here too would double-count against the field's exactly-sized padding. */
+/* In `.handle`, its flex `gap: 2px` is the only spacing beside `.send`; send's base margin would
+   double-count against the field padding fieldRightPadding() (handle-geometry.ts) sizes exactly. */
 .agent-chat .handle .send {
   margin-left: 0;
 }
 
-/* Cosmetic treatment (ghost variant, fully rounded, 28px to match `.send`)
-   now lives on the shared `Button` component (composer-plus-button.tsx) —
-   `.plusbtn` is left as a bare positioning hook only. */
+/* Cosmetics come from the shared Button (composer-plus-button.tsx); `.plusbtn` only positions. */
 .agent-chat .plusbtn svg:not([class*='size-']) {
   width: 16px;
   height: 16px;
@@ -547,11 +452,8 @@
 }
 
 .agent-chat .pill.multi .field {
-  /* The text column MUST be as wide as the one-line field's (100% - 62px):
-     wrapping flips `.multi`, and a wider column here lets the text fit on one
-     line again, which flips it back — the height flicker. `width` trims 18px
-     (send's reach past the pill's padding) so the scrollbar clears the button;
-     the padding is the remaining 62 - 18. */
+  /* The text column must match the one-line field's (100% - 62px), or wrapping flips `.multi` and
+     back (height flicker). `width` gives back send's 18px reach so the scrollbar clears it. */
   padding-right: 44px;
   width: calc(100% - 18px);
 }
@@ -602,10 +504,8 @@
   width: 17px;
   height: 17px;
 }
-/* Wrapped, the plus stacks directly above send in the same right-hand column. The handle is
-   anchored to the pill's bottom (not riding the last line), and the pill is never shorter than
-   the two circles, so a two-line draft still has room for both. The inline translateY of the
-   desktop's last-line rule is what the !important unseats. */
+/* Wrapped, plus stacks above send; the handle anchors to the pill's bottom and the pill is never
+   shorter than both circles. !important unseats the desktop's inline last-line translateY. */
 .agent-chat .pill[data-touch].multi {
   min-height: calc(2 * var(--touch-circle) + 2px + 2 * var(--touch-inset));
 }
@@ -693,17 +593,9 @@
   text-overflow: ellipsis;
 }
 
-/* A stop notice REPLACES the input rather than sitting above it, because the
-   fact it reports IS that there is nothing to type into. Same 38px box, same
-   stadium — the bar has not gone anywhere, it has stopped being an input. The
-   footer selectors stay live underneath: switching model is the one thing that
-   can actually clear a usage limit. */
-/* Right padding is deliberately tighter than left: `.msg`'s own text wants the
-   full 14px inset `.left` gets everywhere else in the composer, but whatever
-   trails it (a Terminal/Resume button, or ComposerHalted's `.when` timestamp)
-   is pinned flush against THIS edge via its own `margin-left: auto` below —
-   14px there read as a big right-side gap the normal composer's send circle
-   (always pinned close to its own edge) never has. */
+/* A stop notice REPLACES the input: what it reports is that there is nothing to type into. The
+   footer selectors stay live (a model switch can clear a usage limit). Right padding is tighter
+   than left so a trailing button or timestamp sits flush, as the send circle does. */
 .agent-chat .pill.halted {
   display: flex;
   align-items: center;
@@ -832,10 +724,6 @@
 }
 
 /* ── the blank chat's document ─────────────────────────── */
-/* Its own measure, but the transcript's size: this reads at 14px/1.7, the
-   same as `.agent-prose` (transcript.css). What you draft and what you then
-   read back are one continuous text — the type must not resize under you the
-   moment the first turn lands. Only the 720px measure is this surface's own. */
 /* The blank chat's frame for the one composer: the dock's own node, laid out
    as if absent, so the document fills the pane until the first send. */
 .agent-chat .docframe {
@@ -847,10 +735,8 @@
   min-height: 0;
   overflow: hidden;
 }
-/* Same affordance as `.pill.drop-target`, drawn as an inset overlay rather
-   than a border: the pill's own border IS its edge, but the document has no
-   edge of its own to recolor — an inset ring reads as "drop here" without
-   implying the writing area itself just gained a border. */
+/* `.pill.drop-target`'s affordance as an inset ring: the document has no edge to recolour, and a
+   ring reads as "drop here" without implying the writing area gained a border. */
 .agent-chat .docwrap.drop-target::after {
   content: '';
   position: absolute;
@@ -860,19 +746,14 @@
   background: color-mix(in oklch, var(--ring) 4%, transparent);
   pointer-events: none;
 }
+/* Its own 720px measure, but the transcript's 14px/1.7 type (`.agent-prose`): a draft and the
+   turn it becomes are one text, so the type must not resize when the first turn lands. */
 .agent-chat .doc {
   --pad: max(22px, calc((100% - 720px) / 2));
   padding: 48px var(--pad) 96px;
-  /* Overrides just the top value above. The blank document is TOP-anchored
-     (unlike the transcript's bottom-anchored `.scroll`), so its first line
-     always renders at this fixed offset — no scrolling makes it visible
-     later, it is obstructed the instant the overlay chat header floats over
-     it. `--agent-header-clearance` is the same value agent-chat-pane.tsx
-     already computes for its own pinned banners, set on the `.agent-chat`
-     ancestor and inherited here. agent-empty-document.tsx's `lastLineTop`
-     fallback (`firstLineTop`) has to agree with this exact offset for a
-     genuinely empty document, where there is no rendered line to measure
-     instead. */
+  /* The document is top-anchored, so the floating chat header would cover its first line;
+     `--agent-header-clearance` comes from agent-chat-pane.tsx. agent-empty-document.tsx's
+     `firstLineTop` fallback must agree with this offset. */
   padding-top: calc(48px + var(--agent-header-clearance, 0px));
   font-size: 14px;
   line-height: 1.7;
@@ -887,10 +768,8 @@
 .agent-chat .doc .blk {
   outline: none;
 }
-/* Rides one line below the caret. `pointer-events` is off on everything but the
-   bar itself, so the document under it stays clickable for its whole width.
-   INSTANT, not eased — same reasoning as `.handle` above: a control that
-   follows text you are actively typing must never read as catching up to it. */
+/* Rides one line below the caret, instantly (like `.handle`). Pointer events are off everywhere
+   but the bar, so the document under it stays clickable for its whole width. */
 .agent-chat .dochandle {
   position: absolute;
   left: 0;
@@ -931,42 +810,28 @@
   height: 24px;
   padding: 0 7px;
 }
-/* Zeroed for the same reason as `.handle .send` above: the plus button now
-   leads this side group, and `.side`'s own flex `gap: 2px` is the ONLY
-   spacing the two circles need — keeping this margin too would stack an
-   extra 5px on top of that gap instead of the tight single-family look. */
+/* As `.handle .send`: `.side`'s flex `gap: 2px` is the only spacing between the two circles. */
 .agent-chat .dochandle .send {
   margin-left: 0;
 }
-/* The reviving/idle/trust-wait signpost takes this same slot INSTEAD OF
-   `.grp` above — same row, same transform, never both. `.inner`'s own
-   `pointer-events: none` (it exists only to hold `.grp`'s hit-box) has to be
-   restored here too, exactly like `.grp` already restores it for itself. */
+/* The reviving/idle/trust-wait signpost takes `.grp`'s slot instead of it, never both, so it
+   restores pointer events past `.inner` the same way. */
 .agent-chat .dochandle .banner {
   width: 100%;
   pointer-events: auto;
 }
 
 /* ── the row under the pill ────────────────────────────── */
-/* REGRESSION: this used to be `flex-wrap: wrap`, on the theory that once
-   `.left` and `.right` could not both fit, `.right` dropping to its own line
-   beat the two colliding. Live at narrow/split widths that line landed at —
-   sometimes past — the dock's bottom edge instead (three lines stacked, the
-   gauge on the last pixel row). `.right` (queued count + the context
-   gauge/Compact chip) must always stay on this one baseline row; `.left`
-   shrinks and clips instead (see `.left`/`.selpos` below). */
+/* Never wraps: a wrapped `.right` (queued count, context gauge/Compact) lands at or past the
+   dock's bottom edge at narrow widths. `.right` holds the row; `.left` shrinks and clips. */
 .agent-chat .underbar {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px 12px;
-  /* Both sides match `.pill`'s own `padding: 8px 14px` exactly, the same edge
-     the pill's own text and send circle sit inside. `.left` used to carry a
-     -7px margin instead of real padding here, on the theory that it was
-     "optical alignment" — with `overflow: hidden` below, that margin pulled
-     the leading chip PAST this row's own left edge and clipped it. A real
-     padding here has no overflow to clip into. */
+  /* Both sides match `.pill`'s `padding: 8px 14px`, the edge its text and send circle sit inside.
+     Real padding, not a negative margin on `.left`, which `overflow: hidden` would clip. */
   padding: 8px 14px 0;
   overflow: hidden;
   font-size: var(--ui-text-xs);
@@ -982,27 +847,19 @@
      fit moves to the next line whole, it doesn't fold in place. */
   white-space: nowrap;
 }
-/* `.left` is the one that gives: default flex-shrink plus `min-width: 0`
-   above already let it narrow, and clipping its own overflow here keeps an
-   over-wide cluster from pushing `.right` around or growing the row taller
-   instead of just losing its tail. */
+/* `.left` gives: it already shrinks (`min-width: 0`), and clipping its overflow keeps a wide
+   cluster from pushing `.right` or growing the row. */
 .agent-chat .underbar .left {
   overflow: hidden;
 }
-/* `flex: none` — `.right` keeps its natural width and never shrinks, wraps,
-   or cedes room to `.left`; the margin still pins it to the row's right edge
-   the same way it did on its own wrapped line before. */
+/* `.right` keeps its natural width and never shrinks or wraps; the margin pins it right. */
 .agent-chat .underbar .right {
   flex: none;
   margin-left: auto;
 }
-/* The identity cluster reads as one control everywhere ELSE it's drawn (the
-   blank document's floating handle keeps the general `.agent-chat-pane
-   .selpos` rule, `flex: none`, below), but the underbar is the one place it
-   sits beside another group competing for the same row. Letting it shrink
-   and wrap internally here means the view switcher (last in the cluster,
-   least essential) drops to its own line when there's no room, instead of
-   forcing the whole cluster to hold its full width and spill past the dock. */
+/* Only in the underbar does the identity cluster compete for its row, so here it shrinks and
+   wraps internally: the view switcher (last, least essential) drops a line instead of the
+   cluster spilling past the dock. Elsewhere `.selpos` stays `flex: none`. */
 .agent-chat .underbar .selpos {
   flex: 1 1 auto;
   min-width: 0;
@@ -1071,13 +928,9 @@
 .agent-chat .gbar.warn > span {
   background: var(--warning);
 }
-/* The gauge as a button — only ever rendered when compaction is actually
-   offered (context-gauge.tsx), never a disabled decoration. `.chip` gives it
-   the same hover treatment as its row-mates.
-   `.gstack` stacks `.gbar` and `.gaction` in the same grid cell so `.gaction`
-   overlays the BAR — hidden until hover, painted over the progress bar
-   itself, not beside `.gpct`'s percentage text and not a second element that
-   widens the row (the cell is already sized to fit "Compact" at rest). */
+/* The gauge as a button, rendered only when compaction is offered (context-gauge.tsx). `.gstack`
+   overlays `.gaction` on the bar in one grid cell, revealed on hover, so it never widens the row
+   (the cell already fits "Compact"). */
 .gauge .gstack {
   display: grid;
 }
@@ -1262,14 +1115,9 @@
 }
 
 /* ── the empty state ───────────────────────────────────── */
-/* A blank markdown document, because that is what a good first prompt looks
-   like. The affordance is inverted from the transcript's: the writing surface is
-   the page and the controls are the box, rather than the other way round. */
-/* `.sheet` below is a retired static placeholder — nothing renders it any
-   more (the live `.doc` above is the interactive Plate editor). This rule
-   still shares the `.doc` selector and sits LATER in the cascade, so its
-   `overflow` used to win over the live rule's own — dropped here rather than
-   left to silently reintroduce that clip. */
+/* The empty state: a blank markdown document, the page as writing surface and the box as controls.
+   No component renders `.sheet`. This rule shares and follows the live `.doc` rule, so it must
+   never set `overflow`, which would override the live one. */
 .agent-chat .doc {
   flex: 1;
   min-height: 0;
@@ -1299,12 +1147,9 @@
   color: color-mix(in oklch, var(--foreground) 26%, transparent);
 }
 
-/* A prompt occupies the whole dock slot: what is asked reads down the page, and
-   the bar underneath is the question itself with its controls. One box, not a
-   card sitting above a separate pill — .asks carries the same growing-box
-   geometry the composer itself uses (.pill.multi's own radius, since this is
-   never a one-line case), and the nested bar gives up its own box to become a
-   plain bottom row inside it. */
+/* A prompt fills the dock slot as ONE box: the question reads down the page and the nested bar
+   becomes its plain bottom row. `.asks` takes `.pill.multi`'s growing-box geometry (it is never
+   one line). */
 .agent-chat .asks {
   display: flex;
   flex-direction: column;

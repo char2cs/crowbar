@@ -322,13 +322,8 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
   // ── Doesn't overlap the composer ───────────────────────────────────
 
-  // Task 1 measured a real, live overlap that got WORSE as the window
-  // narrowed and the banner's own text wrapped to more lines: the banner sat
-  // ABOVE the composer handle as its own free-floating row, so a resize could
-  // separate the two. It now rides INSIDE AgentEmptyDocument's own
-  // `.dochandle` — the SAME element the model/effort/attach/send row would
-  // otherwise occupy, sharing that row's one `place()` transform — so there
-  // is no second position left to drift out of sync with the first.
+  // The banner rides INSIDE AgentEmptyDocument's `.dochandle`, sharing the composer row's one
+  // `place()` transform, so a resize has no second position to drift out of sync with.
   it('renders the wait banner inside AgentEmptyDocument, not as a free-floating row above it', async () => {
     const store = seed()
     await renderPane(store)

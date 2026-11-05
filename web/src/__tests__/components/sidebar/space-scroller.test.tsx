@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
-import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
+import * as homeActions from '@/components/layout/home-actions'
+import * as rowActions from '@/components/sidebar/lib/row-actions'
+import * as homeResolver from '@/features/workspace/lib/home-workspace-resolver'
+import { toast } from '@/features/window/stores/toast-store'
 import { homeRows } from '@/__tests__/__fixtures__/tree-rows'
 import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
@@ -16,73 +18,20 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }))
 
-// The real resolver hits the network (fetchHomeWorkspace); every test here
-// gets a pre-resolved home workspace id by default so the thread-button test
-// below doesn't need to wait on an effect/fetch to land. A `vi.fn()`, not a
-// bare arrow, so the not-yet-resolved regression test can override its
-// return value for one call — `vi.hoisted`, since `vi.mock`'s own factory is
-// hoisted above ordinary top-level `const`s and would otherwise close over
-// this before it exists.
-interface HomeWorkspaceStateMockResult {
-  wsId: string | null
-  owningChatId: string | null
-  error: boolean
+// The real resolver fetches; every test starts with a resolved home workspace. SpacePanel's verbs
+// (home thread, home folder) are asserted at the call, not exercised.
+const useHomeWorkspaceState = vi.fn<typeof homeResolver.useHomeWorkspaceState>()
+function stubPanelVerbs() {
+  vi.spyOn(homeResolver, 'useHomeWorkspaceState').mockImplementation(useHomeWorkspaceState)
+  vi.spyOn(homeResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1')
+  vi.spyOn(homeActions, 'handleCreateHomeThread').mockImplementation(vi.fn())
+  vi.spyOn(rowActions, 'performCreateHomeFolder').mockImplementation(vi.fn())
+  vi.spyOn(toast, 'error').mockImplementation(() => '')
 }
-const useHomeWorkspaceStateMock = vi.hoisted(() =>
-  vi.fn<(projectId: string | null) => HomeWorkspaceStateMockResult>(() => ({
-    wsId: 'home-ws-1',
-    owningChatId: null,
-    error: false,
-  })),
-)
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  useHomeWorkspaceState: (projectId: string | null) => useHomeWorkspaceStateMock(projectId),
-  ensureHomeWorkspaceResolved: vi.fn(),
-  getHomeWorkspaceId: vi.fn(() => 'home-ws-1'),
-}))
 
-// SpacePanel's ONLY import from this module — mocked wholesale so the
-// thread-button test can assert the call instead of exercising createChat.
-vi.mock('@/components/layout/home-actions', () => ({
-  handleCreateHomeThread: vi.fn(),
-}))
-
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
-}))
-
-// SpacePanel's only import from this module too — the rest of row-actions.ts
-// (rename, lock, etc.) is exercised by row-context-menu.test.tsx, not here.
-vi.mock('@/components/sidebar/lib/row-actions', () => ({
-  performCreateHomeFolder: vi.fn(),
-}))
-
-// Task 21's drag wiring — no-op commit callbacks are enough for every test
-// below, none of which exercises a live drag.
+// No test here exercises a live drag: no-op commit callbacks suffice.
 const onDrop = vi.fn()
 const onPaneDrop = vi.fn()
-
-// `SpacePanel` reads a narrow, project-scoped slice of the REAL sidebar
-// store (for the "is any workspace under this project working" re-render
-// signal) — the store's own default state (`repos: []`) is already exactly
-// what every fixture here needs, so it is left unmocked (mocking the whole
-// module would also replace `SidebarTree`'s own `collapsedChatRows` read,
-// which every rendered row here depends on).
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/workspace/stores/workspace-store-registry')
-  >()),
-  getAllActiveWorkspaceIds: () => [],
-  // Nothing is mounted here: a Recents member row falls back to the sidebar's
-  // own chat record (`useRecentsChat`).
-  getWorkspaceStore: () => undefined,
-  getOrCreateWorkspaceStore: () => ({
-    getState: () => ({
-      panes: {},
-    }),
-    subscribe: () => () => {},
-  }),
-}))
 
 function makeProject(id: string): Project {
   return {
@@ -127,9 +76,11 @@ describe('SpaceScroller', () => {
     resetWindowPaneStoreForTests()
     resetEntities()
     __resetWorkspaceScopesForTest()
-    useHomeWorkspaceStateMock.mockReturnValue({
+    stubPanelVerbs()
+    useHomeWorkspaceState.mockReturnValue({
       wsId: 'home-ws-1',
       owningChatId: null,
+      localPath: null,
       error: false,
     })
   })
@@ -432,18 +383,26 @@ describe('SpaceScroller', () => {
         />,
       )
       fireEvent.click(screen.getByRole('button', { name: 'New thread' }))
-      expect(handleCreateHomeThread).toHaveBeenCalledWith('p1', 'home-ws-1', expect.any(Function))
+      expect(homeActions.handleCreateHomeThread).toHaveBeenCalledWith(
+        'p1',
+        'home-ws-1',
+        expect.any(Function),
+      )
       expect(onCreate).not.toHaveBeenCalled()
     })
 
     it('New thread before the home workspace has resolved refuses with a toast, not silently', async () => {
-      useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, owningChatId: null, error: false })
-      const { toast } = await import('@/features/window/stores/toast-store')
+      useHomeWorkspaceState.mockReturnValue({
+        wsId: null,
+        owningChatId: null,
+        localPath: null,
+        error: false,
+      })
       const panel = renderScroller()
       // Mocks are never cleared between tests here: count, don't assert "never".
-      const callsBefore = vi.mocked(handleCreateHomeThread).mock.calls.length
+      const callsBefore = vi.mocked(homeActions.handleCreateHomeThread).mock.calls.length
       fireEvent.click(panel.getByRole('button', { name: 'New thread' }))
-      expect(handleCreateHomeThread).toHaveBeenCalledTimes(callsBefore)
+      expect(homeActions.handleCreateHomeThread).toHaveBeenCalledTimes(callsBefore)
       expect(toast.error).toHaveBeenCalledWith("Can't start a new thread yet")
     })
 
@@ -468,7 +427,7 @@ describe('SpaceScroller', () => {
     it("More…'s Create a new folder starts a folder on the project's home workspace", () => {
       const panel = renderScroller()
       fireEvent.click(openMore(panel)[1])
-      expect(performCreateHomeFolder).toHaveBeenCalledWith('p1')
+      expect(rowActions.performCreateHomeFolder).toHaveBeenCalledWith('p1')
     })
 
     it("More…'s Delete space trashes this space, not another", () => {

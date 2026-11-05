@@ -117,12 +117,8 @@ function isLastTopLevelBlock(props: PlateElementProps<TCodeBlockElement>): boole
   return path?.length === 1 && path[0] === props.editor.children.length - 1
 }
 
-/**
- * How a transcript reply's diagram fence renders, or null outside the
- * transcript (the composer keeps its own code blocks). Only the document's
- * last top-level block can be the fence its text leaves open; a half-typed
- * info string (`merm`) is that fence too.
- */
+/** How a transcript reply's diagram fence renders; null outside the transcript. Only the last
+ *  top-level block can be the fence its text leaves open, even with a half-typed info string. */
 interface DiagramRoute {
   kind: DiagramFence
   target: DiagramTarget

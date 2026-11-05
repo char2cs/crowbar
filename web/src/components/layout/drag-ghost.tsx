@@ -3,31 +3,15 @@ import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
 
-/**
- * Where the pointer sits INSIDE the row it grabbed, in that row's own box.
- *
- * The ghost is positioned by subtracting this from the pointer, which is what
- * makes a dragged row stay under the part of it you actually took hold of. The
- * ghost used to pin its top-left to the cursor plus a fixed offset, so whatever
- * you grabbed — the middle of a long branch name, the right end of the row — the
- * row snapped its corner to your hand the instant the drag began.
- *
- * Restored verbatim (Task 21) from before the workspace tree/chats panel
- * retirement (commit f119a402) — generic, tree-agnostic, and exactly what one
- * unified drag arm needs; only its two former consumers were tree-specific.
- */
+/** Where the pointer sits inside the grabbed row; subtracted from the pointer so the ghost
+ *  stays under the spot you took hold of rather than snapping its corner to the cursor. */
 export interface GrabOffset {
   dx: number
   dy: number
 }
 
-/**
- * Read the grab point from the row's box and the pointer that pressed it.
- *
- * Clamped to the row: a pointerdown that lands on a child which has since
- * re-laid-out (the hover controls appearing, say) must not push the ghost
- * somewhere the row never was.
- */
+/** Clamped to the row: a press on a child that has since re-laid-out (hover controls appearing)
+ *  must not place the ghost somewhere the row never was. */
 export function grabOffsetFrom(rect: DOMRect, pointerX: number, pointerY: number): GrabOffset {
   return {
     dx: Math.min(Math.max(pointerX - rect.left, 0), rect.width),
@@ -45,12 +29,8 @@ const STACK_STEP_PX = 4
 const STACK_BACK_OPACITY = '0.25'
 
 interface DragGhostProps {
-  /**
-   * The ghost's top-left at drag start — the pointer already less its grab
-   * offset. Only positions the FIRST paint — every move after that writes
-   * .style.transform through the forwarded ref, so dragging never re-renders the
-   * list it was torn from.
-   */
+  /** Top-left at drag start (pointer less grab offset), FIRST paint only: later moves write
+   *  .style.transform through the ref, so dragging never re-renders the list it left. */
   origin: { x: number; y: number } | null
   children: ReactNode
   className?: string
@@ -61,15 +41,8 @@ export function ghostTransform(x: number, y: number): string {
   return `translate3d(${x}px, ${y}px, 0)`
 }
 
-/**
- * The thing that follows the cursor while a row is being dragged.
- *
- * Portalled to the body because it is positioned in raw viewport coordinates.
- * Rendered inline it would be laid out against the nearest transformed
- * ancestor instead — which the peeked sidebar card is, while it is on screen —
- * so it drifted off the cursor and was clipped away entirely at the card's
- * edge. See sidebar-peek.tsx.
- */
+// Follows the cursor during a row drag. Portalled to body because it uses viewport coordinates:
+// inline, a transformed ancestor (the peeked sidebar card) would offset and clip it.
 export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function DragGhost(
   { origin, children, className },
   ref,
@@ -80,22 +53,9 @@ export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function Dra
       data-drag-ghost=""
       className={cn('pointer-events-none fixed top-0 left-0 z-50', className)}
       style={{
-        // TRANSFORM, never left/top.
-        //
-        // This moves every frame of a drag. Writing `left`/`top` puts the ghost
-        // back through layout and repaints whatever it is over — and what it is
-        // usually over is the editor pane, which on the New Tab surface holds a
-        // 51,281-character <pre>. Measured on the live app: one pointermove per
-        // frame cost 60ms with left/top against 8ms for the same pointer sweep
-        // with no drag at all. A translate is composited: no layout, no repaint
-        // of the content underneath.
-        //
-        // No `will-change`: it was here to get the layer up front, but the
-        // measurement does not support the cost. Transform vs left/top was worth
-        // ~3ms of a 60ms frame; the 42ms was a full-window overlay element,
-        // since deleted (see index.css). A permanent hint on an element that
-        // exists only during the drag buys a promotion this already gets from
-        // being a moving transform.
+        // TRANSFORM, never left/top: it moves every frame, and a composited translate skips layout
+        // and repaint of the (possibly huge) pane underneath. No `will-change`: a moving transform
+        // already gets the layer promotion.
         transform: ghostTransform(origin?.x ?? 0, origin?.y ?? 0),
       }}
     >
@@ -116,18 +76,10 @@ export interface GhostRows {
   count: number
 }
 
-/**
- * The dragged rows themselves, cloned — not a differently-styled chip.
- *
- * What you are carrying should look like what you grabbed; a chip made you
- * translate between two representations of the same row mid-gesture. Up to
- * three stack, the ones behind faded, and a badge carries the count so a
- * multi-row drag says how much it is moving without drawing all of it.
- */
+// The dragged rows themselves, cloned, so what you carry looks like what you grabbed. Up to three
+// stack with the back ones faded; a badge carries the full count.
 export function DragGhostRows({ rows }: { rows: GhostRows }) {
-  // A callback ref rather than an effect: the clones are detached DOM and this
-  // is the commit that has to attach them. As an effect the ghost would paint
-  // empty for a frame at the start of every drag.
+  // A callback ref, not an effect: attaching in this commit avoids an empty first frame.
   const mount = useCallback(
     (el: HTMLDivElement | null) => {
       if (!el) return
@@ -153,32 +105,16 @@ export function DragGhostRows({ rows }: { rows: GhostRows }) {
   )
 }
 
-/**
- * Give a cloned row the ACTIVE treatment, whatever it wore in the list.
- *
- * A row in the air is lifted, and lifted is what ROW_ACTIVE already draws — a
- * raised, inset-lit surface with a real background. An inactive row carries
- * ROW_INACTIVE instead, which is a transparent border and no fill: perfectly
- * legible in the sidebar, where it sits on the sidebar's own surface, and
- * close to invisible the moment it is picked up and flown over the editor pane.
- *
- * This says nothing about which workspace is OPEN. The source row keeps its own
- * styling (faded to `opacity-40` while the drag is in flight); only the clone —
- * which exists solely to be carried — is promoted.
- */
+// A carried clone wears ROW_ACTIVE whatever it wore in the list: ROW_INACTIVE has no fill and
+// vanishes over the editor. Says nothing about which workspace is open; the source row is
+// unchanged.
 function liftClone(clone: HTMLElement): void {
   for (const cls of ROW_INACTIVE.split(/\s+/)) clone.classList.remove(cls)
   for (const cls of ROW_ACTIVE.split(/\s+/)) clone.classList.add(cls)
 }
 
-/**
- * Clone the live rows into the detached, pre-styled nodes {@link DragGhostRows}
- * mounts.
- *
- * Every rect is read before the first style is written: interleaving them would
- * force a layout per clone, on the one frame of a drag that is already doing
- * the most work.
- */
+// Clones the live rows into the detached nodes {@link DragGhostRows} mounts. Every rect is read
+// before any style is written, so the drag's busiest frame forces one layout, not one per clone.
 export function cloneGhostRows(elements: readonly HTMLElement[], count: number): GhostRows {
   const shown = elements.slice(0, DRAG_GHOST_MAX_ROWS)
   const rects = shown.map((el) => el.getBoundingClientRect())

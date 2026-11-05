@@ -15,11 +15,8 @@ export interface PreviewSource {
   content: string
 }
 
-/**
- * The document a preview renders: `bufferId`'s (a split renders previews in
- * panes that are not the active one), else the active pane's buffer. A
- * preview's own buffer names its source; an editor buffer is its own source.
- */
+/** The document a preview renders: `bufferId`'s (a split shows previews in inactive panes), else
+ *  the active pane's buffer. A preview buffer names its source; an editor buffer is its own. */
 export function usePreviewSource(bufferId?: string): PreviewSource {
   const { shown, uri, snapshot } = useStore(
     windowPaneStore,

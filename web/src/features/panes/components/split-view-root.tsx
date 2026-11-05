@@ -29,14 +29,9 @@ export function SplitViewRoot() {
   const fullscreenPaneId = useFullscreenPaneId()
   const { exitPaneFullscreen } = usePaneActions()
 
-  /**
-   * Every record plus the stage, in ONE list keyed by id and sorted by
-   * something unrelated to which is showing: rendering the showing view in a
-   * different place than the others would REMOUNT it on every switch, which
-   * destroys a parked terminal's xterm for good. The stage is keyed by its
-   * first pane id — the id a promoted stage's record takes — so a chat landing
-   * in it keeps its DOM.
-   */
+  // Records and stage in one list sorted by id, not by which shows: moving the showing view would
+  // remount it on every switch, destroying a parked xterm. The stage is keyed by its first pane id
+  // (the id its promoted record takes), so a chat landing there keeps its DOM.
   const views = useMemo(() => {
     const all = Object.values(records).map((view) => ({
       id: view.id,
@@ -49,10 +44,8 @@ export function SplitViewRoot() {
 
   const mountedViews = useMountedViews(views)
 
-  // Subscribe to ONLY the fullscreen pane (or nothing) — never the whole
-  // `panes` record. Reading the whole record re-rendered SplitViewRoot, and
-  // therefore the entire layout tree beneath it, on every pane mutation. This
-  // id-scoped selector is referentially stable across unrelated pane changes.
+  // Only the fullscreen pane, never all of `panes`, which would re-render the whole layout tree
+  // on every pane mutation.
   const fullscreenPane = usePaneById(fullscreenPaneId ?? '')
 
   useEffect(() => {
@@ -60,7 +53,7 @@ export function SplitViewRoot() {
   }, [exitPaneFullscreen, fullscreenPane, fullscreenPaneId])
 
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
-  // With the view-tab strip above, the panes are no longer at the window's top.
+  // With the view-tab strip above, the panes are not at the window's top.
   const hasViewStrip = useHasViewStrip()
   const rootPosition = useMemo(
     () => ({ ...ROOT_PANE_POSITION, atTop: !hasViewStrip, atBottom: !isBottomPaneVisible }),

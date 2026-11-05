@@ -41,15 +41,9 @@ function reconcileDocuments(wsId: string): void {
   )
 }
 
-/**
- * Keeps `wsId`'s own file tree (its workspace store's slice) loaded and live.
- *
- * The workspace's files: scope is held alongside the first read; a snapshot
- * landing during that read re-lists after it, so no change in between is lost.
- * It stays held while the workspace is retained: switching back never refetches.
- * Waits on `chatScopeReady` (non-home file routes are chat-scoped) and on the
- * workspace's host being known.
- */
+/** Keeps `wsId`'s file tree loaded and live: its files: scope is held from the first read (a
+ *  snapshot landing mid-read re-lists after) for as long as the workspace is retained. Waits on
+ *  `chatScopeReady` (non-home file routes are chat-scoped) and a known host. */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
   const store = useWorkspaceStore()
   const hostId = useResolvedHost({ wsId })
@@ -124,10 +118,8 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     )
   }, [store, wsId, active, addressable])
 
-  // Lazily fetch a directory's children the first time it is expanded, and
-  // re-check on every `files` change: an expanded folder whose children were
-  // dropped by a root re-list must refetch even though `expandedPaths` is the
-  // same reference.
+  // Re-checked on every `files` change too: a root re-list drops an expanded folder's children,
+  // which must refetch though `expandedPaths` is the same reference.
   useEffect(() => {
     if (!addressable) return
     for (const path of expandedPaths) {

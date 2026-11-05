@@ -25,10 +25,8 @@ import { joinFrontmatter, splitFrontmatter } from './markdown-frontmatter'
 import { markdownPlugins } from './markdown-plugins'
 import { markdownToPlateValue, plateValueToMarkdown } from './markdown-serialization'
 import { MarkdownViewToggle } from './markdown-view-toggle'
-// Reading typography for the Plate/Slate DOM, scoped under
-// `.crowbar-markdown-editor` (applied below). Deliberately NOT `../styles.css`
-// — that one targets the HTML preview's DOM and still belongs to it; see this
-// file's header for why the two cannot be shared.
+// Reading typography for the Plate/Slate DOM, scoped under `.crowbar-markdown-editor`. Not
+// `../styles.css`: that one targets the HTML preview's DOM.
 import './markdown-editor.css'
 
 // Serializing the whole document per keystroke would stall typing.
@@ -45,10 +43,8 @@ export function MarkdownEditorPane({ paneId, bufferId }: MarkdownEditorPaneProps
   // buffer). Accepted now so the call site doesn't need to change later.
   void paneId
 
-  // `null` (rather than `''`) when the document is not open: the child treats
-  // that as "nothing to sync" instead of adopting an empty document, so a
-  // buffer disappearing out from under a mounted editor can never blank what's
-  // on screen.
+  // `null` (not `''`) when the document is not open: the child reads it as "nothing to sync"
+  // rather than adopting an empty document, so a vanishing buffer never blanks the screen.
   const buffer = useBufferById(bufferId)
   const uri =
     buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
@@ -104,17 +100,9 @@ function MarkdownRichEditor({
   doc: DocumentRef | null
   content: string | null
 }) {
-  // Split off any leading YAML frontmatter BEFORE it ever reaches Plate.
-  // Markdown parses a leading `---` block as a thematic break + setext
-  // heading, so feeding it whole into Plate and serializing back out
-  // destroys the frontmatter (see the Task 8 spec). Only `body` is
-  // deserialized; `frontmatter` is carried through untouched and re-attached
-  // verbatim in `flush()`.
-  //
-  // Deserialize ONCE for the initial value: re-parsing on every render would
-  // fight the user's cursor. A document whose text is REPLACED underneath a
-  // mounted editor is handled by the resync below, and a change of `bufferId`
-  // remounts this component (see the key in the parent).
+  // Leading YAML frontmatter never reaches Plate (a `---` block parses as a thematic break and
+  // setext heading); it is carried verbatim and re-attached in `flush()`. Deserialized once, so a
+  // re-parse never fights the cursor: replaced text goes through adopt, a new bufferId remounts.
   const initial = useMemo<{ frontmatter: string; initialValue: Value }>(
     () => {
       const { frontmatter, body } = splitFrontmatter(content ?? '')
@@ -150,24 +138,9 @@ function MarkdownRichEditor({
       ? assetBuffer.workspaceId
       : null
 
-  // Baseline = the canonical FULL-DOCUMENT serialization of the document the
-  // editor ACTUALLY holds (frontmatter + body) — i.e. exactly what a no-edit
-  // flush would produce. Deliberately NOT the buffer's raw `content`:
-  // `plateValueToMarkdown(markdownToPlateValue(md))` is not byte-stable for
-  // every construct (GFM tables re-canonicalize `| --- |` to `| - |`), so
-  // comparing against the original bytes would report a "change" on every
-  // pristine open. Comparing against this baseline instead makes a pristine
-  // flush a true no-op, and is immune to the selection/cursor-only `onChange`
-  // events Slate/Plate fire on click or arrow-key movement (those don't touch
-  // `editor.children`, so they can never make `md` differ from the baseline).
-  //
-  // Read from `editor.children`, NOT from the parsed `initialValue` (C2):
-  // `withSlate` initializes children synchronously and Plate's `init` rewrites
-  // them — an empty document becomes a synthesized paragraph, and
-  // `transformInitialValue` hooks may rewrite others. A baseline measured from
-  // the pre-init value would therefore differ from what the editor holds, and
-  // the first flush would write that difference into a file the user only
-  // opened (for an empty file: an invisible U+200B).
+  // Baseline: what a no-edit flush would write, so a pristine flush (or a selection-only onChange)
+  // is a no-op. Not the raw content (the round trip is not byte-stable, e.g. GFM table rules) nor
+  // `initialValue`: Plate's init rewrites children (an empty doc gains a U+200B paragraph).
   const baselineRef = useRef<string | undefined>(undefined)
   if (baselineRef.current === undefined) {
     baselineRef.current = joinFrontmatter(
@@ -197,10 +170,8 @@ function MarkdownRichEditor({
       plateValueToMarkdown(editor.children as Value),
     )
     if (md === baselineRef.current) {
-      // No real edit since mount (or since the last write): writing here would
-      // silently dirty — and with autoSave on, rewrite to disk — a file the
-      // user never touched. See the baseline comment above for why we can't
-      // compare against the document's raw text instead.
+      // No real edit since mount or the last write: writing would dirty (and with autoSave
+      // rewrite) a file the user never touched.
       return
     }
     // Pin the write to THIS pane's document rather than the active buffer —
@@ -214,34 +185,17 @@ function MarkdownRichEditor({
   }, [doc, editor])
 
   const onChange = useCallback(() => {
-    // Selection-only events (a click, an arrow key) can never change the
-    // serialized document, so arming the debounce for them is pure waste — it
-    // re-serializes the whole document 150 ms later just to compare equal.
-    // Guarded on a NON-EMPTY operation list: an empty list means we can't tell
-    // what happened, and skipping a real edit would lose data.
+    // A selection-only change (click, arrow key) cannot change the serialization, so it arms no
+    // debounce. An empty op list says nothing about what happened, so it still arms one.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(flush, SINK_DELAY_MS)
   }, [editor, flush])
 
-  // I1/I2: the document's text can be replaced underneath a MOUNTED editor —
-  // a second pane split on the SAME file flushing its own edit, or
-  // external-buffer-sync reloading the file after a git checkout. Plate holds a
-  // parsed copy, so without this the editor keeps showing (and, on the next
-  // keystroke, writes back) the stale document over the new text.
-  //
-  // Adoption is gated on THIS editor being pristine — its current serialization
-  // still equals its baseline, i.e. it holds no unsaved local edits. A dirty
-  // editor is left completely alone: in-progress work is never destroyed, and
-  // the user is already warned about the divergence by external-buffer-sync's
-  // hasExternalChange toast.
-  //
-  // It cannot loop. `syncedContentRef` holds both what was last adopted and
-  // what was last written, so a write echoing back is skipped outright. And the
-  // adoption itself re-derives the baseline from the resulting `editor.children`,
-  // so the `onChange` that `setValue` fires ends in a flush that compares equal
-  // and writes nothing.
+  // Text replaced under a mounted editor (a split pane on the file, a reload after checkout) is
+  // adopted only while this editor is pristine; a dirty one keeps its work. No loop: echoes of our
+  // writes match syncedContentRef, and adoption re-derives the baseline so its flush writes nothing.
   const adopt = useCallback(
     (text: string) => {
       if (text === syncedContentRef.current) return
@@ -278,19 +232,9 @@ function MarkdownRichEditor({
     if (content !== null) adopt(content)
   }, [content, adopt])
 
-  // A tab switch UNMOUNTS this pane — PaneContainer renders only the active
-  // buffer, and EditorPane keys the rich editor by buffer id — so the reading
-  // position has to live outside the component or it dies with the DOM node and
-  // the file reopens at the top. Same retention the markdown PREVIEW uses;
-  // Monaco needs none of it (its retained per-pane widget restores a per-model
-  // view state).
-  //
-  // Readiness is `content !== null`, because the document is only tall enough to
-  // scroll once it has been deserialized, and restoring into a short box clamps
-  // to 0. `initial` is derived from `content` at FIRST render, so on the way
-  // back to an already-open tab the text is in the DOM on the first commit and
-  // the restore lands immediately. The one case where content arrives later is
-  // a file being opened for the first time — which has no stored offset anyway.
+  // A tab switch unmounts this pane, so the reading position lives outside it, as for the markdown
+  // preview (Monaco's retained widget restores its own). Ready once `content !== null`: only a
+  // deserialized document is tall enough to scroll, and restoring into a short box clamps to 0.
   const scrollRef = useRef<HTMLDivElement>(null)
   usePreservedScroll(scrollRef, bufferId, content !== null)
 

@@ -1,11 +1,8 @@
 import { useSyncExternalStore } from 'react'
 
-// Reactivity seam: the app flips light/dark by toggling a `dark` class on
-// `document.documentElement` (see settings-effects.ts) rather than through
-// any store a React tree could subscribe to. A plain React render needs an
-// actual subscription to know when to re-run, so every theme-sensitive
-// renderer (mermaid, Excalidraw) shares this ONE MutationObserver rather
-// than each keeping its own.
+// Light/dark flips by a `dark` class on <html> (settings-effects.ts), not a store React can
+// subscribe to, so theme-sensitive renderers (mermaid, Excalidraw) share this one
+// MutationObserver as their subscription.
 let version = 0
 const listeners = new Set<() => void>()
 let observer: MutationObserver | null = null

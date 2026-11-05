@@ -3,20 +3,14 @@ import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-v
 
 export { useThemeVersion as useMermaidThemeVersion }
 
-// Mirrors the fallback pattern in use-terminal-theme.ts: resolveCssVar reads
-// live off the DOM and can return null (run before theme.css has painted, or
-// in an environment with no stylesheet at all — a stray unit test), so every
-// token is paired with a light/dark literal rather than letting mermaid fall
-// through to `undefined`.
+// resolveCssVar can return null (before theme.css paints, or with no stylesheet), so each token
+// has a light/dark literal rather than letting mermaid get `undefined`.
 function color(name: string, light: string, dark: string): string {
   return resolveCssVar(name) ?? (isDarkMode() ? dark : light)
 }
 
-// `resolveCssVar` resolves *color* custom properties (it pipes the raw value
-// through an element's `color` style and reads back `rgb()`); `--font-sans`
-// is a font-family stack, not a color, so it needs the same "assign to a
-// concrete property, read the computed value back" trick applied to
-// `font-family` instead.
+// `resolveCssVar` only resolves colors; `--font-sans` is a font stack, so it gets the same
+// "assign to a real property, read the computed value" trick on `font-family`.
 function resolveFontFamily(): string {
   if (typeof document === 'undefined') return 'inherit'
   const probe = document.createElement('span')
@@ -27,13 +21,9 @@ function resolveFontFamily(): string {
   return resolved || 'inherit'
 }
 
-/**
- * Mermaid `theme: 'base'` variable set, sourced entirely from the app's CSS
- * tokens (never mermaid's own default palette) so a rendered diagram matches
- * whichever theme — light, dark, or a future custom one — is currently
- * painted. Pure and side-effect-free; called fresh before every render so a
- * theme change picks up on the diagram's next debounced render pass.
- */
+/** Mermaid `theme: 'base'` variables taken wholly from the app's CSS tokens, so a diagram
+ *  matches the painted theme. Pure; rebuilt before every render, so a theme change shows on the
+ *  next one. */
 export function buildMermaidThemeVariables(): Record<string, string> {
   return {
     background: color('--background', '#faf9f5', '#141413'),

@@ -121,12 +121,9 @@ function nextLoadEnd(id: string, signal: AbortSignal): Promise<void> {
   })
 }
 
-/**
- * Puts the tab on screen so its page runs at full speed: a hidden webview
- * throttles timers and stalls scripts. It selects the tab in its own pane and
- * opens that pane's editor half, but never switches the user's view, so a chat
- * that is not on screen reports it cannot be shown instead of stealing the window.
- */
+/** Puts the tab on screen, since a hidden webview throttles timers and stalls scripts: selects
+ *  it in its pane and opens that pane's editor half, but never switches the user's view — a
+ *  chat not on screen reports it cannot be shown rather than stealing the window. */
 async function bringToFront(chatId: string, tabId: string, limits: AgentLimits): Promise<void> {
   const { pane: group, buffer } = ownedTab(chatId, tabId)
   if (buffer.url === '') throw new Error('this tab has no page yet; use browser_navigate first')
@@ -187,11 +184,8 @@ function waitTimeout(args: Record<string, unknown>): number {
   return Math.min(Math.max(asked, 1), 30_000)
 }
 
-/**
- * Carries out one agent request against the browser tabs of `chatId`'s pane.
- * `chatId` comes from the daemon's authenticated session, and every tab it
- * names is re-checked against that pane before anything runs.
- */
+/** Runs one agent request against the browser tabs of `chatId`'s pane. `chatId` comes from the
+ *  daemon's authenticated session; every tab named is re-checked against that pane first. */
 export async function runAgentOp(
   { chatId, op, tab, args }: AgentRequest,
   limits: AgentLimits = DEFAULT_LIMITS,

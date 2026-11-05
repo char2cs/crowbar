@@ -13,28 +13,14 @@ import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { IS_MOBILE } from '@/utils/platform'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
-// A terminal VIEW streams one daemon PTY session over its own WebSocket — a
-// TerminalConnection. Every view gets its own transport: the daemon sends each
-// attached client its own snapshot, so a view is always painted on attach, and
-// closing one view's transport never touches another's.
-//
-// Wire protocol (see api/internal/core/terminal/transport.go):
-//   daemon → client  BINARY  [tag][bytes]   tag 0 = output (append),
-//                                           tag 1 = snapshot (reset, then apply)
-//                    TEXT    {"type":"exit","code":N}  — the process exited
-//   client → daemon  TEXT    {data} input, {type:"resize",cols,rows},
-//                             {type:"theme",bg,fg,dark}
-//
-// A socket that closes WITHOUT an exit frame is a transport drop: the view
-// re-resolves and re-attaches. An exit frame is the only thing that ends a
-// terminal — nothing here ever infers one from what the user typed.
-//
-// On the desktop app the browser WebSocket cannot reach the daemon (its only
-// endpoint is the `crowbar://` unix-socket proxy); there the TauriWebSocket
-// shim dials it through Rust (desktop/src-tauri/src/ws_bridge.rs). Both
-// present the same socket interface, so this module has one code path.
 
-// One parsed daemon→client terminal frame, in wire order.
+// Each terminal view streams one daemon PTY session over its own socket, so it gets its own
+// snapshot on attach and closing it touches no other view. On desktop the socket is the
+// TauriWebSocket shim through Rust (ws_bridge.rs); both present one interface.
+
+// Wire (api/internal/core/terminal/transport.go): daemon→client BINARY [tag][bytes] — tag 0 output
+// (append), 1 snapshot (reset, apply) — or TEXT {"type":"exit","code":N}; client→daemon TEXT
+// {data}, {type:"resize",cols,rows}, {type:"theme",bg,fg,dark}. Only an exit frame ends a session.
 export type TerminalFrame =
   { exit?: undefined; data: Uint8Array; snapshot: boolean } | { exit: true; code: number }
 
@@ -73,13 +59,9 @@ function decodeFrame(raw: unknown): TerminalFrame | null {
 
 export type TerminalConnectionState = 'connecting' | 'open' | 'exited' | 'dropped' | 'closed'
 
-/**
- * One view's live stream to one daemon PTY session.
- *
- * Frames that arrive before the first listener (the attach snapshot, usually)
- * are held and replayed to it. Input sent before the socket opens is queued and
- * flushed in order on open; a theme push coalesces to the last one.
- */
+// One view's live stream to one PTY session. Frames before the first listener (the attach
+// snapshot) replay to it; input before open is queued and a theme push coalesces. A close with
+// no exit frame is a drop: the view re-resolves and re-attaches, never inferring an exit.
 export class TerminalConnection {
   readonly sessionId: string
   private state_: TerminalConnectionState = 'connecting'
@@ -152,11 +134,8 @@ export class TerminalConnection {
     this.send(JSON.stringify({ type: 'resize', cols, rows }))
   }
 
-  /**
-   * Push the host light/dark theme so a foreground app's automatic theme can
-   * follow a Crowbar theme switch (see the daemon's Session.SetTheme). Only the
-   * LAST theme matters, so one sent before the socket opens coalesces.
-   */
+  /** Push the host light/dark theme so a foreground app's auto theme follows a Crowbar switch
+   *  (the daemon's Session.SetTheme). Only the last matters, so one sent before open coalesces. */
   setTheme(theme: { background: string; foreground: string; dark: boolean }): void {
     const frame = JSON.stringify({
       type: 'theme',
@@ -195,10 +174,8 @@ function openSocket(qualified: string): TerminalSocket {
   return ws as unknown as TerminalSocket
 }
 
-// PTY routes are CHAT-scoped (/v0/chats/:chatId/terminals[/:id/ws]); the home
-// workspace's are under /v0/projects/:projectId/home/terminals. Callers pass the
-// resolved base (workspace-scope-url) so the route shape lives in one place.
-// The base is recorded per session so a later kill can build its DELETE.
+// PTY routes are chat-scoped (/v0/chats/:chatId/terminals[/:id/ws]), the home's under
+// /v0/projects/:p/home/terminals; callers pass the resolved base. Recorded per session for kill.
 const sessionBases = new Map<string, string>()
 
 /** Open a view's stream to an existing daemon PTY session. */
@@ -224,10 +201,8 @@ export async function terminalCreate(base: string, profileId?: string): Promise<
   return sessionId
 }
 
-/**
- * Kill a PTY session for good (the tab was closed); open views see its exit frame.
- * A session whose base this page never learned cannot be addressed; nothing is sent.
- */
+/** Kill a PTY session for good (tab closed); open views see its exit frame. A session whose base
+ *  this page never learned can't be addressed, so nothing is sent. */
 export async function terminalKill(sessionId: string): Promise<void> {
   const base = sessionBases.get(sessionId)
   sessionBases.delete(sessionId)
@@ -240,10 +215,8 @@ export async function terminalKill(sessionId: string): Promise<void> {
   }
 }
 
-/**
- * The daemon's live (and suspended) session ids for one owner — ONLY that
- * owner's; a sibling chat on the same worktree has its own, disjoint list.
- */
+/** The daemon's live and suspended session ids for one owner only; a sibling chat on the same
+ *  worktree has its own, disjoint list. */
 export async function terminalListLive(base: string): Promise<string[]> {
   const list = await apiFetch<Array<{ id: string; status: string }>>(base)
   const live: string[] = []
@@ -253,12 +226,8 @@ export async function terminalListLive(base: string): Promise<string[]> {
 
 // ── File Manager ──────────────────────────────────────────────────────────────
 
-// The `reveal_in_finder` invoke should always settle in well under a second —
-// see desktop/src-tauri/src/lib.rs for the (now-fixed) main-thread-blocking bug
-// that could make it hang indefinitely. This guard is defence in depth: if a
-// future regression (or a denied/reworked capability) makes the invoke hang
-// again, callers of revealItemInFinder — which all `.catch` to surface a toast
-// (see use-workspace-effects.ts) — get a rejection instead of silence.
+// The `reveal_in_finder` invoke should settle well under a second. The timeout is defence in
+// depth: if it ever hangs, callers (which all `.catch` to a toast) get a rejection, not silence.
 const REVEAL_IN_FINDER_TIMEOUT_MS = 3_000
 
 /** Reveal a file or directory in the OS file manager (Finder on macOS) with the
@@ -320,10 +289,9 @@ export async function onConsoleMenuToggle(handler: () => void): Promise<() => vo
 
 type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem
 
-// Every native resource of the open menu, in creation order. Tauri drops an
-// item's click channel when its Rust wrapper drops, and an item passed inline
-// to `Menu.new` is dropped as soon as the menu is built — so each item is
-// created through its own constructor and stays alive here.
+// Every native resource of the open menu, in creation order: Tauri drops an item's click channel
+// when its Rust wrapper drops, and an item passed inline to `Menu.new` drops once the menu is
+// built — so each is created through its own constructor and kept alive here.
 let openNativeMenu: Array<{ close(): Promise<void> }> = []
 
 // Tauri keys an item's click channel by item id and removes it when ANY item
@@ -378,19 +346,9 @@ async function closeNativeMenu(owned: Array<{ close(): Promise<void> }>): Promis
   await Promise.all(owned.map((resource) => resource.close()))
 }
 
-/** Pops up the OS's own context menu.
- *
- * Deliberately does NOT call `menu.popup()` (the JS method `@tauri-apps/api/menu`
- * provides) — that invokes Tauri's built-in `plugin:menu|popup` command, which has
- * a confirmed deadlock: it holds the webview's global resources-table lock for the
- * entire, open-ended time the menu stays open, wedging every other resource-backed
- * Tauri command (including this app's own terminal PTY channels) until it's
- * dismissed. `popup_native_context_menu` (`desktop/src-tauri/src/lib.rs`) is a
- * from-scratch command that does the same thing without holding that lock across
- * the blocking call.
- *
- * `isCancelled` guards against React StrictMode's dev-only double-invoke of
- * effects, which would otherwise pop two stacked native menus from one right-click. */
+// Pops up the OS context menu via `popup_native_context_menu`, never `menu.popup()`: Tauri's
+// plugin command holds the webview's resources lock while the menu is open, wedging every other
+// resource-backed command (terminal PTYs too). `isCancelled` absorbs StrictMode's double effect.
 export async function showNativeContextMenu(
   items: ContextMenuItem[],
   position: { x: number; y: number },
@@ -448,12 +406,8 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
   return (await tauri.__TAURI_INTERNALS__.invoke(cmd, args)) as T
 }
 
-/**
- * Runs the desktop `diagnostics_export` command: bundles the daemon log
- * (panic traces, watchdog goroutine dumps), the app log, fresh
- * goroutine/heap dumps from the live daemon, and version metadata into a
- * zip in ~/Downloads. Resolves to the bundle's absolute path.
- */
+// Runs the desktop `diagnostics_export` command: daemon and app logs, fresh goroutine/heap dumps
+// and version metadata, zipped into ~/Downloads. Resolves to the bundle's absolute path.
 export async function exportDiagnostics(): Promise<string> {
   if (!isDesktopApp()) throw new UserFacingError('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')

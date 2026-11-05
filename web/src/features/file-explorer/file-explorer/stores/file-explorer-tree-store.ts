@@ -3,17 +3,9 @@ import { combine } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { FileEntry } from '@/features/file-system/types/app'
 
-// Live-reported: "folders that were opened get lost when switching contexts."
-// Root cause: expanded-folder state used to be a single flat Set shared by
-// EVERY workspace — switching which workspace was active never touched it, so
-// a freshly loaded workspace's tree looked at another workspace's leftover
-// path strings (almost never a match: nothing appears expanded) and, going
-// back, an intervening workspace's own toggles had silently mutated the same
-// set. Keying it by workspace id fixes both directions at once. Every action
-// below now takes the caller's wsId explicitly rather than reading an
-// "active workspace" internally, so a background/kept-alive workspace's own
-// effects (use-workspace-effects.ts) react to ITS OWN expansion, not
-// whichever workspace the user happens to be looking at.
+// Expanded folders are keyed by workspace id and every action takes the caller's wsId (never an
+// "active workspace"), so expansions never leak between workspaces and a kept-alive workspace's
+// effects react to its own expansion.
 interface FileTreeState {
   expandedPathsByWorkspace: Record<string, Set<string>>
   selectedFiles: Set<string>

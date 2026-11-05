@@ -1,10 +1,6 @@
-/**
- * Current-line blame: after the cursor's line, a muted "author, when · summary"
- * from the daemon's /blame. Loaded once per file (cached in the blame store,
- * invalidated on save); hidden while the buffer has unsaved edits, since
- * blame's line numbers describe the file on disk. A host document (no
- * workspace) has no repository to blame, and an untitled buffer no file.
- */
+// Current-line blame from the daemon's /blame, loaded once per file (cached, invalidated on save).
+// Hidden while the buffer is dirty, since blame's line numbers describe the file on disk; host
+// documents (no repository) and untitled buffers (no file) have none.
 import { useEffect } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { blameKey, loadBlame, useGitBlameStore } from '@/features/git/stores/git-blame-store'

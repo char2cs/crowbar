@@ -42,12 +42,8 @@ function focusedEditorPaneId(): string | null {
   return view?.closest('[data-pane-id]')?.getAttribute('data-pane-id') ?? null
 }
 
-/**
- * Pane/tab keyboard shortcuts. All chords are resolved from the keymap registry
- * (the single source of truth surfaced in the Keybindings settings tab), so
- * switching presets or rebinding a command updates these live. `mod+t` opens a
- * New Tab page in the active pane (not a terminal).
- */
+// Pane/tab shortcuts. Chords resolve from the keymap registry (what the Keybindings tab shows),
+// so presets and rebinds apply live. `mod+t` opens a New Tab page in the active pane.
 export function usePaneKeyboard() {
   const workspaceStore = useWorkspaceStore()
   const chordMap = useEffectiveChordMap()
@@ -60,11 +56,8 @@ export function usePaneKeyboard() {
       }
 
       if (matches(PANE_SPLIT_RIGHT) || matches(PANE_SPLIT_DOWN)) {
-        // Spec §7.3: "a pane group is a group of chats, never of tabs" (Law
-        // 3) — splitting the active editor tab into a new pane is gone with
-        // the tab-driven split it came from. Still a registered, rebindable
-        // command (mirrors TAB_NEW below), so the chord stays claimed rather
-        // than falling through to a browser/OS default.
+        // A pane groups chats, never tabs (spec §7.3), so a tab can't be split into a pane.
+        // The command stays registered so its chord is claimed, not passed to the browser/OS.
         e.preventDefault()
         return
       }
@@ -81,10 +74,8 @@ export function usePaneKeyboard() {
       }
 
       if (matches(TAB_NEW_TERMINAL)) {
-        // Law 3 (spec §7.2): nothing lands in a pane of its own — a pane
-        // must hold a chat before a terminal opens into its editor view.
-        // ensurePaneChatThenOpen resolves and reuses the workspace's real
-        // owning chat; it never mints one (pane-command-actions.ts).
+        // A pane must hold a chat before a terminal opens in its editor view (spec §7.2);
+        // ensurePaneChatThenOpen reuses the workspace's owning chat and never mints one.
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
         ensurePaneChatThenOpen(
@@ -100,7 +91,7 @@ export function usePaneKeyboard() {
       }
 
       if (matches(TAB_NEW_FILE)) {
-        // Same Law 3 fix as TAB_NEW_TERMINAL above, for a new file.
+        // Same chat-first rule as TAB_NEW_TERMINAL above.
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
         ensurePaneChatThenOpen(
@@ -119,32 +110,16 @@ export function usePaneKeyboard() {
       }
 
       if (matches(AGENT_NEW_CHAT) || matches(AGENT_NEW_CHAT_TERMINAL)) {
-        // ⌘N is registered in the keymap and rendered as a badge on the New
-        // Tab surface's "New Chat" action, but nothing dispatched it (I4) — a
-        // rebindable command whose chord did nothing. Picks the first ENABLED
-        // provider (the same rule every New-chat
-        // surface uses; a disabled provider is never offered), creates the
-        // chat, then opens it as its OWN VIEW (spec §8.4, same as clicking a
-        // chat in the tree) via `openChat` — never into the active pane.
-        //
-        // AGENT_NEW_CHAT_TERMINAL is the same create, landed on Terminal
-        // regardless of where `chatIsDefaultPresentation` points — the one
-        // way to start THIS chat on the CLI without flipping that setting
-        // for every chat after it. `presetChatLandingPresentation` writes
-        // the choice before the pane exists to read it. Absence, not a
-        // disabled control: a provider that does not declare its terminal a
-        // start_here surface (providerCanStartOnTerminal — design spec 2.5)
-        // just creates the ordinary chat, same as AGENT_NEW_CHAT.
+        // Creates a chat on the first enabled provider and opens it as its own view (spec §8.4),
+        // never into the active pane. The terminal variant lands this one chat on the CLI; a
+        // provider whose terminal can't start a chat gets the ordinary create instead.
         const wantsTerminal = matches(AGENT_NEW_CHAT_TERMINAL)
         e.preventDefault()
         const state = workspaceStore.getState()
         const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
         if (!provider) return
-        // The surface travels on the CREATE, not just into the landing seed:
-        // it is what decides which of the provider's faces the daemon forks.
-        // The PLAIN chord names none, so `createSurfaceFor` answers it from the
-        // user's own default landing surface — without that, "native chats" off
-        // forked codex on its api face and the pane had no terminal to show.
+        // The surface rides on the create because it picks which face the daemon forks; the
+        // plain chord names none, so createSurfaceFor falls back to the user's default surface.
         const surface = createSurfaceFor(
           provider,
           wantsTerminal && providerCanStartOnTerminal(provider) ? 'terminal' : undefined,
@@ -178,32 +153,17 @@ export function usePaneKeyboard() {
       }
 
       if (matches(TAB_CLOSE)) {
-        // Always preventDefault so the chord never reaches the OS window-close.
-        // Mirror the tab × button (handleTabClose): remove the tab from its
-        // pane FIRST so an adjacent tab activates (raw closeBuffer alone leaves
-        // a dangling activeEditorTabId → empty state), and prompt before
-        // discarding a dirty editor buffer. No active tab → no-op (never quits
-        // the app).
+        // Always claimed so it never reaches the OS window-close. Like the tab ×: remove the tab
+        // from its pane first so a neighbour activates (closeBuffer alone leaves a dangling
+        // activeEditorTabId), and prompt before discarding a dirty buffer.
         e.preventDefault()
         const state = windowPaneStore.getState()
         const paneId = state.activePaneId
         const pane = state.panes[paneId]
         if (!pane) return
-        // A pane with zero editor tabs is already showing its own empty stage
-        // (no placeholder buffer to close any more). ⌘W there means "dismiss
-        // this split" — the only reading that leaves the user anywhere new. In
-        // the last remaining pane there is nowhere to go, so it is a genuine
-        // no-op.
-        //
-        // "Last remaining pane" must be scoped to paneId's OWN layout tree
-        // (root editor area vs. the bottom panel) via getPaneScopeForPaneId —
-        // `state.panes` always additionally holds the OTHER tree's root
-        // (ROOT_PANE_ID + BOTTOM_PANE_ID both exist even in a single-pane
-        // workspace), so a raw `Object.keys(state.panes).length` is never 1 and
-        // this branch would always read as "there's a split", closing the sole
-        // remaining pane in either tree and bricking it (see pane-slice's
-        // closePane — deleting the sole root leaf goes through the reseed
-        // branch and immediately deletes the fallback leaf right after).
+        // With no tabs, ⌘W dismisses this split; in the last pane of its own tree it's a no-op.
+        // Count within paneId's tree: `state.panes` always also holds the other tree's root,
+        // so a raw pane count would close (and brick) the sole remaining pane.
         if (pane.editorTabIds.length === 0) {
           const scope = getPaneScopeForPaneId(
             showingLayout(state),

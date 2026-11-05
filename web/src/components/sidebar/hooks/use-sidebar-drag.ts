@@ -26,28 +26,13 @@ import {
 import { dispatchDrop, type DropHandlers } from '@/components/sidebar/lib/sidebar-drop-dispatch'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
-/**
- * One drag arm for the unified sidebar: `SidebarTree` and the Recents tabs both bind
- * through it. This owns the pointer (press, threshold, move, release, recovery);
- * `sidebar-drag-hover` resolves and paints what a position would drop on, and
- * `sidebar-drop-dispatch` commits a release. Refs only, window listeners subscribed
- * once, and React state written only when the drop would draw something different.
- */
+// One drag arm for SidebarTree and the Recents tabs. This owns the pointer (press, threshold,
+// move, release, recovery); sidebar-drag-hover paints the drop, sidebar-drop-dispatch commits it.
+// Refs and once-subscribed window listeners; React state changes only when the drop would.
 
-/**
- * 8, not the predecessors' 5 — live-reported and reproduced: an ordinary
- * click routinely carries 5-7px of incidental pointer movement between down
- * and up (hand tremor, a trackpad click's own slight drag), which crossed 5
- * and armed a real drag on a plain click. That drag's own faded source row
- * (opacity-40, still in its list slot) and its full-opacity ghost (floating
- * via `position: fixed`, nearly on top of that same slot for a small
- * movement) briefly composited into what looked like one taller, doubled-up
- * row — reported as "active rows grow in height" — self-corrected the
- * instant `endDrag` ran on pointerup, which is why it only ever showed up
- * for the length of a click and never in a settled `getBoundingClientRect`
- * read. 8px is comfortably past ordinary click jitter while still short
- * enough that an intentional drag arms immediately.
- */
+// 8px, not 5: an ordinary click carries 5-7px of jitter, which armed a drag whose faded source
+// and fixed-position ghost briefly composited into one doubled row. 8px clears jitter while an
+// intentional drag still arms immediately.
 export const SIDEBAR_DRAG_THRESHOLD_PX = 8
 
 /** Stable empty, so a render that is not dragging hands out one identity. */
@@ -63,10 +48,7 @@ interface ActiveDrag {
 /** Stable identity, so add/removeEventListener pair up across a drag. */
 const preventDefault = (e: Event) => e.preventDefault()
 
-/**
- * Swallow the click a release fires on whatever row it lands on — a drop is
- * never also a click that opens the row it happened to land on.
- */
+/** Swallow the click a release fires, so a drop never also opens the row it lands on. */
 function suppressNextClick(): void {
   const swallow = (e: MouseEvent) => {
     e.stopPropagation()
@@ -108,10 +90,8 @@ export interface SidebarDrag {
   /** Callback ref for the hairline, which mounts one render after the drag begins. */
   attachDropLine: (el: HTMLDivElement | null) => void
   onPointerDownDrag: (row: SidebarRow, e: React.PointerEvent) => void
-  /** The attributes a droppable row spreads onto its own `SidebarRow`
-   *  (`SidebarRowProps.dragProps`) — `extra` carries the ancestor facts the
-   *  caller's own tree-walk already knows and `SidebarRow` itself does not
-   *  (path/expanded/hasChildren); a depth-0 leaf renderer may omit it. */
+  /** The attributes a droppable row spreads as `dragProps`; `extra` carries tree-walk facts the
+   *  row lacks (path/expanded/hasChildren) and a depth-0 leaf renderer may omit it. */
   dragProps: (row: SidebarRow, extra?: RowDragExtra) => Record<string, string | undefined>
 }
 
@@ -136,9 +116,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   const paneHitRef = useRef<ResolvedPaneHit | null>(null)
   const edgeScrollerRef = useRef<EdgeScroller | null>(null)
   const scrollerXRef = useRef<{ left: number; right: number } | null>(null)
-  // The scroller a wheel-lock was attached to, so `endDrag` removes the SAME
-  // listener from the SAME element rather than re-reading `scrollRef.current`
-  // (which could theoretically have moved on since drag start).
+  // The scroller the wheel-lock was attached to, so endDrag removes it from the same element.
   const wheelLockScrollerRef = useRef<HTMLElement | null>(null)
   const grabRef = useRef<GrabOffset>({ dx: 0, dy: 0 })
   const draggingRef = useRef<ActiveDrag | null>(null)
@@ -152,9 +130,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
 
   const attachDropLine = useCallback((el: HTMLDivElement | null) => {
     dropLineRef.current = el
-    // Replayed rather than left to the next move: the line mounts one render
-    // AFTER the drag begins, so the slot resolved at drag start would
-    // otherwise go unmarked until the pointer moved again.
+    // Replayed: the line mounts one render after the drag begins, so the slot resolved at drag
+    // start would otherwise go unmarked until the pointer moved again.
     paintDropLine(el, lastHitRef.current)
   }, [])
 
@@ -167,18 +144,9 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   const onPointerDownDrag = useCallback((row: SidebarRow, e: React.PointerEvent) => {
     if (e.button !== 0) return
     if (draggingRef.current) return // ignore a second pointer mid-drag
-    // No `row.working` refusal here any more (live-reported: it blocked
-    // picking a working chat up AT ALL, split included). §8.3's "may not be
-    // dragged" is about REORDERING — moving a row re-points the ground
-    // under it, mirroring the backend's own `guardNotWorking` — and that is
-    // still enforced where a reorder is actually decided:
-    // `SIDEBAR_DROP_POLICY.allowedModes` refuses every mode for a working
-    // subject over a ROW target. A drop onto a PANE never touches tree
-    // placement (`performSidebarPaneDrop`/`openChatIntoPane` just open a
-    // split view), so a working chat has no less claim to that than an idle one.
-    // Block the text selection from the PRESS: `selectstart` fires before the
-    // threshold promotes the press into a drag, so arming this at drag start
-    // is arming it after the only event it could have cancelled.
+    // No `row.working` refusal: §8.3 forbids REORDERING a working row, which the drop policy
+    // enforces on row targets, while a pane drop only opens a view. Block text selection from
+    // the PRESS — `selectstart` fires before the threshold promotes it into a drag.
     document.addEventListener('selectstart', preventDefault)
     // No pointer capture yet — capturing here swallows the dblclick that opens
     // the rename editor.
@@ -192,10 +160,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   }, [])
 
   useEffect(() => {
-    /**
-     * Publish a resolved drop, but only when it would draw something
-     * different. This is the whole re-render budget of a drag.
-     */
+    /** Publish a resolved drop only when it would draw something different — a drag's whole
+     *  re-render budget. */
     function publish(hit: Hit): void {
       const row = hit?.kind === 'row' ? hit.row : null
       if (!sameDrop(row, dropTargetRef.current)) {
@@ -207,15 +173,11 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         paintPaneHit(paneHitRef.current, pane)
         publishPaneZonePreview(pane)
         paneHitRef.current = pane
-        // The public state carries only the logical value — never `el`,
-        // which is internal plumbing for `paintPaneHit` alone (see
-        // `ResolvedPaneHit`).
+        // Public state carries only the logical value, never the internal `el`.
         setPaneHit(pane && { kind: pane.kind, paneId: pane.paneId, zone: pane.zone })
       }
-      // The line is DOM, not state: it moves on every publish, including the
-      // ones that changed nothing for React (an edge scroll re-running the
-      // hit test under a held-still pointer resolves the same drop at a new
-      // rect).
+      // The line is DOM, not state: it moves on every publish, including ones that change nothing
+      // for React (an edge scroll re-resolving the same drop at a new rect).
       lastHitRef.current = hit
       paintDropLine(dropLineRef.current, hit)
     }
@@ -228,26 +190,9 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       const subjects = optionsRef.current.subjectsFor(pending.row.id)
       const drag: ActiveDrag = { subjects, pointer: { x: e.clientX, y: e.clientY } }
 
-      // Every measurement this drag needs, taken together and before the
-      // first style write: interleaving reads and writes forces a layout per
-      // clone on the one frame of a drag that is already doing the most work.
-      //
-      // The pressed row (`pending.row`) resolves to `pending.target` directly
-      // rather than through `rowDom.elementFor` — a chat with a live view
-      // renders through TWO `SidebarRow` instances sharing one id (its own
-      // tree row, and Recents' mirror of it — inlineRenameDisabled's own doc
-      // in sidebar-row.tsx), and `elementFor`'s `[attr="id"] `querySelector
-      // has no way to prefer one over the other: it always returns whichever
-      // comes first in DOM order, which is the TREE's copy (it renders above
-      // Recents). Dragging the Recents row then cloned and measured the
-      // TREE's instance instead — same id, different styling (`ROW_HAS_VIEW_IDLE`'s
-      // muted ground, not Recents' own ROW_ACTIVE) — live-verified as the
-      // cause of "when dragging that active row, the background is not
-      // active." `pending.target` is `e.currentTarget` from the exact
-      // `pointerdown` that started this drag (armed in `onPointerDownDrag`
-      // below), so it is never ambiguous. Every OTHER co-dragged subject in a
-      // multi-select still resolves through `elementFor` — this exact
-      // ambiguity is specific to the one row the pointer is actually on.
+      // Measure everything before the first style write; interleaving forces a layout per clone.
+      // The pressed row uses `pending.target`, not `elementFor`: a live chat renders in the tree
+      // and in Recents under one id, and the selector would always pick the tree's copy.
       const elements = subjects
         .map((s) => (s.id === pending.row.id ? pending.target : rowDom.elementFor(s)))
         .filter((el): el is HTMLElement => el !== null)
@@ -272,20 +217,15 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
           { top: scrollerBox.top, height: scrollerBox.height },
           {
             onScrolled: () => {
-              // The tree moved under the pointer, so the row beneath it did
-              // too. Re-resolving inside the scroller's own frame is what
-              // keeps a viewport-positioned line honest with no scroll
-              // listener firing through every ordinary drag.
+              // The tree moved under a still pointer, so re-resolve within the scroller's own
+              // frame — keeps the line honest without a scroll listener on every drag.
               publish(hitTest(drag.pointer.x, drag.pointer.y, drag.subjects))
             },
             onRunningChange: (running) => setDropLineTracking(dropLineRef.current, running),
           },
         )
-        // The list stays put under the wheel for as long as this drag is
-        // live — only a pointer held near the top/bottom edge (the edge
-        // scroller above, which writes scrollTop directly) may move it.
-        // Reuses the same stable `preventDefault` identity `selectstart`
-        // already does, so add/removeEventListener pair up the same way.
+        // The wheel can't move the list during a drag; only the edge scroller (which writes
+        // scrollTop directly) may. Same stable `preventDefault` so add/remove pair up.
         scroller.addEventListener('wheel', preventDefault, { passive: false })
         wheelLockScrollerRef.current = scroller
       }
@@ -307,12 +247,9 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     }
 
     function onPointerMove(e: MouseEvent): void {
-      // A release delivered outside the webview (the pointer left the window
-      // before crossing SIDEBAR_DRAG_THRESHOLD_PX / before setPointerCapture)
-      // never reaches window as pointerup — this is the next event window
-      // DOES get, and `buttons` already reads 0, so treat it as the missed
-      // release rather than leave `selectstart` blocked document-wide until
-      // reload (reported live: "text selection doesn't work anywhere").
+      // A release outside the webview never reaches window as pointerup; this is the next event
+      // window gets, with `buttons` already 0. Treat it as the release, or `selectstart` stays
+      // blocked document-wide until reload.
       if ((pendingRef.current || draggingRef.current) && e.buttons === 0) {
         pendingRef.current = null
         if (draggingRef.current) endDrag()
@@ -334,10 +271,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       // position first would make every move a read-after-write reflow.
       const hit = hitTest(e.clientX, e.clientY, drag.subjects)
 
-      // Edge scroll only while the pointer is still over the tree/band's own
-      // column. The band is a function of Y alone, so a row carried sideways
-      // onto the editor pane would otherwise keep the list running out from
-      // under a drag that is trying to hold still over a pane zone.
+      // Edge scroll only while the pointer is over the tree/band's own column: the band depends
+      // on Y alone, so a row carried sideways onto a pane would keep the list scrolling.
       const span = scrollerXRef.current
       if (span !== null && e.clientX >= span.left && e.clientX <= span.right) {
         edgeScrollerRef.current?.update(e.clientY)

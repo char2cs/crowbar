@@ -1,10 +1,7 @@
 import { PointerSensor } from '@dnd-kit/core'
 
-// Skips drag activation when the pointer event originates on a [data-no-dnd]
-// element (e.g. the tab close button). Without this, DndKit captures the pointer
-// on the close button's pointerdown, which fires handleDragStart → handleTabSelect
-// before the close button's onClick can run, causing the tab to be activated
-// instead of closed.
+// Skips drag activation from a [data-no-dnd] element (e.g. a tab's close button); otherwise the
+// drag start selects the tab before the close button's onClick runs.
 export class NoDndPointerSensor extends PointerSensor {
   static activators = [
     {

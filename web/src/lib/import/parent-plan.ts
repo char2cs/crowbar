@@ -14,14 +14,9 @@ export interface ImportPlan {
   parentCount: number
 }
 
-/**
- * Mirrors the server import resolver's parenting for the dialog's hint. For each
- * selected branch it walks the open-PR base chain, counting ancestors that would
- * be CREATED — excluding already-imported branches (hasWorkspace), protected
- * branches, the default branch, and the selected branches themselves (those are
- * the importCount). Advisory only; the server re-resolves authoritatively on
- * import.
- */
+// Mirrors the server import resolver's parenting for the dialog's hint: per selected branch, walks
+// the open-PR base chain counting ancestors that would be CREATED (not already imported, protected,
+// the default branch, or selected). Advisory; the server re-resolves on import.
 export function computeImportPlan(
   selected: string[],
   prLinks: PRLink[],
@@ -31,8 +26,7 @@ export function computeImportPlan(
   const base = new Map<string, string>()
   for (const l of prLinks) if (l.head && l.base) base.set(l.head, l.base)
 
-  // One pass builds both sets: a branch can be imported AND protected, and the
-  // two filter+map chains this replaces walked `branches` four times over.
+  // One pass builds both sets: a branch can be imported AND protected.
   const imported = new Set<string>()
   const protectedSet = new Set<string>()
   for (const b of branches) {

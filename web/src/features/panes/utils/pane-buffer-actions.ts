@@ -13,12 +13,8 @@ export function ensureBufferInPane(
   }
 
   if (!pane.editorTabIds.includes(bufferId)) {
-    // addEditorTabToPane takes the tab's own EditorTabBase-shaped object (only
-    // its `id` is read today, but the shape is the contract) — this utility
-    // only ever receives a bare id, so it can add a REFERENCE to a buffer
-    // that already exists in state.buffers, but has nothing to construct a
-    // new one from. It also always activates whatever it adds, so `setActive`
-    // can only suppress activation on the "already present" branch below.
+    // Given only an id, this can reference an existing buffer but never construct one.
+    // addEditorTabToPane always activates, so `setActive` only matters when already present.
     const tab = state.buffers.find((b) => b.id === bufferId)
     if (tab) paneActions.addEditorTabToPane(paneId, tab)
   } else if (setActive) {

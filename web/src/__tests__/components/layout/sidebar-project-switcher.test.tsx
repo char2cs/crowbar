@@ -108,8 +108,7 @@ describe('SidebarProjectSwitcher', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  // The retired tree project row held the space's rename and icon; the active
-  // project's name and mark here are their home now.
+  // The active project's name and mark are where the space is renamed and its icon edited.
   describe('editing the active project', () => {
     const renderActive = () =>
       render(

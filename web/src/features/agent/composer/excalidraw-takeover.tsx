@@ -32,11 +32,9 @@ interface ExcalidrawTakeoverProps {
   initialScene?: ParsedExcalidrawScene
 }
 
-/**
- * Covers only this chat's pane. Escape is left to Excalidraw, which uses it itself.
- * One id serves both the fence tag and the PNG's upload, so never let the upload
- * mint its own; an oversized scene uploads as a file, but the PNG always inserts.
- */
+/** Covers only this chat's pane; Escape is Excalidraw's own. The fence tag and the PNG share one
+ *  id, so the upload never mints its own; an oversized scene uploads as a file, the PNG always
+ *  inserts. */
 export function ExcalidrawTakeover({
   wsId,
   chatId,

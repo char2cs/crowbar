@@ -6,11 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
 
-/**
- * Lets SettingRows report whether they match the active settings search, so a
- * Section can hide its heading once every row inside it is filtered out.
- * `visible: null` unregisters a row (unmount).
- */
+// Rows report whether they match the settings search, so a Section can hide its heading when
+// every row is filtered out. `visible: null` unregisters a row.
 const SectionRowVisibilityContext = React.createContext<
   ((rowId: string, visible: boolean | null) => void) | null
 >(null)
@@ -136,16 +133,9 @@ export function SettingRow({
     }
   }, [description, descriptionId, getPrimaryInteractive, labelId])
 
-  // Mouse-only convenience delegation: clicking anywhere on the row forwards
-  // activation to the row's primary control, unless the click already landed
-  // on a real interactive descendant (passthroughSelector) — those handle
-  // their own clicks natively and this would double-fire. There is
-  // deliberately NO keyboard counterpart and no row tabIndex: the primary
-  // control is itself natively tabbable (button/input/select/switch) and the
-  // useLayoutEffect above wires the row's label/description to it via
-  // aria-labelledby/aria-describedby, so keyboard users Tab straight to the
-  // labeled control — a row-level tab stop would only double every stop in
-  // Settings.
+  // Mouse-only: a row click forwards to its primary control unless it hit an interactive
+  // descendant (would double-fire). No keyboard twin: the control is tabbable and labelled via
+  // aria-labelledby, so a row tab stop would double every stop in Settings.
   const handleRowClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
 
@@ -208,12 +198,8 @@ export function SettingRow({
 
   return (
     <div
-      // Presentation, not group: this row div is a mouse-only click-to-focus
-      // hit area around its real control (see handleRowClick) — the same
-      // delegation pattern as InputGroupAddon. The accessible name/description
-      // live on the control itself (aria-labelledby/aria-describedby wired in
-      // the useLayoutEffect above), so this wrapper carries no semantics of
-      // its own and needs no aria attributes or keyboard handler.
+      // A mouse-only hit area around its real control (handleRowClick), which carries the
+      // accessible name and description, so the wrapper has no semantics of its own.
       role="presentation"
       className={cn(
         'flex items-center justify-between gap-3 rounded-lg px-1 py-2 select-none transition-colors hover:bg-muted/50 focus-within:bg-muted/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2',

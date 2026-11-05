@@ -33,14 +33,8 @@ interface ComposerFieldProps {
 // and spreads the caller's style after its own defaults.
 const DOCK_STYLE = { minHeight: COMPOSER_LINE_HEIGHT } satisfies CSSProperties
 
-/**
- * The composer's text field: one line of markdown that grows.
- *
- * Rich rather than a textarea, because what is typed here IS markdown — the
- * agent reads it as markdown, and the transcript renders the answer as markdown.
- * A box that showed `**bold**` as four characters and five letters was the one
- * place in the conversation where the same text meant two different things.
- */
+// The composer's one-line field that grows. Rich, not a textarea: the agent reads it and the
+// transcript renders it as markdown, so the box shows `**bold**` the way the rest of the chat does.
 export function ComposerField({
   wsId,
   chatId,

@@ -7,11 +7,8 @@ interface PendingChatSurfacesState {
   end: (paneId: string) => void
 }
 
-/**
- * Which chat panes are still waiting for their surface (a lazy chunk plus its
- * first render). Parked views hold back until it is empty, so their mount work
- * cannot take the main thread from the chat the user is waiting on.
- */
+/** Chat panes still waiting for their surface (chunk plus first render). Parked views hold back
+ *  until it empties, so their mounting never takes the main thread from the awaited chat. */
 export const pendingChatSurfaces = createStore<PendingChatSurfacesState>()((set) => ({
   pending: new Set(),
   begin: (paneId) =>

@@ -1,14 +1,6 @@
-/**
- * `SidebarTreeChrome` hoists `RepoImportDialog`/`SidebarRowContextMenu` so
- * they mount ONCE at the ide-shell level rather than once per
- * `SpaceScroller` project panel. "New Project" used to live here too, as a
- * tree-foot row; Task 5 relocated it to a trailing `+` mark in
- * `SidebarProjectHeader`'s window-chrome row (spec §4.1) and lifted its
- * modal state up to `IDEShell` — this component no longer owns any of that.
- * `RemovalTray` doesn't either: it mounts once in the IDE shell. Neither does
- * `RenameDialog`: the right-click menu's Rename item now starts the same
- * inline editor double-click does, so there is no modal left to hoist.
- */
+// `SidebarTreeChrome` mounts `RepoImportDialog` and `SidebarRowContextMenu` ONCE at the shell
+// level, not per `SpaceScroller` panel. New Project, RemovalTray and rename are not its concern:
+// they live in the shell, the shell, and the inline editor.
 import { createRef } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -49,13 +41,8 @@ describe('the leftover "New Project" row is gone', () => {
   })
 })
 
-// Task 11: double-click now enters INLINE rename mode (a real input drawn by
-// SidebarRow itself, several components away) rather than opening the modal
-// RenameDialog Task 4 wrongly wired here — SidebarTreeChrome doesn't render
-// any row markup, so it can't draw the input; it only has to start the
-// inline-rename store, which the row this DOM belongs to reads from
-// independently. See sidebar-row.test.tsx's own "inline rename" suite for
-// the input itself.
+// Double-click only starts the inline-rename store; SidebarRow, several components away, draws
+// the input (sidebar-row.test.tsx's "inline rename" suite).
 describe('double-click-to-rename', () => {
   const rows: SidebarRow[] = [
     {

@@ -24,19 +24,9 @@ export interface SlashCatalogOptions {
   active: boolean
 }
 
-/**
- * The slash picker's catalogue.
- *
- * PRESAVED, not lazy: the probe can shell out to the CLI and take seconds, so
- * it fetches once as soon as the chat is active — before anybody has typed a
- * `/` — and caches whatever comes back. Opening the picker (the one moment the
- * user actually goes into it) asks again in the background, in case skills
- * changed since, but the refresh is silent: it never blanks what is already
- * cached, so the picker has no loading state to show and never shows a
- * spinner. The catalogue is incomplete by declaration on every provider
- * Crowbar ships (see `SlashCatalog.completeness`), which is why nothing here
- * treats an empty result as an error either.
- */
+// The slash picker's catalogue, fetched as soon as the chat is active since the probe can take
+// seconds. Opening the picker refreshes it silently, never blanking the cache, so there is no
+// loading state; catalogues are partial by declaration, so an empty one is not an error.
 export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatalogOptions) {
   const [state, setState] = useState<SlashCatalogState>({ state: 'closed' })
   const [open, setOpen] = useState(false)
@@ -70,12 +60,8 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     setOpen(false)
   }, [])
 
-  // A chat/provider switch invalidates whatever is cached — those are a
-  // different CLI's skills, never shown stale under a menu that looks like
-  // it belongs to the one now running.
-  // This hook is called from AgentChatView, which already remounts on chatId
-  // (key={wsId:chatId}) — but not on providerId alone, which this also depends
-  // on, so a key cannot fully replace this reset.
+  // Another chat or provider means another CLI's skills. AgentChatView's key remounts on chatId
+  // but not on providerId alone, so a key cannot replace this reset.
   useEffect(() => {
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
     setOpen(false)

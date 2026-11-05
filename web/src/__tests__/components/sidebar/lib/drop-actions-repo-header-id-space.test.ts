@@ -1,35 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { stubDropBoundary } from '@/__tests__/__fixtures__/drop-boundary'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 
-// REGRESSION (restyle v2, K3): a repo header row is RENDERED with the id of
-// the chat that owns its default workspace (`deriveRows`
-// `resolveHomeOwnerId`: `defaultOwningChatId || defaultWorkspaceId`), but
-// `projectHomeContainerSiblings` (drop-actions.ts) lists every sibling repo
-// by `defaultWorkspaceId`. For any repo whose main checkout has ever been
-// chatted in, the two ids differ, so a repo dropped before/after ANOTHER
-// repo's header never finds its target in `rest` and `insertIndex` clamps to
-// the end: the PATCH goes out (204) with the wrong index and the row does not
-// move. Repo-vs-home-chat drops are unaffected (a chat's row id IS its chat
-// id), which is why the existing suite — whose repos carry no
-// `defaultOwningChatId` — never saw it.
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
-}))
-vi.mock('@/lib/api/sidebar-placement', () => ({
-  placeWorkspace: vi.fn(),
-  placeFolder: vi.fn(),
-  placeHomeFolder: vi.fn(),
-  placeRepo: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/lib/api/workspace', () => ({ reparentWorkspace: vi.fn() }))
-vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPlacement: vi.fn() }))
-const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  getHomeWorkspaceId,
-  getHomeOwningChatId: () => null,
-}))
+// A repo header row is rendered with the id of the chat owning its default workspace, so a
+// header-to-header drop must index siblings by that row id, not by `defaultWorkspaceId`.
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
@@ -56,9 +30,10 @@ const repo = (n: number): Repo => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  stubDropBoundary()
   seedRepos([repo(1), repo(2), repo(3)])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  getHomeWorkspaceId.mockReturnValue('home-ws-1')
+  vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
   seedHomeTree('proj-1', {
     folders: [],
     chats: [

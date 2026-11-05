@@ -15,17 +15,12 @@ export interface UseReviewFilesSummaryResult {
   loaded: boolean
 }
 
-// Stable-empty rule: one module-level empty array kept referentially stable
-// across renders and workspaces (see use-review-diff.ts).
+// One module-level empty array, referentially stable across renders and workspaces.
 const EMPTY_FILES: GitDiff[] = []
 
-/**
- * The files-only branch-review summary. The workspace's own scope reads the
- * workspace store's `reviewFiles`, which the git feed keeps current — the one
- * fetch per git tick, shared with the sidebar tree. A commit scope describes two
- * immutable trees, so it is fetched once on its own and takes no ticks.
- * A null wsId disables all fetching and returns empty.
- */
+/** The files summary. The branch scope reads the store's `reviewFiles` (one fetch per git tick,
+ *  shared with the sidebar); a commit scope is immutable, so fetched once. A null wsId fetches
+ *  nothing and returns empty. */
 export function useReviewFilesSummary(
   wsId: string | null,
   commit?: string,

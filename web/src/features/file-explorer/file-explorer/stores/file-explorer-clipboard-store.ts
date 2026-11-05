@@ -42,18 +42,9 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
     cut: async (entries: ClipboardEntry[], wsId: string | null) => {
       set({ clipboard: { entries, operation: 'cut', wsId } })
     },
-    /**
-     * Complete the staged operation into `targetDirectory` (workspace-relative;
-     * '' is the workspace root) and report one result per entry.
-     *
-     * This was a `return []` stub in crowbar-bridge behind a "FUTURE:" comment,
-     * so Cmd+X then Cmd+V greyed a node out and then moved nothing, with no
-     * error — a completed move the user was shown but never got.
-     *
-     * A cut is an atomic `rename`, never copy-then-delete: rename cannot leave
-     * the tree half-moved, and the daemon refuses an occupied destination on
-     * BOTH verbs (409), so a paste can never clobber an existing file.
-     */
+    /** Complete the staged operation into `targetDirectory` ('' is the workspace root), one
+     *  result per entry. A cut is an atomic `rename`, never copy-then-delete, so nothing is
+     *  left half-moved; the daemon 409s an occupied destination on both verbs: no clobbering. */
     paste: async (targetDirectory: string, wsId: string | null) => {
       const clipboard = get().clipboard
       if (!clipboard || clipboard.entries.length === 0) return []
@@ -88,10 +79,8 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
         }
       }
 
-      // A cut entry is CONSUMED by the move that completed it — re-pasting it
-      // would only 404 on a source that has moved. Entries whose move failed
-      // stay staged so the user can retry after fixing the collision. A copy
-      // stays staged in full: pasting a copy twice is a legitimate action.
+      // A completed cut entry is consumed (re-pasting would 404 on the moved source); failed ones
+      // stay staged for a retry. A copy stays staged in full: pasting it twice is legitimate.
       if (clipboard.operation === 'cut') {
         const failed = new Set<string>()
         for (const r of results) if (!r.success) failed.add(r.source_path)

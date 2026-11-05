@@ -45,12 +45,8 @@ export interface WorkAtRisk {
   unmergedCommits: number
 }
 
-/**
- * The work a delete was refused over, or null for any other failure. The
- * daemon refuses a delete that would destroy work existing nowhere else until
- * it is resent with the discard header, which only a client that has shown the
- * user this list may send.
- */
+/** The work a delete was refused over, or null for any other failure. The daemon refuses such a
+ *  delete until resent with the discard header, which only a client that showed this may send. */
 export function workAtRiskOf(err: unknown): WorkAtRisk[] | null {
   if (!(err instanceof ApiError) || err.problem.code !== 'work_at_risk') return null
   const list = (err.data as { workAtRisk?: WorkAtRisk[] } | undefined)?.workAtRisk

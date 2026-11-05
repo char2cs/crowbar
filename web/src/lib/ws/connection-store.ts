@@ -4,12 +4,9 @@ import type { Problem } from '@/lib/errors/problem'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
-// Backend connection state derived from the wsManager's channels:
-// - 'idle': no channels have reported yet (nothing to say about the backend)
-// - 'connected': at least one channel has an open socket
-// - 'migrating': no socket is open and the daemon said it is preparing its home
-// - 'disconnected': channels exist but every socket is closed / retrying
-// A halted daemon is not a connection status: the daemon-halt store owns it.
+// Backend connection state from the wsManager's channels: 'idle' (none reported), 'connected'
+// (a socket is open), 'migrating' (none open; the daemon is preparing its home), 'disconnected'
+// (all closed/retrying). A halted daemon is the daemon-halt store's, not a status.
 export type ConnectionStatus = 'idle' | 'connected' | 'disconnected' | 'migrating'
 
 /** What a daemon that is not serving yet says it is doing. */

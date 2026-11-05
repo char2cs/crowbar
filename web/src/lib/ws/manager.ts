@@ -90,22 +90,17 @@ function isLocal(endpoint: string): boolean {
 export interface WSManager {
   subscribe(endpoint: string, cb: Callback): () => void
   send(endpoint: string, data: unknown): void
-  /**
-   * Resolves once `endpoint`'s socket is open, at once if it is. Rejects, with the
-   * transport's failure as its cause, when the one attempt it waits on closes first:
-   * the one in flight, or the reconnect a dropped socket makes after its backoff
-   * (≤30s). A permanent refusal is not told apart; a caller wanting longer awaits again.
-   */
+  /** Resolves once `endpoint`'s socket is open. Rejects with the transport's failure when the one
+   *  attempt it waits on (in flight, or the reconnect after backoff, ≤30s) closes first; a caller
+   *  wanting longer awaits again. */
   opened(endpoint: string): Promise<void>
   /** `listener` hears each drop of `endpoint`'s open socket while it has subscribers. */
   onDrop(endpoint: string, listener: () => void): () => void
 }
 
-// Closing a socket that is still CONNECTING makes the browser log
-// "WebSocket is closed before the connection is established" (StrictMode
-// mounts tear channels down before the handshake finishes). Defer the close
-// until the socket opens so the console stays clean; a socket that errors
-// while CONNECTING closes itself and needs no action.
+// Closing a CONNECTING socket makes the browser log "closed before the connection is established"
+// (StrictMode tears channels down mid-handshake), so defer the close until it opens. A socket that
+// errors while CONNECTING closes itself.
 function closeSocketQuietly(socket: WSLike): void {
   if (socket.readyState === WebSocket.CONNECTING && socket.addEventListener) {
     socket.addEventListener('open', () => socket.close(), { once: true })
@@ -262,11 +257,9 @@ export function createWSManager(): WSManager {
 
   return {
     subscribe(endpoint, cb) {
-      // The active transport may not be able to carry a WebSocket (e.g. the
-      // desktop's crowbar:// unix-socket scheme). Constructing one throws and
-      // crashes startup, so skip the live channel entirely — mark it gone so
-      // the UI reflects "no live stream" rather than a perpetual "connecting".
-      // Nor is there a stream from a local daemon the install does not have.
+      // A transport that can't carry a WebSocket throws on construction and would crash startup:
+      // mark the channel gone so the UI shows "no live stream", not "connecting". Likewise with no
+      // local daemon in this install.
       if (!isWebSocketCapable() || (!hasLocalDaemon() && isLocal(endpoint))) {
         reportChannelGone(endpoint)
         return () => {}

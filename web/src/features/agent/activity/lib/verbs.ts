@@ -1,7 +1,5 @@
-/**
- * Flavour text, not telemetry: no provider reports a spinner verb on any channel.
- * Kept long on purpose — a short loop is recognised within one turn and reads as stuck.
- */
+// Flavour text, not telemetry: no provider reports a spinner verb. Long on purpose: a short
+// loop is recognised within one turn and reads as stuck.
 const VERBS = [
   'Accomplishing',
   'Actioning',

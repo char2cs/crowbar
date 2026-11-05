@@ -19,16 +19,9 @@ export interface SpawnErrorNotice {
   description: string
 }
 
-/** Turn a failed spawn into what to SAY about it.
- *
- *  Pure and separately tested: every spawn route (new chat, resume, provider switch)
- *  goes through the same daemon path and so fails the same ways, and all three used to
- *  swallow the failure into console.error — which is exactly how a packaged build
- *  shipped with EVERY chat click doing nothing at all, with no way for the user to
- *  discover that the CLI simply was not installed.
- *
- *  `action` is the verb, already phrased for the sentence it lands in ("start",
- *  "resume", "switch"). */
+/** Turn a failed spawn into what to SAY about it. Every spawn route (new chat, resume, switch)
+ *  fails the same ways through one daemon path, and a swallowed failure hides e.g. a missing CLI.
+ *  `action` is the verb as phrased in the sentence ("start", "resume", "switch"). */
 export function describeSpawnError(
   err: unknown,
   providerName: string,

@@ -1,11 +1,6 @@
 // Stub
 
-/**
- * Strongly-typed map of all CSS design tokens.
- * camelCase keys map to kebab-case CSS variable names:
- *   syntaxKeyword → --syntax-keyword
- *   appScrollbarThumb → --app-scrollbar-thumb
- */
+/** camelCase keys map to kebab-case CSS variables: syntaxKeyword -> --syntax-keyword. */
 export interface ThemeTokens {
   // shadcn base tokens
   background: string

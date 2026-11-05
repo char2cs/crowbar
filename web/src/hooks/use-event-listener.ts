@@ -1,10 +1,7 @@
 import { type RefObject, useEffect, useRef } from 'react'
 
-/**
- * Subscribes `handler` to `eventName` on `target.current` (window when omitted)
- * for the component's lifetime. The latest handler is always called, so an
- * inline arrow does not resubscribe on every render.
- */
+/** Listens on `target.current` (window when omitted). The latest handler is always called, so an
+ *  inline arrow doesn't resubscribe on every render. */
 export function useEventListener<K extends keyof DocumentEventMap>(
   eventName: K,
   handler: (event: DocumentEventMap[K]) => void,

@@ -52,12 +52,8 @@ export interface BranchReviewState {
   mergeStrategy: MergeStrategy
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   conversations: ReviewConversation[]
-  /** The changed file the review surface has been asked to scroll to, by PATH.
-   *
-   *  A path, not an index or a composite key: the surface is fed by the files
-   *  summary and addresses everything by path, and the index-based key this
-   *  replaced was resolved against a whole-diff cache that no longer exists —
-   *  so every click silently resolved to nothing. */
+  /** The changed file the review surface should scroll to. A path, not an index: the surface is
+   *  fed by the files summary and addresses everything by path. */
   revealFilePath: string | null
   /** Bumped on every request so clicking the SAME file twice reveals it again
    *  (the path alone would compare equal and the effect would not re-run). */

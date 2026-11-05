@@ -10,13 +10,9 @@ export function isWindowEdge(
   sidebarSide: 'left' | 'right',
   sidebarOpen: boolean = true,
 ): boolean {
-  // The sidebar only shields a pane from the window frame while it is actually
-  // on screen. Collapsed, the pane IS the window edge — and asking only which
-  // SIDE the sidebar is on, never whether it is there, left a rounded corner and
-  // a border hard against the frame whenever the sidebar was hidden. That corner
-  // lands on the window's own rounded, vibrant edge, and compositing it cost
-  // ~98ms per frame in WKWebView: 8ms frames became 106ms (125fps → 9fps) for
-  // as long as the sidebar stayed hidden.
+  // The sidebar shields a pane only while it is on screen; collapsed, the pane IS the window
+  // edge. A rounded, bordered corner against the window's vibrant frame costs WKWebView
+  // ~100ms per composited frame.
   const shielded = (side: 'left' | 'right') => sidebarOpen && sidebarSide === side
   switch (edge) {
     case 'top':
@@ -30,11 +26,8 @@ export function isWindowEdge(
   }
 }
 
-/**
- * @param showActiveBorder Draw the accent ring. NOT the same as "this pane is active":
- *   with a single pane on screen there is nothing to distinguish it FROM, so the ring is
- *   pure noise. The caller decides (see useVisiblePaneCount) — this only draws.
- */
+/** @param showActiveBorder Draw the accent ring — not "this pane is active": a lone pane has
+ *   nothing to stand out from, so the caller decides (useVisiblePaneCount); this only draws. */
 export function buildPaneContentStyle(
   position: PanePosition,
   sidebarSide: 'left' | 'right',
@@ -42,33 +35,18 @@ export function buildPaneContentStyle(
   sidebarOpen: boolean = true,
 ): CSSProperties {
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide, sidebarOpen)
-  // Constant width so toggling never shifts layout. Neutral --border at rest
-  // (Athas's glass-island keeps the same border/70 whether or not it's the
-  // focused pane), --secondary only for the active-pane accent.
+  // Constant width so toggling never shifts layout; neutral --border at rest,
+  // --secondary only for the active-pane accent.
   const BORDER = showActiveBorder ? '1px solid var(--secondary)' : '1px solid var(--border)'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'
-  // §7.4: inset on every edge, given up wherever the pane touches the outer
-  // boundary of the layout area at all — a real window edge OR a side the
-  // sidebar is shielding (radius/border stay put there; only the gutter
-  // drops, so the sidebar and the pane sit flush with no gap between them).
-  // Top has no shielding concept, so it always keeps its own inset.
-  //
-  // 1px, not 4px: two split neighbours are ALSO separated by their own
-  // resize sash (`PaneSash`, 6px wide) sitting between them as its own flex
-  // sibling — 4px margin + 6px sash + 4px margin came to 14px, reported
-  // live as "huge" next to the crisp 8px inset the real window top gets.
-  // 1px + 6px sash + 1px lands on that SAME 8px — one gutter value used
-  // consistently, rather than the pane-splitting sash silently adding its
-  // own width on top of it.
+  // The gutter drops on any side touching the layout's outer boundary (window edge or the
+  // sidebar), so they sit flush (§7.4). 1px because the 6px PaneSash sits between split
+  // neighbours: 1 + 6 + 1 matches the 8px inset at the window top.
   const GUTTER = '1px'
-  // The pane actually touching the window's top — not a split neighbour
-  // stacked below one — matches the gap the header row's OWN icons (traffic
-  // lights, back/forward, sidebar toggle) sit at above the window's top
-  // edge, not that row's full height. Those icon-sm buttons render 28px
-  // (button-variants.ts `sm:size-7`) centered in the 44px/34px row
-  // (SidebarProjectHeader), so half the leftover height is that inset.
+  // A pane at the window top is inset like the header row's 28px icon buttons, which sit
+  // centred in the chrome row — half its leftover height.
   const HEADER_ROW_HEIGHT = CHROME_ROW_HEIGHT_PX
   const HEADER_ICON_HEIGHT = 28
   const TOP_GUTTER = position.atTop ? `${(HEADER_ROW_HEIGHT - HEADER_ICON_HEIGHT) / 2}px` : GUTTER
@@ -89,30 +67,9 @@ export function buildPaneContentStyle(
   }
 }
 
-/**
- * The IDE shell's own border. Only the FACING edge — the one genuine
- * internal seam, between this ONE pane's own chat/editor halves — ever
- * draws one. Every other edge draws NONE: the shell extends to the pane's
- * own full width or height on those sides (side-by-side: full height, so
- * its top/bottom are the exact same physical line as the shared box's own
- * top/bottom; stacked: full width, same story for left/right), so a border
- * there is never a second, different boundary — it is the SAME line the
- * shared box's own border already draws, just inches inside it. Drawing it
- * twice read as a doubled/thicker line running the view's entire non-facing
- * length, worst right at the window's own real top edge: the shared box's
- * own top is NEVER a window edge (see `isWindowEdge`'s own `case 'top'`),
- * so that copy was ALWAYS visible, on every pane, regardless of position.
- * Reported live, in both orientations: a stray top border on a side-by-side
- * shell, and a stray side border on a stacked one.
- *
- * NEVER rounded, on any corner — the shell reads as a flat-edged card
- * regardless of whether the shared box it sits inside happens to be
- * rounded there (no `outer` param needed for that reason: nothing here
- * depends on the shared box's own computed style any more). Squaring every
- * one of its own corners this way also means there is never a curve to
- * double against the shared box's own (a rounded outer corner and a square
- * inner one just nest cleanly).
- */
+// The IDE shell borders only the seam facing its pane's chat: its other edges coincide with the
+// pane box's own border, and drawing them would double that line. Never rounded, so it nests
+// inside the box's corners whatever their radius.
 export function buildInnerViewStyle(facingChatEdge: 'left' | 'right' | 'top'): CSSProperties {
   const BORDER = '1px solid var(--border)'
   const ZERO = '0'

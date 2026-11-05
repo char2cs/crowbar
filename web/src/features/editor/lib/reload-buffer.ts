@@ -6,10 +6,8 @@ import { cancelPendingWrites, findEditorBuffer, type PathedBuffer } from './buff
 
 export type ReloadOutcome = 'reloaded' | 'kept' | 'failed'
 
-/**
- * Replace a buffer's text with what is on disk, as one undoable edit. A dirty buffer
- * reloads only if `confirmDiscard` agrees; edits typed during the read abandon it.
- */
+/** Replace a buffer's text with what is on disk as one undoable edit. A dirty buffer reloads only
+ *  if `confirmDiscard` agrees; edits typed during the read abandon it. */
 export async function reloadBufferFromDisk(
   bufferId: string,
   confirmDiscard: (buffer: PathedBuffer) => boolean,

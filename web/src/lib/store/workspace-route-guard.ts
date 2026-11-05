@@ -11,11 +11,8 @@ export interface WorkspaceRouteKnowledge {
   merging: boolean
 }
 
-/**
- * Whether an `/ide/…/<wsId>` route names a workspace that does not exist.
- * Only the daemon's answer can say so: before the projects scope's snapshot the tree is empty
- * because nothing is known yet, not because the workspace is gone.
- */
+// Whether an `/ide/…/<wsId>` route names a workspace that doesn't exist. Only the daemon can say:
+// before the projects snapshot the tree is empty because nothing is known, not because it's gone.
 export function shouldRedirectUnknownWorkspace(
   route: { projectId: string; repoId: string; wsId: string | undefined },
   known: WorkspaceRouteKnowledge,
@@ -26,11 +23,8 @@ export function shouldRedirectUnknownWorkspace(
   return known.synced
 }
 
-/**
- * Whether a merge into its parent runs on `wsId`. Its fold drops the child before
- * the terminal frame, and the merge then leads to the parent. A fold frame that
- * lands after the terminal one still loses to this guard's redirect home.
- */
+// Whether a merge into its parent runs on `wsId`: its fold drops the child before the terminal
+// frame and the merge then leads to the parent. A fold landing after it loses to the redirect home.
 export function mergeRunsOn(ops: Readonly<Record<string, Operation>>, wsId: string): boolean {
   return Object.values(ops).some(
     (op) =>

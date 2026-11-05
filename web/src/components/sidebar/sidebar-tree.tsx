@@ -18,19 +18,15 @@ interface SidebarTreeProps {
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  /** The panel's own scroll container — what an edge-held drag scrolls
-   *  (Task 21). Shared with the Recents row, since the two sit in one scroll
-   *  region per space. */
+  /** The panel's scroll container, which an edge-held drag scrolls; shared with the Recents
+   *  row, since both sit in one scroll region per space. */
   scrollRef: React.RefObject<HTMLElement | null>
   onDrop: (subjects: SidebarRowType[], target: SidebarRowType, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRowType[], paneId: string, zone: SidebarPaneZone) => void
 }
 
-/**
- * The component `renderRow` defers to, so hooks run per row: it subscribes one
- * row to the two live facts `deriveRows` seeds inert, pane membership and
- * the chat's server-folded `working`.
- */
+// The component renderRow defers to, so hooks run per row: it subscribes one row to the two live
+// facts deriveRows seeds inert, pane membership and the chat's server-folded `working`.
 export function SidebarTreeRow({
   row,
   ...rest
@@ -45,20 +41,8 @@ export function SidebarTreeRow({
   return <SidebarRow row={{ ...row, hasView, working }} {...rest} hasViewIdle />
 }
 
-/**
- * Walks a flat, parentId-linked `SidebarRow[]` into the real nested tree —
- * spec §4: one project's rows render as siblings, with no rule between them
- * (the horizontal separators that used to divide projects are gone now that a
- * space holds exactly one).
- *
- * Every row is a container (spec §3.1: "a container can always be given
- * something"), so every row gets the fold chevron. A container currently
- * holding nothing renders the one affordance row (§3.5) in place of its
- * children, rather than nothing.
- *
- * Fold state lives in the tree UI store, which survives the remounts local
- * component state would not.
- */
+// Walks flat, parentId-linked rows into the nested tree (spec §4). A row with children gets
+// the fold chevron; fold state lives in the tree UI store, which survives remounts.
 export function SidebarTree({
   rows,
   onOpen,
@@ -72,9 +56,7 @@ export function SidebarTree({
 
   const { roots, childrenByParent } = sidebarRowTree(rows)
 
-  // Single-row drags only — the new unified tree has no multiselect yet
-  // (Task 8 left `sidebar-selection.ts` orphaned), so a drag always carries
-  // exactly the grabbed row.
+  // Single-row drags only: the unified tree has no multiselect yet.
   const drag = useSidebarDrag({
     scrollRef,
     subjectsFor: (rowId) => {
@@ -99,12 +81,7 @@ export function SidebarTree({
           onOpen={onOpen}
           onTrash={onTrash}
           onCreate={onCreate}
-          // Childless only ever renders nothing below itself regardless of
-          // fold state (see the comment just below — the ghost ISN'T there
-          // to expand into any more), so the chevron offered a toggle with
-          // no visible effect — explicit product correction from the old
-          // "every row is a container" stance (spec §3.1) this used to
-          // follow unconditionally.
+          // A childless row draws nothing below it, so it gets no fold chevron.
           onToggleFold={hasChildren ? (id) => treeUiStore.getState().toggleChatRow(id) : undefined}
           folded={folded}
           dragProps={drag.dragProps(row, { path: childPath, expanded: !folded, hasChildren })}
@@ -112,11 +89,6 @@ export function SidebarTree({
           isNestTarget={drag.nestTargetId === row.id}
           onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}
         />
-        {/* A childless folder used to render a second, unlabeled "ghost" row
-            here just to hold Fork/Thread buttons — removed. A folder's own
-            Fork button now lives on its own row (sidebar-row.tsx), the same
-            place every other kind's already did; there is nothing left for
-            an empty folder to draw underneath itself. */}
         {!folded && hasChildren && children!.map((child) => renderRow(child, depth + 1, childPath))}
       </div>
     )

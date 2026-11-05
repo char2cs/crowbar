@@ -18,11 +18,9 @@ interface UploadAttachmentResponseBody {
   data: { ref: string; fileName: string; size: number; contentType: string }
 }
 
-/**
- * Multipart bytes for a `File` (no host path), or JSON `{path, id}` for a desktop
- * drop the daemon reads itself; a remote daemon cannot read this disk, so a path for
- * a remote chat is read here and sent as bytes. `id` is passed only when the caller must reuse it.
- */
+/** Multipart bytes for a `File`, or JSON `{path, id}` for a desktop drop the daemon reads itself;
+ *  a remote daemon can't read this disk, so a remote chat's path is read here and sent as bytes.
+ *  Pass `id` only when the caller must reuse it. */
 export async function uploadChatAttachment(
   wsId: string,
   chatId: string,

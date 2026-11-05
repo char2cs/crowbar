@@ -2,12 +2,8 @@ import { create } from 'zustand'
 import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
 import { getBlame, type BlameEntry } from '../api/git-blame-api'
 
-/**
- * Per-file blame from the daemon, keyed by workspace + workspace-relative
- * path (sibling worktrees share relative paths). Entries are dropped when the
- * file's buffer closes and invalidated when it is saved, so the map is
- * bounded by the open files.
- */
+/** Per-file blame keyed by workspace + relative path (sibling worktrees share paths). Dropped on
+ *  buffer close and invalidated on save, so it is bounded by the open files. */
 interface GitBlameState {
   blame: Record<string, Loadable<BlameEntry[]>>
 }

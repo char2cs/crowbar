@@ -106,11 +106,9 @@ function recordRun(editor: PlateEditor, run: Omit<FreshRun, 'bornAt'>): void {
 
 const pathKey = (path: Path) => path.join('.')
 
-/**
- * Drops unrenderable runs, but keeps a settled run while any run in its text
- * node still fades: slate-react keys leaves by split index, so dropping one
- * would remount (and restart) every fading leaf after it.
- */
+/** Drops unrenderable runs, but keeps a settled run while any run in its text
+ *  node still fades: slate-react keys leaves by split index, so dropping one
+ *  would remount (and restart) every fading leaf after it. */
 function pruneRuns(editor: PlateEditor, invalidFromBlock: number): void {
   const runs = freshRuns.get(editor)
   if (!runs?.length) return
@@ -144,11 +142,9 @@ function scheduleFadeCleanup(editor: PlateEditor): void {
   )
 }
 
-/**
- * Retires one finished fade, from the real `animationend`. Schedules a
- * redecorate because only re-rendered blocks recompute decorations, and a
- * streaming list re-renders only its last item.
- */
+/** Retires one finished fade, from the real `animationend`. Schedules a
+ *  redecorate because only re-rendered blocks recompute decorations, and a
+ *  streaming list re-renders only its last item. */
 export function settleFreshGeneration(editor: PlateEditor, generation: number): void {
   const settled = settledGenerations.get(editor) ?? new Set<number>()
   if (settled.has(generation)) return
@@ -159,10 +155,8 @@ export function settleFreshGeneration(editor: PlateEditor, generation: number): 
 
 const settledWordCounts = new WeakMap<PlateEditor, Map<number, Set<number>>>()
 
-/**
- * One word of a per-word cascade finished; the generation settles only once
- * every word has reported, since word 0 always finishes first.
- */
+/** One word of a per-word cascade finished; the generation settles only once
+ *  every word has reported, since word 0 always finishes first. */
 export function settleFreshWord(
   editor: PlateEditor,
   generation: number,
@@ -320,11 +314,9 @@ function recordBlockRuns(
   })
 }
 
-/**
- * Applies `next` touching only the blocks that differ — `setValue` would tear
- * down and rebuild every settled paragraph per token. A growing tail becomes
- * one `insert_text`, and the fade is recorded as runs, not document marks.
- */
+/** Applies `next` touching only the blocks that differ — `setValue` would tear
+ *  down and rebuild every settled paragraph per token. A growing tail becomes
+ *  one `insert_text`, and the fade is recorded as runs, not document marks. */
 export function applyStreamedValue(editor: PlateEditor, next: Value): void {
   const prev = editor.children as Value
   const startAt = Math.min(knownStablePrefix.get(editor) ?? 0, prev.length, next.length)
@@ -476,11 +468,9 @@ function paintOriginFor(bornAt: number, now: number): number {
   return now
 }
 
-/**
- * The `animation-delay` to mount with: the word's wait minus time already on
- * screen, so a remount resumes rather than restarts (negative = started that
- * long ago). Call once per mount; clamped at the fade's length.
- */
+/** The `animation-delay` to mount with: the word's wait minus time already on
+ *  screen, so a remount resumes rather than restarts (negative = started that
+ *  long ago). Call once per mount; clamped at the fade's length. */
 export function resumedFadeDelay(leaf: TText): number | null {
   const base = freshLeafDelay(leaf)
   if (base === null) return null

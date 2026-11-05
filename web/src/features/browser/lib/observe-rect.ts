@@ -1,9 +1,6 @@
-/**
- * Calls `onChange` whenever `node` may have moved or resized in the viewport,
- * without polling. A ResizeObserver cannot see a move that keeps the size, so an
- * IntersectionObserver whose root is shrunk to exactly the node's box fires on
- * any shift; it is rebuilt around the new box after each report.
- */
+/** Calls `onChange` whenever `node` may have moved or resized, without polling. ResizeObserver
+ *  misses a same-size move, so an IntersectionObserver rooted exactly on the node's box fires
+ *  on any shift; it is rebuilt around the new box after each report. */
 export function observeRect(node: HTMLElement, onChange: () => void): () => void {
   let layoutWatcher: IntersectionObserver | null = null
 

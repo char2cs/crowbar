@@ -85,10 +85,8 @@ export function createRunnerActions(set: PaneSet): RunnerActions {
   }
 }
 
-/**
- * A pane about to leave as its view's last member takes its tabs with it; the
- * unsaved ones (the only copy of those edits) move to the stage instead.
- */
+/** A pane leaving as its view's last member takes its tabs along, except unsaved ones (the only
+ *  copy of those edits), which move to the stage. */
 function keepUnsavedTabs(state: ViewState & { buffers: PaneContent[] }, paneId: string): void {
   const pane = state.panes[paneId]
   const view = pane.viewId ? state.views[pane.viewId] : undefined

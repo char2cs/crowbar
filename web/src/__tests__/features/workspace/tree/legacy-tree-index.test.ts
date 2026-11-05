@@ -11,8 +11,8 @@ import {
   repoRows,
 } from '@/__tests__/__fixtures__/tree-rows'
 
-// Task 8: the sidebar's "create workspace" affordance mints the workspace AND its first chat in ONE
-// atomic backend call (`POST .../chats {ownWorktree: true}`, create-actions.ts's `handleCreate`).
+// "Create workspace" mints the workspace and its first chat in one atomic call
+// (`POST .../chats {ownWorktree: true}`).
 describe('an atomically-created own-worktree chat', () => {
   it('the fresh workspace and its owning chat fold into ONE row, titled by the chat', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -44,9 +44,8 @@ describe('an atomically-created own-worktree chat', () => {
   })
 })
 
-// The bug rule 6 closes: a regular fork used to render as TWO rows — a `branch`-kind row for the
-// workspace, id'd from the `Workspace` itself, and a SEPARATE `chat`-kind row beneath it for the
-// ordinary conversation (`type: 'chat'`, not `branch`) that owned it.
+// Rule 6: a regular fork is one row, never a `branch` row for the workspace plus a separate `chat`
+// row for the ordinary conversation that owns it.
 describe('an ordinary fork folds into its owning chat', () => {
   it('an ordinary fork with no children renders as ONE branch-styled row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -116,8 +115,7 @@ describe('an ordinary fork folds into its owning chat', () => {
     const rows = repoRows(repo)
 
     expect(rows.filter((r) => r.id !== HOME_ROW_ID)).toHaveLength(2)
-    // Never a `chat`-kind row for either — this is the bug that used to make
-    // this exact case impossible to render correctly at all.
+    // Never a `chat`-kind row for either.
     expect(rows.filter((r) => r.kind === 'chat')).toHaveLength(0)
 
     const parent = rows.find((r) => r.id === 'c-1')
@@ -150,9 +148,8 @@ describe('an ordinary fork folds into its owning chat', () => {
   })
 })
 
-// Task 9's `owningChatOf` (owning_chat.go) files a NEW child directly under its parent workspace's
-// own id — no owning-chat lookup — the instant that parent's `Node{Kind:workspace}` row exists,
-// which is now unconditionally true the moment ANY workspace (locked, home, or an ordinary fork) is
+// `owningChatOf` (owning_chat.go) files a new child directly under its parent workspace's id, a row
+// every workspace (locked, home or fork) has from creation.
 describe('a fresh child parents directly onto the workspace id (Task 9)', () => {
   it('a chat parented onto a locked branch’s raw workspace id resolves under its folded row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -177,8 +174,7 @@ describe('a fresh child parents directly onto the workspace id (Task 9)', () => 
   })
 })
 
-// Live-reported regression: an imported repo ("athas") drew a SECOND, unlabeled row beside its real
-// home row — a bare branch glyph with Thread/Fork/X and no text at all.
+// An imported repo whose repo.workspaces includes its home must not draw a second, unlabeled row.
 describe('the repo home never doubles as a workspace row', () => {
   it('draws exactly ONE row when repo.workspaces wrongly contains the home workspace', () => {
     const repo = makeRepo({
@@ -435,9 +431,7 @@ describe('corrupt input degrades, never hangs', () => {
   })
 })
 
-// 2026-09-08 sidebar-placement-unification Task 10: Task 9 deleted the boot backfill that used to
-// retype a workspace's owning chat to `type: 'branch'` and stop maintaining it thereafter — a fresh
-// workspace's owning chat is minted (and stays) `type: 'chat'`.
+// A workspace's owning chat is `type: 'chat'`, so ownership must never be read off Chat.type.
 describe('resolves the owning chat without ever reading Chat.type', () => {
   it('a locked branch folds by Workspace.owningChatId alone, even when no chat claims ownsWorktree', () => {
     const workspace = makeWorkspace({

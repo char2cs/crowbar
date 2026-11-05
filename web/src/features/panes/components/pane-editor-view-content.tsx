@@ -31,10 +31,7 @@ interface PaneEditorViewContentProps {
   dropTargeted?: boolean
 }
 
-/**
- * Everything `editorTabIds` holds — files, terminals, branch review — the same
- * whether or not the pane also holds a chat.
- */
+/** Everything `editorTabIds` holds, the same whether or not the pane also holds a chat. */
 export function PaneEditorViewContent({
   paneId,
   wsId,

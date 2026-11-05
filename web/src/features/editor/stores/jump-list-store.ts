@@ -24,33 +24,15 @@ interface JumpListActions {
   canGoBack: () => boolean
   canGoForward: () => boolean
   clear: () => void
-  /**
-   * Consume the pending "this activation came from Back/Forward" marker.
-   * Returns true if `bufferId` is the buffer history navigation just moved to,
-   * in which case the caller must NOT record it as a new navigation.
-   */
+  /** Consume the pending Back/Forward marker: true if `bufferId` is where history navigation just
+   *  moved, which the caller must not record as a new navigation. */
   consumeNavigationTarget: (bufferId: string) => boolean
-  /**
-   * Re-point the pending marker at the buffer the target file was actually
-   * reopened under.
-   *
-   * The marker names a BUFFER id, but an entry whose tab was closed can only be
-   * satisfied by reading the file back from disk — and that mints a NEW id. The
-   * recorder would then fail to recognise the activation it sees, record it as a
-   * fresh navigation, and `pushEntry` would truncate the forward branch: one
-   * Back into a closed file permanently disabled Forward and sent the next Back
-   * to the file the user started from. Only moves the marker — the entry, and
-   * therefore its workspace stamp, is untouched.
-   *
-   * A no-op when no navigation is pending, so an ordinary open can't fabricate
-   * a handshake that swallows the next genuine record.
-   */
+  /** Re-point the pending marker at the buffer a closed entry's file was reopened under (a new id),
+   *  so the recorder doesn't record it and truncate the forward branch. Moves only the marker; a
+   *  no-op when nothing is pending, so an ordinary open can't swallow the next genuine record. */
   retargetNavigation: (bufferId: string) => void
-  /**
-   * Drop the pending marker. Navigation that could not be completed must not
-   * leave one behind: it would silently suppress the next genuine visit to that
-   * buffer id, long after the failed Back is forgotten.
-   */
+  /** Drop the pending marker. A navigation that failed must not leave one behind, or it would
+   *  suppress the next genuine visit to that buffer id. */
   clearNavigationTarget: () => void
 }
 
@@ -58,16 +40,9 @@ interface JumpListState {
   entries: JumpListEntry[]
   currentIndex: number
   maxEntries: number
-  /**
-   * Buffer that goBack/goForward last navigated to, pending acknowledgement by
-   * the history recorder.
-   *
-   * Back/Forward activate a buffer, which the recorder observes one render later
-   * and would otherwise push as a brand-new navigation — making it impossible to
-   * go back twice. A boolean "isNavigating" flag can't express this: it would
-   * have to be cleared on a timer racing that render. Naming the target buffer
-   * makes the handshake explicit and timing-independent.
-   */
+  /** The buffer goBack/goForward last moved to, until the recorder acknowledges it; without it the
+   *  recorder would push the activation as new and Back could never go twice. Naming the buffer,
+   *  not an "isNavigating" flag, keeps the handshake off a timer racing that render. */
   navigationTargetBufferId: string | null
   actions: JumpListActions
 }

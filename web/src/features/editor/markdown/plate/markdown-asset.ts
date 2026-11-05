@@ -8,12 +8,9 @@ import {
   toDataUrl,
 } from '@/features/editor/lib/asset-data-url'
 
-/**
- * Where a markdown body's local image references resolve. Provided by
- * `MarkdownEditorPane` (`doc`: siblings of that document) and by chat (`resolve`:
- * the attachment-serving endpoint, since an attachment ref is not a path).
- * Null when unknown (e.g. a standalone unit-test render): images keep their raw src.
- */
+/** Where a markdown body's local images resolve: siblings of `doc` (MarkdownEditorPane), or chat's
+ *  attachment endpoint via `resolve` (an attachment ref is not a path). Null when unknown: images
+ *  keep their raw src. */
 export type MarkdownAssetInfo =
   | { doc: DocumentRef }
   | { wsId: string; resolve: (src: string, signal?: AbortSignal) => Promise<string | null> }
@@ -24,12 +21,9 @@ export function useMarkdownAsset(): MarkdownAssetInfo | null {
   return useContext(MarkdownAssetContext)
 }
 
-/**
- * Load a local image referenced from a markdown body as a `data:` URL the
- * webview can render, or `null` if it can't/shouldn't be resolved (remote URL,
- * non-image, no context, or a read error). Binary files come back as a latin1
- * byte string, which re-encodes to base64 cleanly; SVG is text and goes utf8.
- */
+/** A local image from a markdown body as a renderable `data:` URL, or `null` (remote URL,
+ *  non-image, no context, read error). Binaries arrive as latin1 byte strings, which re-encode to
+ *  base64 cleanly; SVG is text and goes utf8. */
 export async function loadLocalImage(
   asset: MarkdownAssetInfo | null,
   src: string,

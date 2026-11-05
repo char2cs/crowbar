@@ -13,17 +13,9 @@ export interface CommentEditorKeyContext {
   isLinkEditorOpen: boolean
 }
 
-/**
- * Decides what a keystroke does, separately from delivering it.
- *
- * Split out because the two halves fail differently and are checked
- * differently. Whether a keydown reaches a Slate editable at all is a browser
- * concern — jsdom does not deliver one to the editable, so a unit test that
- * appeared to cover this would be covering nothing. What IS worth pinning is
- * the decision: that a bare Enter starts a paragraph rather than posting a
- * half-written comment, and that Escape belongs to whatever popup is open
- * before it belongs to the draft.
- */
+/** What a keystroke does, apart from delivering it (jsdom never delivers keydown to an editable,
+ *  so this is the testable half): bare Enter starts a paragraph rather than posting a half-written
+ *  comment, and Escape belongs to an open popup before the draft. */
 export function commentEditorKeyAction(
   event: CommentEditorKeyEvent,
   { isLinkEditorOpen }: CommentEditorKeyContext,

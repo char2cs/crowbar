@@ -10,12 +10,9 @@ import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfac
 import { useResolvedHost } from '@/lib/host-resolve'
 import { useHostUnavailable } from '@/lib/host-unavailability'
 
-/**
- * The chat pane once its workspace's host is known. A paired install restores the
- * pane before the project list names that host, and every read the pane makes is
- * addressed through it: the body mounts, with all its hooks and effects, only then,
- * and unmounts if the host stops resolving. Until then the pane says what it waits for.
- */
+// Mounts the chat body only once its workspace's host resolves (a paired install restores panes
+// before the project list names hosts) since every read is addressed through it; unmounts if the
+// host stops resolving, and meanwhile says what it waits for.
 export function AgentChatPaneGate(props: AgentChatPaneProps) {
   const { paneId, wsId } = props
   const hostId = useResolvedHost({ wsId })

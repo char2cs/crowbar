@@ -41,11 +41,9 @@ function streamPath(cursor: number | null): string {
   return `${CONSOLE_LOGS_PATH}?${query.toString()}`
 }
 
-/**
- * Opens the log stream, hands frames on as they arrive, and reconnects with
- * backoff from the cursor (`since=<seq>`) when the connection drops. It owns no
- * data: what a frame means, including a daemon restart, is the store's business.
- */
+/** Opens the log stream, forwards frames, and on a drop reconnects with backoff from the
+ *  cursor (`since=<seq>`). It owns no data: what a frame means, a restart included, is the
+ *  store's business. */
 export function createLogStream(deps: LogStreamDeps): LogStream {
   const { timers } = deps
   let active = false

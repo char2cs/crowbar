@@ -1,18 +1,6 @@
-/**
- * The ONE write path for editor buffers: manual save, Save All and autosave
- * all go through here, and so do the dirty flag and the drafts.
- *
- * Invariants (pinned by __tests__/features/editor/lib/buffer-save.test.ts):
- *  - Edits are quiet-debounced PER DOCUMENT: editing B never delays A's
- *    draft or autosave.
- *  - A save marks a buffer clean only if the buffer still holds exactly the
- *    content that was written. Edits that land while the write is in flight
- *    keep the buffer dirty (and re-arm autosave).
- *  - Saves of the same buffer are serialized, so an older write can never
- *    finish last and record stale content as "saved".
- *  - Manual save and autosave share every side effect (didSave, git refresh,
- *    own-write echo suppression).
- */
+// The one write path for editor buffers (save, Save All, autosave, dirty flag, drafts). Edits are
+// debounced per document; a save marks clean only if the buffer still holds what was written; saves
+// of one buffer are serialized; manual and auto saves share every side effect.
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { workspaceRef, writeDocument, type DocumentRef } from '@/lib/api/documents'
 import {
@@ -42,10 +30,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { report } from '@/lib/errors/report'
 import { problemOf } from '@/lib/errors/problem'
 
-/**
- * Quiet period after the last edit before a dirty document's draft and autosave are written.
- * @internal Exported for unit tests.
- */
+/** Quiet period after the last edit before a dirty document's draft and autosave are written.
+ *  @internal Exported for unit tests. */
 export const QUIET_PERIOD_MS = 1000
 
 const quietTimers = new Map<string, ReturnType<typeof setTimeout>>() // by document uri
@@ -137,10 +123,8 @@ async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string 
   return documentText(ref)
 }
 
-/**
- * `holder` takes the untitled tab's place, unless both were edited while the
- * write ran: then the untitled tab keeps its unsaved text and this is false.
- */
+/** `holder` takes the untitled tab's place, unless both were edited while the write ran: then
+ *  the untitled tab keeps its unsaved text and this is false. */
 function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): boolean {
   const ref = documentRefOf(holder)
   const typed = documentText(documentRefOf(untitled))
@@ -247,10 +231,8 @@ async function writeToDisk(
   return true
 }
 
-/**
- * Save one buffer. Saves of the same buffer run strictly one after another.
- * Resolves true when the buffer's content reached disk.
- */
+/** Save one buffer; saves of the same buffer run strictly in turn. True when its content reached
+ *  disk. */
 export function saveBuffer(
   bufferId: string,
   options: { reason: 'manual' | 'auto' } = { reason: 'manual' },
@@ -274,11 +256,8 @@ export async function saveActiveBuffer(): Promise<boolean> {
   return saveBuffer(bufferId)
 }
 
-/**
- * Save every dirty editor buffer across all workspaces (buffers are one
- * window-level list; each save writes to its buffer's own workspace).
- * Sequential on purpose: an untitled buffer blocks on a Save-As prompt.
- */
+/** Save every dirty editor buffer, each to its own workspace. Sequential on purpose: an untitled
+ *  buffer blocks on a Save-As prompt. */
 export async function saveAllDirtyBuffers(): Promise<number> {
   const dirtyIds = windowPaneStore
     .getState()

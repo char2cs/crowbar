@@ -294,13 +294,8 @@ describe('committing a workspace removal', () => {
   })
 })
 
-// Regression: project-home chat/folder removal previously never reached
-// this module at all (`handleTrash` refused it outright, reported live as
-// "Can't delete X yet") — `removal-plan.ts` now builds a real draft for one
-// (`repoId: ''`), and these pin that THIS module fires the right DELETE for
-// it: `deleteChat`/`deleteHomeFolder` scoped by project/home-workspace, not
-// the repo-scoped calls a `repoId: ''` entry would otherwise 404 or (worse,
-// per handleTrash's own doc on the folder-list bleed) misresolve against.
+// A project-home draft (`repoId: ''`) must DELETE through its project/home-workspace routes,
+// never the repo-scoped calls, which would 404 or misresolve a home folder.
 describe('committing a project-home removal', () => {
   it('a home chat deletes through its own home workspace', async () => {
     seedHomeTree('p1', {

@@ -113,11 +113,9 @@ function renderTabBar(store: ReturnType<typeof createWorkspaceStore>, paneId: st
   )
 }
 
-/** A single sole-editor-tab pane, mirroring pane-slice's
- *  syncSoleEditorTabCloseability (isUncloseable is true exactly when it is
- *  the pane's only editor tab). Task 26: panes/buffers are window-level now —
- *  seed `windowPaneStore`, not the per-workspace store returned here (kept
- *  for WorkspaceStoreContext). */
+/** A sole-editor-tab pane (isUncloseable exactly when it is the pane's only editor tab, as in
+ *  syncSoleEditorTabCloseability). Panes live in `windowPaneStore`; the returned workspace store
+ *  only feeds WorkspaceStoreContext. */
 function setupSoleTabStore() {
   const store = createWorkspaceStore('w1')
   const nt = makeSoleTab('nt-1', true)

@@ -6,11 +6,8 @@ import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { selectEntityBusy, useOperations } from '@/core/entities/operations'
 
-/**
- * What a row's glyph box holds: the flip-dot spinner while the row works —
- * an agent turn, or an operation naming its workspace — else its icon. A
- * read-only header (the phone's list) shows the repo's avatar, not its picker.
- */
+// The glyph box: the flip-dot spinner while the row works (an agent turn or an operation on its
+// workspace), else its icon. A read-only header (the phone's list) shows the repo avatar.
 export function SidebarRowGlyph({
   row,
   isProjectHome,

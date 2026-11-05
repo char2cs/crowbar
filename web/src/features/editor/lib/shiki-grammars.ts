@@ -1,7 +1,5 @@
-/**
- * The one shiki highlighter Monaco and Plate share, on the JavaScript regex engine
- * so a first open skips the oniguruma wasm. Grammars load once, then tokenize synchronously.
- */
+// The one shiki highlighter Monaco and Plate share, on the JavaScript regex engine so a first open
+// skips the oniguruma wasm. Grammars load once, then tokenize synchronously.
 import type { HighlighterCore } from 'shiki/core'
 import type {
   defaultJavaScriptRegexConstructor,
@@ -43,11 +41,9 @@ const languages = new Map<
 const readyListeners = new Set<(languageId: string) => void>()
 let highlighter: Promise<HighlighterCore> | null = null
 
-/**
- * Never `auto`: it picks ES2025 on new V8, which mis-tokenizes uppercase SQL and
- * PowerShell. ES2024 matches oniguruma but needs the `v` flag (Safari 17+).
- * @internal Exported for unit tests.
- */
+/** Never `auto`: it picks ES2025 on new V8, which mis-tokenizes uppercase SQL and PowerShell.
+ *  ES2024 matches oniguruma but needs the `v` flag (Safari 17+).
+ *  @internal Exported for unit tests. */
 export function regexEngineOptions(
   construct: typeof defaultJavaScriptRegexConstructor,
   target: 'ES2024' | 'ES2018' = supportsUnicodeSets() ? 'ES2024' : 'ES2018',

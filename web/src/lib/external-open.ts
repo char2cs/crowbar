@@ -1,11 +1,6 @@
-// Single approved entry point for opening a URL in the user's default
-// browser. Components import from here instead of `@tauri-apps/plugin-shell`
-// directly so the eslint `no-restricted-imports` bridge-only rule has one
-// place to allow.
-//
-// In the Tauri app `window.open(url, '_blank')` is a silent no-op — the
-// WKWebView has no new-window handler — so the shell plugin's opener is the
-// only path to the default browser. Browser dev keeps window.open.
+// The one entry point for opening a URL in the default browser, so the bridge-only
+// `no-restricted-imports` rule has one place to allow. In Tauri, `window.open(url, '_blank')` is a
+// silent no-op (WKWebView has no new-window handler); browser dev keeps window.open.
 import { isDesktopApp, isTauri } from '@/lib/crowbar-bridge'
 
 // What the desktop's own shell-open scope admits: a URL's text may come from another host,

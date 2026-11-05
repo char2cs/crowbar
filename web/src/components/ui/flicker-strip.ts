@@ -1,32 +1,6 @@
-/**
- * Bakes a flip-dot spinner's discrete SMIL timeline into a static sprite strip.
- *
- * WHY THIS EXISTS. The captured spinners animate 25 dots with 25 SMIL
- * `<animate calcMode="discrete">` timers apiece. WebKit runs SMIL on the main
- * thread, and every discrete step re-serialises the animated attribute
- * (`Style::Extractor::propertyValueSerialization`) and dirties the render tree,
- * which forces `PlatformCALayerRemote::recursiveBuildTransaction` to rebuild
- * the WHOLE layer tree for the CoreAnimation commit. The cost of one 16px
- * spinner is therefore proportional to the size of the entire app — which is
- * why a single spinner visibly slows the whole window.
- *
- * There is very little information in these animations: each dot is one of two
- * opacities, the step rate is a uniform 11.1/s, and a loop is 4-18 frames. So
- * the timeline can be flattened into a horizontal strip of pre-composed frames
- * and played by translating that strip one frame-width at a time. A stepped
- * `transform` animation is compositable, so playback costs no main-thread work
- * at all, no style recalc, and no layer-tree rebuild — and it keeps running
- * when the window isn't focused, because compositor animations are driven
- * independently of rAF and of focus.
- *
- * EXACTNESS IS THE CONTRACT. Every dot is emitted in every frame at its own
- * opacity. The tempting optimisation — paint the dim grid once underneath and
- * only put lit dots in the strip — is wrong: an opaque dot layered over a
- * translucent one composites its antialiased edge twice, which at a ~1px dot
- * radius visibly thickens the dot. Anything this builder cannot reproduce
- * exactly it refuses to bake (returns null), and the caller falls back to
- * inlining the original SMIL asset. A slower spinner, never a wrong one.
- */
+// Bakes a flip-dot spinner's discrete SMIL timeline into a sprite strip. WebKit's main-thread SMIL
+// rebuilds the WHOLE layer tree per step, so one spinner slows the window; a stepped transform is
+// composited. EXACT or null: every dot in every frame (layering double-composites edges).
 
 export interface FlickerStrip {
   /** Static `<svg>`: `frames` copies of the source laid out left to right. */
@@ -141,18 +115,8 @@ export function buildFlickerStrip(source: string): FlickerStrip | null {
   }
 
   const stripViewBox = `${num(minX)} ${num(minY)} ${num(width * frames)} ${num(height)}`
-  // width/height would fight the CSS box the strip is stretched into.
-  //
-  // `class="size-full"` is not decoration, it is the opt-out token every themed
-  // host in components/ui keys off: Button, Tabs, Select, Badge, Toolbar and the
-  // menus all size their descendant icons with
-  // `[&_svg:not([class*='size-'])]:size-4`, which outspecifies the strip's own
-  // `[&>svg]:size-full` and would crush this N-frames-wide strip into a 16px
-  // square — the whole animation then slides out of the frame window and the
-  // spinner reads as a missing glyph (it did, in the context pill's <Button>).
-  // Carrying a `size-` class makes that :not() stop matching, which is exactly
-  // the escape hatch those rules provide, and the class sizes the strip
-  // correctly on its own.
+  // width/height would fight the CSS box. `class="size-full"` opts out of the hosts'
+  // `[&_svg:not([class*='size-'])]:size-4` rule, which would crush the N-frame strip to 16px.
   const stripAttrs = withAttr(
     withAttr(rootAttrs, 'viewBox', stripViewBox),
     'class',

@@ -1,15 +1,6 @@
-/**
- * usePaneEditorSatellites — everything bound to a pane's retained Monaco
- * widget besides the model swap itself (usePaneEditorController owns that):
- *
- *  - theme + settings-driven options (use-editor-appearance.ts),
- *  - the model's language/indentation after each swap,
- *  - current-line git blame (use-inline-blame.ts),
- *  - focus on swap.
- *
- * The retained editor + current model come from the pane's active-editor
- * registry, which the controller publishes on every swap.
- */
+// Everything bound to a pane's retained widget besides the model swap (usePaneEditorController):
+// appearance, the model's language/indentation, inline blame, focus on swap. The editor and model
+// come from the active-editor registry, which the controller publishes on every swap.
 import { useEffect, useState } from 'react'
 import { KeyCode, KeyMod } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'

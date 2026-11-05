@@ -55,11 +55,8 @@ function callAll(listeners: Listeners, uri: string): void {
   for (const fn of [...(listeners.get(uri) ?? [])]) fn()
 }
 
-/**
- * The window's open documents: one Monaco model per document, created when it
- * opens and disposed when its buffer goes. The model owns the text; the
- * registry derives dirty from it and reports only the transitions.
- */
+/** The window's open documents: one Monaco model each, created on open and disposed when its
+ *  buffer goes. The model owns the text; the registry derives dirty and reports transitions. */
 export class DocumentRegistry {
   private docs = new Map<string, OpenDocument>()
   private writers: Listeners = new Map()

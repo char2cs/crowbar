@@ -305,12 +305,8 @@ describe('fetchChatAttachmentMetadata', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported by review: a REAL non-ok response (Gin's own JSON
-  // error body, before the backend registered HEAD for this route at all)
-  // carries its OWN real Content-Length — an empty-bodied `Response(null,
-  // {status: 404})`, the shape the test above uses, never reproduces that,
-  // so a missing `response.ok` check passed unnoticed. A non-ok response's
-  // Content-Length must never be reported as the file's own size.
+  // A real non-ok response (e.g. a JSON error body) carries its own Content-Length, which an
+  // empty-bodied Response(null, {status: 404}) never reproduces; it is never the file's size.
   it('ignores Content-Length on a non-ok response, even when one is present', async () => {
     vi.stubGlobal(
       'fetch',

@@ -105,9 +105,8 @@ describe('WSManager', () => {
     expect(MockWebSocket.instances[0].close).toHaveBeenCalled()
   })
 
-  // Regression: the backend restarting must not kill subscriptions silently.
-  // The manager reopens the socket, keeps the same subscribers, and emits a
-  // { reconnected: true } frame so they can refetch missed state.
+  // A backend restart must not kill subscriptions silently: the manager reopens the socket, keeps
+  // the subscribers, and emits { reconnected: true } so they can refetch missed state.
   it('reopens the socket and keeps subscribers after a close', () => {
     vi.useFakeTimers()
     try {

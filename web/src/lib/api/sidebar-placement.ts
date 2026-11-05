@@ -4,20 +4,9 @@ import { projectBase, repoBase } from '@/lib/project-url'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
 
-/**
- * Where a row sits in the sidebar, for every level of it.
- *
- * These are the placement half of the entity endpoints — the calls a drop
- * fires. They are deliberately separate from the git-shaped mutations next
- * door in `workspace.ts`: filing a row into a folder or nudging it up a slot
- * moves nothing on disk and answers synchronously, where a fork re-parent
- * rebases and answers 202.
- *
- * `order` is an INSERT INDEX in the destination's sibling list, computed with
- * the moved row itself lifted out — the same arithmetic the daemon applies
- * before it re-densifies the level. A stale index is clamped to an end rather
- * than refused, so a drop never fails because the tree moved under it.
- */
+// The placement calls a drop fires: separate from workspace.ts's git mutations, since filing or
+// reordering moves nothing on disk and answers synchronously. `order` is an insert index with the
+// moved row lifted out, as the daemon computes it; a stale index clamps to an end, never refuses.
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -52,29 +41,9 @@ function toPlacedRow(raw: { id: string; parentId?: string; order?: number }): Pl
   return { id: raw.id, parentId: raw.parentId ?? '', order: raw.order ?? 0 }
 }
 
-/**
- * File a LOCKED branch's own row into a folder, at an index.
- *
- * Addressed to the WORKSPACE itself — `PATCH .../workspaces/:wsId/placement`
- * (2026-09-09 sidebar-placement-unification, workspace-placement fix) — never
- * to the chat that owns its worktree. That chat still exists and still owns
- * every OTHER worktree verb (lock, sync, merge, reparent, ...), but a locked
- * branch's own sidebar position is a fact about the branch, not about any
- * conversation living inside it, and locked workspaces are not chats: routing
- * this through the chat-addressed placement route was tried and rejected
- * during this fix's own design (it would have meant "position" was the one
- * thing this whole migration extracted from Chat that stayed reachable only
- * through one).
- *
- * `folderId` is sent as the route's `parentId` — one field, because a
- * folder and a locked branch's own row hang off the same sibling space
- * within the branch's own repo. It stays named `folderId` on this side to
- * keep the caller's guarantee that a folder can never be mistaken for a fork
- * parent, which is a different edge written by `reparentWorkspace` next door.
- *
- * Answers the decided placement: no workspace frame carries one, so this is
- * the only confirmation the drop gets (`drop-actions.ts` applies it).
- */
+// File a locked branch's row via `PATCH .../workspaces/:wsId/placement` — the workspace, not its
+// owning chat: position is a fact about the branch. `folderId` goes as `parentId`, named so it is
+// never mistaken for a fork parent. No frame carries placement, so the answer is the confirmation.
 export function placeWorkspace(
   wsId: string,
   placement: WorkspacePlacement,
@@ -133,12 +102,8 @@ function toFolderWriteResult(
   return { folder: folderDTOFromWire(raw.folder, projectId, repoId), shifted, shiftedRows }
 }
 
-/**
- * Create a folder, and answer with the created row plus its collateral.
- *
- * `row-actions.ts`'s `performCreateFolder` places the answer at once, so the
- * row shows before its folder entity frame lands.
- */
+// Create a folder; answers the row plus its collateral, which performCreateFolder applies at once
+// so the row shows before its folder entity frame lands.
 export async function createFolder(
   projectId: string,
   repoId: string,

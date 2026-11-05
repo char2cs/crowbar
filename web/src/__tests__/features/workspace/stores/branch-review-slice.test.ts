@@ -36,9 +36,7 @@ describe('branch-review-slice', () => {
   })
 
   it('revealBranchReviewFile records the PATH and bumps the nonce', () => {
-    // A path, not the `path:index` composite this replaced — that one was
-    // resolved against a whole-diff cache the surface no longer loads, so every
-    // click in the sidebar's changed-files tree resolved to nothing.
+    // A path: the review surface addresses every file by path.
     store.getState().revealBranchReviewFile('src/foo.ts')
     const state = store.getState().branchReview
     expect(state.revealFilePath).toBe('src/foo.ts')
