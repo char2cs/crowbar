@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -48,7 +47,7 @@ func RequireNoLeakedProcesses(tb testing.TB) {
 		descs := make([]string, 0, len(leaked))
 		for _, pid := range leaked {
 			descs = append(descs, describe(pid))
-			if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			if err := kill(pid); err != nil {
 				tb.Errorf("kill leaked pid %d: %v", pid, err)
 			}
 		}
@@ -101,4 +100,16 @@ func describe(pid int) string {
 		return p + ": " + err.Error()
 	}
 	return p + " (cwd " + cwd + "): " + strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
+}
+
+// kill ends pid; one that is already gone needs no killing.
+func kill(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return nil
 }
