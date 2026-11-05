@@ -9,6 +9,12 @@ import {
 } from '@/features/agent/api/agent-chat-commands'
 import { attachFeed } from '@/features/agent/stores/chat-feed'
 import { chatHostOf } from '@/lib/host-resolve'
+import {
+  addPromptStash,
+  createPromptStash,
+  loadPromptStashes,
+  savePromptStashes,
+} from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { chatStore, setStopping, type ChatStoreState } from '@/features/agent/stores/chat-store'
 import { entityOf, entityStore, patchEntities } from '@/core/entities/entity-store'
 import { entityKey } from '@/core/stream/host-scope'
@@ -55,10 +61,35 @@ function itemsOf(chatId: string): OutboxItem[] {
   return chatStore.getState().outbox[chatId] ?? NO_ITEMS
 }
 
+// A failed prompt is the outbox's alone, which a reload empties: while it fails,
+// its text is also the chat's stash, so the composer can still give it back.
+function failedById(items: OutboxItem[]) {
+  const failed = new Map<string, OutboxItem>()
+  for (const item of items)
+    if (item.state === 'failed') failed.set(`unsent:${item.requestId}`, item)
+  return failed
+}
+
+function stashFailed(chatId: string, before: OutboxItem[], next: OutboxItem[]) {
+  const was = failedById(before)
+  const now = failedById(next)
+  const left = new Set([...was.keys()].filter((id) => !now.has(id)))
+  const added = [...now].filter(([id]) => !was.has(id))
+  const wsId = (added[0]?.[1] ?? was.get([...left][0] ?? ''))?.wsId
+  if (!wsId) return
+  const kept = loadPromptStashes(wsId, chatId).filter((stash) => !left.has(stash.id))
+  const stashes = added.reduce((items, [id, item]) => {
+    const stash = createPromptStash(item.text, { id })
+    return stash ? addPromptStash(items, stash) : items
+  }, kept)
+  savePromptStashes(wsId, chatId, stashes)
+}
+
 function update(chatId: string, change: (items: OutboxItem[]) => OutboxItem[]) {
   const before = itemsOf(chatId)
   const next = change(before)
   if (next === before) return
+  stashFailed(chatId, before, next)
   const { [chatId]: _old, ...rest } = chatStore.getState().outbox
   chatStore.setState({ outbox: next.length > 0 ? { ...rest, [chatId]: next } : rest })
   const hostId = next.length > 0 && !feedHolds.has(chatId) ? chatHostOf(chatId) : null

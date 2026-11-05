@@ -14,6 +14,7 @@ import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
 import { toastManager } from '@/lib/toast-manager'
+import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { readSelect, selectAgentChat } from '@/core/entities/select'
 import { resetChatStore, setChatTerminalWait, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 let submit: MockInstance<typeof commands.submitAgentPrompt>
@@ -28,6 +29,7 @@ const accepted = { runnerId: 'r1', terminalSessionId: 'pty1' }
 
 beforeEach(() => {
   resetChatStore()
+  localStorage.clear()
   submit = vi.spyOn(commands, 'submitAgentPrompt').mockResolvedValue(accepted)
   retract = vi.spyOn(commands, 'retractPrompt')
   stop = vi.spyOn(commands, 'stopChat').mockResolvedValue()
@@ -69,9 +71,7 @@ describe('chat outbox', () => {
     busy()
     send('wait your turn')
     expect(outbox()[0]?.state).toBe('queued')
-
     await expect(retractNewest('w1', 'c1')).resolves.toBe('wait your turn')
-
     expect(outbox()).toEqual([])
     expect(submit).not.toHaveBeenCalled()
     expect(retract).not.toHaveBeenCalled()
@@ -85,9 +85,7 @@ describe('chat outbox', () => {
     seedFeed('c1', [l.prompt(sentId(), 'take this back')])
     expect(outbox()).toEqual([])
     retract.mockResolvedValue({ state: 'retracted', text: 'take this back' })
-
     await expect(retractNewest('w1', 'c1')).resolves.toBe('take this back')
-
     expect(retract).toHaveBeenCalledWith('w1', 'c1', sentId())
     seedFeed('c1', [l.settle(sentId(), false, 'retracted')])
     expect(chatStore.getState().feeds.c1?.order).toEqual([])
@@ -108,7 +106,6 @@ describe('chat outbox', () => {
       }),
     ])
     retract.mockResolvedValue({ state: 'retracted', text: 'first words' })
-
     await expect(retractNewest('w1', 'c1')).resolves.toBe('first words')
     expect(retract).toHaveBeenCalledWith('w1', 'c1', sentId())
   })
@@ -117,7 +114,6 @@ describe('chat outbox', () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'stop that'), l.start('turn-1', 'r1')])
     retract.mockResolvedValue({ state: 'interrupted', text: 'stop that' })
-
     await expect(retractNewest('w1', 'c1')).resolves.toBe('stop that')
     expect(retract).toHaveBeenCalledWith('w1', 'c1', 'r1')
     expect(stop).not.toHaveBeenCalled()
@@ -130,7 +126,6 @@ describe('chat outbox', () => {
       l.start('turn-1', 'r1'),
       l.text('turn-1', 'm1', 0, 'Working'),
     ])
-
     await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
     expect(stop).toHaveBeenCalledWith('w1', 'c1')
     expect(retract).not.toHaveBeenCalled()
@@ -143,7 +138,6 @@ describe('chat outbox', () => {
       seedFeed('c1', [l.text('turn-1', 'm1', 0, 'Already started')])
       return { state: 'interrupted', text: 'stop that' }
     })
-
     await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
   })
 
@@ -291,7 +285,9 @@ describe('chat outbox', () => {
     expect(reported).not.toHaveBeenCalled()
   })
 
+  // A failed prompt is the outbox's alone, so its text is kept as a stash a reload keeps.
   it('reports a send refused before its row, but not a lost session', async () => {
+    const stashed = () => loadPromptStashes('w1', 'c1').map((stash) => stash.markdown)
     seedFeed('c1', [])
     submit.mockRejectedValueOnce(new ApiError('model is unknown: invalid argument', 400))
     send('one')
@@ -301,13 +297,17 @@ describe('chat outbox', () => {
       state: 'failed',
       error: 'model is unknown: invalid argument',
     })
-
+    expect(stashed()).toEqual(['one'])
     discardUnsent('c1')
     submit.mockRejectedValueOnce(new ApiError('session lost: conflict', 409, 'session_lost'))
     send('two')
     await flush()
     expect(reported).toHaveBeenCalledTimes(1)
     expect(outbox()[0]?.error).toMatch(/session was lost/i)
+    expect(stashed()).toEqual(['two'])
+    retryPrompt('w1', 'c1', outbox()[0]?.requestId ?? '', false)
+    await flush()
+    expect(stashed()).toEqual([])
   })
 
   it('sends the prompts queued behind one the daemon refused', async () => {
