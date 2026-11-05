@@ -454,3 +454,26 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 	assert.Contains(t, err.Error(), "preflight worktree dir")
 	assert.ErrorContains(t, err, "boom: workspace lookup")
 }
+
+// The pane's provider switch keeps the outgoing provider's model as the chat's
+// pick, and the composer re-posts that pick with its next send: a pick the chat
+// already holds changes nothing, so it must not be refused against the new provider.
+func TestRegression_ASendAfterASwitchRepostingTheHeldPickIsDelivered(t *testing.T) {
+	f := newFixture(t)
+	// codex's catalogue is discovered, so any pick holds there; claude's is declared.
+	chatID, _ := f.spawn(t, "codex")
+	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "gpt-5", ""))
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "",
+		&domain.ChatSelection{Model: "gpt-5"})
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+	assert.Empty(t, live.LaunchModel, "the stale pick resolves to claude's default")
+}

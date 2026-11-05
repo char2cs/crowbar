@@ -21,3 +21,10 @@ const same = (a: Selection, b: Selection) =>
 export function effectiveSelection(staged: StagedSelection | null, live: Selection): Selection {
   return staged && same(staged.base, live) ? staged.pick : live
 }
+
+/** The model a provider runs `model` as: one outside its declared catalogue (kept
+ *  as the chat's pick across a switch) is its default, as the daemon resolves it. */
+export function declaredModel(provider: { models?: string[] } | undefined, model: string): string {
+  const known = provider?.models ?? []
+  return known.length === 0 || known.includes(model) ? model : ''
+}

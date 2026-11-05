@@ -5,6 +5,7 @@ import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { compactChat, resumeChat } from '@/features/agent/api/agent-chat-commands'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { declaredModel } from '@/features/agent/lib/staged-selection'
 import { sendPrompt, stopTurn } from '@/features/agent/stores/chat-outbox'
 import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
 import type { AgentTerminalAnswer, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
@@ -209,7 +210,8 @@ export function AgentChatView({
   const halted = facts.halted
   // The pick wins: the chip says what the next message runs as. Unpicked, the
   // report's display name wins over the last confirmed raw launch id.
-  const shownModel = model || (reportedModel ? '' : confirmedModel)
+  const shownModel =
+    declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
   const offeredCompact =
     provider?.compaction && live && !compacting && !onTerminalSurface
       ? () => void compactChat(wsId, chatId)

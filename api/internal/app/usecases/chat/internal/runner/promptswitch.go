@@ -155,6 +155,11 @@ func (rs *Runners) validateStagedSelection(
 	if selection == nil {
 		return nil
 	}
+	// A re-posted pick the chat already holds changes nothing; after a pane switch
+	// it may name the outgoing provider's model, which the spawn resolves itself.
+	if provider == "" && rs.holdsSelection(ctx, chatID, *selection) {
+		return nil
+	}
 	targetProvider, err := rs.resolveTargetProvider(ctx, chatID, provider)
 	if err != nil {
 		return err
