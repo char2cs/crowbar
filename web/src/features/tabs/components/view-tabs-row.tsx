@@ -23,12 +23,9 @@ import TabNavigationButtons from './tab-navigation-buttons'
 // Every tab is this wide, a split included.
 const ROW_WIDTH_PX = 176
 
-/**
- * The sidebar's Recents rows laid out across the top: one per view of the
- * active project, switched, closed and dragged exactly as in the sidebar.
- * Draws nothing until a view exists. Owns the sidebar-reopen toggle while it
- * is mounted, since the panes below it are no longer at the window's top edge.
- */
+/** The sidebar's Recents rows across the top, one per view of the active project, behaving as in
+ *  the sidebar; draws nothing until a view exists. While mounted it owns the sidebar-reopen
+ *  toggle, because the panes below it are not at the window's top edge. */
 export const ViewTabsRow = memo(function ViewTabsRow() {
   const navigate = useNavigate()
   const viewIds = useProjectViewIds()

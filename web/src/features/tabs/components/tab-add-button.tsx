@@ -7,13 +7,8 @@ interface TabAddButtonProps {
   onNewTab: () => void
 }
 
-/**
- * The tab strip's "+": opens a New Tab page in this pane, where what lands in
- * it is chosen (new-tab-view.tsx). It is the LAST child inside the scrolling
- * tab container (see tab-bar.tsx), so it shifts as tabs open and close, the
- * way a browser's new-tab button does. Never a `SortableEditorTab`, so it is
- * never draggable.
- */
+/** The strip's "+", opening a New Tab page. The last child of the scrolling tab container, so it
+ *  moves with the tabs like a browser's; never sortable, so never draggable. */
 const TabAddButton = React.memo(function TabAddButton({
   isBottomPane,
   onNewTab,

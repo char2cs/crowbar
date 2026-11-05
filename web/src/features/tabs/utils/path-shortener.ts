@@ -38,12 +38,8 @@ function distinctPathLabels(paths: string[], fileName: string): Map<string, stri
   return new Map(paths.map((path) => [path, label(segmentsOf.get(path)!)]))
 }
 
-/**
- * Calculate minimal distinguishing display names for buffers: same-named files
- * by the shortest differing directory tail, and one path open from two
- * workspaces by the workspace's name, as restore failures name them.
- * Returns a map of buffer ID to display name
- */
+/** Buffer id → shortest distinguishing name: same-named files by the shortest differing
+ *  directory tail, one path open from two workspaces by the workspace's name. */
 export function calculateDisplayNames(
   buffers: PaneContent[],
   workspaceNames: ReadonlyMap<string, string>,

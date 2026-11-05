@@ -10,26 +10,14 @@ interface ChatBranchHeaderProps {
   /** The chat's own workspace (see pane-container.tsx's `wsId` resolution) —
    *  `null` when it hasn't resolved yet, in which case only the title shows. */
   wsId: string | null
-  /** No fixed height/padding of its own — this renders in two different
-   *  contexts (its own row atop the chat view, or nested inside
-   *  ChatOnlyPaneHeader's row alongside other buttons) that size it
-   *  differently. The caller owns sizing entirely. */
+  /** No sizing of its own: it renders both atop the chat view and inside ChatOnlyPaneHeader's
+   *  row, so the caller owns it. */
   className?: string
 }
 
-/**
- * The chat interface's own identity header — replaces `ChatHead` at this
- * position now that the chat and the IDE sector are two separate boxes with
- * their own headers. Deliberately NOT a `Tab`: this isn't one of several
- * things to switch between here, so it carries none of the sidebar row's
- * hover/selection chrome, just its rule-6 two-line shape (title, then branch
- * name + change counts) — see sidebar-row.tsx's `BranchSecondLine` for the
- * row this mirrors.
- *
- * Rename is double-click, matching the sidebar's own convention
- * (`sidebar-row.tsx`), routed through the same `performRenameChat` action —
- * a chat's name has one write path regardless of which surface edits it.
- */
+/** The chat's identity header: the sidebar row's two-line shape (title, then branch + change
+ *  counts; see sidebar-row.tsx's `BranchSecondLine`) without Tab chrome, since nothing here is
+ *  switched between. Double-click renames through `performRenameChat`, the one write path. */
 export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderProps) {
   const model = useChatBranchHeaderModel(chatId, wsId)
   const [renaming, setRenaming] = useState(false)

@@ -22,12 +22,8 @@ const TabNavigationButtons = React.memo(function TabNavigationButtons({
     <Button
       onClick={onToggleSidebar}
       variant="ghost"
-      // Same recipe as TabAddButton / CloseViewButton beside it and as the
-      // toggle in SidebarProjectHeader it swaps places with: icon-sm (28px,
-      // 6px radius) and the sidebar hover token. This was icon-xs with neither
-      // override, so hiding the sidebar swapped a 28px/6px button for a
-      // 24px/8px one in the same spot — and left the toggle the odd control out
-      // in its own toolbar row. Keep all four in sync.
+      // Same recipe (icon-sm, sidebar hover token) as TabAddButton / CloseViewButton and as the
+      // SidebarProjectHeader toggle it swaps places with; keep all four in sync.
       size="icon-sm"
       className={cn(
         'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',

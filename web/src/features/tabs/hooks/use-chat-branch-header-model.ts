@@ -17,11 +17,8 @@ export type ChatHeaderRoute =
       deleted: number
     }
 
-/**
- * Everything the chat header draws, as plain data: the pane header reads it from the stores, the
- * phone's file drawer (a page with no stores) receives it as a snapshot. `title` null is the
- * store's gap, not an untitled chat.
- */
+/** Everything the chat header draws, as plain data: the pane header reads it from the stores, the
+ *  phone's store-less file drawer receives it as a snapshot. `title` null is a store gap. */
 export interface ChatHeaderModel {
   title: string | null
   working: boolean

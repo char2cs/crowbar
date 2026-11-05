@@ -9,14 +9,9 @@ import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-s
 import { browserHomepage } from '@/features/browser/lib/homepage'
 import { useSettingsStore } from '@/features/settings/store'
 
-/**
- * What a New Tab page and an empty editor area offer: a blank file, a terminal
- * or a browser in this pane, plus the branch review — and the `+` that opens a
- * New Tab page. One implementation so the callers can never differ. All but
- * the review go through `ensurePaneChatThenOpen`, so they do nothing without
- * the pane's workspace. On a New Tab page (`replaceTabId`) the choice takes
- * that tab's place.
- */
+/** The one set of actions a New Tab page and an empty editor area offer, so they can't differ.
+ *  All but the review need the pane's workspace (`ensurePaneChatThenOpen`); with `replaceTabId`
+ *  the choice takes that New Tab page's place. */
 export function usePaneNewTabActions(
   wsId: string | null | undefined,
   paneId: string,

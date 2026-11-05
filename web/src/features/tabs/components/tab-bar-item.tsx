@@ -18,10 +18,8 @@ interface TabBarItemProps {
   isDraggedTab: boolean
   showDropIndicatorBefore?: boolean
   tabRef?: RefCallback<HTMLDivElement>
-  // Delegated handlers: the parent passes ONE stable reference of each (shared
-  // by every item); the item re-supplies its own identity (buffer / index) when
-  // it fires. This keeps the handler props referentially stable across TabBar
-  // renders so the memo comparator below can bail out on unchanged tabs.
+  // Delegated handlers: one stable reference shared by every item, which passes its own buffer /
+  // index when it fires, so the memo comparator below can skip unchanged tabs.
   onSelect?: (buffer: PaneContent) => void
   onMouseDown?: (e: React.MouseEvent) => void
   onDoubleClick: (e: React.MouseEvent, buffer: PaneContent) => void
@@ -74,25 +72,14 @@ const TabBarItem = memo(function TabBarItem({
     [handleTabClose, buffer.id],
   )
 
-  // An editor tab with unsaved edits. When it's also the active tab the
-  // signal is a blue border on top of the tab's normal muted active fill
-  // (the same `bg-sidebar-element-hover` every other active ghost tab
-  // already gets) — not a tinted fill of its own. Inactive unsaved tabs keep
-  // the plain ghost shape and show a bright dot instead.
+  // Unsaved editor tab: when active, a blue border over the normal active fill; when inactive,
+  // a bright dot.
   const isDirtyEditor = buffer.type === 'editor' && buffer.isDirty
 
   return (
-    /*
-     * The outer div carries `group/tab` so that the close button's
-     * `group-hover/tab:opacity-100` class still works on hover.
-     *
-     * IMPORTANT: the close/pin Button is rendered here as a SIBLING of the
-     * Tab <button>, NOT nested inside it.  Nesting <button> inside <button>
-     * is invalid HTML and causes browsers to fire events unpredictably —
-     * in particular DndKit's PointerSensor captured the pointerdown from the
-     * close button and called handleDragStart → handleTabSelect before the
-     * close button's own onClick could run.
-     */
+    /* `group/tab` drives the close button's hover reveal. The close/pin Button is a SIBLING of the
+       Tab <button>: nested buttons are invalid HTML, and dnd-kit's PointerSensor took the close
+       button's pointerdown as a drag start (selecting the tab) before its onClick ran. */
     <div
       ref={tabRef}
       data-sidebar-surface={sidebarSurfaceOf(buffer.type)}
@@ -121,18 +108,8 @@ const TabBarItem = memo(function TabBarItem({
             className={cn(
               'h-8 max-w-full',
               'gap-1.5 pl-2.5 pr-8',
-              // Unsaved+active keeps its own distinct signal, but ONLY via a blue
-              // border — the fill and text stay whatever the ghost variant's
-              // normal active state already renders (`bg-sidebar-element-hover`/
-              // `text-foreground`, set by `Tab` itself above via `isActive`).
-              // Every attempt to tint the FILL blue too (a translucent
-              // `bg-primary/12`, several `color-mix` blends, then a plain solid
-              // `bg-primary`) read as wrong once compared side-by-side with the
-              // rest of the tab strip — the muted active fill was correct all
-              // along. `shadow-xs`/`inset-shadow-[...]` is copied verbatim from
-              // ROW_ACTIVE (workspace-row-base.ts) — the same CossUI top-highlight
-              // every other active/hovered row gets — layered on top of the
-              // border-only blue signal, not replacing it.
+              // Unsaved+active signals with the border only; the fill stays the ghost
+              // variant's muted active one. Shadows: ROW_ACTIVE's (workspace-row-base.ts).
               isActive &&
                 isDirtyEditor &&
                 'rounded-sm border-primary shadow-xs shadow-black/10 ' +
@@ -205,20 +182,8 @@ const TabBarItem = memo(function TabBarItem({
   )
 }, arePropsEqual)
 
-/**
- * Compares ONLY the buffer fields this component actually renders. The buffer
- * object identity changes on every content flush (immer copy-on-write), so a
- * naive `prev.buffer === next.buffer` check would re-render the active tab on
- * every keystroke even though nothing it draws has changed. Enumerated from the
- * fields read in the render body: id, type, name, path, isPinned, isPreview,
- * isUncloseable, the editor dirty flag and the diff payload.
- *
- * Exported and REUSED by TabBar's `useRenderedPaneBuffers` subscription
- * (tab-bar.tsx) so the field set that gates the WHOLE tab strip's re-render is
- * the exact same one that gates each individual tab's — the two can never
- * drift. Any field added here is automatically respected there. Keep the field
- * list in sync with the render body above.
- */
+// Memo comparator. Buffer identity changes on every content flush (immer), so buffer fields go
+// through sameRenderedBuffer, which TabBar's useRenderedPaneBuffers also uses.
 
 function arePropsEqual(prev: TabBarItemProps, next: TabBarItemProps): boolean {
   return (
