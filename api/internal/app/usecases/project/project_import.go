@@ -75,21 +75,17 @@ type WorkspaceCreator interface {
 		in workspace.CreateInput,
 		now time.Time,
 	) (domain.Workspace, error)
-	// Delete tombstones a workspace row. It is here for exactly one caller:
-	// rolling back a row that was written but could not be attached to the chat
-	// minted to own it (see discardUnownedWorkspace). Leaving such a row behind
-	// is the orphan the chat-first create exists to prevent, so the path that
-	// creates one has to be able to take it away again.
+	// Delete tombstones a workspace row, solely to roll back one that could not be
+	// attached to its owning chat (discardUnownedWorkspace), which would otherwise orphan it.
 	Delete(
 		ctx context.Context,
 		id string,
 	) error
 }
 
-// ImportGitEngine is the git surface the import usecase consumes. Import does
-// not merely read: it detaches the repo home off a protected branch and
-// provisions one managed worktree per protected branch, so it needs the full
-// worktree-mutation surface (all satisfied by the engine wired in the container).
+// ImportGitEngine is the git surface the import usecase consumes: the full worktree-
+// mutation surface, since import detaches the repo home off a protected branch and
+// provisions one managed worktree per protected branch.
 type ImportGitEngine interface {
 	WorktreeList(
 		ctx context.Context,
@@ -162,10 +158,8 @@ type ImportGitEngine interface {
 		worktreePath string,
 		branch string,
 	) error
-	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
-	// (`git worktree prune`), so a branch held only by a deleted worktree dir is
-	// freed before provisioning (the rm -rf ~/.crowbar case). Satisfied by the
-	// container's engine (spec §5/B4).
+	// WorktreePrune reaps registrations whose directory is gone, so a branch held only
+	// by a deleted worktree dir (e.g. after rm -rf ~/.crowbar) is freed before provisioning.
 	WorktreePrune(
 		ctx context.Context,
 		repoPath string,
@@ -277,22 +271,17 @@ type ImportUsecase interface {
 		name string,
 		path string,
 	) (domain.Project, error)
-	// ImportRepo runs the full per-repo import for a single repo path under an
-	// already-persisted project: it persists the Repository, writes the repo
-	// icon (local icon or best-effort GitHub owner avatar), adopts each existing
-	// worktree as a Workspace (so the default/checked-out branch becomes a
-	// workspace), and gives each protected branch a workspace, telling progress
-	// how each came out. It returns the created Repository (§14 Step 3).
+	// ImportRepo imports one repo under a persisted project: the Repository row, its
+	// icon, a Workspace per existing worktree and per protected branch (each reported
+	// to progress). It returns the created Repository.
 	ImportRepo(
 		ctx context.Context,
 		in RepoImport,
 		progress RepoProgress,
 	) (domain.Repository, error)
-	// CheckRepoImportable reports whether repoPath may be imported under
-	// projectID, returning ErrRepoAlreadyImported (wrapped with the owning
-	// project's name) when another project already has that folder. ImportRepo
-	// enforces it too; the add-repo endpoint runs it first so the refusal
-	// answers the request.
+	// CheckRepoImportable returns ErrRepoAlreadyImported when another project already
+	// has repoPath. ImportRepo enforces it too; the add-repo endpoint runs it first so
+	// the refusal answers the request.
 	CheckRepoImportable(
 		ctx context.Context,
 		projectID string,
@@ -305,10 +294,8 @@ type ImportUsecase interface {
 		ctx context.Context,
 		project domain.Project,
 	) (domain.Workspace, error)
-	// SetOwningChats wires the chat side every workspace this usecase creates is
-	// minted under (see OwningChats). It is a post-construction setter because
-	// the chat usecase is built after this one; until it is called, every path
-	// that would create a workspace refuses with ErrNoOwningChats.
+	// SetOwningChats wires the chat side every created workspace is minted under. It is
+	// a setter because the chat usecase is built later; until then creates refuse.
 	SetOwningChats(chats OwningChats)
 }
 
@@ -395,7 +382,7 @@ func (u *projectImport) importRepos(
 }
 
 // ImportRepo loads the owning project by id then runs the shared per-repo import
-// for a single repo path, returning the created Repository (00 §14 Step 3).
+// for a single repo path, returning the created Repository.
 func (u *projectImport) ImportRepo(
 	ctx context.Context,
 	in RepoImport,
@@ -423,11 +410,9 @@ func (l loggedProgress) Workspace(id, branch string, err error) {
 	}
 }
 
-// saveProjectWithHome creates the project's home workspace (rooted at the
-// project's own path; no repo, branch or git) and THEN saves the project row.
-// Saving the row announces the project, and a client asks for its home the
-// moment it hears of it, so the home has to exist first — there is no lazy
-// mint on the read. A row that fails to save takes its home back out.
+// saveProjectWithHome creates the project's home workspace before saving the row:
+// saving announces the project and clients ask for its home at once (no lazy mint).
+// A row that fails to save takes its home back out.
 func (u *projectImport) saveProjectWithHome(
 	ctx context.Context,
 	id string,

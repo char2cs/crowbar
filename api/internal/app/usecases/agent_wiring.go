@@ -44,10 +44,8 @@ func (r worktreeResolver) ChatsForWorkspace(
 	return worktree.ChatsForWorkspace(ctx, workspaceID, r.chatRows, r.folders, r.nodes)
 }
 
-// agentWiring is the agentic surface as one value: the chat usecase, the Chats
-// panel's tree usecase built on top of it, and the two handles the container has
-// to keep hold of beside them — the workspace reader the app layer reuses for the
-// delete cascade's on-disk reap, and the tool metrics nothing else can reach.
+// agentWiring is the agentic surface as one value: the chat and tree usecases, plus the
+// workspace reader the delete cascade reuses and the tool metrics nothing else can reach.
 type agentWiring struct {
 	chat     *agentusecase.Usecase
 	chatTree agentusecase.TreeUsecase
@@ -56,6 +54,8 @@ type agentWiring struct {
 	metrics  *agentusecase.ToolMetrics
 }
 
+// newAgentWiring assembles the agentic usecases in dependency order: the tree usecase
+// holds the chat usecase, which tears chats down; the tree only decides which go.
 func newAgentWiring(
 	repos *repositories.Container,
 	gormStores GORMStores,
@@ -130,10 +130,8 @@ func newAgentWiring(
 		chat,
 		chat,
 		workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
-		// The SAME adapter the chat usecase's own WorktreeCreator is satisfied
-		// with, handed here a second time on purpose: a cascading delete and a
-		// failed promotion's rollback must tear a workspace down through one call
-		// (hierarchy.DeleteCascade), not two implementations that could drift.
+		// The same adapter as the chat usecase's WorktreeCreator, so a cascading delete
+		// and a failed promotion's rollback tear a workspace down through one call.
 		worktreeChildCreator{worktree: workspaceUsecase},
 		// And the census that gates it: Chat.WorkspaceID names the worktree a
 		// chat is anchored to, never that it is anchored there alone, so the
@@ -152,45 +150,9 @@ func newAgentWiring(
 	}, nil
 }
 
-// newAgentToolDeps assembles the production agent capability surface and REFUSES
-// to return a partial one.
-//
-// agenttools registers no tool whose dependency is missing, which is the right
-// default for the package but a terrible one to discover in production: a daemon
-// wired with a nil port would boot clean, serve chats normally, and hand every
-// agent an empty tool list with nothing anywhere reporting why. Checking here
-// turns that silent degradation into a failed start.
-// The review ports need no adapter: branchreview.Usecase already has
-// GetScope/GetOutline with agentusecase.ToolReviewReader's exact signatures, and
-// reviewthread.ReviewThread already satisfies BOTH the read and the write half of
-// the thread port, so the same repository is handed to Threads and ThreadWrites.
-// The Idempotency map is built HERE, once, because it must outlive the per-request
-// ToolSet for a retried post_review_comment to be recognized as a retry.
-//
-// threadBroadcast is injected from the app layer rather than derived here: fanning
-// a thread out needs the wire DTO, and a usecase must not import the api layer's
-// wire types. See agentusecase.ToolThreadBroadcast.
-//
-// workspaces is the workspace usecase itself, which already satisfies
-// set_branch_name's narrow WorkspaceBranchRenamer port by name. It is a
-// parameter rather than something read off repos because renaming a branch is a
-// USECASE verb — a git ref rename plus one record write, with the locked/held
-// refusals in front of it — not a store write. It is in the refusal switch for
-// the reason every other port is: a nil here withdraws set_branch_name, and an
-// agent that cannot name its own branch leaves every generated provisional name
-// in place with nothing anywhere reporting why.
-//
-// ChatLogs is deliberately NOT set here, unlike ChatReads: get_chat_log's ledger
-// read (agentusecase.ToolChatLogReader) is implemented by the agent CHAT concern
-// (agentusecase.ChatUsecase.ReadChatLog), which does not exist yet at this point in
-// construction — the exact chicken-and-egg agentusecase.New already resolves for
-// Deps.Chats, Deps.ChatLogs and Deps.Lineage by binding the usecase to itself once
-// built. See its doc comment.
-//
-// Metrics is wired here too but, unlike every port above, is deliberately
-// ABSENT from the refusal switch: agentusecase.ToolMetrics is the one fail-OPEN
-// dependency in Deps — losing the call counters is never a reason to fail
-// daemon startup or narrow the tool surface, so there is nothing to refuse.
+// newAgentToolDeps refuses to return a partial tool surface: agenttools silently drops a
+// tool whose port is nil, so a missing port must fail startup instead. Idempotency is
+// built once to outlive per-request ToolSets; ChatLogs is bound later by agentusecase.New.
 func newAgentToolDeps(
 	minter *agentusecase.TokenMinter,
 	repos *repositories.Container,

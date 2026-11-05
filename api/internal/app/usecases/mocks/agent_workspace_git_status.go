@@ -24,10 +24,8 @@ type AgentWorkspaceGitStatus struct {
 	// Branches answers RendersAsBranch, keyed by workspace id. A workspace set
 	// only in Repos answers false (an unlocked fork); one in neither is gone.
 	Branches map[string]bool
-	// ForkParents answers VisibleForkParent, keyed by workspace id. A
-	// workspace never Set here answers "" — the same answer the real adapter
-	// gives for a workspace that was never forked, and for one cut straight
-	// off the repo's own default checkout.
+	// ForkParents answers VisibleForkParent, keyed by workspace id; an unset workspace
+	// answers "", as the real adapter does for one never forked or cut off the default.
 	ForkParents map[string]string
 	// Defaults answers DefaultWorkspaceOf, keyed by repo id.
 	Defaults map[string]string

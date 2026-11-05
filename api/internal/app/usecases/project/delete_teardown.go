@@ -74,20 +74,9 @@ func alreadyGone(err error) bool {
 	return errors.Is(err, problem.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation)
 }
 
-// removeProjectDir removes ~/.crowbar/projects/<P> — except what is not the
-// project's to remove (spec §3 P0-3, invariant D6):
-//
-//   - a live git checkout (a directory holding `.git`): a worktree git refused
-//     to remove, such as a protected one with uncommitted work. Deleting it
-//     would destroy that work and strand its registration in the user's repo.
-//   - the path of any live workspace that belongs to ANOTHER project. A repo
-//     moved to project B (before moves were refused) keeps its worktrees
-//     under projects/A; an rm -rf of projects/A used to wipe them.
-//
-// Everything else goes, and a directory is removed only once it is empty, so
-// whatever is kept keeps its parents. Workspace roots the delete reactor is
-// purging concurrently are simply found already gone. Best-effort: the rows are
-// deleted by now, so a failure is logged, never returned.
+// removeProjectDir removes ~/.crowbar/projects/<P> except a live git checkout (git refused
+// to remove it, e.g. uncommitted work) and any live workspace of another project; kept
+// paths keep their parents. Best-effort: the rows are gone, so failures are only logged.
 func (u *projectDelete) removeProjectDir(
 	ctx context.Context,
 	projectID string,

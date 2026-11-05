@@ -14,28 +14,15 @@ type workspaceGetter interface {
 	Get(ctx context.Context, id string) (domain.Workspace, error)
 }
 
-// repoGetter is the minimal repository-read surface agentWorkspaceReader needs to
-// resolve a home-kind (adopted-checkout) workspace's on-disk identity slug from
-// its repo id, mirroring workspace's worktree hierarchy resolveSlug's load-the-row pattern so the
-// no-remote fallback can still reach the repo NAME.
+// repoGetter loads the repo row an adopted checkout's slug is derived from, so the
+// no-remote fallback can still reach the repo name.
 type repoGetter interface {
 	FindByKey(ctx context.Context, id string) (*domain.Repository, error)
 }
 
-// agentWorkspaceReader adapts the workspace repository into the agent
-// usecase's WorkspaceReader seam (internal/app/usecases/chat.WorkspaceReader):
-// given a workspace id, it resolves the owning project/repo and the git
-// worktree directory from the workspace read model's stored WorktreePath
-// (WorktreeDir), and the directory holding the workspace's agentic chat state
-// (AgentChatsDir), which for an adopted checkout reroots under crowbar home.
-//
-// It shares the container's injected crowbarHome resolver (the same one every
-// other path-deriving usecase here is built with) rather than resolving a
-// home of its own: path-deriving usecases MUST resolve against
-// the home the adapter container was actually opened against (see
-// adapter.Container.CrowbarHome's doc comment), and a hermetic test that
-// overrides the home via adapter.WithHomeDir (rather than the CROWBAR_HOME env
-// var) would otherwise silently diverge.
+// agentWorkspaceReader adapts the workspace repository into the chat usecase's
+// WorkspaceReader. It uses the container's injected crowbarHome, never its own, so
+// paths agree with the home the adapter container was opened against.
 type agentWorkspaceReader struct {
 	workspaces  workspaceGetter
 	repos       repoGetter
@@ -58,26 +45,9 @@ func (r *agentWorkspaceReader) WorktreeDir(
 	return home, w.ProjectID, w.RepoID, w.WorktreePath, nil
 }
 
-// AgentChatsDir implements agentusecase.WorkspaceReader: the directory, always under
-// crowbar home, of a workspace's own agent-work state. A chat's own directory is
-// worktreepath.LedgerChatsDir, keyed by the chat id alone: its workspace may change.
-//
-// For a Crowbar-managed worktree (WorktreePath strictly under home) the chats dir
-// is the sibling of the worktree (worktreepath.ChatsDir), reaped with the
-// workspace root on delete. For an ADOPTED CHECKOUT — the repo-home / project-home
-// whose WorktreePath is the user's REAL directory OUTSIDE home — the chats dir
-// reroots under home at <home>/projects/<projectId>/<slug>/default/chats
-// (worktreepath.HomeDefaultChatsDir), so plaintext state is never written onto
-// the user's filesystem beside their repository. The Cwd is unaffected:
-// WorktreeDir still returns the adopted worktree unchanged.
-//
-// The discriminator is the under-home test, NOT the workspace Kind: the
-// chat-hosting repo-home is a Kind=git / IsDefault workspace (adoptRepoHome does
-// not set WorkspaceKindHome) whose WorktreePath is repo.Path outside home, so
-// keying on Kind would both MISS it (leaving the real leak) and break the
-// project-level home (WorkspaceKindHome, but with no repo id to resolve a slug
-// from). Keying on the path that must never be written to is what makes the output
-// provably safe for every kind.
+// AgentChatsDir implements agentusecase.WorkspaceReader: a workspace's agent-work dir,
+// always under crowbar home, so an adopted checkout's state is rerooted rather than
+// written beside the user's repo. It keys on the under-home test, not Kind, which misses repo-homes.
 func (r *agentWorkspaceReader) AgentChatsDir(
 	ctx context.Context,
 	workspaceID string,
@@ -98,12 +68,8 @@ func (r *agentWorkspaceReader) AgentChatsDir(
 		return "", err
 	}
 	chatsDir := worktreepath.HomeDefaultChatsDir(home, w.ProjectID, slug)
-	// Fail closed if the rerooted path escapes home. filepath.Join (inside
-	// HomeDefaultChatsDir) cleans "..", so a crafted repo remote whose RemoteSlug
-	// contains "../" segments could otherwise resolve OUTSIDE crowbar home — which
-	// would let a plaintext ledger be WRITTEN onto the user's real filesystem. Real
-	// remotes never do this; a poisoned one gets an error, not an escape (the
-	// removal sites re-assert the same invariant as a second backstop).
+	// Fail closed: a crafted remote slug with "../" segments could otherwise resolve
+	// outside crowbar home and write a plaintext ledger onto the user's filesystem.
 	if !worktreepath.UnderHome(chatsDir, home) {
 		return "", fmt.Errorf(
 			"usecases: agent workspace reader: resolved chats dir %q escapes crowbar home %q (poisoned slug %q)",
@@ -113,12 +79,8 @@ func (r *agentWorkspaceReader) AgentChatsDir(
 	return chatsDir, nil
 }
 
-// repoSlug resolves the repo's on-disk identity slug for an adopted-checkout
-// workspace's rerooted chats dir. A blank repo id (the project-level home has no
-// repo) yields an empty slug, which HomeDefaultChatsDir collapses to the project
-// directory — still strictly under home. It always loads the repo row so the
-// no-remote / unparseable-URL fallback can reach the repo NAME, mirroring
-// workspace's worktree hierarchy resolveSlug.
+// repoSlug resolves an adopted checkout's on-disk slug. A blank repo id (project home)
+// yields "", which HomeDefaultChatsDir collapses to the project dir, still under home.
 func (r *agentWorkspaceReader) repoSlug(
 	ctx context.Context,
 	repoID string,

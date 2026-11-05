@@ -62,51 +62,30 @@ type Container struct {
 	// AgentProvider is the provider table and the MCP surface the vendor CLIs
 	// call back into. It is global, never per workspace.
 	AgentProvider agentusecase.ProviderUsecase
-	// AgentChatFolder is the Chats panel's tree usecase: folder CRUD, chat
-	// placement, and the cascading chat delete. It is built AFTER the chat usecase
-	// because it holds it: erasing a chat and starting a CLI on one are that
-	// usecase's job, and this one only decides which chats a delete takes.
+	// AgentChatFolder is the Chats panel's tree usecase: folder CRUD, placement and the
+	// cascading delete. It holds the chat usecase, which does the erasing; it only
+	// decides which chats a delete takes.
 	AgentChatFolder agentusecase.TreeUsecase
 	// AgentWorkspaceReader is the SAME agentusecase.WorkspaceReader (AgentChatsDir +
 	// WorktreeDir) instance the chat usecase was built with.
 	AgentWorkspaceReader agentusecase.WorkspaceReader
-	// Worktree resolves a chat to the workspace whose worktree it reads and
-	// writes through (internal/app/usecases/worktree, spec
-	// docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3): itself
-	// first, then each ancestor in turn, nearest first. Built and wired here
-	// (law 6) — every future chat-scoped handler declares its own narrow
-	// Resolve(ctx, chatID) interface (law 4) and gets it satisfied by this
-	// same value. Unused by any caller yet — spec §8 step 2.
+	// Worktree resolves a chat to the workspace whose worktree it reads and writes
+	// through: itself first, then each ancestor, nearest first.
 	Worktree WorktreeResolver
 
-	// agentToolMetrics is the SAME *agentusecase.ToolMetrics instance the agent tool
-	// surface records through — held here only so AgentToolMetrics can read it
-	// back out. It is buried inside agentusecase.ToolDeps otherwise, which is a
-	// write-only counter: nothing in the daemon could reach the numbers.
+	// agentToolMetrics is the instance the agent tool surface records through, held so
+	// AgentToolMetrics can read it back out of the otherwise write-only ToolDeps.
 	agentToolMetrics *agentusecase.ToolMetrics
 }
 
-// AgentToolMetrics reports how many times each agent tool was called and how
-// many of those calls failed, over this daemon's lifetime.
-//
-// It exists because a counter nothing can read answers nothing: instrumenting
-// this surface was a day-one requirement precisely so "do agents actually use
-// these tools?" is settled by a number rather than an impression. The daemon
-// logs the summary at shutdown (see app.Container.Shutdown).
-//
-// Deliberately NOT an HTTP route: these are a daemon-lifetime diagnostic, not a
-// resource, and nothing in the product consumes them.
+// AgentToolMetrics reports per-tool call and failure counts over this daemon's lifetime,
+// logged at shutdown. It is deliberately not an HTTP route: a diagnostic, not a resource.
 func (c *Container) AgentToolMetrics() map[string]agentusecase.ToolStat {
 	return c.agentToolMetrics.Snapshot()
 }
 
-// New builds the usecases container. It takes the aggregate repositories, the
-// GORM CRUD stores, and the engines rather than the app-layer GORMStores struct
-// to keep the usecases package free of any dependency on its parent package.
-// The agentic-chat usecase consumes the asynx-backed EventStore off the
-// repositories container (repos.AgentChat); it no longer takes a broadcaster —
-// agent-chat lifecycle frames are fanned out by the repository-layer hub
-// projection (wired in repositories.Container), the single source of frames.
+// New builds the usecases container. It takes no broadcaster for chat frames: the
+// repository-layer hub projection is their single source.
 func New(
 	repos *repositories.Container,
 	gormStores GORMStores,
@@ -140,9 +119,7 @@ func New(
 		nowFunc,
 		crowbarHome,
 		workspace.WithTerminalReaper(engines.Terminal),
-		// Every workspace this usecase creates (fork, import, adopted repo
-		// default) mints its own Node{Kind:workspace} row unconditionally at
-		// creation — 2026-09-08 sidebar-placement-unification Task 7.
+		// Every workspace this usecase creates mints its own Node{Kind:workspace} row.
 		workspace.WithNodes(repos.Placement),
 	)
 	fileUsecase := file.New(newFsEngineAdapter(engines.FS), workspaceUsecase, crowbarHome)
@@ -208,13 +185,8 @@ func New(
 		ProviderSync:  providerSync,
 		BranchReview:  branchReview,
 		TerminalMeta:  terminalMeta,
-		// Wrapped, not the raw chat usecase: a chat's ParentID/Order are
-		// frozen at creation now (2026-09-08 sidebar-placement-unification
-		// Task 5 for home-scoped, Task 8 for repo-scoped too) — every READ
-		// needs its live Node position overlaid, or a chat filed into a
-		// folder renders at the panel root forever, surviving a reload. See
-		// agentusecase.NewHomeCorrectedChats' own doc for what this does and
-		// does not close (no WS-broadcast fix, only the read/reload path).
+		// Wrapped: a chat's ParentID/Order are frozen at creation, so every read needs
+		// its live Node position overlaid or a filed chat renders at the panel root.
 		AgentChat:            agentusecase.NewHomeCorrectedChats(agentic.chat, repos.Placement),
 		AgentTurn:            agentic.chat,
 		AgentRunner:          agentic.chat,
@@ -227,14 +199,6 @@ func New(
 	}, nil
 }
 
-// newAgentWiring assembles the agentic usecases in dependency order. It is split
-// out of New only to keep that constructor within its length budget, mirroring
-// newProjectImport; the wiring is otherwise unchanged.
-//
-// The order is not incidental: the Chats-panel tree usecase HOLDS the chat
-// usecase, because deleting a chat there takes every chat threaded below it and
-// erasing a chat — with the CLIs on it — is the chat usecase's job. The tree
-// decides which chats go; it never learns how they are torn down.
 // Option configures New.
 type Option func(*options)
 

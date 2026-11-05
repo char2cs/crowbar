@@ -9,19 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// SearchDiff finds query in the CONTENT of the workspace's branch diff and
-// returns the file and line number of every match, plus whether opts.Limit cut
-// the results short. It resolves the ref through resolveDiffRef, exactly as
-// GetFiles and GetOutline do, so a hit's file and line number address the same
-// diff the reader is looking at.
-//
-// It is the server-side replacement for find-in-diff: once the client only ever
-// holds a window of the patch, it has nothing left to search locally. The diff
-// is streamed and matched a line at a time and the scan stops the moment the
-// limit fills, so the cost is bounded by the hits asked for rather than by the
-// size of the diff.
-// commit scopes the search to one commit against its parent; empty means the
-// branch diff. See resolveScopeRef.
+// SearchDiff finds query in the content of the branch diff (or one commit's, when commit
+// is set) and reports whether opts.Limit cut the hits short. It runs server-side because
+// the client holds only a window of the patch; the scan stops once the limit fills.
 func (u *branchReviewUsecase) SearchDiff(
 	ctx context.Context,
 	wsID string,
@@ -47,12 +37,9 @@ func (u *branchReviewUsecase) SearchDiff(
 	return hits, truncated, nil
 }
 
-// validateSearchPattern rejects a broken regex before any git work happens. A
-// find-as-you-type box submits every half-finished pattern the user passes
-// through, so "a(b" is the client's mistake and must surface as an invalid
-// argument rather than as a daemon failure — and it must not cost a subprocess
-// to discover. Only regex mode can fail: literal mode quotes the query before
-// compiling it, which is why the same string is perfectly valid there.
+// validateSearchPattern rejects a broken regex before any git work: find-as-you-type
+// submits half-finished patterns, which are invalid arguments, not daemon failures.
+// Literal mode quotes the query, so only regex mode can fail.
 func validateSearchPattern(
 	query string,
 	opts gitdomain.SearchOpts,

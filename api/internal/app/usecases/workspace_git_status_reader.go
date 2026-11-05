@@ -9,10 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// workspaceGitStatusReader adapts the workspace usecase into the chat tree
-// usecase's WorkspaceGitStatus seam (internal/app/usecases/chat/internal/tree.
-// WorkspaceGitStatus): the read-model facts about a workspace the tree places
-// rows by, never a live git call.
+// workspaceGitStatusReader adapts the workspace usecase into the chat tree's
+// WorkspaceGitStatus: read-model facts the tree places rows by, never a live git call.
 type workspaceGitStatusReader struct {
 	workspace workspace.Usecase
 	// repos resolves a repo id to its project and workspaces.
@@ -176,13 +174,9 @@ func (w workspaceGitStatusReader) DefaultWorkspaceOf(
 	return "", nil
 }
 
-// VisibleForkParent implements agentusecase.TreeWorkspaceGitStatus. The
-// reduction to "" lives here, over the aggregate that carries the two fields
-// it reads, rather than in the tree package: a fork parent that draws no row
-// of its own is the repo's DEFAULT checkout (which IS that tree's root — see
-// the port's own doc) or a project HOME workspace, and both are answered off
-// domain.Workspace directly. A parent id that no longer resolves is reduced
-// the same way, for the same reason: there is no space left to hold a row to.
+// VisibleForkParent implements agentusecase.TreeWorkspaceGitStatus. It reduces to "" a
+// parent that draws no row of its own (the default checkout, a project home) or no longer
+// resolves; the reduction lives here because it reads domain.Workspace fields.
 func (w workspaceGitStatusReader) VisibleForkParent(
 	ctx context.Context,
 	workspaceID string,

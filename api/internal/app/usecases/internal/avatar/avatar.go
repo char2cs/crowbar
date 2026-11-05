@@ -93,19 +93,13 @@ func ScanRepoIcon(repoPath string) string {
 // unreachable host never stalls the import path.
 const avatarFetchTimeout = 10 * time.Second
 
-// maxAvatarBytes caps the owner-avatar download. The timeout alone is not a size
-// bound — a malicious or misconfigured host can stream ~100 MB within 10s at
-// modest bandwidth — so the body is read through an io.LimitReader to keep the
-// import path from OOMing the daemon. Mirrors the 2 MiB repo-icon cap.
+// maxAvatarBytes caps the owner-avatar download (matching the repo-icon cap): the
+// timeout alone is no size bound, and a hostile host could stream enough to OOM the daemon.
 const maxAvatarBytes = 2 << 20
 
-// FetchOwnerAvatarBytes resolves the repo owner's avatar URL via the gh CLI
-// and downloads its bytes. It is a best-effort helper: when there is no origin
-// remote, no gh auth, or the download fails, it returns (nil, "", nil) so the
-// caller falls back to a generated avatar without surfacing an error. Genuine
-// programming/transport errors are not swallowed beyond the soft-failure cases.
-//
-// Returns the raw image bytes and the response content-type.
+// FetchOwnerAvatarBytes downloads the repo owner's avatar (via the gh CLI) and returns
+// its bytes and content-type. It is best-effort: no origin, no gh auth or a failed
+// download yields (nil, "", nil) so the caller falls back to a generated avatar.
 func FetchOwnerAvatarBytes(
 	ctx context.Context,
 	repoPath string,

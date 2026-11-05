@@ -6,14 +6,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ChatLister returns every chat and folder row this daemon knows, across every
-// workspace. NewChatTreeAncestryReader climbs its ParentID edges, so it needs
-// the whole forest rather than one chat's ancestors — a walk that starts from
-// chatID cannot know which rows are above it without seeing the rest of the
-// tree.
-//
-// Declared here rather than imported from usecases/chat (law 3, law 4):
-// usecases/chat.Usecase.ListChats already returns exactly this shape.
+// ChatLister returns every chat and folder row across every workspace: walking ParentID
+// edges upward needs the whole forest. The chat usecase's ListChats satisfies it.
 type ChatLister interface {
 	ListChats(
 		ctx context.Context,

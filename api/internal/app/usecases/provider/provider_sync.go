@@ -47,8 +47,7 @@ type Usecase interface {
 	) error
 
 	// SyncFromState maps a provider.ProviderState to a workspace.ProviderInput and
-	// issues SyncProviderState. This is the callback the background sweep invokes
-	// (wired in Task 29).
+	// issues SyncProviderState; the background sweep invokes it.
 	SyncFromState(
 		ctx context.Context,
 		wsID string,
@@ -94,8 +93,7 @@ func (u *providerSyncUsecase) PollWorkspace(
 }
 
 // SyncFromState maps a provider.ProviderState to a workspace.ProviderInput and
-// issues SyncProviderState. This is the callback the background sweep invokes
-// (wired in Task 29).
+// issues SyncProviderState; the background sweep invokes it.
 func (u *providerSyncUsecase) SyncFromState(
 	ctx context.Context,
 	wsID string,

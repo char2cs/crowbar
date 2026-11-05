@@ -10,20 +10,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// WorkspaceSyncer is the workspace surface the git usecase uses to resolve a
-// worktree path and trigger a working-tree resync after a mutation. The git
-// package keeps its own narrow copy so it never imports the file or workspace
-// usecase; the container passes the concrete workspace usecase, which satisfies it.
+// WorkspaceSyncer is the workspace surface the git usecase resolves worktree paths and
+// triggers resyncs through, kept narrow here so git never imports the workspace usecase.
 type WorkspaceSyncer interface {
 	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
-	// List returns every workspace row, so a pull/fetch can enumerate the pulled
-	// workspace's direct children and cascade the summary resync to them (a child's
-	// diff base is its parent branch's live merge-base, so moving the parent's tip
-	// stales the child until it is resynced). Mirrors how worktree usecases already
-	// list workspaces to find a node's children (worktree.childHasChildren).
+	// List returns every workspace row, so a pull/fetch can resync the pulled workspace's
+	// direct children: a child diffs against its parent's live merge-base.
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
@@ -347,11 +342,9 @@ func (u *gitUsecase) Diff(
 	return diff, nil
 }
 
-// CommitDiff returns the diff for a single commit. sha is validated as a safe
-// operand so a leading-dash / metacharacter value can never be read by `git
-// show`/`git diff` as an option such as `--output=<path>` (argument injection →
-// arbitrary file write); `git show` cannot hide a revision behind `--`, so the
-// validator is the guard here.
+// CommitDiff returns the diff for a single commit. sha is validated as a safe operand
+// because `git show` cannot hide a revision behind `--`, so a leading-dash value could
+// inject an option such as --output=<path>.
 func (u *gitUsecase) CommitDiff(
 	ctx context.Context,
 	wsID string,

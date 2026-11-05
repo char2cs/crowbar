@@ -102,10 +102,9 @@ func (u *fileUsecase) HostDocument(
 	return ref, nil
 }
 
-// resolveDocument names the one authority for target. An absolute path inside
-// a worktree, by file identity, is that workspace's document; anywhere else it
-// is a host document in its canonical spelling, served only over the local
-// transport.
+// resolveDocument names the one authority for target: a path inside a worktree (by file
+// identity) is that workspace's document, anything else a canonical host document
+// served only over the local transport.
 func (u *fileUsecase) resolveDocument(
 	ctx context.Context,
 	target domain.DocumentRef,

@@ -58,9 +58,8 @@ func (u *projectUsecase) UpdateRepo(
 	if _, err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, in.Order); err != nil {
 		return err
 	}
-	// The folder the repo LEFT still has a gap where its row used to sit and
-	// needs closing. A plain reorder within the same container is covered by
-	// the densify above; this only fires for an actual move.
+	// A move leaves a gap in the folder the repo left; a same-container reorder is
+	// already covered by the densify above.
 	if originFolder != targetFolder {
 		if _, err := u.densifyHomeLevel(ctx, repo.ProjectID, originFolder, repoID); err != nil {
 			return err

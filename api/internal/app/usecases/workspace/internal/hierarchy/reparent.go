@@ -91,12 +91,9 @@ func (u *hierarchyUsecase) mergeBase(
 	return base, nil
 }
 
-// replayAndReparent tries to rebase the child onto the new parent's tip, then
-// settles the move. Try-then-warn: a CLEAN rebase moves the child onto the new
-// parent and integrates it; a CONFLICT never leaves the rebase stuck — it is
-// ABORTED back to a clean worktree, yet the child is STILL moved under the new
-// parent ("moved on paper, not yet integrated") and marked pr-conflicts, as a
-// conflicting merge-into-parent is; the user finishes it with Rebase onto parent.
+// replayAndReparent rebases the child onto the new parent's tip, then settles the move.
+// A conflict is aborted back to a clean worktree, but the child still moves and is marked
+// pr-conflicts until the user runs RebaseOntoParent.
 func (u *hierarchyUsecase) replayAndReparent(
 	ctx context.Context,
 	child domain.Workspace,
@@ -152,13 +149,9 @@ func (u *hierarchyUsecase) settleReparent(
 	return ws, nil
 }
 
-// RebaseOntoParent is the user-initiated "finish the move" action for a
-// moved-but-conflicting child: it rebases the child onto its CURRENT parent's
-// tip. Unlike the automatic reparent (which aborts on conflict), this KEEPS a
-// conflicting rebase in progress so the user can resolve it with the standard
-// conflict tooling; a clean rebase integrates the child. The intended fork point
-// (the parent tip) is persisted up front so the branch reads correctly once
-// resolved.
+// RebaseOntoParent finishes a moved-but-conflicting child's move by rebasing it onto its
+// current parent's tip, keeping a conflicting rebase in progress for the user to resolve.
+// The parent tip is persisted as fork point up front so the branch reads right once resolved.
 func (u *hierarchyUsecase) RebaseOntoParent(
 	ctx context.Context,
 	childID string,

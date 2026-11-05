@@ -1,8 +1,6 @@
-// Package holder resolves who currently holds a git branch across a repo's
-// worktrees, so both the project-import path and the worktree usecase can decide
-// whether a protected branch is free to materialise, already managed, or held by
-// a live worktree that must be freed with user consent (spec §3.1). Resolution
-// never detaches — it only prunes dead registrations and classifies the holder.
+// Package holder classifies who holds a git branch across a repo's worktrees, so import
+// and the worktree usecase can tell free, managed, or held-elsewhere (freed only with
+// user consent). Resolution never detaches: it only prunes dead registrations.
 package holder
 
 import (
@@ -37,19 +35,15 @@ type Outcome struct {
 	HeldByPath string
 }
 
-// Engine is the narrow git surface Resolve needs — satisfied by both the import
-// usecase's ImportGitEngine (once WorktreePrune is added) and the worktree
-// usecase's full enginegit.Engine. DetachWorktree is deliberately absent:
-// resolution only prunes + lists; the detach is a separate consented op.
+// Engine is the narrow git surface Resolve needs. DetachWorktree is deliberately
+// absent: detaching is a separate, consented operation.
 type Engine interface {
 	WorktreePrune(ctx context.Context, repoPath string) error
 	WorktreeList(ctx context.Context, repoPath string) ([]gitengine.WorktreeEntry, error)
 }
 
-// Resolve prunes dead-directory registrations, then finds the worktree holding
-// branch and classifies it. Pruning is best-effort (it only reaps dead regs, so
-// a failure just means classification runs against a possibly-stale list); a
-// WorktreeList failure is fatal and returned.
+// Resolve prunes dead registrations, then classifies the worktree holding branch.
+// A prune failure only leaves a possibly-stale list; a WorktreeList failure is returned.
 func Resolve(
 	ctx context.Context,
 	git Engine,
