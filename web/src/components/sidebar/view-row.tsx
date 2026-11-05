@@ -17,11 +17,8 @@ import { selectRepos, useSelect } from '@/core/entities/select'
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
 
-/**
- * A chat as the sidebar row model: the workspace store's live title and
- * spinner when one is mounted, else the sidebar's own chat record. A row is
- * its record: with no chat data yet it still draws (as loading).
- */
+// A chat as a sidebar row: the workspace store's live title and spinner when mounted, else the
+// sidebar's chat record. With no chat data yet it still draws, as loading.
 export function useMemberRow(
   chatId: string,
   workspaceId: string,
@@ -46,14 +43,9 @@ export function useMemberRow(
   }
 }
 
-/**
- * One view as a tab: a bare row for a lone chat, or one shell around the
- * members of a split. Each tab subscribes to its own labels, so a streaming
- * delta or a view switch re-renders the tabs it touches only.
- *
- * The single × ends the whole view. It is not `SidebarRow`'s `onTrash` slot,
- * which is the tree's destructive delete.
- */
+// One view as a tab: a bare row for a lone chat, or one shell around a split's members. Each tab
+// subscribes to its own labels, so a delta re-renders only the tabs it touches. Its × ends the
+// whole view — not SidebarRow's `onTrash`, which is the tree's destructive delete.
 export function RecentsViewRow({
   viewId,
   onFocus,

@@ -43,11 +43,8 @@ function FootRow({
   )
 }
 
-/**
- * The space's own verbs, after its last tree row: a hairline, then New thread
- * and More… (a native menu). Inside the tree's scroller, so a short tree keeps
- * them right under it and an empty space shows them at the top.
- */
+// The space's own verbs after its last row: a hairline, New thread, and More… (a native menu).
+// Inside the tree's scroller, so they sit right under a short tree and at the top of an empty one.
 export function TreeFoot({
   onNewThread,
   onImportRepo,
