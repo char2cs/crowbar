@@ -17,8 +17,14 @@ vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
 }))
 
+// Expected URLs are origin-relative; the shell's or .env's VITE_API_URL must not leak in.
 beforeEach(() => {
+  vi.stubEnv('VITE_API_URL', '')
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 function jsonResponse(body: unknown, status = 201) {

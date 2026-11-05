@@ -10,13 +10,16 @@ import { LOCAL_HOST } from '@/features/hosts/types'
 import { HostNotConfiguredError, PROXY_HEADER, proxyMarkerError } from '@/lib/api/errors'
 import { routeToHost } from '@/lib/api/host-route'
 
-const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
-const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
+// Read at call time, not import, so the base follows the env a test stubs.
+function localApiBase(): string {
+  const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
+  return crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
+}
 
-/** The API base for a host: the local API_BASE, or a registered remote host, reachable only from
+/** The API base for a host: the local daemon's base, or a registered remote host, reachable only from
  *  the desktop app (its bridge, crowbar://<hostId>, completes the pinned-TLS dial). */
 export function apiBaseFor(hostId: string): string {
-  if (hostId === LOCAL_HOST.id) return API_BASE
+  if (hostId === LOCAL_HOST.id) return localApiBase()
   if (!isTauri()) {
     throw new Error(`remote host "${hostId}" is only reachable from the desktop app`)
   }

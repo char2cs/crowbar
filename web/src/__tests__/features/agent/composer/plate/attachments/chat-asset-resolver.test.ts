@@ -10,9 +10,15 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import * as scopeUrl from '@/lib/workspace-scope-url'
 
+// Expected URLs are origin-relative; the shell's or .env's VITE_API_URL must not leak in.
 beforeEach(() => {
+  vi.stubEnv('VITE_API_URL', '')
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe('parseChatAttachmentRef', () => {
