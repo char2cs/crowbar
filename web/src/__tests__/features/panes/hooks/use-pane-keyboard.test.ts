@@ -21,12 +21,10 @@ const dropChatOnPane = vi.fn()
 const openChat = vi.fn()
 const minted = [expect.any(String), expect.any(String)] // chat id, operation id
 
-// Hoisted: the mock factories below read these eagerly at factory-call time.
-const { createChat, toastSpawnFailure, presetChatLandingPresentation } = vi.hoisted(() => ({
-  createChat: vi.fn(),
-  toastSpawnFailure: vi.fn(),
-  presetChatLandingPresentation: vi.fn(),
-}))
+const createChat = vi.fn()
+const toastSpawnFailure = vi.fn()
+const presetChatLandingPresentation = vi.fn()
+const getOwningChatId = vi.fn()
 // providerCanStartOnTerminal runs for real: it is the gate under test below,
 // so only createChat is faked.
 import * as createsApi from '@/features/agent/api/agent-chat-creates'
@@ -34,8 +32,12 @@ vi.spyOn(createsApi, 'createChat').mockImplementation(createChat)
 // The untitled document itself (its Monaco model, its free name) is open-document's own test.
 import * as openDocumentApi from '@/features/editor/documents/open-document'
 const openUntitled = vi.spyOn(openDocumentApi, 'openUntitledDocument').mockResolvedValue('')
-vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
-vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
+import * as spawnError from '@/features/agent/lib/spawn-error'
+vi.spyOn(spawnError, 'toastSpawnFailure').mockImplementation(toastSpawnFailure)
+import * as chatPresentation from '@/features/agent/hooks/use-chat-presentation'
+vi.spyOn(chatPresentation, 'presetChatLandingPresentation').mockImplementation(
+  presetChatLandingPresentation,
+)
 
 type FakePane = {
   activeEditorTabId: string | null
@@ -99,32 +101,24 @@ vi.mock('@/features/panes/stores/window-pane-store', () => ({
   windowPaneStore: { getState: () => fakeState },
 }))
 
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({
-    'tabs.closeActive': 'mod+w',
-    'tabs.reopenClosed': 'mod+shift+t',
-    'panes.splitRight': 'mod+\\',
-    'tabs.new': 'mod+t',
-    'tabs.newTerminal': 'mod+j',
-    'tabs.newFile': 'mod+shift+n',
-    'agent.newChat': 'mod+n',
-    'agent.newChatTerminal': 'mod+alt+n',
-  }),
+import * as keymap from '@/features/keymaps/hooks/use-effective-keymap'
+vi.spyOn(keymap, 'useEffectiveChordMap').mockImplementation(() => ({
+  'tabs.closeActive': 'mod+w',
+  'tabs.reopenClosed': 'mod+shift+t',
+  'panes.splitRight': 'mod+\\',
+  'tabs.new': 'mod+t',
+  'tabs.newTerminal': 'mod+j',
+  'tabs.newFile': 'mod+shift+n',
+  'agent.newChat': 'mod+n',
+  'agent.newChatTerminal': 'mod+alt+n',
 }))
 
 // ensurePaneChatThenOpen runs for REAL: a new terminal/file attaches the pane
-// workspace's real owning chat (getOwningChatId, mocked below), never a new one.
-vi.mock('@/features/panes/utils/pane-command-actions', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/features/panes/utils/pane-command-actions')
-  >('@/features/panes/utils/pane-command-actions')
-  return { ...actual, splitActiveEditorGroup: vi.fn() }
-})
-
-const { getOwningChatId } = vi.hoisted(() => ({ getOwningChatId: vi.fn() }))
-vi.mock('@/lib/workspace-scope', () => ({
-  getOwningChatId,
-}))
+// workspace's real owning chat (getOwningChatId, faked below), never a new one.
+import * as paneCommands from '@/features/panes/utils/pane-command-actions'
+vi.spyOn(paneCommands, 'splitActiveEditorGroup').mockImplementation(vi.fn())
+import * as workspaceScope from '@/lib/workspace-scope'
+vi.spyOn(workspaceScope, 'getOwningChatId').mockImplementation(getOwningChatId)
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
