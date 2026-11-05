@@ -3,29 +3,9 @@ import { convertNodesDeserialize, convertNodesSerialize, defaultRules } from '@p
 import { KEYS, getPluginType } from 'platejs'
 import type { TCalloutElement } from 'platejs'
 
-// GitHub's "alert" blockquote convention: a blockquote whose first line is a
-// bare `[!TYPE]` marker (https://github.com/orgs/community/discussions/16925),
-// e.g.:
-//   > [!NOTE]
-//   > Something worth calling out.
-//
-// @platejs/callout's OWN default markdown rule (see @platejs/markdown's
-// `defaultRules.callout`) instead round-trips a callout through an MDX
-// `<callout>` tag (mdast `mdxJsxFlowElement`). That requires `remark-mdx` in
-// the parse pipeline to come back as a callout on the next open — this editor
-// doesn't carry that plugin (GFM + math cover everything else it needs), so
-// an MDX-tagged callout would silently degrade to inert paragraph text
-// (literally the `<callout>` tag as text) on reload: a real fidelity loss.
-// GitHub alert syntax is plain blockquote + text, so it parses correctly with
-// nothing beyond the `blockquote`/`paragraph` handling remark already gives
-// us for free, AND stays readable/renders natively in GitHub, GitLab and most
-// static-site generators — the task's "prefer GitHub alert syntax" call.
-//
-// Trade-off: only the five canonical GitHub types (NOTE/TIP/IMPORTANT/
-// WARNING/CAUTION) get special rendering treatment on GitHub itself, but we
-// recognize — and losslessly preserve — ANY `[!TOKEN]` marker generically.
-// An uncommon custom `variant` still round-trips through this app without
-// being dropped; it just renders as an ordinary blockquote on GitHub.
+// Callouts round-trip as GitHub alerts (`> [!NOTE]` blockquotes), not @platejs/callout's MDX
+// `<callout>` tag, which without remark-mdx reloads as literal text; alerts also render natively
+// on GitHub/GitLab. Any `[!TOKEN]` is preserved, not just GitHub's five types.
 
 const ALERT_MARKER = /^\[!([A-Za-z][\w-]*)\](?:\n|$)/
 
@@ -59,12 +39,8 @@ function isTextNode(node: unknown): node is MdTextNode {
   )
 }
 
-/**
- * Recognizes a GitHub-alert-shaped blockquote and, if found, splits it into
- * the alert's type token (lowercased) and the remaining mdast block content
- * with the marker line stripped out. Returns `undefined` for an ordinary
- * blockquote, which falls through to the default blockquote handling.
- */
+/** Splits a GitHub-alert blockquote into its lowercased type token and the mdast content minus
+ *  the marker line; `undefined` for an ordinary blockquote, which takes the default handling. */
 function extractAlert(children: unknown[]): { variant: string; rest: unknown[] } | undefined {
   const [first, ...remainder] = children
   if (!isParagraphNode(first)) return undefined
@@ -91,12 +67,8 @@ function extractAlert(children: unknown[]): { variant: string; rest: unknown[] }
   return { variant, rest }
 }
 
-/**
- * Custom `blockquote`/`callout` markdown rules, spread into
- * `MarkdownPlugin.configure({ options: { rules: {...} } })` alongside the
- * defaults (Plate merges `rules` per-key over `defaultRules`, so every other
- * node type — headings, lists, tables, math, etc. — is untouched by this).
- */
+/** `blockquote`/`callout` rules for `MarkdownPlugin`'s `rules`, which Plate merges per key
+ *  over `defaultRules`, so no other node type is affected. */
 export const calloutMarkdownRules: MdRules = {
   blockquote: {
     deserialize(mdastNode, deco, options) {
@@ -127,12 +99,9 @@ export const calloutMarkdownRules: MdRules = {
       const bodyChildren = convertNodesSerialize(calloutNode.children, options)
       const [firstBody, ...restBody] = bodyChildren
 
-      // Fold the marker into the first paragraph as a leading soft-break
-      // line — matching exactly how `extractAlert` strips it back out — so
-      // the blockquote renders as `> [!NOTE]\n> body` with no blank line in
-      // between, the canonical GitHub form (and this call's own output is
-      // therefore a fixed point: reserializing what this just produced
-      // yields byte-identical markdown).
+      // The marker becomes the first paragraph's leading soft-break line, exactly as
+      // extractAlert strips it, so output is canonical `> [!NOTE]\n> body` and a fixed point:
+      // reserializing it yields identical bytes.
       const children =
         firstBody && isParagraphNode(firstBody)
           ? [

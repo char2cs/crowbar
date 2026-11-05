@@ -8,10 +8,8 @@ import { refFromUri } from '@/features/editor/documents/document-ref'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { toMonacoLanguageId } from '@/features/editor/monaco/language'
 
-/**
- * Structural create options; settings-derived ones (font, theme, readOnly) are
- * applied later through `updateOptions`, and the manager assigns the model.
- */
+/** Structural create options; settings-derived ones (font, theme, readOnly) come later through
+ *  `updateOptions`, and the manager assigns the model. */
 export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOptions = {
   // The surface's ResizeObserver lays the widget out, off the per-frame drag path.
   automaticLayout: false,

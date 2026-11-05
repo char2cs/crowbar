@@ -34,11 +34,8 @@ export interface ConsoleState {
   /** Commits a finished resize; the caller clamps it to the window. */
   setSize: (size: number) => void
   setStream: (state: LogStreamState) => void
-  /**
-   * Folds frames from the log stream into the buffer. Hand it a whole replay,
-   * `ready` included, in one call: a `ready` that says `reset` (the daemon
-   * restarted) discards the lines already held before the replay is shown.
-   */
+  /** Folds log-stream frames into the buffer. Pass a whole replay, its `ready` included, in one
+   *  call: a `ready` with `reset` (daemon restarted) drops held lines before the replay shows. */
   ingest: (frames: readonly LogFrame[]) => void
   toggleExpanded: (id: number) => void
 }

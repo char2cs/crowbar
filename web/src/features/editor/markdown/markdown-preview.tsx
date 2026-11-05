@@ -14,20 +14,14 @@ import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdow
 import { splitFrontmatter } from './plate/markdown-frontmatter'
 
 export interface MarkdownPreviewProps {
-  /**
-   * The `markdownPreview` buffer this instance renders. Also the key its scroll
-   * offset is retained under, since PaneContainer unmounts the preview whenever
-   * another tab is active in the pane. Omitted by the legacy CodeEditor host,
-   * which falls back to the active pane's buffer and keeps no scroll.
-   */
+  /** The `markdownPreview` buffer rendered, and the key its scroll offset is kept under (the
+   *  pane unmounts the preview behind another tab). Omitted by the legacy CodeEditor host, which
+   *  falls back to the active pane's buffer and keeps no scroll. */
   bufferId?: string
 }
 
-/**
- * Open a relative link from `source`'s document. A workspace link without an
- * extension also tries `.md` (bare links are extension-less by convention); the
- * check is needed because a failed open reports itself and cannot drive a retry.
- */
+/** Open a relative link from `source`'s document. An extension-less workspace link also tries
+ *  `.md`, checked up front because a failed open reports itself and cannot drive a retry. */
 async function openLinkedDocument(source: DocumentRef, href: string): Promise<void> {
   const target = siblingRef(source, href)
   if (target.authority === 'host') {
@@ -78,10 +72,8 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   // not prose: markdown would read its `---` fences as a rule and a heading.
   const body = useMemo(() => splitFrontmatter(sourceContent).body, [sourceContent])
 
-  // A tab switch unmounts this pane entirely (PaneContainer renders only the
-  // active buffer), so the scroll offset has to be retained outside the
-  // component. Restored once the rendered document is in the DOM — before
-  // that the scroll box is empty and any offset would be clamped away.
+  // A tab switch unmounts this pane, so the scroll offset is kept outside it. Restored once the
+  // rendered body is in the DOM; before that the box is empty and any offset clamps away.
   usePreservedScroll(containerRef, bufferId ?? null, body !== '')
 
   const handleLinkClick = useCallback(
@@ -147,12 +139,8 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   return (
     <div
       ref={containerRef}
-      // handleLinkClick is pure event delegation: it walks up to the nearest
-      // real <a> (target.closest('a')) rendered inside the sanitized markdown
-      // below and only acts on that. The actual interactive elements are
-      // those anchors — already natively focusable and keyboard-activatable
-      // (Enter on a focused link fires a bubbling click, which lands right
-      // here) — so this wrapper carries no semantics of its own.
+      // Pure delegation: handleLinkClick acts only on the nearest real <a>, which is natively
+      // focusable and fires a bubbling click on Enter, so this wrapper has no semantics of its own.
       role="presentation"
       className="markdown-preview flex h-full justify-center overflow-auto bg-transparent p-6"
       style={{

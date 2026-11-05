@@ -42,12 +42,9 @@ import {
   CommentTableRowElement,
 } from './comment-nodes'
 
-// The selection formatting toolbar, minus the inline-equation button the full
-// editor's `FloatingToolbarButtons` carries. That button is why this is a
-// separate composition rather than a reuse: it imports @platejs/math, which
-// imports katex at module scope (~280 KB), for a control this editor has no
-// node type to insert into. The positioning shell and the button primitives
-// ARE reused — only the button list differs.
+// The selection toolbar minus the full editor's inline-equation button, which imports
+// @platejs/math and so katex (~280 KB) for a node this editor cannot hold. The positioning
+// shell and button primitives are reused.
 const CommentFloatingToolbarKit = [
   createPlatePlugin({
     key: 'comment-floating-toolbar',
@@ -78,39 +75,9 @@ const CommentFloatingToolbarKit = [
   }),
 ]
 
-/**
- * The plugin set behind the review comment editor.
- *
- * Sized by two rules, in this order:
- *
- * 1. **Register whatever a comment can CONTAIN.** @platejs/markdown drops a
- *    node whose plugin isn't registered, and a comment is deserialized every
- *    time someone edits one. So an omitted plugin is not a missing affordance,
- *    it is silent data loss on edit — the table, the image, the alert block
- *    disappears from a comment its author only meant to fix a typo in.
- *    `HtmlKit` is the backstop here: it carries any raw HTML block through
- *    verbatim, so even constructs nothing else models survive.
- *
- * 2. **Buy no page-editor furniture.** Everything above is about the DOCUMENT
- *    model. The interaction layer is cut to what a two-sentence box needs:
- *    marks and links in a selection toolbar, markdown input rules for
- *    everything else.
- *
- * Deliberately absent, each for a reason worth stating:
- *
- * - `MathKit` — katex, ~280 KB of stylesheet and library, so a review comment
- *   can typeset an integral. `remarkMath` is dropped with it, which leaves
- *   `$x$` as the literal text it already was.
- * - `SlashKit` — the `/` menu is a long-form-document affordance. Markdown
- *   input rules already produce every block this set registers, and `/` is a
- *   character code reviewers type constantly (paths).
- * - `BlockMenuKit` — drag handles and a block context menu on a 72px box.
- * - `BlockPlaceholderKit` — its hint reads "Type '/' for commands", and there
- *   is no slash menu here. The composer passes a real placeholder instead.
- * - mermaid rendering — the fence still round-trips as a fenced block, so
- *   nothing is lost from the comment; it just doesn't draw the diagram while
- *   you type. `MarkdownPreview` doesn't either.
- */
+// The review comment editor's plugins. Register everything a comment can contain (a missing plugin
+// drops that node on edit; HtmlKit carries any raw HTML), but no page-editor furniture: no MathKit
+// (katex), SlashKit (reviewers type `/`), BlockMenuKit, BlockPlaceholderKit, or mermaid rendering.
 export const commentPlugins = [
   ...BasicNodesKit,
   ...ListKit,

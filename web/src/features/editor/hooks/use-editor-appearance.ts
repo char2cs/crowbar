@@ -1,8 +1,5 @@
-/**
- * Settings → retained Monaco widget: theme and editor options. Bound to the
- * pane's editor instance, re-applied only when a setting (or the instance)
- * changes — never on a tab switch.
- */
+// Settings → the retained Monaco widget's theme and options. Bound to the pane's editor instance
+// and re-applied only when a setting (or the instance) changes, never on a tab switch.
 import { useEffect, useSyncExternalStore } from 'react'
 import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
@@ -141,11 +138,8 @@ export function useEditorOptions(
   ])
 }
 
-/**
- * Model-level options that a fresh model does not carry: language (the
- * buffer's override wins over the path's) and indentation. Re-applied on
- * each swap to a new model.
- */
+/** Model options a fresh model lacks, re-applied on each swap: language (the buffer's override
+ *  beats the path's) and indentation. */
 export function useModelOptions(
   model: Monaco.editor.ITextModel | null,
   filePath: string,

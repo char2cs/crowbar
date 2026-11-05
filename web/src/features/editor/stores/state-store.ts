@@ -3,12 +3,9 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import type { Position, Range } from '@/features/editor/types/editor'
 import { createSelectors } from '@/utils/zustand-selectors'
 
-/**
- * The ACTIVE editor's cursor, mirrored out of Monaco for readers outside it
- * (status-bar line:col, the jump-list recorder), plus a small per-view cache
- * of where the cursor was in each buffer. Monaco itself owns the editor
- * state; this is a read-only projection written by the editor surface.
- */
+/** The active editor's cursor mirrored out of Monaco for outside readers (status-bar line:col,
+ *  the jump-list recorder), plus a per-view cache of each buffer's cursor. Monaco owns the state;
+ *  this is a read-only projection the editor surface writes. */
 export interface EditorViewState {
   cursor: Position
   selection?: Range

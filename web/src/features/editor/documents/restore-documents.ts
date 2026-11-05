@@ -282,11 +282,9 @@ function failAll(buffers: EditorContent[], error: unknown): void {
   sayFailures(failures)
 }
 
-/**
- * Opens the document of every editor buffer the saved layout brought back.
- * A dirty draft wins over disk and is flagged when disk moved under it; a
- * failed read keeps the tab and says why; drafts of closed buffers go.
- */
+/** Opens the document of every editor buffer the saved layout restored. A dirty draft beats disk
+ *  (flagged if disk moved under it), a failed read keeps the tab and says why, and drafts of
+ *  closed buffers go. */
 export async function restoreDocuments(): Promise<void> {
   const buffers = windowPaneStore
     .getState()
@@ -316,10 +314,8 @@ export async function restoreDocuments(): Promise<void> {
   sayFailures(failures)
 }
 
-/**
- * Loads a tab whose document failed to load as the boot restore would, its draft over
- * disk. Answers why it still cannot, or null once the document is open.
- */
+/** Load a tab whose document failed, as the boot restore would (its draft over disk). Answers why
+ *  it still cannot, or null once the document is open. */
 export async function retryDocument(buffer: EditorContent): Promise<DocumentUnavailable | null> {
   const ref = documentRefOf(buffer)
   try {

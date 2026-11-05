@@ -14,10 +14,8 @@ import { Button } from '@/components/ui/button'
 import { FilePathBreadcrumb } from './file-path-breadcrumb'
 
 export interface BreadcrumbProps {
-  /**
-   * Resolve the active buffer for THIS pane (self-subscribing). When omitted the
-   * breadcrumb falls back to `bufferId`, then to the globally active pane.
-   */
+  /** Resolve the active buffer for this pane (self-subscribing); omitted, the breadcrumb falls back
+   *  to `bufferId`, then to the globally active pane. */
   paneId?: string
   bufferId?: string
   editorViewKey?: string | null

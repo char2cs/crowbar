@@ -45,12 +45,9 @@ async function answer(frame: RequestFrame): Promise<Record<string, unknown>> {
   }
 }
 
-/**
- * Attaches this window to the daemon as the browser peer: reports its tabs
- * whenever they change and runs the requests agents send. The daemon speaks
- * first (`hello`) on every connection, so a reconnect re-reports without any
- * connection logic here.
- */
+/** Attaches this window to the daemon as the browser peer: reports tabs whenever they change
+ *  and runs agents' requests. The daemon speaks first (`hello`) on each connection, so a
+ *  reconnect re-reports with no connection logic here. */
 export function attachBrowserAgentPeer(): () => void {
   let sent = ''
   const publish = () => {

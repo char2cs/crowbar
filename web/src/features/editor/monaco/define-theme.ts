@@ -1,8 +1,5 @@
-/**
- * Builds + registers a Monaco theme from the live CSS token layer (theme.css).
- * CSS-first: every color is resolved off <html> at call time, so the Monaco
- * theme always matches whatever .dark / [data-theme] is currently applied.
- */
+// Builds and registers a Monaco theme from the live CSS tokens (theme.css), resolved off <html> at
+// call time so it matches whichever .dark / [data-theme] is applied.
 
 // See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
 // editor singleton as the bare 'monaco-editor' specifier, without eagerly
@@ -100,10 +97,8 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editor.findMatchBackground': ui.selection,
       'editor.findMatchHighlightBackground': ui.border,
       focusBorder: ui.ring,
-      // `ui.border` is opaque (it's a hairline-border token) — at full strength
-      // this reads as a solid grey block behind the cursor line instead of a
-      // subtle wash. Only sticky scroll's OWN opaque widgetBackground below is
-      // meant to fully cover content; this one should barely be visible.
+      // `ui.border` is an opaque hairline token: at full strength the cursor line would be a
+      // solid grey block, not a wash. Only sticky scroll's widgetBackground below fully covers.
       'editor.lineHighlightBackground': withAlpha(ui.border, 0.08),
       'editorLineNumber.foreground': ui.subtle,
       'editorLineNumber.activeForeground': ui.foreground,
@@ -113,11 +108,8 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorWidget.background': ui.widgetBackground,
       'editorWidget.foreground': ui.foreground,
       'editorWidget.border': ui.border,
-      // Both default to `editor.background`, which we set transparent above
-      // for the CSS pane background to show through the editor content — but
-      // sticky scroll's function-header widget floats OVER scrolled content,
-      // so left at that default it goes transparent too and the text
-      // scrolling underneath shows through it.
+      // Both default to `editor.background`, transparent above so the pane's CSS background shows
+      // through; sticky scroll's header floats over scrolled content, so it needs an opaque one.
       'editorStickyScroll.background': ui.widgetBackground,
       'editorStickyScrollGutter.background': ui.widgetBackground,
       'editorSuggestWidget.background': ui.widgetBackground,
@@ -127,10 +119,8 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'input.background': ui.widgetBackground,
       'input.foreground': ui.foreground,
       'input.border': ui.border,
-      // Bracket pair colorization is on by default in Monaco; without these it
-      // falls back to a loud stock gold/orchid/blue rainbow that fights the
-      // palette. Calm it to the muted punctuation tone so brackets read like the
-      // rest of the delimiters; only genuinely unmatched brackets get flagged.
+      // Bracket pair colorization is on by default with a loud stock rainbow; mute it to the
+      // punctuation tone so brackets read like other delimiters. Unmatched ones are still flagged.
       'editorBracketHighlight.foreground1': ui.subtle,
       'editorBracketHighlight.foreground2': ui.subtle,
       'editorBracketHighlight.foreground3': ui.subtle,
@@ -176,11 +166,8 @@ function toMonacoThemeName(isDark: boolean): string {
   return isDark ? 'crowbar-dark' : 'crowbar-light'
 }
 
-/**
- * Resolve the live token layer, (re)define the Monaco theme, and return its id.
- * Signature is unchanged from the previous implementation; `themeId` only seeds
- * the dark/light decision as a fallback when no .dark class is present.
- */
+/** Resolve the live token layer, (re)define the Monaco theme, and return its id. `themeId` only
+ *  seeds the dark/light decision when no .dark class is present. */
 export function defineMonacoTheme(themeId: string): string {
   const isDark =
     typeof document !== 'undefined'

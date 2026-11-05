@@ -107,11 +107,9 @@ function reportOpenFailure(target: DocumentTarget, error: unknown): void {
   toast.error(title, message)
 }
 
-/**
- * Why a host document whose watch the daemon refused opens nowhere: what a read of it hit,
- * the OS out of file watches, its path now spelled otherwise (the daemon watches only the
- * canonical spelling), or else a failure to open.
- */
+/** Why a host document whose watch the daemon refused opens nowhere: what a read hit, the OS out
+ *  of file watches, its path now spelled otherwise (only the canonical spelling is watched), or
+ *  else a failure to open. */
 export function watchRefusal(
   ref: DocumentRef,
   read: { ref: DocumentRef } | { error: unknown },
@@ -217,10 +215,8 @@ function openLoaded({ read, openModel }: Loaded, opts: OpenDocumentOptions): str
   return id
 }
 
-/**
- * A host document is read only once the daemon has armed its watch, so no change between
- * the two is missed, and it never opens unwatched: a refused watch opens nothing.
- */
+/** A host document is read only once the daemon armed its watch, so no change between is missed,
+ *  and never opens unwatched: a refused watch opens nothing. */
 async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promise<string | null> {
   // Lazy: the external-change path builds on this module.
   const { followHostDocument } = await import('@/features/workspace/lib/external-buffer-sync')
@@ -245,10 +241,8 @@ async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promis
   return id
 }
 
-/**
- * Open a document in an editor tab and answer its buffer id: an open buffer is
- * shown, anything else is read first. A failed read is reported and answers null.
- */
+/** Open a document in an editor tab and answer its buffer id: an open buffer is shown, anything
+ *  else is read first. A failed read is reported and answers null. */
 export async function openDocument(
   target: DocumentTarget,
   opts: OpenDocumentOptions = {},

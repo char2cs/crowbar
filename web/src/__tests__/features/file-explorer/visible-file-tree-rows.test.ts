@@ -155,12 +155,8 @@ describe('buildVisibleFileTreeRows', () => {
 })
 
 describe('findTopVisibleItemIndex', () => {
-  // Live-reported: the sticky-ancestor header overlapped/garbled the real row
-  // scrolled underneath it. Root cause: the caller used to re-derive "which
-  // row is at the top" via `Math.floor(scrollOffset / rowHeight)`, assuming
-  // every row's real position is exactly `index * rowHeight` — an assumption
-  // that can drift from the virtualizer's own items. These pin reading the
-  // items directly instead.
+  // The top row is read from the virtualizer's own items, never re-derived as
+  // `scrollOffset / rowHeight`, which drifts from real row positions.
   const items = [
     { index: 5, start: 0, size: 24 },
     { index: 6, start: 24, size: 24 },
@@ -196,13 +192,8 @@ describe('findTopVisibleItemIndex', () => {
   })
 })
 
-// Live-reported (twice): a sticky ancestor header (e.g. "src") painted OVER
-// the top of whichever row happened to be scrolled underneath it, shearing
-// off that row's icon and text. A one-time size reservation shifts WHICH
-// scroll position triggers the overlap but never eliminates it, because
-// scrolling passes through every fractional offset between rows — these
-// pin the fix instead: content is snapped to start exactly where the sticky
-// stack ends, never at a continuous, possibly-mid-row scroll offset.
+// Content snaps to start exactly where the sticky stack ends, never at a continuous (possibly
+// mid-row) scroll offset: a one-time size reservation would still let the stack paint over a row.
 describe('computeStickyScrollLayout', () => {
   const items = [
     { index: 5, start: 0, size: 24 },

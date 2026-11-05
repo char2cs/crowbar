@@ -23,11 +23,8 @@ interface Options {
   placeholderRef: RefObject<HTMLElement | null>
 }
 
-/**
- * Keeps a native webview laid over `placeholderRef`. Teardown is not here: a
- * tab switch or a pane move unmounts this, which only hides the webview — the
- * buffer's release closes it (see disposeBuffers).
- */
+/** Keeps a native webview laid over `placeholderRef`. A tab switch or pane move unmounts this,
+ *  which only hides the webview; the buffer's release closes it (see disposeBuffers). */
 export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }: Options) {
   // The webview is made the first time the tab is shown, never at restore: the
   // registry is the one record of whether Rust has it.

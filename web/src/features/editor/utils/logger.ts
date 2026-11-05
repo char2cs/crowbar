@@ -1,7 +1,4 @@
-/**
- * Editor logging utility
- * Provides structured logging with levels and can be disabled in production
- */
+// Editor logging with levels; can be disabled in production.
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 

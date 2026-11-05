@@ -35,28 +35,19 @@ const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
     THROW_SENTINEL,
     BUFFER_CONTENT: {
       b1: '# Hello\n\nWorld **bold**.\n',
-      // Regression fixture for Finding 1: `plateValueToMarkdown(markdownToPlateValue(md))`
-      // is NOT byte-stable for GFM tables (`| --- |` round-trips to `| - |`),
-      // so this is the case that would falsely dirty a pristine file under
-      // the old "write unconditionally" behavior.
+      // The round trip is not byte-stable for GFM tables (`| --- |` becomes `| - |`), so this
+      // would falsely dirty a pristine file if flush wrote unconditionally.
       'b-table': '| a | b |\n| --- | --- |\n| 1 | 2 |\n',
-      // C1 fixture: a SECOND, clearly distinguishable document. Switching
-      // between two `.md` tabs is a prop update (pane-container renders the
-      // active buffer without a key), so this is the content that must appear
-      // — and `b1`'s text must never be written to `b2`.
+      // A second, distinguishable document: switching `.md` tabs is a prop update (no key), so this
+      // content must appear and `b1`'s text must never be written to `b2`.
       b2: '# Second\n\nAnother **document**.\n',
       'b-throw': THROW_SENTINEL,
-      // C2 fixtures: an empty file and a whitespace-only file. Plate's `init`
-      // replaces empty children with a synthesized paragraph, so the editor's
-      // children at mount are NOT `initialValue` — a baseline taken from
-      // `initialValue` is `''` and the first flush writes an invisible
-      // zero-width space over a file the user never touched.
+      // An empty and a whitespace-only file: Plate's `init` synthesizes a paragraph, so a baseline
+      // from `initialValue` would make the first flush write a zero-width space.
       'b-empty': '',
       'b-blank': '\n',
-      // Task 8 (data safety): a real-world frontmatter block ahead of prose.
-      // Feeding this whole string into Plate would rewrite the `---` block
-      // into a thematic break + setext heading — the exact corruption the
-      // frontmatter split/join seam exists to prevent.
+      // Real-world frontmatter ahead of prose; fed whole into Plate, the `---` block would become a
+      // thematic break + setext heading.
       'b-frontmatter':
         '---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n\n# Hello\n\nWorld.\n',
       // Frontmatter + a GFM table body: pristine mount/unmount of this must
@@ -110,10 +101,8 @@ vi.mock('@/lib/external-open', () => ({
   openExternalUrl: (url: string) => openExternalUrl(url),
 }))
 
-// Deserialization normally lives entirely inside `markdownToPlateValue`. Wrap
-// it (pass-through for everything except the sentinel) so the ErrorBoundary
-// test can force the exact throw Finding 2 is about, without touching real
-// parser internals.
+// Wrap `markdownToPlateValue` (pass-through except for the sentinel) so the ErrorBoundary test
+// can force a deserialize throw without touching real parser internals.
 vi.mock('@/features/editor/markdown/plate/markdown-serialization', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/editor/markdown/plate/markdown-serialization')>()
@@ -195,14 +184,8 @@ describe('MarkdownEditorPane', () => {
     expect(documentText(docOf('b2'))).toBe(BUFFER_CONTENT.b2)
   })
 
-  // Regression test for Finding 1 (CRITICAL): opening a pristine file and
-  // unmounting/flushing without any edit must NOT write, even when the
-  // deserialize -> serialize round trip is not byte-stable for the file's
-  // content (GFM tables). Against the old "flush writes unconditionally"
-  // behavior, this fails because the re-canonicalized table markdown
-  // (`| --- |` -> `| - |`) differs from the original bytes and old code wrote
-  // it anyway. With autoSave on, that meant opening a table-containing file
-  // silently rewrote it on disk.
+  // Opening a pristine file and unmounting without an edit must not write, even when the round trip
+  // re-canonicalizes its content (GFM tables): with autoSave on that would rewrite it on disk.
   it('does not write on unmount when the editor is pristine, even for a GFM table', async () => {
     const { unmount } = render(<MarkdownEditorPane paneId="p1" bufferId="b-table" />)
     await screen.findByText('a')
@@ -212,11 +195,8 @@ describe('MarkdownEditorPane', () => {
     expect(documentText(docOf('b-table'))).toBe(BUFFER_CONTENT['b-table'])
   })
 
-  // Task 8 (data safety, CRITICAL): frontmatter must never be fed through
-  // Plate's markdown deserialize/serialize round trip — doing so rewrites the
-  // `---` block into a thematic break + setext heading and destroys it. The
-  // flushed content's leading frontmatter block must be byte-identical to
-  // the buffer's original bytes, even after a real edit to the body.
+  // Frontmatter never goes through Plate's round trip (it would become a thematic break + setext
+  // heading): the flushed leading block is byte-identical to the original, even after a body edit.
   it('preserves the frontmatter block byte-identically after a real body edit', async () => {
     render(<MarkdownEditorPane paneId="p1" bufferId="b-frontmatter" />)
     await screen.findByText('Hello')
@@ -231,9 +211,8 @@ describe('MarkdownEditorPane', () => {
     expect(md).toContain('changed')
   })
 
-  // Companion to the GFM-table pristine-flush regression above, but with
-  // frontmatter present too: opening and closing a frontmatter+table
-  // document without editing it must perform NO write at all.
+  // As the GFM-table pristine flush above, with frontmatter too: opening and closing a
+  // frontmatter+table document without editing it writes nothing.
   it('does not write on mount+unmount of a pristine frontmatter+table document', async () => {
     const { unmount } = render(<MarkdownEditorPane paneId="p1" bufferId="b-frontmatter-table" />)
     await screen.findByText('a')
@@ -243,11 +222,8 @@ describe('MarkdownEditorPane', () => {
     expect(documentText(docOf('b-frontmatter-table'))).toBe(BUFFER_CONTENT['b-frontmatter-table'])
   })
 
-  // C1 (CRITICAL): `pane-container` renders the active buffer with no `key`, so
-  // switching between two `.md` tabs is a PROP UPDATE, not a remount. The
-  // document is derived once (useMemo with `[]` deps, memoized editor) while
-  // `bufferId` — and therefore the flush's target — does change. The result
-  // was file A's whole document being written into file B, destroying B.
+  // pane-container renders the active buffer with no `key`, so a `.md` → `.md` tab switch is a
+  // prop update, not a remount: the editor must follow `bufferId`, never writing A's text to B.
   describe('when the bufferId prop changes (md -> md tab switch)', () => {
     it('shows the new buffer content, not the previous one', async () => {
       const { rerender } = render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
@@ -281,11 +257,8 @@ describe('MarkdownEditorPane', () => {
     })
   })
 
-  // C2 (CRITICAL): Plate's `init` replaces empty children with a synthesized
-  // paragraph, so `editor.children !== initialValue` at mount. A baseline taken
-  // from `initialValue` is therefore `''`, and the first flush writes the
-  // synthesized paragraph — an invisible U+200B plus a newline — over a file the
-  // user only opened.
+  // Plate's `init` replaces empty children with a synthesized paragraph, so a baseline from
+  // `initialValue` would make the first flush write a U+200B over a file the user only opened.
   describe('an empty document', () => {
     it('does not write on mount+unmount of an empty file', async () => {
       const { unmount } = render(<MarkdownEditorPane paneId="p1" bufferId="b-empty" />)
@@ -329,10 +302,8 @@ describe('MarkdownEditorPane', () => {
     })
   })
 
-  // I1 (two panes on the same file) + I2 (external reload after a git
-  // checkout): the document's text is replaced underneath a MOUNTED editor.
-  // Plate held a parsed copy and never resynced, so the stale document was
-  // flushed back over the new text on the user's next keystroke.
+  // The document's text is replaced under a mounted editor (a second pane on the file, an external
+  // reload after checkout); the stale parsed copy must never be flushed back over the new text.
   describe('when the document text changes underneath the editor', () => {
     const reloaded = '# Reloaded\n\nFrom disk.\n'
 

@@ -65,10 +65,8 @@ describe('MarkdownEditorPane scroll retention', () => {
     openFixtures()
   })
 
-  // Regression: switching the pane to another tab unmounts the rich editor
-  // entirely (PaneContainer renders only the active buffer, and EditorPane keys
-  // the Plate pane by buffer id), so the scroll offset — which lived only on
-  // that DOM node — used to reset to the top on the way back.
+  // Switching tabs unmounts the rich editor (only the active buffer renders, keyed by buffer id);
+  // the scroll offset must survive the way back.
   it('restores the scroll offset when the tab is switched away and back', async () => {
     const first = renderPane('b1')
     await screen.findByText('Doc one')

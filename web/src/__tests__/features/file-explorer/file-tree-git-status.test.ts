@@ -120,14 +120,9 @@ describe('file tree git status lookup', () => {
     ).toBeNull()
   })
 
-  // Regression: the real app addresses file-tree entries by WORKSPACE-RELATIVE
-  // paths ("README.md", "api/x.go") while rootFolderPath is the synthetic
-  // `/repos/<repoId>` mock-era prefix — a different id space. The git status the
-  // backend returns is keyed by the same workspace-relative paths. These resolve
-  // correctly even though the file path never starts with rootFolderPath
-  // (getRelativePath returns the path unchanged when there is no prefix match).
-  // The previous code gated this behind `getWorkspaceRootForPath === rootFolderPath`
-  // which was always false, silently disabling every decoration.
+  // File-tree entries and backend git status are keyed by workspace-relative paths ("README.md"),
+  // while rootFolderPath is a synthetic `/repos/<repoId>` prefix; decorations must resolve even
+  // though no path starts with it.
   test('resolves decorations for workspace-relative paths under a synthetic /repos root', () => {
     const root = '/repos/81883222-d45f-44ca-80ed-9550d5228441'
     const lookup = createFileTreeGitStatusLookup({

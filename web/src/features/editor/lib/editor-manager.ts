@@ -7,10 +7,8 @@ export interface IEditorLike {
   restoreViewState(state: unknown): void
   layout(): void
   dispose(): void
-  /** The underlying standalone editor (monaco `IStandaloneCodeEditor`), exposed
-   *  as `unknown` so this module stays monaco-free. The React controller casts it
-   *  to wire `updateOptions`/listeners. `null` when no raw editor backs the adapter
-   *  (e.g. test fakes that don't model one). */
+  /** The Monaco standalone editor as `unknown`, keeping this module Monaco-free; the React
+   *  controller casts it. `null` when no raw editor backs the adapter (some test fakes). */
   raw(): unknown
 }
 export interface MonacoEditorApi {

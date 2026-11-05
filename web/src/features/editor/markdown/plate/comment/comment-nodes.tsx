@@ -2,26 +2,9 @@
 
 import { PlateElement, type PlateElementProps } from 'platejs/react'
 
-/**
- * Minimal node components for the comment editor's tables and code blocks.
- *
- * The app's full-editor equivalents (`@/components/ui/table-node`,
- * `@/components/ui/code-block-node`) are page-editor furniture: between them
- * they pull @platejs/resizable, block selection, a popover,
- * a cmdk language combobox, a colour dropdown, a table toolbar, and —
- * through CodeBlockKit — a live syntax highlighter loading grammars on demand.
- * That is the right trade in a document you write for an hour. It is
- * the wrong trade in a box you type two sentences into, especially one that
- * lives on the branch-review surface, whose whole job is to stay fast on huge
- * diffs.
- *
- * These exist so the PLUGINS can still be registered. That matters more than
- * the affordances they drop: @platejs/markdown discards any node whose plugin
- * is absent, so an unregistered table plugin doesn't mean "comments have no
- * table toolbar", it means a comment containing a table LOSES it the moment
- * someone edits that comment. Round-tripping the content is the requirement;
- * resize handles are not.
- */
+// Minimal table and code-block nodes for the comment editor. The full-editor ones pull resizing,
+// block selection, combobox and a live highlighter, too heavy for the diff-review surface. The
+// plugins must still register: @platejs/markdown drops nodes without one, so edits lose tables.
 
 /** `table > tbody > tr > td` — the same DOM shape Plate's own TableElement
  *  builds, since Slate's children land directly under this element and a `<tr>`
@@ -62,14 +45,8 @@ export function CommentTableCellHeaderElement(props: PlateElementProps) {
   )
 }
 
-/**
- * A fenced block, unhighlighted.
- *
- * Highlighting is deliberately absent rather than merely unimplemented: the
- * POSTED comment renders through `MarkdownPreview`, which highlights with shiki
- * already, so highlighting three lines mid-typing buys nothing the reader
- * will ever see.
- */
+/** A fenced block, deliberately unhighlighted: the posted comment renders through
+ *  `MarkdownPreview`, which highlights with shiki. */
 export function CommentCodeBlockElement({ children, ...props }: PlateElementProps) {
   return (
     <PlateElement {...props} className="my-2">

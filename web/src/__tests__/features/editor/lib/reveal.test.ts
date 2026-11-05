@@ -1,10 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
-// Invariant (spec §7-E): the cursor lands on the right line after a
-// cross-file reveal. The old jump paths placed it from a 100–150 ms timer by
-// a character offset computed from whatever buffer was active then — wrong
-// file on a slow switch, wrong line on a large one. reveal() waits for the
-// pane's editor to show the target model, however long that takes.
+// Invariant: the cursor lands on the right line after a cross-file reveal. reveal() waits for the
+// pane's editor to show the target model, however long that takes, rather than a guessed delay.
 
 const { readDisk } = vi.hoisted(() => ({ readDisk: vi.fn() }))
 vi.mock('@/lib/api/documents', async (importOriginal) => ({

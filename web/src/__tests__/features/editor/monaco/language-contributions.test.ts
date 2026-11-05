@@ -45,7 +45,7 @@ describe('registrations cover every monaco id the app resolver can produce', () 
     expect(uncovered).toEqual([])
   })
 
-  // Explicit regression pins for the two ids that were rendering as plaintext.
+  // The two ids that once fell through to plaintext.
   it('.jsx and .erb resolve to loadable monaco grammars, not plaintext', () => {
     expect(toMonacoLanguageId('javascriptreact')).toBe('javascript')
     expect(toMonacoLanguageId('embedded_template')).toBe('html')

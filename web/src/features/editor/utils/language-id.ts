@@ -224,17 +224,9 @@ export function getAllLanguages(): Array<{ id: string; displayName: string }> {
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
-/**
- * Test-only: every language id `getLanguageIdFromPath` can produce — the
- * values of the extension/filename tables plus the ids the function special-cases
- * inline (dotenv, the two `.git/info/*` files, the Angular template overlay).
- *
- * The drift guard in `language-contributions.test.ts` cross-checks each of these
- * against `MONACO_LANGUAGE_BY_LANGUAGE_ID` so none silently hits
- * `toMonacoLanguageId`'s `?? languageId` fallback (an id nothing registers →
- * permanent plaintext). This is the KEY-side complement to that test's existing
- * VALUE-side check (every monaco id the map produces must have a grammar).
- */
+/** Every language id `getLanguageIdFromPath` can produce (table values plus inline special
+ *  cases), for language-contributions.test.ts to check each has a Monaco mapping rather than
+ *  falling back to an unregistered id (permanent plaintext). */
 export function __resolverLanguageIdsForTests(): string[] {
   return [
     ...Object.values(EXTENSION_TO_LANGUAGE),

@@ -20,12 +20,8 @@ export const getPathBaseName = (path: string): string => {
   return segments[segments.length - 1] || path
 }
 
-/**
- * Every file under `directoryPath` in the already-loaded (filtered) tree.
- * The workspace root is addressed by its absolute path (=== rootFolderPath) or
- * '', but the tree's own nodes are root-relative, so there is no node to look
- * up — walk the top-level entries directly.
- */
+/** Every file under `directoryPath` in the loaded (filtered) tree. The root, addressed as '' or
+ *  its absolute path (=== rootFolderPath), has no node of its own: walk the top-level entries. */
 export function collectLoadedFilesInDirectory(
   tree: FileEntry[],
   directoryPath: string,
@@ -51,10 +47,8 @@ export function collectLoadedFilesInDirectory(
   return collected
 }
 
-/**
- * Every file under `directoryPath` on disk, skipping what the tree would hide.
- * `isVisible` gets the entry's path, base name and whether it is a directory.
- */
+/** Every file under `directoryPath` on disk, skipping what the tree would hide; `isVisible`
+ *  gets the entry's path, base name and whether it is a directory. */
 export async function collectLocalFilesInDirectory(
   directoryPath: string,
   readDirectory: (path: string) => Promise<Array<Pick<DirectoryEntry, 'path' | 'is_dir'>>>,

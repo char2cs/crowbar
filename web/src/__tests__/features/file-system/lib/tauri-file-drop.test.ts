@@ -249,12 +249,9 @@ describe('useTauriFileDrop', () => {
   })
 })
 
-// Regression coverage for C2: every mounted `useTauriFileDrop` consumer
-// shares ONE underlying Tauri subscription (see `ensureSharedSubscription`),
-// which arbitrates a single drop event down to exactly ONE handler — never
-// zero, never both. Each test below mounts multiple consumers against the
-// SAME mocked `onDragDropEvent` and replays the one captured drop callback,
-// exactly as the real (single, shared) broadcast subscription does.
+// Every mounted consumer shares one Tauri subscription that hands a drop to exactly one handler.
+// Each test mounts several consumers on the same mocked `onDragDropEvent` and replays the one
+// captured drop callback, as the real shared broadcast does.
 describe('useTauriFileDrop — cross-consumer arbitration', () => {
   const originalElementFromPoint = document.elementFromPoint
 

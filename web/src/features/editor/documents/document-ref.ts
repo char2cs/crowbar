@@ -5,11 +5,8 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 const WORKSPACE_PREFIX = 'crowbar://editor/'
 const HOST_PREFIX = 'crowbar://host/'
 
-/**
- * The Monaco model uri of a document. Models are one global table, so the uri
- * names the authority and, for a workspace file, the workspace: two worktrees'
- * `src/a.ts` must never share a model.
- */
+/** A document's Monaco model uri. Models are one global table, so it names the authority and, for
+ *  a workspace file, the workspace: two worktrees' `src/a.ts` must never share a model. */
 export function documentUri(ref: DocumentRef): string {
   if (ref.authority === 'host') return HOST_PREFIX + encodeURIComponent(ref.path)
   return WORKSPACE_PREFIX + encodeURIComponent(ref.workspaceId) + '/' + encodeURIComponent(ref.path)
@@ -41,11 +38,9 @@ export function documentRefOf(
     : workspaceRef(buffer.workspaceId, path)
 }
 
-/**
- * `relativePath` resolved against the directory of `ref`, on the same
- * authority. A leading `/` is the filesystem root for a host document and the
- * worktree root for a workspace one; `?query` and `#fragment` are dropped.
- */
+/** `relativePath` resolved against `ref`'s directory, same authority. A leading `/` is the
+ *  filesystem root for a host document, the worktree root for a workspace one; query and fragment
+ *  are dropped. */
 export function siblingRef(ref: DocumentRef, relativePath: string): DocumentRef {
   const slash = ref.path.lastIndexOf('/')
   const dir = slash === -1 ? '' : ref.path.slice(0, slash)

@@ -1,7 +1,5 @@
-/**
- * Pure conversions between Crowbar editor positions/ranges and Monaco's
- * 1-based positions/ranges, plus diagnostic→marker mapping.
- */
+// Pure conversions between Crowbar editor positions/ranges and Monaco's 1-based ones, plus
+// diagnostic→marker mapping.
 
 // See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
 // singleton as the bare 'monaco-editor' specifier, without eagerly bundling
