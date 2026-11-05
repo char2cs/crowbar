@@ -111,10 +111,8 @@ function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
   return { chatId: owner, workspaceId: row.workspaceId }
 }
 
-/**
- * A row dropped onto a pane — spec §8.1/§8.2. Every drop here ADDS; nothing
- * this reaches for can remove a pane or evict a chat that is already showing.
- */
+// A row dropped onto a pane (spec §8.1/§8.2). Every drop ADDS: nothing here can remove a pane or
+// evict a chat already showing.
 export function performSidebarPaneDrop(
   subjects: SidebarRow[],
   paneId: string,
@@ -125,10 +123,8 @@ export function performSidebarPaneDrop(
   }
 }
 
-/**
- * One chat, CLICKED — spec §8.4: "clicking a chat makes its own view". A
- * click never merges; merging is the drag-and-drop gesture alone.
- */
+// One chat, clicked (spec §8.4: "clicking a chat makes its own view"). A click never merges;
+// merging is the drag-and-drop gesture alone.
 export function openChatInOwnPane(subject: SidebarRow): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
@@ -138,11 +134,8 @@ export function openChatInOwnPane(subject: SidebarRow): void {
   })
 }
 
-/**
- * One chat, DROPPED onto one pane — spec §8.1/§8.2, the only gesture that
- * puts two chats in one view. An already-open chat is moved, never opened a
- * second time.
- */
+// One chat dropped onto one pane (§8.1/§8.2), the only gesture that puts two chats in one view.
+// An already-open chat is moved, never opened twice.
 function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return

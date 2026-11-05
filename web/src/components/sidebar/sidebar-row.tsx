@@ -67,18 +67,14 @@ interface SidebarRowProps {
    *  default text tokens track the ambient theme and would be illegible there, so label and
    *  sublabel swap to `text-foreground-inverse`. Never set by the tree. */
   activeGround?: boolean
-  /** A row drawn inside a view-tab shell that owns the margin and padding:
-   *  `tab` drops `ROW_BASE`'s own margin and takes `h-8`; `tab-member` also
-   *  drops the resting glyph (a split's members share one tab and carry no
-   *  icon; the working spinner still shows). */
+  /** Drawn inside a view-tab shell that owns margin and padding: `tab` drops ROW_BASE's margin
+   *  and takes `h-8`; `tab-member` also drops the resting glyph (the spinner still shows). */
   tab?: 'tab' | 'tab-member'
 }
 
-/**
- * The one row every tree and Recents entry renders: `[glyph][label] [Fork][Thread][chevron]`.
- * Dumb: no active state, each trailing control renders only when its handler is supplied. An
- * unlocked branch row owning a workspace adds a second line: branch name and change counts.
- */
+// The one row every tree and Recents entry renders: `[glyph][label] [Fork][Thread][chevron]`.
+// Dumb: no active state; each trailing control renders only when its handler is supplied. An
+// unlocked branch row owning a workspace adds a second line: branch name and change counts.
 export function SidebarRow({
   row,
   depth,

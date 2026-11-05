@@ -83,10 +83,8 @@ export async function readDocumentFromDisk(
   }
 }
 
-/**
- * Write a document and answer the ref it resolved to. `encoding: 'base64'` sends
- * a base64 `content` the daemon decodes to raw bytes, so binary writes stay intact.
- */
+/** Write a document; answers the ref it resolved to. `encoding: 'base64'` sends `content` the
+ *  daemon decodes to raw bytes, keeping binary writes intact. */
 export async function writeDocument(
   ref: DocumentRef,
   content: string,

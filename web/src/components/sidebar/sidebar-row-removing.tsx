@@ -18,10 +18,8 @@ import {
   useRowMetrics,
 } from '@/components/sidebar/lib/row-metrics'
 
-/**
- * A row held in the removal tray, drawn in place: its glyph and label, with
- * the countdown, Keep and the "+N" count where its actions were.
- */
+// A row held in the removal tray, drawn in place: its glyph and label, with the countdown, Keep
+// and the "+N" count where its actions were.
 export function RemovingSidebarRow({
   row,
   depth,

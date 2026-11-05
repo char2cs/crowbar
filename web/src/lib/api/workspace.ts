@@ -2,13 +2,9 @@ import { apiFetch } from '@/lib/api/fetch'
 import { operationHeaders, type OperationReply } from '@/core/entities/run-operation'
 import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
-/**
- * The worktree lifecycle verbs, addressed to the CHAT that holds the worktree
- * (backend spec §4.3); the daemon resolves `:id` to the workspace behind it.
- * Each answers 202 with the operation that runs it under `opId`; its outcome
- * arrives on the operations stream, the entity changes on the workspace one.
- */
-// Async so a scope that is not recorded yet rejects rather than throws.
+// Worktree lifecycle verbs, addressed to the chat holding the worktree (spec §4.3): each answers
+// 202 with the operation under `opId` (outcome on the operations stream, entity on the workspace
+// one). Async so a scope not recorded yet rejects rather than throws.
 async function worktreeOp(wsId: string, verb: string, opId: string, body?: unknown) {
   return apiFetch<OperationReply>(`${worktreeVerbBaseForWorkspace(wsId)}/${verb}`, {
     method: 'POST',
@@ -20,11 +16,8 @@ async function worktreeOp(wsId: string, verb: string, opId: string, body?: unkno
   })
 }
 
-/**
- * Reparent a workspace. `newParentId` is still a WORKSPACE id: it names the fork
- * parent, which is workspace lineage and a different field from the chat tree's
- * own ParentID. Only the addressed row moved onto a chat id.
- */
+// Reparent a workspace. `newParentId` is a workspace id — fork lineage, a different edge from the
+// chat tree's ParentID; only the addressed row moved onto a chat id.
 export function reparentWorkspace(
   wsId: string,
   newParentId: string,

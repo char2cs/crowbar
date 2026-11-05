@@ -25,11 +25,8 @@ interface SidebarTreeProps {
   onPaneDrop: (subjects: SidebarRowType[], paneId: string, zone: SidebarPaneZone) => void
 }
 
-/**
- * The component `renderRow` defers to, so hooks run per row: it subscribes one
- * row to the two live facts `deriveRows` seeds inert, pane membership and
- * the chat's server-folded `working`.
- */
+// The component renderRow defers to, so hooks run per row: it subscribes one row to the two live
+// facts deriveRows seeds inert, pane membership and the chat's server-folded `working`.
 export function SidebarTreeRow({
   row,
   ...rest

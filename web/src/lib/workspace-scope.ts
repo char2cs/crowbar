@@ -133,10 +133,8 @@ export function getOwningChatId(wsId: string): string | null {
   return getWorkspaceScope(wsId)?.owningChatId || null
 }
 
-/**
- * The workspace whose worktree `chatId` holds, or null. Only an OWNING chat is
- * recorded, so a sibling must be placed through the workspace it is opened in.
- */
+// The workspace whose worktree `chatId` holds, or null. Only owning chats are recorded, so a
+// sibling must be placed through the workspace it is opened in.
 export function getWorkspaceIdOwnedByChat(chatId: string): string | null {
   if (!chatId) return null
   for (const scope of _scopes.values()) if (scope.owningChatId === chatId) return scope.wsId
@@ -153,10 +151,8 @@ export function useWorkspaceScopeReady(wsId: string): boolean {
   )
 }
 
-/**
- * `getOwningChatId(wsId)` as React state: the sidebar records it asynchronously,
- * and the chat-scoped routes throw without it, so effects must re-run once it lands.
- */
+// getOwningChatId as React state: the sidebar records it asynchronously and chat-scoped routes
+// throw without it, so effects must re-run once it lands.
 export function useOwningChatId(wsId: string): string | null {
   return useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
