@@ -149,16 +149,37 @@ function parsedItems(raw: string): PromptStash[] | null {
   }
 }
 
+// Storage is the one owner; an open composer renders it through these, never a copy of its own.
+const listeners = new Set<() => void>()
+const snapshots = new Map<string, { raw: string | null; items: PromptStash[] }>()
+
+export function subscribePromptStashes(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** The stored list, the same array until it is written again (a render's snapshot). */
+export function promptStashesSnapshot(wsId: string, chatId: string): PromptStash[] {
+  const key = promptStashStorageKey(wsId, chatId)
+  const raw = readLocal(key)
+  const cached = snapshots.get(key)
+  if (cached?.raw === raw) return cached.items
+  const items = loadPromptStashes(wsId, chatId)
+  snapshots.set(key, { raw, items })
+  return items
+}
+
 /** False means the caller must keep the current draft untouched. */
 export function savePromptStashes(wsId: string, chatId: string, items: PromptStash[]): boolean {
   if (!isValidCollection(items)) return false
   const key = promptStashStorageKey(wsId, chatId)
-  if (items.length === 0) {
-    removeLocal(key)
-    return true
+  if (items.length === 0) removeLocal(key)
+  else {
+    const value = serialized(items)
+    if (!fitsStorageBudget(key, value) || !writeLocal(key, value)) return false
   }
-  const value = serialized(items)
-  return fitsStorageBudget(key, value) && writeLocal(key, value)
+  for (const listener of listeners) listener()
+  return true
 }
 
 /** Keeps text whose composer is gone as the chat's newest stash; false when it cannot. */

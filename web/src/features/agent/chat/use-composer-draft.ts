@@ -1,9 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
 import {
   addPromptStash,
   createPromptStash,
   loadPromptStashes,
+  promptStashesSnapshot,
   savePromptStashes,
+  subscribePromptStashes,
   type PromptStash,
 } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type {
@@ -28,7 +30,10 @@ interface DraftDeps {
 export function useComposerDraft({ wsId, chatId, providerId, catalogActive, history }: DraftDeps) {
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const slash = useSlashCatalog({ wsId, chatId, providerId, active: catalogActive })
-  const [stashes, setStashes] = useState(() => loadPromptStashes(wsId, chatId))
+  // Read from storage, never copied: the outbox stashes a failed prompt while this is open.
+  const stashes = useSyncExternalStore(subscribePromptStashes, () =>
+    promptStashesSnapshot(wsId, chatId),
+  )
   const [stashPickerOpen, setStashPickerOpen] = useState(false)
   const [error, setError] = useState('')
 
@@ -59,12 +64,13 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
       setError('Stash or clear the current draft before restoring another one.')
       return
     }
-    const remaining = stashes.filter((candidate) => candidate.id !== item.id)
+    const remaining = loadPromptStashes(wsId, chatId).filter(
+      (candidate) => candidate.id !== item.id,
+    )
     if (!savePromptStashes(wsId, chatId, remaining)) {
       setError('Could not update saved prompt stashes. The current draft was not changed.')
       return
     }
-    setStashes(remaining)
     setStashPickerOpen(false)
     load(item.markdown)
     setError('')
@@ -78,12 +84,11 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
         setError('This draft is too large to stash.')
         return
       }
-      const next = addPromptStash(stashes, item)
+      const next = addPromptStash(loadPromptStashes(wsId, chatId), item)
       if (!savePromptStashes(wsId, chatId, next)) {
         setError('Could not save this prompt stash. The current draft was not changed.')
         return
       }
-      setStashes(next)
       setStashPickerOpen(false)
       clear()
       setError('')
