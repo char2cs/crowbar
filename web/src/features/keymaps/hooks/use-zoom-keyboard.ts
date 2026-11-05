@@ -1,8 +1,5 @@
-/**
- * Chat zoom keyboard shortcuts. Chords are resolved from the keymap registry
- * (mod+=, mod+-, mod+0 by default) so switching presets or rebinding a command
- * updates these live, same as usePaneKeyboard / useSidebarTabKeyboard.
- */
+// Chat zoom chords (mod+= / mod+- / mod+0 by default) resolve from the keymap registry, so a
+// preset switch or rebind takes effect live.
 import { useEffect } from 'react'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
@@ -14,10 +11,7 @@ export function useZoomKeyboard(): void {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Every sibling keyboard hook in this directory guards this — missing
-      // here, holding the chord down sent a KeyboardEvent with repeat:true
-      // on every OS key-repeat tick, firing zoomIn/zoomOut/resetZoom once
-      // per tick instead of once per actual press.
+      // One zoom step per press, not per OS key-repeat tick.
       if (e.repeat) return
       const matches = (commandId: string): boolean => {
         const chord = chordMap[commandId]

@@ -1,16 +1,5 @@
-/**
- * Pure chord parsing, formatting and matching.
- *
- * Normalized chord string grammar (lowercase, `+`-separated, modifiers first in
- * canonical order): `[mod+][shift+][alt+]<key>`
- *
- *  - `mod`   → Cmd on macOS, Ctrl elsewhere
- *  - `shift` → Shift
- *  - `alt`   → Alt / Option
- *  - `<key>` → a single key, lowercased (e.g. `t`, `\`, `arrowleft`)
- *
- * Examples: `mod+\`, `mod+shift+t`, `mod+alt+arrowleft`.
- */
+// Normalized chord grammar: lowercase, `+`-separated, modifiers in canonical order
+// `[mod+][shift+][alt+]<key>` (e.g. `mod+shift+t`). `mod` is Cmd on macOS, Ctrl elsewhere.
 import { APPLE_KEYBOARD } from '@/utils/platform'
 
 export interface ParsedChord {
@@ -70,10 +59,7 @@ export function normalizeChord(chord: string): string {
   return parsed ? stringifyChord(parsed) : ''
 }
 
-/**
- * Build a normalized chord from a KeyboardEvent. Returns null when the event is
- * only a bare modifier press (no real key yet).
- */
+/** Normalized chord for a KeyboardEvent; null for a bare modifier press (no real key yet). */
 export function chordFromEvent(e: KeyboardEvent): string | null {
   const key = e.key
   if (key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') {

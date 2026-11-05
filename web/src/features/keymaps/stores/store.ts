@@ -1,14 +1,5 @@
-/**
- * Keymap store.
- *
- * Owns the active preset and per-command user overrides, both persisted to
- * localStorage under the existing `crowbar:settings:` namespace:
- *   - `crowbar:settings:keybindingPreset`         → KeymapPresetId
- *   - `crowbar:settings:keybindingUserOverrides`  → Record<commandId, chord>
- *
- * The store is the single source of truth that the keyboard hooks and the
- * Keybindings settings tab both read from.
- */
+// Single source of truth for the active preset and per-command user overrides, read by both the
+// keyboard hooks and the Keybindings tab; persisted to localStorage under `crowbar:settings:`.
 import { create } from 'zustand'
 import { createSelectors } from '@/utils/zustand-selectors'
 import { isKeymapPresetId } from '@/features/keymaps/defaults/keybinding-presets'

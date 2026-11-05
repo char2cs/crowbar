@@ -2,11 +2,7 @@ import { useEffect } from 'react'
 import { APPLE_KEYBOARD } from '@/utils/platform'
 import { saveActiveBuffer, saveAllDirtyBuffers } from '@/features/editor/lib/buffer-save'
 
-/**
- * Registers global save shortcuts:
- * - mod+S → save the active editor buffer
- * - mod+Shift+S → save all dirty editor buffers
- */
+/** Global mod+S saves the active editor buffer; mod+Shift+S saves every dirty buffer. */
 export function useSaveKeyboard() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
