@@ -3,11 +3,8 @@ export function secondsLeft(deadlineAt: number, now: number): number {
   return Math.max(0, Math.ceil((deadlineAt - now) / 1000))
 }
 
-/**
- * Keeps every held row's seconds figure in this document honest, written straight to the DOM
- * so a digit turning repaints nothing else. The wake-up is aimed at the next whole second of
- * whichever row crosses one first. Returns the stop.
- */
+// Writes every held row's seconds figure straight to the DOM (a digit repaints nothing else),
+// waking at the next whole second any row crosses. Returns the stop.
 export function startRemovalSecondsClock(deadlines: ReadonlyMap<string, number>): () => void {
   if (deadlines.size === 0) return () => {}
   let timer = 0

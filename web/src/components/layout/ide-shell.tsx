@@ -100,11 +100,8 @@ function IdeShellBody() {
           }
         />
         <SidebarFoot />
-        {/* The removal service, mounted where NOTHING unmounts it.
-            It draws no held row of its own (those transform in place in the
-            tree, sidebar-row.tsx) — it owns the 8s commit clock, the seconds
-            numerals, the pagehide flush and `RemovalConfirmDialog`. It cannot
-            be gated on anything: a gated tray never sends its DELETE. */}
+        {/* The removal service (commit clock, pagehide flush, confirm dialog), mounted where nothing
+            unmounts it: a gated tray never sends its DELETE. */}
         <RemovalTray />
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>
@@ -126,11 +123,8 @@ function IdeShellBody() {
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
     >
-      {/* Grid areas move the two already-mounted regions when the side changes;
-          neither the sidebar tree nor WorkspaceHost is reconciled into a new
-          position. The separator owns pointer tracking only while it is being
-          dragged, so ordinary pointer movement over either region has no split
-          layout work to do. */}
+      {/* Grid areas move the two mounted regions on a side change, so neither is reconciled anew;
+          the separator tracks the pointer only while dragged. */}
       <SidebarSplitPane
         side={sidebarSide}
         open={sidebarOpen}

@@ -9,13 +9,8 @@ import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
-/**
- * Sidebar top bar: the sidebar toggle on the inner edge (the side facing the
- * panes) and Settings on the outer edge, beside the macOS traffic lights when
- * the sidebar is on the left. Mirrors when the sidebar sits on the right.
- *
- * MEMOIZED: IDEShell re-renders far more often than this bar changes.
- */
+// Sidebar top bar: the toggle on the pane-facing edge, Settings on the outer edge (beside the
+// traffic lights when docked left); mirrors on the right. Memoized: IDEShell renders far more.
 export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'

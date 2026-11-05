@@ -17,10 +17,8 @@ interface PublishInput {
   projectPath: string
 }
 
-/**
- * Derives the focused-workspace context from the resolved active workspace and
- * publishes it pre-paint, so the panel never renders one frame of stale scope.
- */
+/** Derives the focused-workspace context from the resolved active workspace and
+ *  publishes it pre-paint, so the panel never renders one frame of stale scope. */
 export function usePublishFocusedWorkspaceContext({
   workspaceId,
   homeWorkspaceId,

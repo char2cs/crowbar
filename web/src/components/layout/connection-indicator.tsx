@@ -2,10 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useConnectionStore, type Migrating } from '@/lib/ws/connection-store'
 import { toast } from '@/features/window/stores/toast-store'
 
-// Fixed dedup key: every warning/recovery toast for this component reuses it,
-// so repeated disconnect/reconnect cycles update or replace the same toast
-// instead of stacking duplicates (toastManager.add() with a matching id
-// updates the existing toast rather than adding a new one).
+// One id for every warning/recovery toast, so disconnect cycles update one toast, not stack.
 const TOAST_KEY = 'connection-indicator'
 
 // Brief socket blips (e.g. a single channel cycling) should not flash the
@@ -25,20 +22,9 @@ function migratingToast(migrating: Migrating) {
   }
 }
 
-/**
- * Effect-only component: watches the wsManager's connection store and drives
- * a toast for sustained backend outages. Per CLAUDE.md, a toast is fired from
- * a component watching store state, never from a store or the backend itself
- * — see PlaceholderToastWatcher for the sibling pattern this follows.
- *
- * "Backend unavailable" is a persistent STATE, not a one-off event: a toast
- * that auto-dismissed after a few seconds would silently remove the only
- * indication that the app is disconnected while it's still disconnected.
- * So the warning toast is shown with `duration: 0` — ToastStore.addToast
- * (@base-ui/react/toast) only schedules an auto-close timer when the
- * resolved duration is `> 0`, so `0` opts a toast out of it entirely — and it
- * is dismissed only here, the instant a channel reconnects, never by a timer.
- */
+// Drives a toast for sustained backend outages from the connection store (toasts come from
+// components, never stores). The outage is a STATE, so its toast has `duration: 0` (no auto-close)
+// and is dismissed only here, when a channel reconnects.
 export function ConnectionIndicator() {
   const status = useConnectionStore((state) => state.status)
   const migrating = useConnectionStore((state) => state.migrating)
@@ -55,11 +41,8 @@ export function ConnectionIndicator() {
       if (shownRef.current) {
         shownRef.current = false
         toast.dismissByKey(TOAST_KEY)
-        // A brief, auto-dismissing confirmation that the outage is over —
-        // only fired when the outage was actually surfaced (shownRef), so a
-        // blip that never showed the warning doesn't get a pointless
-        // "Reconnected" afterward. Reuses the same key so a flappy
-        // reconnect can't stack up several confirmations either.
+        // Confirm recovery only when the warning was shown; the shared key stops a flappy reconnect
+        // stacking confirmations.
         toast.show({
           message: 'Reconnected',
           description: 'Backend connection restored.',

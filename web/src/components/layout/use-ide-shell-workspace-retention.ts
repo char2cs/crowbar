@@ -28,16 +28,8 @@ export interface IdeShellWorkspaceRetention {
   sidebarWorkspacePath: string
 }
 
-/**
- * Every workspace-id fact `WorkspaceHost`'s retention (`activeWsId`,
- * `paneWsIds`, `viewWsIds`) and the sidebar's file-explorer path need,
- * resolved off the active pane/route — pulled out of `IDEShell` itself,
- * which otherwise threaded ~10 intermediate values through its own body just
- * to reach the one component (`WorkspaceHost`) and the one selector
- * (`sidebarWorkspacePath`) that actually read them. Mirrors how
- * use-chat-workspace-id.ts already isolates each SINGLE-source resolution
- * this hook composes.
- */
+// Every workspace-id fact `WorkspaceHost`'s retention and the sidebar's file-explorer path need,
+// resolved off the active pane and route, so `IDEShell` threads none of the intermediates.
 export function useIdeShellWorkspaceRetention(
   activeWorkspaceId: string | undefined,
   homeWorkspaceId: string | null,
@@ -47,24 +39,17 @@ export function useIdeShellWorkspaceRetention(
   homeWorkspacePath: string | null = null,
   projectPath = '',
 ): IdeShellWorkspaceRetention {
-  // The workspace of the chat in the ACTIVE PANE — what everything meaning
-  // "the workspace you're sitting in" follows (the file-explorer card, and
-  // `WorkspaceHost`'s single active slot that mounts `WorkspaceActiveEffects`),
-  // so clicking into a split's other pane moves them. Read off the pane's own
-  // record (C3): clicking between two chats of one workspace re-renders
-  // nothing here, and no sidebar or registry scan runs per frame.
+  // The ACTIVE PANE's workspace: "the workspace you're in" for the file-explorer card and the host's
+  // active slot, so focusing a split's other pane moves them. Read off the pane record, so clicking
+  // between two chats of one workspace re-renders nothing.
   const activePaneWorkspaceId = useActivePaneWorkspaceId()
   // Every workspace a view member belongs to, and every workspace some pane's
   // editor tabs reference (an editor-only pane names no chat) — together, the
   // workspaces something on screen or in Recents still needs a store for.
   const viewWorkspaceIds = useViewWorkspaceIds()
   const paneEditorWorkspaceIds = usePaneEditorWorkspaceIds()
-  // The workspace WorkspaceHost should treat as "active": the focused pane's
-  // workspace wins on EVERY route, including home — the pane store's
-  // integrity invariant guarantees `activePaneId` is a pane of the showing
-  // view (or the chatless stage/tray), so it can never be a stale leftover
-  // from another project. Falls back to the routed workspace (home:
-  // `homeWorkspaceId`, else `activeWorkspaceId`), then the other one.
+  // The focused pane's workspace wins on EVERY route (the pane store guarantees it belongs to the
+  // showing view); else the routed one (home: `homeWorkspaceId`), then the other.
   const effectiveActiveWorkspaceId =
     activePaneWorkspaceId ??
     (isHomeRoute ? homeWorkspaceId : activeWorkspaceId) ??
@@ -80,20 +65,13 @@ export function useIdeShellWorkspaceRetention(
         : undefined,
     [activeWorkspaceId, forgeHost],
   )
-  // The shell only needs one scalar from the sidebar tree. Subscribing to the
-  // whole repos array made every live status/count frame rebuild the complete
-  // IDE shell — sidebar provider, carousel, offscreen panels and workspace host
-  // included. Returning the resolved path lets Zustand bail out unless the
-  // active workspace's actual filesystem scope changed.
-  // Same id as `effectiveActiveWorkspaceId` — the panel's path and scope must never diverge.
+  // Select only the resolved path, so live status frames don't rebuild the whole shell. Same id as
+  // `effectiveActiveWorkspaceId`: the panel's path and scope must never diverge.
   const sidebarWorkspaceId = effectiveActiveWorkspaceId
   const sidebarWorkspacePath = useSelect((s) => {
     const repos = selectRepos(s)
-    // The home workspace is never one of `repos`' own workspaces (it rides
-    // no repo — home-workspace-resolver.ts), so resolve its REAL on-disk path
-    // directly (GET /home's own `localPath`) rather than falling through the
-    // repo scan below and landing on some OTHER repo's directory as a
-    // stand-in for "the project's root".
+    // The home workspace rides no repo, so use its real `localPath` rather than letting the repo
+    // scan below land on another repo's directory.
     if (sidebarWorkspaceId && sidebarWorkspaceId === homeWorkspaceId) {
       return (
         homeWorkspacePath ??

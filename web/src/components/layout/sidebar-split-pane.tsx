@@ -51,23 +51,14 @@ function widthFromDrag(
   maxWidth: number,
   contentMinRatio: number,
 ): number {
-  // Match the collapsible-panel gesture: the sidebar stays open at its minimum
-  // until the pointer crosses halfway to zero, then closes. The same threshold
-  // makes dragging outward from a closed sidebar deliberate rather than letting
-  // a one-pixel wobble reopen it.
+  // Like a collapsible panel: stay open at the minimum until the pointer passes halfway to zero,
+  // which also stops a one-pixel wobble from reopening a closed sidebar.
   if (width < minWidth / 2) return 0
   return clampOpenWidth(width, containerWidth, minWidth, maxWidth, contentMinRatio)
 }
 
-/**
- * The IDE's outer split, deliberately narrower than a general panel library.
- *
- * Its important contract is negative: while idle it has no document/window
- * pointermove listener and performs no geometry reads. A listener exists only
- * between a primary-button pointerdown on the separator and its matching
- * pointerup/cancel. During that drag the container is measured once; subsequent
- * moves only update one CSS custom property, coalesced to animation frames.
- */
+// The IDE's outer split. Contract: idle it has no pointermove listener and reads no geometry; a
+// drag measures the container once and then writes one CSS property per animation frame.
 export function SidebarSplitPane({
   side,
   open,

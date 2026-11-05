@@ -23,20 +23,8 @@ export function startHomeRowThread(
   })
 }
 
-/**
- * The tree foot's "New thread" on the project's home workspace — NOT
- * reachable through `handleCreate`, which resolves its `parentId` against
- * the repo rows (`resolveRow`) and has no
- * notion of project home at all (home-workspace-resolver.ts: "home is a
- * project-level concept, not a repo workspace" — it never appears in
- * `repos`). Creates directly against the resolved home workspace id, then
- * opens it the same way `navigateThenOpenChat` opens a freshly-forked repo
- * chat: navigate to project home, wait for it to become the active
- * workspace, then open the chat in its own pane. `homeWorkspaceId` is the
- * caller's job to resolve (home-workspace-resolver.ts's
- * `useHomeWorkspaceState`) — this function
- * only spends it.
- */
+// The tree foot's "New thread" in the project home workspace, which `handleCreate` cannot reach
+// (home is in no repo): opens a fresh draft chat there. The caller resolves `homeWorkspaceId`.
 export function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,

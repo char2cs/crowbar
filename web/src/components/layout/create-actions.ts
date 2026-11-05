@@ -29,11 +29,9 @@ import {
 
 // The sidebar's "+" on a row: a fork (named first, then minted) or a thread.
 
-/**
- * Creates a fork ('workspace') or a thread under `parentId`: a fork opens a
- * naming input at its final slot, a thread is drawn from its operation at once.
- * A project-home row can only thread: home has no worktree to fork.
- */
+/** Creates a fork ('workspace') or a thread under `parentId`: a fork opens a
+ *  naming input at its final slot, a thread is drawn from its operation at once.
+ *  A project-home row can only thread: home has no worktree to fork. */
 export async function handleCreate(
   parentId: string,
   kind: 'workspace' | 'thread',
@@ -62,14 +60,9 @@ export async function handleCreate(
   if (!projectId) return
 
   if (kind === 'workspace') {
-    // The daemon places by CHAT id, and the clicked row's own id is only that
-    // id for a branch row (a locked branch, the repo home — the tree draws
-    // those AS their owning `branch` chat). A REGULAR fork's row is id'd
-    // from its `Workspace`, because its owner is an ordinary conversation
-    // already drawn beside it, so its owning chat has to be read off the
-    // workspace record instead. Falls back to the clicked row for the ids that
-    // name no workspace of this repo (the repo home, a folder) and for a frame
-    // that carries no owner yet.
+    // The daemon places by CHAT id. A branch row's id already is one; a regular fork's row is id'd by
+    // its workspace, so read the owner off the record. Falls back to the clicked id for the repo home,
+    // a folder, or a frame with no owner yet.
     const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
     // A bubble's ground workspace can ALSO be the repo home — never in
     // `repo.workspaces` — so it resolves the way the home row's own id was rendered.
@@ -142,10 +135,8 @@ export async function handleCreate(
   })
 }
 
-/**
- * Sends the fork being named as a local operation, whose row stands in (or keeps
- * the daemon's reason) until its chat and workspace arrive; then the chat opens.
- */
+/** Sends the fork being named as a local operation, whose row stands in (or keeps
+ *  the daemon's reason) until its chat and workspace arrive; then the chat opens. */
 export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
   const draft = treeUiStore.getState().draft
   treeUiStore.getState().cancelDraft()

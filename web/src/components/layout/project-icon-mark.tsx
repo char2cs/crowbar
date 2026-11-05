@@ -29,27 +29,13 @@ const SIZES = {
 interface ProjectIconMarkProps {
   project: ProjectIconSource
   size: keyof typeof SIZES
-  /**
-   * Cache-buster for surfaces that can also CHANGE the icon, i.e. the popover
-   * trigger. It stacks with the `?v=<AvatarVersion>` the daemon already bakes
-   * into avatarUrl (dto/project.go), giving `?v=2&v=1` — deliberate: the daemon's
-   * copy only moves once the updated ProjectDTO has come back over the WS
-   * stream, and this one moves the instant the upload resolves. Read-only
-   * surfaces omit it and ride the daemon's.
-   */
+  /** Cache-buster for surfaces that change the icon. Stacks with the daemon's `?v=` (moves only when
+   *  the DTO streams back) because this one moves the instant the upload resolves. */
   version?: number
 }
 
-/**
- * A project's mark, read-only: emoji, then uploaded image, then the Library
- * default — the same precedence the daemon enforces (setting an emoji clears a
- * stored image and vice versa).
- *
- * This exists so the mark is defined once and every surface showing a project
- * agrees on it. The context pill used to hardcode its glyph, so a project with
- * an icon showed that icon in the sidebar and the default glyph in the pill
- * directly above it.
- */
+// A project's mark, read-only: emoji, then uploaded image, then the Library default (the daemon's
+// precedence). Defined once so every surface showing a project agrees on it.
 export function ProjectIconMark({ project, size, version }: ProjectIconMarkProps) {
   const { box, emoji, glyph } = SIZES[size]
 
@@ -107,10 +93,8 @@ function ProjectIconImage({
   }
   if (!hostResolved) return fallback
 
-  // Resolved for the BROWSER, not for apiFetch: a ProjectDTO's icon URL is a
-  // bare `/v0/...` path and the webview's origin is the dev server or the app
-  // bundle, never the daemon. Unresolved it 404s and silently degrades to the
-  // Library glyph — an uploaded icon then looks exactly like no icon at all.
+  // Resolved for the BROWSER: the DTO's bare `/v0/...` path is not the webview's origin, and it would
+  // 404 into the default glyph, making an uploaded icon look like none.
   const url = projectAssetURL(projectId, avatarUrl)
   const src = version === undefined ? url : `${url}${url.includes('?') ? '&' : '?'}v=${version}`
 
@@ -122,12 +106,8 @@ interface EditableProjectIconProps {
   size: keyof typeof SIZES
 }
 
-/**
- * The active project's icon in the sidebar switcher, click-to-edit — mirrors EditableRepoIcon
- * (repo-icon-mark.tsx). The daemon's four icon routes are identical under a
- * project, minus the GitHub owner-avatar button: a project has no origin
- * remote to read one from.
- */
+/** The active project's click-to-edit icon in the switcher, mirroring EditableRepoIcon minus the
+ *  GitHub button: a project has no origin remote. */
 export function EditableProjectIcon({ project, size }: EditableProjectIconProps) {
   const hostResolved = useHostResolved({ projectId: project.id })
   // Nothing to edit against until the project's host is known.

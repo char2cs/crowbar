@@ -29,20 +29,15 @@ interface SidebarTreeSurfaceProps {
   projects: Project[]
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
-  /** The `+` mark's own panel (create-space-panel.tsx) replaces SpaceScroller
-   *  entirely while true — not a panel inside its scroll-snap track — so the
-   *  touchpad swipe between real spaces can never land on it. Optional,
-   *  default false: only `ide-shell.tsx`'s real mount cares, every other
-   *  caller (tests) just wants the ordinary scroller. */
+  /** The create-space panel replaces SpaceScroller while true (not a panel in its snap track), so
+   *  a swipe between spaces can never land on it. */
   creatingSpace?: boolean
   onCreateSpace?: (project: Project) => void
   onCancelCreateSpace?: () => void
 }
 
-/**
- * SpaceScroller's mount plus the chrome it needs once. Its own component so the store
- * subscriptions every row needs re-render it alone, never `IDEShell`; memoized for the reverse.
- */
+// SpaceScroller plus its once-mounted chrome. Its own component so row subscriptions re-render it
+// alone, never `IDEShell`; memoized for the reverse.
 export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   projects,
   activeProjectId,
@@ -81,12 +76,8 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
       void createSidebarRow(parentId, kind, navigate),
     [navigate],
   )
-  // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the
-  // drag-to-trash gesture already calls, just reachable without a drag now.
-  // Refuses (a locked branch, a repo home, a workspace the live store no
-  // longer recognises) get the identical toast the drag path already shows,
-  // read off `allRows` since `handleTrash` only answers true/false, never a
-  // reason.
+  // The row's X control: the same `handleTrash` as drag-to-trash, and the same toast when it refuses,
+  // since `handleTrash` answers only true/false.
   const onTrash = useCallback(
     (id: string) => {
       if (handleTrash(id)) return
@@ -95,10 +86,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     },
     [allRows],
   )
-  // Spec §9's project-level trash, reached from the tree foot's More… menu.
-  // Says so rather than doing nothing when the tray refuses to hold the
-  // project (a project id no loaded project claims) — the same posture the
-  // row trash's own confirm takes.
+  // §9's project trash, from the tree foot's More… menu; says so when the tray refuses the hold.
   const handleTrashProject = useCallback((projectId: string) => {
     if (trashProject(projectId)) return
     toast.error("Can't delete this space — it may already be gone")

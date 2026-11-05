@@ -14,10 +14,8 @@ interface SidebarBodyProps {
   projectSwitcher: ReactNode
 }
 
-/**
- * The project switcher and mode bar over exactly one visible panel. All three stay mounted and the
- * inactive ones are `hidden`, so scroll position and folded rows survive a switch.
- */
+/** The project switcher and mode bar over exactly one visible panel. All three stay mounted and the
+ *  inactive ones are `hidden`, so scroll position and folded rows survive a switch. */
 export function SidebarBody({ chatsPanel, projectSwitcher }: SidebarBodyProps) {
   const shown = useShownSidebarTab()
   const panel = (tab: SidebarTab, children: ReactNode) => (

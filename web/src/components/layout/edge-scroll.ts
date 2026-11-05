@@ -13,10 +13,8 @@ function ramp(distance: number): number {
   return Math.max(1, Math.round(t * EDGE_SCROLL_MAX_STEP_PX))
 }
 
-/**
- * Pixels to scroll this frame for a pointer at `pointerY`, given the
- * scroller's viewport box. Negative scrolls up.
- */
+/** Pixels to scroll this frame for a pointer at `pointerY`, given the
+ *  scroller's viewport box. Negative scrolls up. */
 export function edgeScrollStep(pointerY: number, top: number, height: number): number {
   if (height <= 0) return 0
   const fromTop = pointerY - top
@@ -83,11 +81,9 @@ export function createEdgeScroller(
   }
 }
 
-/**
- * The nearest ancestor that actually scrolls. Resolved once per drag from the
- * grabbed row, so the drag needs no ref plumbed down through the tree — and it
- * keeps working if the sidebar's scroller is ever swapped for another one.
- */
+/** The nearest ancestor that actually scrolls. Resolved once per drag from the
+ *  grabbed row, so the drag needs no ref plumbed down through the tree — and it
+ *  keeps working if the sidebar's scroller is ever swapped for another one. */
 export function findScrollParent(from: HTMLElement | null): HTMLElement | null {
   for (let node = from?.parentElement ?? null; node; node = node.parentElement) {
     if (node.scrollHeight <= node.clientHeight) continue

@@ -12,21 +12,9 @@ import {
   operationsState,
 } from '@/core/entities/operations'
 
-// Watches sidebar state and fires ONE error toast per newly-observed
-// UNPROVISIONED workspace (spec §3.6). Per CLAUDE.md the toast is fired from a
-// component watching store state, never a store/backend. Uses toast.show (the
-// only variant carrying an action + a dedup key); the Fix… action opens the
-// detach modal.
-//
-// 'own-checkout' is deliberately silent: the repo's own main folder holding its
-// own default branch is the resting state of every import, not a failure, so
-// toasting it put a red "Couldn't set up main" on screen for every repo, every
-// session, forever. That branch's Detach… lives on its row instead
-// (sidebar-row-actions.tsx), where it waits to be wanted rather than
-// interrupting.
-//
-// A placeholder an operation is still making, or one whose operation failed,
-// is the operations watcher's to toast, with the operation's reason.
+// ONE error toast (with a Fix… detach action) per newly seen UNPROVISIONED workspace (§3.6).
+// 'own-checkout' stays silent: it is every import's resting state; its Detach… lives on the row.
+// A placeholder still being made, or whose operation failed, is the operations watcher's to toast.
 export function PlaceholderToastWatcher() {
   const repos = useSelect(selectRepos)
   const openDetach = useDetachModalStore((s) => s.open)

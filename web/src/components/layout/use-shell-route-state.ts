@@ -9,32 +9,23 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useIdeShellWorkspaceRetention } from './use-ide-shell-workspace-retention'
 import { useRedirectIfProjectMissing } from './use-redirect-if-project-missing'
 
-/**
- * What a shell derives from the route, shared by the desktop IDE shell and the phone's: the
- * active project and workspace, WorkspaceHost's retention inputs, the home workspace, and the
- * one "switch to project" / create-space actions the sidebar's switcher and tree both use.
- */
+/** What a shell derives from the route, shared by the desktop IDE shell and the phone's: the
+ *  active project and workspace, WorkspaceHost's retention inputs, the home workspace, and the
+ *  one "switch to project" / create-space actions the sidebar's switcher and tree both use. */
 export function useShellRouteState() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const navigate = useNavigate()
 
-  // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
-  // canonical source for the active project/repo/workspace — read them directly
-  // rather than scanning the sidebar store (which lags the route on cold start).
-  // Recording the scope here, SYNCHRONOUSLY during render, is load-bearing: the
-  // WorkspaceView subtree builds workspace-scoped URLs via workspaceBase() during
-  // its own render, so the scope must exist before then (§14 add-repo regression).
+  // §7: route params are canonical for the active scope (the sidebar store lags on cold start).
+  // Recorded SYNCHRONOUSLY in render: WorkspaceView builds workspaceBase() URLs during its own render.
   const routeScope = recordWorkspaceScopeFromPath(pathname)
   const homeRouteMatch = routeScope ? null : pathname.match(/\/ide\/([^/]+)\/home$/)
   const activeProjectId = routeScope?.projectId ?? homeRouteMatch?.[1]
   const activeRepoId = routeScope?.repoId
   const activeWorkspaceId = routeScope?.wsId
 
-  // Resolve the home workspace id ONCE per project (cached for the session, see
-  // home-workspace-resolver.ts) so WorkspaceHost keeps its view mounted-but-hidden
-  // like any other retained slot. Not gated to the home route: retention's
-  // sidebar-path lookup needs this project's home id/path off it too (a split can
-  // mix a home chat's pane with a repo route).
+  // The home workspace, resolved once per project, so WorkspaceHost retains it like any slot. Not
+  // gated to the home route: a split can mix a home chat's pane with a repo route.
   const {
     wsId: homeWorkspaceId,
     owningChatId: homeOwningChatId,
