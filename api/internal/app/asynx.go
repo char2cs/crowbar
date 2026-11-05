@@ -19,10 +19,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// newAsynx builds the shared asynx wiring every aggregate type gets; parked
-// hears an aggregate whose durable delivery ran out of attempts. opts run last,
-// right before Build, so a caller layers its aggregate's own config (its
-// durable read model, an upcaster) onto the same defaults.
+// newAsynx builds the shared asynx wiring every aggregate type gets; parked hears an
+// aggregate whose durable delivery ran out of attempts. opts run last, right before
+// Build, so a caller layers its own read model or upcaster onto the defaults.
 func newAsynx[T any](
 	es asynxModels.Store,
 	ss asynxModels.SnapshotStore,

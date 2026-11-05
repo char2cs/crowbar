@@ -42,10 +42,8 @@ type ForgePoll struct {
 	cycleDone chan<- struct{}
 }
 
-// pollTimeout bounds a single PollWorkspace invocation. The chain runs network
-// subprocesses (gh auth status, gh api, git ls-remote, gh pr list) and a hung
-// remote (network partition, credential prompt on stdin) would otherwise leak
-// the poll goroutine + child forever and stall all PR polling.
+// pollTimeout bounds one PollWorkspace call: its network subprocesses can hang on a
+// partition or credential prompt and would otherwise leak and stall all PR polling.
 const pollTimeout = 30 * time.Second
 
 // NewForgePoll builds the resource over the poll interval and the provider-poll
@@ -141,13 +139,8 @@ func (m *ForgePoll) run(
 	}
 }
 
-// tickSource returns the cadence channel run listens on, plus its stop func. In
-// production that is a real interval ticker. A test installs its own source
-// (driveCyclesForTest) so a cycle happens exactly when the test fires one and the
-// background cadence can never race the test — the same discipline as
-// core/terminal's StopMaintenanceForTest + RunMaintenanceOnceForTest. Sleeping
-// for the production poll interval is not an option, and shrinking the interval
-// to "small enough" would only trade a slow test for a flaky one.
+// tickSource returns the cadence channel run listens on and its stop func: a real
+// ticker in production, or the test's own source so cycles happen only when fired.
 func (m *ForgePoll) tickSource() (<-chan time.Time, func()) {
 	m.mu.Lock()
 	ticks := m.ticks
@@ -160,11 +153,8 @@ func (m *ForgePoll) tickSource() (<-chan time.Time, func()) {
 	return ticker.C, ticker.Stop
 }
 
-// notifyCycle signals the installed test seam that one full poll cycle has
-// finished. It is the REAL end-of-cycle signal a test blocks on to assert that
-// NOTHING happened — an assertion that would otherwise need a sleep, which is a
-// guess. It is a no-op in production, and it gives up on ctx cancellation so a
-// runner can never be wedged by it.
+// notifyCycle signals the test seam that a poll cycle finished, so a test can assert
+// nothing happened without sleeping. It is a no-op in production and gives up on ctx.
 func (m *ForgePoll) notifyCycle(
 	ctx context.Context,
 ) {

@@ -25,10 +25,9 @@ type slot struct {
 	err     error
 }
 
-// refcount counts holds per (resource, key) across every scope kind listing
-// the resource, so one watcher under git: and files: starts once. Start and
-// Stop run on the holding connection's goroutine, off the hub's lock: a Stop
-// joins work that may itself be publishing.
+// refcount counts holds per (resource, key) across every scope kind listing the
+// resource, so one watcher under git: and files: starts once. Start and Stop run off
+// the hub's lock, since a Stop joins work that may itself be publishing.
 type refcount struct {
 	byKind map[stream.ScopeKind][]Resource
 

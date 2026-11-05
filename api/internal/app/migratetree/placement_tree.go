@@ -153,10 +153,9 @@ func mapKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// convert files every record in the Tree of the project it belongs to, at its
-// legacy parent and order; one whose parent no record names hangs at its
-// scope's root, and a position row whose record is gone is dropped. It returns
-// the trees by project and, for each, the rows re-hung and dropped.
+// convert files every record in its project's Tree at its legacy parent and order;
+// an orphan hangs at its scope's root and a position row without a record is dropped.
+// It returns the trees by project and, per tree, the rows re-hung and dropped.
 func convert(h LegacyHome) ([]tree.Tree, map[string]map[string]int) {
 	pl := newPlacer(h)
 	trees := map[string]tree.Tree{}

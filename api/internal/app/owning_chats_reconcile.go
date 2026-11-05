@@ -15,19 +15,9 @@ type owningChatMinter interface {
 	DiscardOwningChat(ctx context.Context, chatID string) error
 }
 
-// reconcileOwningChats is the boot half of invariant D4: every live workspace
-// has exactly one owning chat, whatever step of its creation a crash
-// interrupted.
-//
-// Creation mints the chat, writes the workspace, then attaches the two; a crash
-// between the last two leaves a workspace no chat owns — unaddressable, since
-// every worktree surface is chat-keyed. It is closed here, once, at boot,
-// before anything is served, and reads stay reads.
-//
-// A workspace from before owners were recorded already has one: the row the
-// pre-audit daemon resolved by heuristic (legacyOwner). That row is recorded,
-// not replaced by a fresh empty chat. One pass over the workspace and chat read
-// models; per-row failures are logged, never fail boot.
+// reconcileOwningChats enforces at boot that every live workspace has exactly one
+// owning chat, closing the gap a crash between creating and attaching leaves. A legacy
+// workspace's heuristic owner (legacyOwner) is recorded rather than replaced.
 func reconcileOwningChats(
 	ctx context.Context,
 	workspaces []domain.Workspace,
@@ -103,11 +93,9 @@ func sharedGround(ws domain.Workspace) bool {
 	return ws.IsDefault || ws.RepoID == "" || ws.Status == domain.WorkspaceStatusLocked
 }
 
-// legacyOwner is the pre-audit daemon's owner heuristic (70ec430
-// domain.ResolveOwningChat) over a workspace's rows when none records
-// ownership: a legacy branch-typed row first, else the earliest row that is
-// not provably a thread; on shared ground a titled row is a user's
-// conversation and never the owner.
+// legacyOwner is the pre-audit daemon's owner heuristic for a workspace with no
+// recorded owner: a legacy branch-typed row first, else the earliest row not provably
+// a thread; on shared ground a titled row is a user's conversation, never the owner.
 func legacyOwner(
 	rows []domain.Chat,
 	shared bool,

@@ -99,10 +99,9 @@ func New(
 	}
 }
 
-// Entity publishes data as the current value of (kind, id) to every
-// connection holding scope, and returns the version it stamped (0 for none).
-// rev is the publisher's own version of data: one older than a rev already
-// published for the key is stale and dropped; 0 has none and always publishes.
+// Entity publishes data as the current value of (kind, id) to every connection
+// holding scope and returns the version it stamped (0 for none). A rev older than
+// one already published for the key is dropped; rev 0 always publishes.
 func (h *Hub) Entity(scope stream.Scope, kind stream.EntityKind, id string, data any, rev int64) uint64 {
 	raw, err := h.encode(kind, data)
 	if err != nil {

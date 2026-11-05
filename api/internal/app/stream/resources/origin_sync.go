@@ -12,10 +12,8 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// OriginSyncWorkspaces is the narrow workspace-lookup surface the origin-sync
-// manager needs. It is satisfied by workspacerepo.Workspace so the manager
-// stays decoupled from the concrete repository and is trivially fakeable in
-// tests.
+// OriginSyncWorkspaces is the workspace lookup the origin-sync manager needs,
+// satisfied by workspacerepo.Workspace.
 type OriginSyncWorkspaces interface {
 	Get(
 		ctx context.Context,
@@ -32,11 +30,9 @@ type OriginFetcher interface {
 		repoPath string,
 		branch string,
 	) error
-	// MergeFFOnly runs `git merge --ff-only <ref>` in repoPath. It is git — not
-	// this manager — that decides whether the advance is safe: it refuses rather
-	// than overwrite local changes, so no pre-flight cleanliness check is needed
-	// (and none would be right: `git status` counts untracked files, so a locked
-	// worktree holding build output would never be considered clean).
+	// MergeFFOnly runs `git merge --ff-only <ref>` in repoPath. git itself refuses to
+	// overwrite local changes, so no pre-flight check is needed (git status would also
+	// count untracked build output as dirty).
 	MergeFFOnly(
 		ctx context.Context,
 		repoPath string,
@@ -54,11 +50,9 @@ const OriginSyncInterval = 5 * time.Minute
 // Stop or Close cancels the fetch sooner, terminating the git process.
 const originSyncTimeout = 30 * time.Second
 
-// OriginSync keeps a held protected root's knowledge of origin/<branch> fresh
-// while a client holds its git: scope: once at Start, which also fast-forwards
-// a locked root (advanceLockedRoot), then every interval. A workspace with a
-// parent is left alone: a child forks from origin/<parent> and diffs resolve
-// through origin/<base>, so only a protected ROOT needs this.
+// OriginSync keeps a held protected root's origin/<branch> fresh while a client holds
+// its git: scope: once at Start (also fast-forwarding a locked root), then every
+// interval. A child needs none: it forks from and diffs through its parent's origin ref.
 type OriginSync struct {
 	root      context.Context
 	interval  time.Duration
@@ -176,13 +170,8 @@ func (m *OriginSync) run(
 	}
 }
 
-// tickSource returns the cadence channel run listens on, plus its stop func. In
-// production that is a real interval ticker. A test installs its own source
-// (driveCyclesForTest) so a cycle happens exactly when the test fires one and the
-// background cadence can never race the test — the same discipline as
-// core/terminal's StopMaintenanceForTest + RunMaintenanceOnceForTest. Sleeping
-// for a 5-minute production interval is not an option, and shrinking the interval
-// to "small enough" would only trade a slow test for a flaky one.
+// tickSource returns the cadence channel run listens on and its stop func: a real
+// ticker in production, or the test's own source so cycles happen only when fired.
 func (m *OriginSync) tickSource() (<-chan time.Time, func()) {
 	m.mu.Lock()
 	ticks := m.ticks
@@ -195,11 +184,8 @@ func (m *OriginSync) tickSource() (<-chan time.Time, func()) {
 	return ticker.C, ticker.Stop
 }
 
-// notifyCycle signals the installed test seam that one full sync cycle has
-// finished (a fetch, or a deliberate skip). It is the REAL end-of-cycle signal a
-// test blocks on to assert that NOTHING happened — an assertion that would
-// otherwise need a sleep, which is a guess. It is a no-op in production, and it
-// gives up on ctx cancellation so a runner can never be wedged by it.
+// notifyCycle signals the test seam that a sync cycle (fetch or skip) finished, so a
+// test can assert nothing happened without sleeping. No-op in production; gives up on ctx.
 func (m *OriginSync) notifyCycle(
 	ctx context.Context,
 ) {
@@ -216,12 +202,9 @@ func (m *OriginSync) notifyCycle(
 	}
 }
 
-// syncTick loads the workspace and, only if it has no parent (a protected/
-// root branch), issues a single FetchRef bounded by originSyncTimeout. A
-// workspace with a parent is left alone: its fork point is already kept fresh
-// at fork-time by FastForwardBranch. Any failure (workspace lookup or fetch) is
-// logged and swallowed — this is best-effort background work the user never
-// explicitly requested.
+// syncTick fetches the workspace's origin ref, bounded by originSyncTimeout, only if
+// it is a parentless root; a child's fork point is kept fresh by FastForwardBranch.
+// Failures are logged and swallowed: this is unrequested background work.
 func (m *OriginSync) syncTick(
 	ctx context.Context,
 	wsID string,
@@ -259,26 +242,9 @@ func (m *OriginSync) syncTickWithTimeout(
 	}
 }
 
-// advanceLockedRoot fast-forwards a locked root's worktree onto the origin ref
-// the caller has just fetched, so the files the user is about to read are the
-// files origin has.
-//
-// It runs ONLY on the open (Start) sync, never on an interval tick.
-// The cadence is the reason: the sync ticks only while a client holds
-// this workspace — that is, only while the user is looking at it — so advancing
-// on a tick would move files under a live editor or a mid-task agent, and would
-// do nothing during the entire window when advancing is harmless. Doing it once,
-// at open, puts the change before the reading rather than during it.
-//
-// Only a LOCKED, non-default, provisioned root qualifies. Locked is what makes a
-// fast-forward unconditionally safe: Crowbar refuses commits and merges into
-// these branches, so there is no local work for origin to race. The repo home is
-// excluded because it is the user's own folder, which Crowbar does not own, and
-// a placeholder (empty WorktreePath) has no worktree to advance.
-//
-// Every failure is swallowed: an unreachable remote, or a tree dirtied from a
-// terminal (git refuses rather than overwrite), must never break opening a
-// workspace. A refusal is expected and logged quietly; anything else is a Warn.
+// advanceLockedRoot fast-forwards a locked, non-default, provisioned root onto the
+// just-fetched origin ref. Only at Start, so files never move under a live reader;
+// locked means no local work to race. Failures (dirty tree, no remote) are swallowed.
 func (m *OriginSync) advanceLockedRoot(
 	ctx context.Context,
 	ws domain.Workspace,

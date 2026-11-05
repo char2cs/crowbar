@@ -10,10 +10,8 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// newWatcherFactory builds the production watcherFactory. For each wsID it
-// resolves the workspace row (worktree path + diff base) via the repository,
-// then constructs an unstarted *watch.Watcher wired to the dispatcher and the
-// git status provider.
+// newWatcherFactory builds the production watcherFactory: per wsID it resolves the
+// workspace's worktree and diff base and builds an unstarted *watch.Watcher.
 func newWatcherFactory(
 	fsEngine enginefs.Engine,
 	gitProvider enginefs.GitStatusProvider,
@@ -41,18 +39,9 @@ func newWatcherFactory(
 	}
 }
 
-// watcherDiffBase returns the ref the watcher's working-tree summary diffs
-// against: the base BRANCH NAME — the parent's branch for a child, or the
-// workspace's own branch for a protected root — so the git engine re-derives the
-// merge-base with that branch's live tip on every recompute and the sidebar diff
-// self-corrects as the base branch advances. Passing the stable branch name, not
-// a SHA snapshotted at subscribe time, is what keeps the watcher-driven summary
-// fresh for the whole life of the subscription.
-//
-// It falls back to the recorded ForkPointSha whenever the base branch is unusable
-// — no branch name, an unresolvable parent row, or a branch that no longer
-// resolves in the worktree — mirroring workspace.summaryBase so the watcher-driven
-// summary and the on-demand summary can never diverge.
+// watcherDiffBase returns the base branch name (parent's for a child, own for a root)
+// so the summary re-derives the merge-base with the live tip on each recompute. It falls
+// back to ForkPointSha like workspace.summaryBase, so both summaries always agree.
 func watcherDiffBase(
 	ctx context.Context,
 	workspace workspacerepo.Workspace,

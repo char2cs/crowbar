@@ -23,10 +23,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// legacyFuncs is the work behind the legacy post-open steps, the upgrades an
-// install written by the pre-audit daemon needs. Each step pairs its work with
-// the check that it left nothing it could have done
-// (docs/plans/2026-09-24-upgrade-notes.md).
+// legacyFuncs is the work behind the legacy post-open steps an install written by the
+// pre-audit daemon needs; each step pairs its work with a check that it left nothing undone.
 type legacyFuncs struct {
 	createMissingHomes func(ctx context.Context, cp checkpoints) error
 	missingHomes       func(ctx context.Context) ([]string, error)

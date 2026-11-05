@@ -47,10 +47,8 @@ type Container struct {
 	// Browser carries browser tool calls to the desktop app's tabs.
 	Browser *browserbridge.Bridge
 
-	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
-	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
-	// the aggregates below, because those callbacks are writers into them. See
-	// Shutdown step 1.
+	// engines lets Shutdown quiesce the terminal engine (kill every PTY, join the exit
+	// callbacks) before draining the aggregates below, which those callbacks write into.
 	engines *engine.Container
 
 	// axWorkspace, axReviewThread and axAgentChat are the per-type asynx
@@ -222,16 +220,9 @@ func toUsecaseStores(
 	}
 }
 
-// startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
-// modal Crowbar cannot answer — the workspace-trust dialog and its relatives, which
-// reach the daemon through no hook and otherwise leave a chat pane showing nothing
-// at all over a live, blocked process.
-//
-// Started HERE, beside the boot reconcile, rather than inside the usecase: the
-// detector publishes, and the thing it publishes through is the stream, which is
-// a layer above every usecase. It is also why the sweep begins after
-// reconcileAgentRunners — a restart's first census should be of runners already
-// reconciled, not of rows the reconcile is about to retire.
+// startTerminalWaitSweep starts the cadence that notices a vendor CLI parked on a modal
+// (e.g. workspace trust) that sends no hook. It lives here, not in a usecase, because it
+// publishes through the stream, and runs after reconcileAgentRunners to skip dead rows.
 func startTerminalWaitSweep(
 	ctx context.Context,
 	late *lateStream,
@@ -242,19 +233,9 @@ func startTerminalWaitSweep(
 	})
 }
 
-// startModelDiscoveryWarmup kicks a model.discover: source's live probe for
-// every descriptor that declares one, at boot rather than waiting for the
-// frontend's first providers request to trigger it lazily. List() already
-// forks each descriptor's refresh instead of blocking on it (Cache.Refresh),
-// so this call returns quickly; run off the request path anyway (its own
-// goroutine) so a slow descriptor scan never adds to daemon startup time.
-// Best-effort and fire-and-forget: List's error, if any, is left for the
-// first real request to surface. This List call itself is detached from ctx
-// (WithoutCancel, same as this file's other boot-time reconciliation calls)
-// so an early cancellation never aborts the scan — but the refreshes it
-// forks are NOT: engines was built from this same ctx (engine.New ->
-// engineagents.WithLifecycle), so the daemon's own shutdown still stops
-// every in-flight and future probe/fetch, request-triggered or not.
+// startModelDiscoveryWarmup kicks each descriptor's live model probe at boot instead
+// of on the first providers request, off the boot path. The List call is detached from
+// ctx so an early cancel cannot abort it, but its forked refreshes still stop at shutdown.
 func startModelDiscoveryWarmup(
 	ctx context.Context,
 	engines *engine.Container,
@@ -283,14 +264,9 @@ func startProviderSweep(
 	)
 }
 
-// startBootSweep runs the cheap, proactive boot orphan-sweep (spec §3.8)
-// SYNCHRONOUSLY before app.New returns (and thus before internal.Run serves). It
-// reaps every workspace left tombstoned by a delete whose reactor never finished
-// — a crash mid-purge, or the drain gate refusing it at shutdown — by re-driving
-// the SAME Purger the delete reactor runs (repositories/workspace, spec §7-D):
-// the dependents cascade, the hardened root removal from the tombstone's own
-// WorktreePath, then the aggregate Forget. A missing purger is a wiring error and
-// is surfaced; per-row recovery failures are logged and never fail boot.
+// startBootSweep synchronously reaps, before serving, every workspace left tombstoned
+// by a delete whose reactor never finished, re-driving the same Purger. A missing purger
+// is a wiring error and surfaces; per-row failures are logged and never fail boot.
 func startBootSweep(
 	ctx context.Context,
 	repos *repositories.Container,
@@ -308,11 +284,8 @@ func startBootSweep(
 }
 
 // startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
-// placeholders so a subsequent client Attach transparently restores them.
-// FIX 3: runs SYNCHRONOUSLY before the engine/HTTP layer starts serving, so
-// the registry is fully populated before the first Attach can arrive. Running
-// it in the background allowed concurrent Attach + restore races. Best-effort:
-// per-row errors are logged; orphaned rows are reconciled automatically.
+// placeholders a later Attach restores. It runs synchronously before serving so no
+// Attach races the restore; per-row errors are logged.
 func startRestoreTerminalSessions(
 	ctx context.Context,
 	ucs *usecases.Container,
@@ -325,12 +298,9 @@ func startRestoreTerminalSessions(
 	}
 }
 
-// reconcileAgentRunners ends the runners the ledger still holds open from the
-// previous run: their PTYs died with it, and left open one keeps its chat busy.
-// It runs before anything is served, so no client read races it.
-//
-// Best-effort: a failure is logged and the daemon still boots; those chats are no
-// worse off than before, and refusing to start would be strictly worse.
+// reconcileAgentRunners ends the runners the ledger still holds open from the previous
+// run: their PTYs died with it, and an open one keeps its chat busy. It runs before
+// serving; a failure is logged rather than blocking boot, which would be strictly worse.
 func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,

@@ -1,7 +1,6 @@
-// Package resources holds the daemon work the stream runs while a client holds
-// a scope naming it: file watchers, host-document watches, LSP hosts, forge
-// polls and origin syncs. The stream's refcount decides when each starts and
-// stops; each resource only does it.
+// Package resources holds the daemon work the stream runs while a client holds a
+// scope naming it: file watchers, host-document watches, LSP hosts, forge polls and
+// origin syncs. The stream's refcount decides when each starts and stops.
 package resources
 
 import (

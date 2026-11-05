@@ -13,10 +13,9 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// watcherLingerDuration is the grace period a watcher stays alive after its
-// last holder leaves: a reconnect within it reuses the live watcher instead of
-// rebuilding it (a recursive walk of the whole worktree), yet a closed
-// workspace still releases its inotify FDs promptly.
+// watcherLingerDuration keeps a watcher alive after its last holder leaves, so a
+// reconnect reuses it instead of re-walking the worktree, while a closed workspace
+// still releases its inotify FDs promptly.
 const watcherLingerDuration = 10 * time.Second
 
 // watcherProc is the lifecycle surface the Watcher drives. *watch.Watcher

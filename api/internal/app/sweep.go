@@ -29,11 +29,9 @@ func sweepCallback(
 	}
 }
 
-// shouldSweep reports whether the global cron should re-poll a workspace: it
-// must have a live PR (PRUrl != "") and must not be in a terminal PR state
-// (pr-merged/pr-closed), which are never re-polled (D10/§11). This widens the
-// old Status==pr-open filter so pr-open->pr-merged/closed transitions are
-// observed on unwatched workspaces and pr-conflicts workspaces keep syncing.
+// shouldSweep reports whether the global cron should re-poll a workspace: it has a
+// PR and is not in a terminal state (pr-merged/pr-closed), so unwatched workspaces
+// still observe merges and closes and pr-conflicts ones keep syncing.
 func shouldSweep(
 	ws domain.Workspace,
 ) bool {

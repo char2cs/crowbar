@@ -291,9 +291,8 @@ func (s *stack) close() error {
 	if s.engines != nil {
 		s.engines.Close()
 	}
-	// The DBs go LAST, once every writer above is quiesced: the exit callbacks fired
-	// by the PTY teardown write runner Exits and turn closes, and closing the store
-	// out from under them is what used to leave a chat spinning forever.
+	// The DBs close last, once every writer is quiesced: the PTY teardown's exit callbacks
+	// write runner exits and turn closes, and a closed store would leave a chat spinning.
 	if s.adapter != nil {
 		errs = append(errs, s.adapter.Close())
 	}
