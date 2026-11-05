@@ -2,22 +2,27 @@ package tools
 
 import "fmt"
 
-// RecentHandoffWindow trims an oldest-first turn list to get_chat_log's default recent window for the
-// handoff document a provider is spawned with; a short chat comes back unchanged with no note. The note
-// names get_chat_log and chatID because the document is read cold, before the model has made any call.
-func RecentHandoffWindow[T any](
+// HandoffWindow trims an oldest-first turn list for the handoff document a provider is spawned with:
+// the row at pin (the chat's first ask, or -1) leads, then the most recent turns, so a long chat keeps
+// what it is for and what it is doing now. The note between them is read cold, so it names the tool.
+func HandoffWindow[T any](
 	chatID string,
 	rows []T,
-) ([]T, string) {
+	pin int,
+) (head []T, note string, recent []T) {
 	total := len(rows)
 	if total <= defaultChatLogTurns {
-		return rows, ""
+		return nil, "", rows
 	}
-	w := recentWindow(total, 0, 0, defaultChatLogTurns, maxChatLogTurns)
-	note := fmt.Sprintf(
-		"Showing the most recent %d of %d turns in this chat; %d earlier "+
-			"turns are omitted. Call get_chat_log with chatId=%q to read them.\n\n",
-		w.end-w.start, total, w.start, chatID,
+	size := defaultChatLogTurns
+	if pin >= 0 && pin <= total-size {
+		head, size = rows[pin:pin+1], size-1
+	}
+	w := recentWindow(total, 0, 0, size, maxChatLogTurns)
+	note = fmt.Sprintf(
+		"[%d earlier turns are omitted here; below are the most recent %d of %d. "+
+			"Call get_chat_log with chatId=%q to read them.]\n\n",
+		w.start-len(head), w.end-w.start, total, chatID,
 	)
-	return rows[w.start:w.end], note
+	return head, note, rows[w.start:w.end]
 }

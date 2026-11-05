@@ -22,25 +22,33 @@ func (c *Conversations) renderConversation(
 	if err != nil {
 		return nil, fmt.Errorf("agent: render conversation: %w", err)
 	}
-	since := turns[:0:0]
+	since, pin := turns[:0:0], -1
 	for _, t := range turns {
-		if t.At.After(cut) {
-			since = append(since, t)
+		if !t.At.After(cut) {
+			continue
 		}
+		if pin < 0 && cut.IsZero() && t.Role == domain.TurnRoleUser {
+			pin = len(since)
+		}
+		since = append(since, t)
 	}
-	// Capped to the same "recent" window get_chat_log itself pages against: a
-	// handoff is injected cold into the next provider's context on every switch,
-	// so an ever-growing chat must not mean an ever-growing preamble.
-	kept, note := agenttools.RecentHandoffWindow(chatID, since)
+	// Capped like get_chat_log's recent window, as a handoff is injected cold on
+	// every switch; a fresh join keeps the first ask, which a resume already holds.
+	head, note, recent := agenttools.HandoffWindow(chatID, since, pin)
 	var b strings.Builder
+	writeTurns(&b, head)
 	b.WriteString(note)
-	for _, t := range kept {
+	writeTurns(&b, recent)
+	return []byte(b.String()), nil
+}
+
+func writeTurns(b *strings.Builder, turns []domain.LedgerTurn) {
+	for _, t := range turns {
 		b.WriteString(speaker(t))
 		b.WriteString(": ")
 		b.WriteString(t.Text)
 		b.WriteString("\n\n")
 	}
-	return []byte(b.String()), nil
 }
 
 // appendNote adds text to the chat's conversation as a note from Crowbar, for

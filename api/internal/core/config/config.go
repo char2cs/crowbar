@@ -32,10 +32,10 @@ type Prompts struct {
 	ThreadLineage string `yaml:"thread_lineage"`
 	// HandoffWrapper wraps the conversation for a provider joining the chat fresh
 	// (it has no session of its own to resume, so it has no history) — capped to
-	// the most recent turns, not the whole ledger; see RecentHandoffWindow.
+	// its first ask plus the most recent turns, not the whole ledger; see HandoffWindow.
 	HandoffWrapper string `yaml:"handoff_wrapper"`
 	// HandoffResumeWrapper wraps only the gap for a provider resumed into its own native session, which
-	// already holds everything before it was switched out; the gap is capped by RecentHandoffWindow.
+	// already holds everything before it was switched out; the gap is capped by HandoffWindow.
 	HandoffResumeWrapper string `yaml:"handoff_resume_wrapper"`
 	// HandoffPointer is the short message for a provider reachable only through a user message: it points
 	// at its own get_chat_log tool ({chat_id}, {gap_turns}) instead of dumping the transcript into the chat.

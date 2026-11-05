@@ -21,7 +21,6 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -3490,35 +3489,45 @@ func TestRegression_ResumeChat_ClosedMidFirstTurn_ResumesTheAssignedSession(t *t
 	assert.Equal(t, -1, slices.Index(argv, "--session-id"), "a resume must not also assign a fresh id")
 }
 
-// A switch's handoff carries only the most recent defaultChatLogTurns turns,
-// pointing at the earlier ones through get_chat_log rather than replaying a
-// long chat's whole history into the incoming CLI.
-func TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow(t *testing.T) {
+// A long chat switched twice: the provider joining fresh is handed the chat's
+// first ask, then an omission note, then the newest turns, in that order; the
+// one resumed is handed its gap's newest turns behind the same note.
+func TestRegression_LongChatHandoffKeepsTheFirstAskAcrossTwoSwitches(t *testing.T) {
 	f := newFixture(t)
-
-	// Discovered from the real cap rather than copied, so a future change to it
-	// cannot leave this test silently under the threshold it means to exceed.
-	kept, _ := agenttools.RecentHandoffWindow("probe", make([]struct{}, 100_000))
-	handoffCap := len(kept)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sid-claude-native")
-	total := handoffCap + 5
-	for i := 0; i < total; i++ {
-		turn(t, f, runnerID, "claude", fmt.Sprintf("claude turn %d", i))
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	prompt(t, f, claudeRunner, "claude", "FIRST ASK: build the parser")
+	for i := 0; i < 30; i++ {
+		exchange(t, f, claudeRunner, "claude", fmt.Sprintf("claude turn %d", i))
 	}
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
+	doc := configValue(t, f.term.calls[f.term.callCount()-1].argv, "developer_instructions=")
+	assertHandoffOrder(t, doc, "FIRST ASK: build the parser", "earlier turns are omitted", "claude turn 29")
 
+	f.announce(t, codexRunner, "sid-codex-native")
+	for i := 0; i < 30; i++ {
+		prompt(t, f, codexRunner, "codex", "go on")
+		codexTurnStop(t, f, codexRunner, "sid-codex-native", fmt.Sprintf("codex turn %d", i))
+	}
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
 	argv := f.term.calls[f.term.callCount()-1].argv
-	doc := configValue(t, argv, "developer_instructions=")
-	assert.NotContains(t, doc, "claude turn 0",
-		"the earliest turn must be trimmed once history exceeds the cap")
-	assert.Contains(t, doc, fmt.Sprintf("claude turn %d", total-1),
-		"the most recent turn must survive")
-	assert.Contains(t, doc, "get_chat_log",
-		"a trimmed handoff must point at how to read what was cut")
+	gap := argv[len(argv)-1]
+	assertHandoffOrder(t, gap, "earlier turns are omitted", "codex turn 29")
+	assert.NotContains(t, gap, "claude turn 29", "a resumed provider is not re-fed its own turns")
+}
+
+// assertHandoffOrder requires each part in doc, each after the one before.
+func assertHandoffOrder(t *testing.T, doc string, parts ...string) {
+	t.Helper()
+	at := -1
+	for _, p := range parts {
+		i := strings.Index(doc, p)
+		require.Greater(t, i, at, "%q must appear after the part before it in:\n%s", p, doc)
+		at = i
+	}
 }
 
 func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {

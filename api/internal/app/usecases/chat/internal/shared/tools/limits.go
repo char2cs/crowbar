@@ -13,7 +13,7 @@ const (
 	defaultThreadPage = 20
 	maxThreadPage     = 50
 
-	// defaultChatLogTurns / maxChatLogTurns bound get_chat_log and RecentHandoffWindow, so "recent
+	// defaultChatLogTurns / maxChatLogTurns bound get_chat_log and HandoffWindow, so "recent
 	// history" is one number. 20 turns (~ten exchanges) shows what a sibling chat is doing now.
 	defaultChatLogTurns = 20
 	maxChatLogTurns     = 50

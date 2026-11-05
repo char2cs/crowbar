@@ -146,7 +146,7 @@ type ChatUsecase interface {
 		chatID string,
 	) ([]string, error)
 
-	// AssembleHandoff renders the most recent turns (RecentHandoffWindow) into the
+	// AssembleHandoff renders the first ask and recent turns (HandoffWindow) into the
 	// document an incoming CLI is spawned with; "" when there is nothing to hand over.
 	AssembleHandoff(
 		ctx context.Context,

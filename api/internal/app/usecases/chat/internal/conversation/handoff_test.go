@@ -2,6 +2,7 @@ package conversation_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,13 +14,13 @@ import (
 )
 
 // handoffCap discovers the live defaultChatLogTurns cap through the real
-// RecentHandoffWindow rather than a copy of the number: a probe slice far
+// HandoffWindow rather than a copy of the number: a probe slice far
 // larger than any plausible cap always comes back trimmed to exactly it, so a
 // future change to the cap cannot leave this file silently testing the wrong
 // boundary.
 func handoffCap(t *testing.T) int {
 	t.Helper()
-	kept, _ := agenttools.RecentHandoffWindow("probe", make([]struct{}, 100_000))
+	_, _, kept := agenttools.HandoffWindow("probe", make([]struct{}, 100_000), -1)
 	return len(kept)
 }
 
@@ -55,10 +56,9 @@ func TestAssembleConversation_UnderTheCapCarriesEveryTurnAndNoNote(t *testing.T)
 	}
 }
 
-// The fresh-join path (cut zero, the whole ledger) must trim the same way the
-// resume path does: this pins the bug where a long-running chat on the OTHER
-// provider dumped its entire history into the next provider's context.
-func TestAssembleConversation_FreshJoinOverTheCapKeepsOnlyTheMostRecent(t *testing.T) {
+// The fresh-join path (cut zero, the whole ledger) is capped too, so a long chat
+// never dumps its whole history into the next provider, but its first ask leads.
+func TestAssembleConversation_FreshJoinOverTheCapKeepsTheFirstAskAndTheMostRecent(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
@@ -72,9 +72,12 @@ func TestAssembleConversation_FreshJoinOverTheCapKeepsOnlyTheMostRecent(t *testi
 	blob, err := f.conversations.AssembleConversation(t.Context(), chatID, false, time.Time{})
 
 	require.NoError(t, err)
-	assert.NotContains(t, blob, "turn-0\n", "the oldest turn must be trimmed from a fresh join")
-	assert.Contains(t, blob, fmt.Sprintf("turn-%d", total-1), "the newest turn must survive")
-	assert.Contains(t, blob, "get_chat_log", "a trimmed handoff must point at how to read the rest")
+	first := strings.Index(blob, "turn-0\n")
+	note := strings.Index(blob, "earlier turns are omitted")
+	newest := strings.Index(blob, fmt.Sprintf("turn-%d\n", total-1))
+	assert.True(t, first >= 0 && first < note && note < newest,
+		"first ask, then the omission note, then the newest turn:\n%s", blob)
+	assert.NotContains(t, blob, "turn-1\n", "the turns after the first ask are the ones trimmed")
 }
 
 // The resume path caps the GAP itself, not just the ledger as a whole: turns
