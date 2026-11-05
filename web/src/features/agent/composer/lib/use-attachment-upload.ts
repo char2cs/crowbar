@@ -7,29 +7,9 @@ export interface UseAttachmentUploadResult {
   uploadAndInsert: (input: UploadChatAttachmentInput) => Promise<void>
 }
 
-/**
- * The upload half of every attach entry point — drop, browse, the Attach
- * File modal — collapsed into one hook instead of three near-identical
- * try/catch/toast blocks (`agent-composer.tsx`, `attach-file-modal.tsx`, and
- * now `agent-empty-document.tsx`). Resolves CSV inline where it fits
- * (`uploadAttachmentMarkdown`), otherwise uploads and hands the resulting
- * markdown to `onInsert`; a failure is caught and toasted here rather than
- * left for a caller to notice a silently-unresolved promise.
- *
- * Callers that need extra bookkeeping around the call (attach-file-modal.tsx's
- * `uploading` state, an `onClose`) wrap the returned `uploadAndInsert`
- * themselves — `onInsert` only fires on success, so wrapping this in a
- * `finally` for local state is safe without duplicating the try/catch.
- *
- * `onInsertPendingImage`/`onSettlePendingImage`, when BOTH are supplied,
- * switch an image FILE (never a Tauri `{path}` — there are no client-side
- * bytes there to preview before the daemon reads the path itself) onto an
- * optimistic path instead: a local `URL.createObjectURL` preview goes in
- * immediately, and the upload resolves in the background — reported live as
- * "photos attachments are not loaded instantly... let's not wait for them."
- * `onInsert` never fires for this file; the placeholder is what carries it
- * through to its real ref (or removal, on failure) instead.
- */
+// Every attach entry point's upload: markdown goes to `onInsert` on success, a failure is reported
+// here and never rejects. With both pending-image callbacks, an image File (a host path has no bytes
+// to preview) shows a local preview at once and settles it instead of calling `onInsert`.
 export function useAttachmentUpload(
   wsId: string,
   chatId: string,

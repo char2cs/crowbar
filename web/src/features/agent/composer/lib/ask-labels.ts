@@ -4,11 +4,8 @@ import type {
   AgentChoiceQuestion,
 } from '@/features/agent/api/agent-chat-activity'
 
-/**
- * What a prompt is asking, in one shape whatever wrote it: one recorded before
- * questions were modelled is a single question made of its own `question` and
- * `options`. A permission or an elicitation asks no question in this sense.
- */
+/** A prompt's questions in one shape: one without `questions` is a single question of its own
+ *  `question` and `options`. A permission or elicitation asks none. */
 export function choiceQuestions(choice: AgentChoice): AgentChoiceQuestion[] {
   if (choice.questions && choice.questions.length > 0) return choice.questions
   if (choice.kind !== 'question') return []

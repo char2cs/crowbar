@@ -34,10 +34,8 @@ export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null 
   return scene
 }
 
-/**
- * Lets `ExcalidrawPreview` reserve its footprint before the lazy engine loads, so
- * the transcript doesn't resize a second time. `null` when nothing is measurable.
- */
+/** Lets `ExcalidrawPreview` reserve its footprint before the lazy engine loads, so
+ *  the transcript doesn't resize a second time. `null` when nothing is measurable. */
 export function computeSceneAspectRatio(elements: unknown[]): number | null {
   let minX = Infinity
   let minY = Infinity

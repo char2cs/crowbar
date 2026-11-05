@@ -19,10 +19,8 @@ interface ComposerHandleProps {
   onOpenAttachFile: () => void
 }
 
-/**
- * Stop wins over send whenever the turn is stoppable — Enter still queues typed
- * text. Sending gets its own look so the gap before delivery doesn't read as a dead click.
- */
+/** Stop wins over send whenever the turn is stoppable — Enter still queues typed
+ *  text. Sending gets its own look so the gap before delivery doesn't read as a dead click. */
 export function ComposerHandle({
   fieldHeight,
   hasText,

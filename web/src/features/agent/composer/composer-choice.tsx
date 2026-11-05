@@ -31,13 +31,8 @@ import {
   type AskRequest,
 } from '@/features/agent/composer/lib/ask-request'
 
-// The verbs an elicitation is answered with. They are the PROVIDER's own words
-// (MCP's accept / decline / cancel) and they go in `optionIds` — a prompt with no
-// options has no option kind to read, so the id itself is the decision key.
-//
-// `accept` is deliberately absent: accepting means handing back a filled-in form
-// built from the provider's schema, and a form Crowbar cannot populate must not be
-// dressed as a button that sends an empty one.
+// MCP's own elicitation verbs, sent as `optionIds` since such a prompt has no options to read.
+// No `accept`: it must carry a filled-in form Crowbar cannot build, so a button would send it empty.
 const ELICITATION_VERBS = [
   { id: 'decline', label: 'Decline' },
   { id: 'cancel', label: 'Cancel' },
@@ -45,21 +40,18 @@ const ELICITATION_VERBS = [
 
 type CardState = {
   choiceId: string
-  /** Picks for a prompt whose controls are one flat row — a permission, an
-   *  elicitation. */
+  /** Picks for a prompt whose controls are one flat row (a permission, an elicitation). */
   picked: string[]
   /** Picks for a question prompt, keyed by question id. */
   byQuestion: Record<string, string[]>
   sending: boolean
   sent: boolean
   error: string
-  /** A 409 is the relay letting go between the poll that said "answerable" and the
-   *  click. The server is right and this view is stale, so the controls come down
-   *  at once instead of waiting up to a poll to stop lying. */
+  /** A 409: the relay let go after the poll said "answerable". The view is stale, so the
+   *  controls come down now rather than at the next poll. */
   gateClosed: boolean
-  /** A 400: this provider's relay does not accept THIS shape of answer for this
-   *  prompt. Retrying the same controls would only produce the same 400 — the
-   *  terminal is the one place left that can still answer it. */
+  /** A 400: the relay refuses this shape of answer, so retrying cannot help; only the
+   *  terminal can answer it. */
   unsupportedHere: boolean
 }
 
@@ -76,40 +68,9 @@ function freshCard(choiceId: string): CardState {
   }
 }
 
-/**
- * One question the provider CLI is sitting on, answerable from the chat.
- *
- * The rules that shape it:
- *
- *  1. `pending` and `answerable` are different facts. Pending means the CLI is
- *     still asking; answerable means a relay is holding its gate open RIGHT NOW.
- *     A prompt that is pending and not answerable is still drawn — it is a real
- *     question, and hiding it is what made a blocked agent look frozen — but it
- *     offers no controls, because a button on it would silently reach nobody.
- *
- *  2. An answer sent from here is ADVISORY until the next poll says otherwise.
- *     Somebody at the terminal can decide the same prompt in the same instant, so
- *     nothing is removed locally: the card paints "sent" and disappears when the
- *     server reports it resolved, whichever way it actually ended.
- *
- *  3. A prompt is answered WHOLE or not at all. One AskUserQuestion can carry
- *     three questions, and answering one of them hands the CLI an input covering a
- *     third of what it asked — measured: claude then said "still waiting on your
- *     answers to questions 2 & 3", which nothing in the chat could ever send. So
- *     every question gets its own group and the send stays disabled until all of
- *     them have a pick.
- *
- *  4. What the backend refuses is SAID, never dressed as a control. A `suggestion`
- *     — claude's "and stop asking about this directory" — has no declared answer
- *     template, so it is written down as a note rather than drawn as a button that
- *     would fail.
- *
- *  5. Nothing here explains WHY Crowbar can't act — a permission card is not an
- *     incident report. Whatever the reason (a suggestion with no answer template,
- *     a form only the terminal can fill, a gate that closed, a shape the relay
- *     just 400'd on), the bar offers the one place that still works: a Terminal
- *     button in the same row as its other controls, not a paragraph about it.
- */
+// A question the provider CLI is waiting on. Pending-but-not-answerable is drawn without
+// controls; a sent answer stays "sent" until the server resolves it (the terminal may race);
+// every question needs a pick before send; what only the terminal can answer gets a Terminal button.
 export function ComposerChoice({
   wsId,
   chatId,
@@ -249,11 +210,8 @@ export function ComposerChoice({
       {/* ── the bar itself ── */}
       <div className="pill asking">
         <span className="q">
-          {/* Not "working…". A chat waiting on a person is a different state from
-              a chat doing work, and the two used to look identical. `alert` is the
-              same role the interruption banner carries, for the same reason: this
-              appears without the reader having asked for it, and it is the one
-              thing on the screen that will not move until they act. */}
+          {/* Not "working…": waiting on a person is its own state. `alert`, like the
+              interruption banner: it appears unasked and will not move until they act. */}
           <span role="alert">{describeChoice(choice)}</span>
           {detail && (
             <span className="sub" data-testid="agent-choice-detail">
@@ -341,12 +299,8 @@ function TerminalLink({ onOpenTerminal }: { onOpenTerminal: () => void }) {
   )
 }
 
-/** The picks of every question, flattened into the ONE list the answer endpoint
- *  takes — the option ids say which question each belongs to, so the prompt is
- *  answered in a single call however many questions it asked.
- *
- *  Driven off the QUESTIONS rather than off the pick map, so an id left behind by
- *  a question that is no longer on the prompt can never be sent. */
+/** Every question's picks as the one list the answer endpoint takes. Read off the questions,
+ *  not the pick map, so a pick for a question gone from the prompt is never sent. */
 function flatPicks(questions: AgentChoiceQuestion[], picked: Record<string, string[]>): string[] {
   return questions.flatMap((question) => picked[question.id] ?? [])
 }
