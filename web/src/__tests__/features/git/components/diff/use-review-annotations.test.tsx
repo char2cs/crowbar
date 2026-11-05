@@ -69,10 +69,6 @@ vi.mock('@/features/git/api/review-window-api', async (importOriginal) => {
   return { ...actual, getReviewPatch: mocks.getReviewPatch }
 })
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
-}))
-
 // ── jsdom geometry ──────────────────────────────────────────────────
 //
 // jsdom has no layout, so a virtualised surface measures 0×0 and renders
