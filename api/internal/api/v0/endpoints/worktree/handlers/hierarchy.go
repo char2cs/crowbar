@@ -53,10 +53,8 @@ func (h *Handlers) applyRename(
 	return nil
 }
 
-// ChatMergeIntoParent handles POST .../repos/:repoId/chats/:id/merge-into-parent.
-// It validates synchronously (body shape, strategy present, chat resolves)
-// returning 4xx on failure; then it answers 202 with the operation running the
-// local child→parent merge, and the fold of a merged leaf in the same work.
+// ChatMergeIntoParent handles POST .../chats/:id/merge-into-parent. Validation failures are 4xx;
+// then it answers 202 with the operation running the local child→parent merge and the leaf fold.
 func (h *Handlers) ChatMergeIntoParent(
 	c *gin.Context,
 ) {
@@ -79,10 +77,7 @@ func (h *Handlers) ChatMergeIntoParent(
 		if mergeErr != nil {
 			return mergeErr
 		}
-		// Fold the now-merged child away only on a clean merge AND only when
-		// it is a leaf: a conflict keeps it for the user to resolve, and a
-		// non-leaf child is kept because cascade-deleting it would destroy
-		// its descendants' unmerged work (no silent data loss either way).
+		// Fold only a clean merge: a conflict keeps the child for the user to resolve.
 		if !body.DeleteSource || result.ConflictsPending {
 			return nil
 		}
@@ -90,10 +85,8 @@ func (h *Handlers) ChatMergeIntoParent(
 	})
 }
 
-// foldMergedChildIfLeaf removes the just-merged workspace when it is a leaf,
-// leaving a non-leaf child in place because cascade-deleting it would destroy
-// its descendants' unmerged work. It returns nil (a no-op) when the child still
-// has children.
+// foldMergedChildIfLeaf removes the just-merged workspace only when it is a leaf: cascade-deleting
+// a non-leaf would destroy its descendants' unmerged work.
 func (h *Handlers) foldMergedChildIfLeaf(
 	ctx context.Context,
 	id string,
@@ -112,9 +105,7 @@ func (h *Handlers) foldMergedChildIfLeaf(
 	return nil
 }
 
-// workspaceIsLeaf reports whether the workspace has no child workspaces, so it
-// can be safely removed after a merge without cascade-deleting the unmerged work
-// of any descendants.
+// workspaceIsLeaf reports whether the workspace has no child workspaces.
 func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error) {
 	all, err := h.reader.List(ctx)
 	if err != nil {
@@ -128,10 +119,8 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 	return true, nil
 }
 
-// ChatRebaseOntoParent handles POST .../repos/:repoId/chats/:id/rebase-onto-parent.
-// It is the user-initiated "finish the move" for a moved-but-conflicting child:
-// 202 with the operation rebasing the child onto its current parent, keeping a
-// conflicting rebase live for the standard resolve flow.
+// ChatRebaseOntoParent handles POST .../chats/:id/rebase-onto-parent, the user's "finish the move"
+// for a moved-but-conflicting child; a conflicting rebase stays live for the resolve flow.
 func (h *Handlers) ChatRebaseOntoParent(
 	c *gin.Context,
 ) {
@@ -146,15 +135,9 @@ func (h *Handlers) ChatRebaseOntoParent(
 	})
 }
 
-// ChatReparent handles POST .../repos/:repoId/chats/:id/reparent. It validates
-// synchronously (body shape, newParentId present, chat resolves) returning 4xx
-// on failure; then it answers 202 with the operation rebasing the leaf child
-// onto the new parent. A refusal (guardReparent) fails that operation.
-//
-// newParentId still names a WORKSPACE and not a chat: it is the git lineage
-// parent this leaf is rebased onto, resolved by the caller from the tree it is
-// already drawing. Re-keying it belongs to the sidebar's own move gesture, not
-// to this verb.
+// ChatReparent handles POST .../chats/:id/reparent: 4xx on validation, then 202 with the operation
+// rebasing the leaf onto the new parent. newParentId names a workspace, not a chat: it is the git
+// lineage parent the caller reads from the tree it draws.
 func (h *Handlers) ChatReparent(
 	c *gin.Context,
 ) {
@@ -178,10 +161,8 @@ func (h *Handlers) ChatReparent(
 	})
 }
 
-// ChatRetryProvision handles POST .../repos/:repoId/chats/:id/retry-provision.
-// It validates the chat resolves synchronously (4xx if not), then answers 202
-// with the operation re-provisioning the placeholder in place; a failure (e.g.
-// the branch is still held) fails that operation.
+// ChatRetryProvision handles POST .../chats/:id/retry-provision, answering 202 with the operation
+// re-provisioning the placeholder in place (it fails if the branch is still held).
 func (h *Handlers) ChatRetryProvision(
 	c *gin.Context,
 ) {
@@ -195,11 +176,9 @@ func (h *Handlers) ChatRetryProvision(
 	})
 }
 
-// ChatDetachHolder handles POST .../repos/:repoId/chats/:id/detach-holder. It
-// validates the chat resolves synchronously (4xx if not), then answers 202 with
-// the operation that detaches the branch's holder (with the user's consent,
-// captured by the modal that fires this call), clears the home row's branch when
-// the holder is the repo home, and re-provisions the placeholder in place.
+// ChatDetachHolder handles POST .../chats/:id/detach-holder (the user consented in the modal that
+// fires it), answering 202 with the operation that detaches the branch's holder and
+// re-provisions the placeholder in place.
 func (h *Handlers) ChatDetachHolder(
 	c *gin.Context,
 ) {

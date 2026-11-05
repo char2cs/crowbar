@@ -32,19 +32,13 @@ type PrerequisitesData struct {
 	Glab CLIStatus `json:"glab"`
 }
 
-// Handler serves the prerequisite checks. Binary discovery relies on the
-// process PATH — which the daemon corrects at startup with the login-shell
-// PATH (core/shellenv) — plus binpath.Resolve as the final fallback to
-// well-known install dirs.
-//
-// The previous implementation resolved the login-shell PATH here and placed
-// it in cmd.Env, which does NOT work: Go's exec.Command resolves bare binary
-// names against the PROCESS PATH at construction time, so the checks failed
-// in the packaged app regardless of cmd.Env.
+// Handler serves the prerequisite checks. Binaries resolve against the process PATH, which the
+// daemon corrects at startup with the login-shell PATH (exec.Command ignores cmd.Env for lookup),
+// with binpath.Resolve falling back to well-known install dirs.
 type Handler struct{}
 
-// NewHandler returns a Handler. The context parameter is kept for wiring
-// stability; PATH correction now happens process-wide at daemon startup.
+// NewHandler returns a Handler. The context is unused: PATH correction happens process-wide at
+// daemon startup.
 func NewHandler(_ context.Context) *Handler {
 	return &Handler{}
 }

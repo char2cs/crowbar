@@ -16,22 +16,9 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// UploadAttachment handles POST .../workspaces/:wsId/chats/:id/attachments.
-//
-// Two ingestion shapes, the same precedent icons.ReadUpload already
-// establishes (api/internal/api/v0/endpoints/icons/icons.go), adapted for
-// attachments' own larger size cap and its own required "id" field:
-//   - multipart/form-data: a "file" field (clipboard paste, browser file
-//     picker — neither ever has a host path) plus an "id" form field.
-//   - application/json: {"path": "...", "id": "..."} — a revived desktop
-//     drag-and-drop, which yields a host path rather than bytes; the daemon
-//     reads it itself. Same residual trust assumption icons.go's own
-//     path-read variant documents: daemon and webview share a host, so this
-//     is a user-chosen path from a native drop, not attacker-controlled.
-//
-// id is required on both shapes and never minted here — the frontend already
-// generates a nanoid per attachment, and accepting rather than generating one
-// is what lets that id double as an Excalidraw fence-tag id.
+// UploadAttachment handles POST .../chats/:id/attachments as multipart ("file" plus "id") or JSON
+// {"path","id"} for a desktop drop that yields a host path. The client-minted id is required, never
+// generated here, so it can double as an Excalidraw fence-tag id.
 func (h *Handlers) UploadAttachment(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -79,12 +66,8 @@ func readAttachmentFromMultipart(ctx *gin.Context) ([]byte, string, string, bool
 	return data, id, resolveOriginalName(header.Filename, data), true
 }
 
-// readAttachmentBytes reads r up to the size cap (+1, to detect an over-cap
-// stream without buffering it unbounded) and enforces MaxBytes — the one
-// read-and-check both ingestion shapes share, so a stream that turns out
-// bigger than an earlier size check (multipart's Content-Length, the path
-// variant's os.Stat) promised is still caught here regardless of which shape
-// produced it.
+// readAttachmentBytes enforces MaxBytes on the bytes actually read (cap+1 detects overflow without
+// unbounded buffering), so a stream larger than an earlier size check promised is still refused.
 func readAttachmentBytes(ctx *gin.Context, r io.Reader) ([]byte, bool) {
 	data, err := io.ReadAll(io.LimitReader(r, repoattachments.MaxBytes+1))
 	if err != nil {
@@ -98,13 +81,8 @@ func readAttachmentBytes(ctx *gin.Context, r io.Reader) ([]byte, bool) {
 	return data, true
 }
 
-// resolveOriginalName returns filename verbatim when the client supplied one,
-// or synthesizes a fallback from the sniffed content type otherwise —
-// a defensive backstop for a blank filename (some non-browser multipart
-// encoders omit it; net/http's own multipart parser cannot even represent a
-// FILE part with an explicitly empty filename, so this path is exercised only
-// by callers other than Go's stdlib client). The frontend (Task 20) still
-// sends a real name whenever it can; this is the backend's own last resort.
+// resolveOriginalName synthesizes a name from the sniffed content type when the client sent a blank
+// filename, which some non-browser multipart encoders do.
 func resolveOriginalName(filename string, data []byte) string {
 	if filename != "" {
 		return filename
@@ -114,9 +92,8 @@ func resolveOriginalName(filename string, data []byte) string {
 	})
 }
 
-// readAttachmentFromPath reads the attachment from an absolute host path
-// supplied as JSON — see the residual trust assumption in UploadAttachment's
-// own doc comment.
+// readAttachmentFromPath reads an absolute host path supplied as JSON. Daemon and webview share a host,
+// so the path is a user's native drop, not attacker-controlled.
 func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 	var body struct {
 		Path string `json:"path"`

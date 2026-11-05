@@ -168,9 +168,8 @@ type patchRequest struct {
 }
 
 // Patch handles PATCH /v0/projects/:projectId: a sidebar reorder, a rename, or
-// both. Unlike an import either is a single store write, so it runs inline and
-// answers 204 — the updated project rides the Projects WS stream, not this
-// response; every row the write shifted rides it too.
+// both. Each is one store write, so it runs inline and answers 204; the updated
+// rows ride the Projects stream.
 func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
@@ -250,10 +249,9 @@ func (h *Handlers) Import(
 	libs.WriteOperation(c, op)
 }
 
-// Delete handles DELETE /v0/projects/:projectId. The intent is recorded and
-// announced before the 202 (work at risk without consent is refused first),
-// so boot finishes what this starts; the project.delete operation says how it
-// ended. Real repository directories are never deleted from disk.
+// Delete handles DELETE /v0/projects/:projectId. The intent is recorded before
+// the 202 so boot finishes an interrupted delete; work at risk without consent is
+// refused first. Repository directories are never deleted from disk.
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {

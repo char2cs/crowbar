@@ -2,14 +2,8 @@
 // upload, validating it, storing it, serving it back, and deciding what counts
 // as a single emoji.
 //
-// Repos have had an editable icon since the sidebar redesign; projects now have
-// the same one. The only thing that differs between them is WHERE the bytes
-// live — <crowbarHome>/projects/<projectID>/<repoID>/icon for a repo,
-// <crowbarHome>/projects/<projectID>/icon for a project — so the path is the
-// caller's to supply and everything else lives here once. Duplicating it per
-// entity is how the two would drift on the parts that matter: the size cap, the
-// content sniffing that stops a JSON path pointing at /etc/passwd being stored
-// as an image, and the SVG special case.
+// Repos and projects differ only in where the bytes live, so the caller supplies
+// the path and the size cap, content sniffing and SVG special case live here once.
 package icons
 
 import (
@@ -32,18 +26,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// MaxBytes caps a stored icon at 2 MiB. Any file larger than this is rejected
-// before or immediately after opening, so the daemon never reads an unbounded
+// MaxBytes caps a stored icon at 2 MiB, so the daemon never reads an unbounded
 // amount of data from a client-supplied path.
 const MaxBytes = 2 << 20
 
-// ContentType picks the Content-Type for a stored icon.
-//
-// http.DetectContentType has no SVG signature — it sniffs SVG as text/* — and
-// browsers refuse to render an <img> whose SVG is served as text/*. Some GitHub
-// owner avatars are SVG (org avatars, for one), so detect SVG explicitly and
-// serve image/svg+xml; otherwise the fetched icon silently degrades to the
-// generated placeholder. Real raster images keep their sniffed image/* type.
+// ContentType picks the Content-Type for a stored icon. http.DetectContentType
+// sniffs SVG as text/*, which browsers refuse to render in an <img>, and some
+// GitHub avatars are SVG, so SVG is detected explicitly as image/svg+xml.
 func ContentType(
 	data []byte,
 ) string {
@@ -61,10 +50,8 @@ func ContentType(
 	return ct
 }
 
-// Serve writes the icon at path as the response, or 404s.
-//
-// The read is stat-rejected and capped: these bytes are written by this daemon,
-// but a corrupted or replaced file must not cause an unbounded heap allocation.
+// Serve writes the icon at path as the response, or 404s. The read is capped:
+// a corrupted or replaced file must not cause an unbounded heap allocation.
 func Serve(
 	c *gin.Context,
 	path string,
@@ -86,17 +73,15 @@ func Serve(
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// no-cache: revalidate on every use. The bytes change in place behind this
-	// URL (uploads overwrite the same file); the ?v= param on the DTO URL is the
-	// primary cache-buster, this header is the belt-and-braces layer.
+	// Uploads overwrite the bytes behind this URL; the DTO's ?v= param is the
+	// primary cache-buster and no-cache is the backstop.
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, ContentType(data), data)
 }
 
-// ReadUpload extracts icon bytes from the request, dispatching on Content-Type:
-// a JSON {"path"} body (desktop — the daemon reads the file) or a multipart
-// "icon" field (web). On any failure it writes the response and returns
-// ok=false.
+// ReadUpload extracts icon bytes from a JSON {"path"} body (desktop: the daemon
+// reads the file) or a multipart "icon" field (web). On failure it writes the
+// response and returns ok=false.
 func ReadUpload(
 	c *gin.Context,
 ) (data []byte, ok bool) {
@@ -106,21 +91,9 @@ func ReadUpload(
 	return readFromMultipart(c)
 }
 
-// readFromPath reads the icon from an absolute path supplied as JSON.
-//
-// Residual trust assumption: the path is an absolute host path supplied by the
-// desktop client (native file-picker dialog). The daemon and the WKWebView run
-// on the same host, so this is equivalent to the repo-import path trust model:
-// the path is user-chosen, not attacker-controlled from the network. This path
-// should eventually be replaced by a byte-upload (multipart) so the daemon never
-// reads arbitrary host paths at client direction.
-//
-// Hardening applied:
-//   - Stat-reject: file must exist and be ≤ MaxBytes before any read.
-//   - LimitReader: read at most MaxBytes+1 so an oversize file is detected.
-//   - Content sniffing (in Validate): content-type is derived from the first 512
-//     bytes, not from the file extension, so /etc/passwd styled as photo.png is
-//     rejected.
+// readFromPath reads the icon from an absolute host path the desktop's native
+// file picker chose: user-chosen, like a repo-import path, not network-supplied.
+// Size is capped here and content is sniffed in Validate, never trusted by extension.
 func readFromPath(
 	c *gin.Context,
 ) ([]byte, bool) {
@@ -185,12 +158,9 @@ func readFromMultipart(
 // paths cannot disagree about what the limit is called.
 const oversizeMessage = "icon must be under 2 MB"
 
-// Validate rejects anything that is not an image of an acceptable size. On
-// failure it writes the response and returns false.
-//
-// ALWAYS by content sniffing, never by trusting the extension or the
-// caller-supplied Content-Type: otherwise a non-image file could be stored by
-// supplying a .png filename, or a JSON path to an arbitrary host file.
+// Validate rejects anything that is not an image of an acceptable size, writing
+// the response on failure. It sniffs content rather than trusting the extension
+// or Content-Type, so a .png-named arbitrary host file is never stored.
 func Validate(
 	c *gin.Context,
 	data []byte,
@@ -236,13 +206,9 @@ func Remove(
 	}
 }
 
-// IsSingleEmoji reports whether s holds exactly one user-perceived character
-// (grapheme cluster) that is not a plain ASCII letter.
-//
-// Grapheme clusters — not code points — are the unit that matters: most real
-// emoji are multi-codepoint sequences (❤️ carries a variation selector, 👨‍💻 is a
-// ZWJ sequence, 🇦🇷 is a two-codepoint flag, 👍🏽 carries a skin-tone modifier)
-// and must all be accepted as "a single emoji".
+// IsSingleEmoji reports whether s holds exactly one grapheme cluster that is not
+// a plain ASCII letter. Graphemes, not code points, because most emoji are
+// multi-codepoint sequences (variation selectors, ZWJ, flags, skin tones).
 func IsSingleEmoji(
 	s string,
 ) bool {

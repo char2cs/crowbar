@@ -72,10 +72,8 @@ func (h *Handlers) Create(
 	libs.WriteMutationOK(ctx, http.StatusCreated, body.Path)
 }
 
-// Copy handles POST /v0/chats/:chatId/files/copy. It duplicates sourcePath
-// to destPath (both workspace-relative) byte-faithfully — the server-side
-// io.Copy path exists precisely so binary files never round-trip through the
-// base64 content read (which corrupts them when written back as text).
+// Copy handles POST /v0/chats/:chatId/files/copy, duplicating sourcePath to
+// destPath server-side so binary files never round-trip through a text write.
 // Directories copy recursively; an existing destination is a 409.
 func (h *Handlers) Copy(
 	ctx *gin.Context,

@@ -76,10 +76,8 @@ type Files interface {
 	) error
 }
 
-// ChatResolver resolves the chat rows a workspace id owns, mirroring the
-// workspaces handlers' own ChatResolver (workspacehandlers.ChatResolver): the
-// home workspace's GET is a second wire-DTO call site, and needs the same
-// read to resolve WorkspaceDTO.OwningChatID.
+// ChatResolver resolves the chat rows a workspace id owns, so GET /home can
+// fill WorkspaceDTO.OwningChatID the same way the workspaces handlers do.
 type ChatResolver interface {
 	ListChatsByWorkspace(
 		ctx context.Context,
@@ -167,14 +165,9 @@ func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	return domain.Workspace{}, false
 }
 
-// RequireHomeWorkspace resolves the project's home workspace and injects its id
-// as the :wsId path param, so handlers and the WS broadcaster reused from the
-// repo-scoped surface (the file-change WS, review threads) resolve the home
-// workspace by id without a dedicated home implementation. The home workspace
-// has no repo, so :repoId stays empty — the thread namespace, filters, and
-// snapshot all tolerate the empty middle segment (clientScope trims only
-// trailing empties, so "p//w" still prefix-matches "p//w/<id>"). On failure
-// resolveHome has already written the error envelope; we just abort the chain.
+// RequireHomeWorkspace injects the project's home workspace id as :wsId so
+// handlers reused from the workspace-scoped surface resolve it by id. :repoId
+// stays empty; thread scopes tolerate the empty middle segment ("p//w").
 func (h *Handlers) RequireHomeWorkspace(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
@@ -185,10 +178,9 @@ func (h *Handlers) RequireHomeWorkspace(c *gin.Context) {
 	c.Next()
 }
 
-// RequireHomeTerminalScope puts a home request in the shape the ONE terminal handler
-// set expects: the session owner is the home workspace (it has no owning chat), so its
-// id rides as :chatId, and the workspace itself is stashed where the chat-scoped
-// resolveChatWorktree middleware would have put it — the PTY's starting directory.
+// RequireHomeTerminalScope shapes a home request for the chat-scoped terminal handlers:
+// the home workspace has no owning chat, so its id rides as :chatId, and the workspace
+// is stashed in reqscope as resolveChatWorktree would, giving the PTY its directory.
 func (h *Handlers) RequireHomeTerminalScope(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {

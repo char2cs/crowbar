@@ -44,10 +44,8 @@ type TerminalEngine interface {
 	// StateOf returns the current lifecycle state ("active", "detached",
 	// "suspended") for the given session and true; ("", false) if not found.
 	StateOf(sessionID string) (string, bool)
-	// SetHostTheme records the host terminal's default colours as the OSC 10/11 query
-	// answers every subsequently spawned session is BORN with — the half of theme
-	// propagation the per-session push cannot reach, since the process is already
-	// running before any client attaches.
+	// SetHostTheme records the host's default colours as the OSC 10/11 answers every later
+	// session is born with; the per-session push arrives after the process has already asked.
 	SetHostTheme(
 		bg color.Color,
 		fg color.Color,
@@ -62,14 +60,8 @@ type ProfileStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// Handlers holds the dependencies shared across all terminal handler methods.
-//
-// There is deliberately no WorkspaceReader here any more. These routes mount
-// under /v0/chats/:chatId, whose resolveChatWorktree middleware has ALREADY
-// resolved the chat to its workspace and stashed it on the request context
-// (reqscope.Workspace). A reader on this struct would only let a handler
-// resolve the same thing a second time per request, which is precisely what
-// doing the resolve as middleware exists to avoid.
+// Handlers holds the dependencies shared across all terminal handler methods. It has no workspace
+// reader: the chat group's resolveChatWorktree middleware already put the workspace in reqscope.
 type Handlers struct {
 	termEng      TerminalEngine
 	profileStore ProfileStore

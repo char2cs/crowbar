@@ -21,24 +21,14 @@ type patchRequest struct {
 	Name      *string `json:"name"`
 	ProjectID *string `json:"projectId"`
 	Order     *int    `json:"order"`
-	// FolderID re-files the repo's own entry within its project's home tree —
-	// "" for the project's home root, a project-home folder id otherwise.
-	// *string, not string, for the same reason ProjectID is: a request that
-	// omits it must leave the repo's current folder untouched, not clear it.
+	// FolderID re-files the repo within its project's home tree ("" is the root). A pointer so
+	// that omitting it leaves the current folder untouched rather than clearing it.
 	FolderID *string `json:"folderId"`
 }
 
-// Patch handles PATCH /v0/projects/:projectId/repos/:repoId: rename, sidebar
-// reorder and re-filing into a home folder. It delivers the updated repo as a
-// RepoDTO on the repos WebSocket stream so every client's sidebar refreshes.
-//
-// Validation is synchronous, and so is the write: none of the three is a git
-// operation, so unlike Create this runs inline and answers 204 — the updated
-// avatar and order ride the repos stream, not this response (the FE apiFetch throws
-// on any non-enveloped 200 body, matching the icon mutations).
-//
-// A projectId naming another project is refused with 409: a repo's project is
-// fixed at import (project.refuseProjectMove).
+// Patch handles PATCH /v0/projects/:projectId/repos/:repoId: rename, reorder, re-file. None is a
+// git operation, so it runs inline and answers 204; the updated repo rides the repos stream. A
+// projectId naming another project is a 409: a repo's project is fixed at import.
 func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
@@ -62,11 +52,8 @@ func (h *Handlers) Patch(
 	c.Status(http.StatusNoContent)
 }
 
-// bindRepoUpdate validates the PATCH body into a project.RepoUpdate, writing the
-// 400 and returning ok=false on any rejection. The name rules are the SAME ones
-// create enforces, and for the same reason: a repo with no parseable remote falls
-// back to its name for the on-disk worktree slug, so a separator or a dot-only
-// component would derive worktrees outside the crowbar home.
+// bindRepoUpdate validates the PATCH body into a project.RepoUpdate, writing the 400 and returning
+// ok=false on rejection. The name rules are create's (see safeRepoName).
 func (h *Handlers) bindRepoUpdate(
 	c *gin.Context,
 	body patchRequest,
@@ -88,10 +75,9 @@ func (h *Handlers) bindRepoUpdate(
 	return update, true
 }
 
-// DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. The intent
-// is recorded and announced before the 202 (work at risk without consent is
-// refused first), so boot finishes what this starts; the repo.delete operation
-// says how it ended. The user's real repository directory is never touched.
+// DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. The intent is recorded before
+// the 202 so boot finishes what this starts; work at risk without consent is refused first.
+// The user's real repository directory is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {

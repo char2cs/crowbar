@@ -1,8 +1,5 @@
-// Package agent mounts the repo-scoped .../repos/:repoId/chats REST and
-// WebSocket routes: agentic-chat lifecycle CRUD, the vendor-CLI hook ingestion
-// endpoint, and the agent-chat lifecycle WebSocket (00 agentic-engine spec;
-// Task 17 rescoped the surface off the workspace group, since a chat's
-// workspace is optional and mutable and a URL that names one goes stale).
+// Package chat mounts the repo-scoped .../repos/:repoId/chats REST routes. They hang off the repo, not a
+// workspace, because a chat's workspace is optional and mutable, so a URL naming one would go stale.
 package chat
 
 import (
@@ -11,78 +8,9 @@ import (
 	agenthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 )
 
-// Register mounts the agent REST routes on the supplied repo-scoped router group (repoScoped, i.e.
-// .../projects/:projectId/repos/:repoId), mirroring how files.Register and
-// search.Register already sit on this group. A chat is no longer addressed
-// through a workspace (model spec §5.1), so Create/List/Get/Switch/Rename/
-// Handoff/Delete take only the chat's own :id; a handler that genuinely needs
-// a specific chat's workspace resolves it from the chat itself (GetChat)
-// rather than from the URL.
-//
-// .../chats/runners/:segid/mcp is keyed by the RUNNER, not the chat, for two
-// reasons. It resolves runnerID → runner → CurrentChatID at call time, so nothing
-// an agent is told at spawn can go stale when a /clear or /resume moves its CLI
-// between chats. And it is the transport for the agent's OWN tool calls, so its
-// authority must come from the runner's per-boot token rather than from a URL the
-// agent composes.
-//
-// It is the only runner-keyed write left: the agent's titling path was a sibling
-// route the vendor CLI shelled out to, and it is gone — titling is a tool on this
-// MCP surface now, so there is nothing for an agent to retype.
-//
-// The chat FOLDER routes mount on the same group and for the same reason: a
-// folder is repo-scoped, it shares one sibling space with the chats above it,
-// and .../chats/folders is where a client already looks for everything about
-// this panel. They are re-mounted under the home group too (home.Register) — the
-// project home accumulates more chats than any workspace and is precisely where
-// folders are needed, so mounting them once would have left the surface that
-// needs them most without them.
-//
-// .../chats/runners/:segid/hooks/:provider/:event is the same runner-keyed,
-// token-authenticated shape, and the one hook ingress: a vendor CLI posts each
-// hook's payload as the body, and a prompt a human can decide here is answered
-// on the same response.
-//
-// .../chats/:id/choices/:choiceId/answer is the human half of the ANSWER CHANNEL:
-// a person deciding a question in the chat. The CLI half is the held response of
-// the hook that asked it.
-//
-// .../chats/:id/placement is the chat half of the same gesture the folder
-// PATCH serves. It is a separate route from the chat's own rename because it
-// writes something different in kind: a chat's parent IS its context lineage, so
-// this endpoint can turn a standalone chat into a thread of another and back.
-//
-// .../chats/:id/promote is the model spec's §4.2 verb: a bubble fills its empty
-// workspace slot and keeps everything else about itself. It is a POST rather
-// than a field on some PATCH because it is not a field write — it cuts a
-// branch, adds a worktree and respawns the CLI in it — and because it is
-// one-way: a worktree is never demoted, so there is no opposite value to send.
-//
-// settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
-// GLOBAL user setting (per user/machine, not per workspace — the CLIs are
-// machine-level), so its settings routes mount at /settings/chat/providers,
-// outside the entity hierarchy — mirroring /settings/terminal/profiles. The
-// global GET lets Settings load providers with no active workspace; the PUT
-// updates preferences. The home group re-mounts only the repo-scoped GET.
-//
-// chatScoped is the flat /v0/chats/:chatId group: kill mounts there alone, so
-// a client ends any chat's runner knowing only its id.
-// worktrees resolves the git state a worktree-owning chat carries on its own
-// DTO (spec §5): the workspace it owns, that workspace's repo siblings, and the
-// merge overlay resolved over them. It is what lets ONE read of the chat list
-// answer everything the workspace list used to, so a client never joins two
-// resources by id to draw one row.
-//
-// repos resolves :repoId for the one route that needs the repository itself:
-// POST /chats with an `import` body, which adopts a branch that already exists
-// in that repo (spec §4.1 — Create and Import are ONE route with a
-// WorktreeSpec, not two). Every other route below is unaffected by it.
-//
-// nodes resolves a worktree-owning chat's own sidebar FolderID/Order (2026-09-09
-// sidebar-placement-unification, workspace-placement fix) — the Node row
-// PlaceWorkspace (endpoints/workspace) writes, read back here so the chat
-// list this repo's sidebar actually renders from carries a drag's result,
-// not just the git fields worktrees above already resolves.
+// Register mounts the chat routes on repoScoped (.../repos/:repoId), the flat /v0/chats/:chatId
+// group (chatScoped) and the top-level /v0 group (settingsRG). Chat routes take only the chat's :id;
+// a handler needing the chat's workspace resolves it from the chat, never from the URL.
 func Register(
 	repoScoped *gin.RouterGroup,
 	chatScoped *gin.RouterGroup,
@@ -102,25 +30,18 @@ func Register(
 		WithWorktrees(worktrees).
 		WithNodes(nodes)
 
+	// Flat so a client can end any chat's runner knowing only its id.
 	chatScoped.POST("/kill", h.Kill)
 	repoScoped.POST("/chats", h.Create)
 	repoScoped.GET("/chats", h.List)
-	// Every workspace row in this repo, chat or no chat — restores the
-	// resource fetchWorkspaces's own doc (web/src/lib/api.ts) says was
-	// retired in favour of deriving workspaces from the chat list. A repo's
-	// own default checkout and any never-chatted-in locked branch have no
-	// chat to derive from, so that path alone can never surface them (see
-	// Workspaces' own doc, worktree.go).
+	// Every workspace row, chat or not: a repo's default checkout and a never-chatted-in locked
+	// branch have no chat to derive them from.
 	repoScoped.GET("/workspaces", h.Workspaces)
 	repoScoped.GET("/chats/:id", h.Get)
 	repoScoped.POST("/chats/:id/prompts", h.SubmitPrompt)
 	repoScoped.POST("/chats/:id/attachments", h.UploadAttachment)
 	repoScoped.GET("/chats/:id/attachments/:file", h.Attachment)
-	// HEAD, not just GET: the web client's own file-card size label is a
-	// HEAD against this exact route (chat-asset-resolver.ts). With no HEAD
-	// route registered it always 404'd — Attachment itself never checks the
-	// request method, so net/http's own HEAD handling (real headers, body
-	// suppressed) is all a route pointed at it needs.
+	// The web file-card size label issues HEAD here; net/http's HEAD handling suffices.
 	repoScoped.HEAD("/chats/:id/attachments/:file", h.Attachment)
 	repoScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
 	repoScoped.POST("/chats/:id/terminal-wait/answer", h.AnswerTerminalWait)
@@ -137,17 +58,26 @@ func Register(
 	repoScoped.POST("/chats/:id/rename", h.Rename)
 	repoScoped.PATCH("/chats/:id/selection", h.SetSelection)
 	repoScoped.GET("/chats/:id/handoff", h.Handoff)
+	// Separate from rename: a chat's parent is its context lineage, so placement can make a chat a
+	// thread of another and back.
 	repoScoped.PATCH("/chats/:id/placement", h.PlaceChat)
+	// A POST, not a PATCH field: promotion cuts a branch, adds a worktree and respawns the CLI, and
+	// is one-way (a worktree is never demoted).
 	repoScoped.POST("/chats/:id/promote", h.Promote)
 	repoScoped.DELETE("/chats/:id", h.Delete)
+	// Folders share one sibling space with the repo's chats; home.Register re-mounts them too.
 	repoScoped.GET("/chats/folders", h.ListFolders)
 	repoScoped.POST("/chats/folders", h.CreateFolder)
 	repoScoped.PATCH("/chats/folders/:folderId", h.PatchFolder)
 	repoScoped.DELETE("/chats/folders/:folderId", h.DeleteFolder)
+	// Runner-keyed, not chat-keyed: the runner's current chat is resolved per call so a /clear or
+	// /resume never strands the agent, and authority comes from the runner's per-boot token.
 	repoScoped.POST("/chats/runners/:segid/mcp", h.MCP)
 	repoScoped.POST("/chats/runners/:segid/hooks/:provider/:event", h.HTTPHook)
 	repoScoped.GET("/chats/providers", h.Providers)
 
+	// Provider priority and enablement are machine-wide (the CLIs are), so they sit outside the
+	// entity hierarchy and load with no active workspace.
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
 	settingsRG.GET("/settings/chat/providers", h.Providers)
 	settingsRG.GET("/settings/chat/descriptors", h.DescriptorReports)

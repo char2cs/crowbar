@@ -10,13 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// ChatTreeUsecase is the Chats-panel tree surface the handlers need: folder
-// CRUD, chat placement, and the cascading chat delete.
-//
-// The DELETE it serves is the one on .../chats/:id, and it goes through
-// here rather than straight to ChatUsecase.PurgeChat because a chat delete in
-// this panel is not one chat: a chat's children are THREADS of it, so they go
-// with it. Only something holding the tree can know which chats those are.
+// ChatTreeUsecase is the Chats-panel tree: folder CRUD, chat placement and the cascading chat delete,
+// which must go through the tree because a chat's children are its threads and go with it.
 type ChatTreeUsecase interface {
 	ListInRepo(
 		ctx context.Context,
@@ -45,20 +40,9 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		id string,
 	) ([]domain.Chat, error)
-	// CreateChat mints a chat, places it under parentID (a chat, a folder, or "" for
-	// the panel root) and starts providerID's CLI on it — in that order, so a chat
-	// created as a THREAD carries the parent edge before its first CLI exists and is
-	// told what it reads on its very first session. runnerID is the crowbarSegmentID
-	// every hook from that CLI carries.
-	//
-	// worktree is model spec §4.1/§5.1's atomic create, in its three real states
-	// (agentusecase.WorktreeSpec): a plain chat, a fresh fork off the new chat's
-	// resolved fork parent, or an existing branch imported — the last two both
-	// minting the workspace and setting it on the chat in the SAME call, so the
-	// two effects are never observable apart. workspaceID is ignored for both.
-	//
-	// surface is the VIEW the chat is born on (design spec 2.5), "" for the
-	// provider's own default landing — see domain.Chat.Surface.
+	// CreateChat places the new chat before starting its CLI, so a thread knows its parent from its first
+	// session. A fork or import worktree is minted and set on the chat in the same call, never observable
+	// apart; in.WorkspaceID is ignored for both.
 	CreateChat(
 		ctx context.Context,
 		in agentusecase.CreateChatInput,
@@ -76,14 +60,8 @@ type ChatTreeUsecase interface {
 	) (agentusecase.ChatDeletion, error)
 }
 
-// Repos resolves the repository named by :repoId, so an IMPORTING create can
-// describe the branch it is adopting: a WorktreeImport names its repo outright
-// — the on-disk path git works in and the remote the branch is fetched from —
-// rather than inheriting them from a parent workspace an import rooted at the
-// repo does not have (see agentusecase.ImportSpec).
-//
-// It is the narrow slice this consumer needs and nothing more (law 4); the
-// container satisfies it with the real repository store (law 6).
+// Repos resolves :repoId so an importing create can name its repo's path and remote outright: an
+// import rooted at the repo has no parent workspace to inherit them from.
 type Repos interface {
 	FindByKey(
 		ctx context.Context,
@@ -105,16 +83,8 @@ type Handlers struct {
 	nodes     Nodes
 }
 
-// New builds the agent Handlers from the five agent concerns and the
-// Chats-panel tree usecase.
-//
-// The concerns arrive one per parameter rather than behind one port so that
-// every capability a route needs is a field the compiler can check.
-//
-// A nil tree usecase does NOT degrade: every route that
-// takes one would have to answer some fiction about a tree it cannot read, and
-// the daemon wires it unconditionally — so the routes are simply not mounted
-// without it (see agentusecase.Register).
+// New builds the Handlers, one parameter per concern so every capability a route needs is a field the
+// compiler checks.
 func New(
 	chats ChatUsecase,
 	turns TurnUsecase,
@@ -133,12 +103,8 @@ func New(
 	}
 }
 
-// WithRepos wires the repository store an IMPORTING create reads its repo facts
-// from. Left unwired, a create asking to import is refused outright rather than
-// guessing them — see Create. Every other route is unaffected, which is why
-// this is a builder and not a New parameter: the home mount (home.Register)
-// builds these handlers for a surface where import is refused anyway, since it
-// always names a workspace to attach to.
+// WithRepos wires the store an importing create reads repo facts from; unwired, import is refused
+// rather than guessed. A builder, not a New parameter, because the home mount never imports.
 func (h *Handlers) WithRepos(
 	repos Repos,
 ) *Handlers {
@@ -148,12 +114,8 @@ func (h *Handlers) WithRepos(
 	return h
 }
 
-// WithWorktrees wires the workspace reads a chat's own git fields are resolved
-// through (spec §5). Left unwired, every chat serializes with its worktree
-// absent — see Worktrees — which is why this is a builder rather than a New
-// parameter: it is the same optional-capability shape WithRepos already has,
-// and the surfaces that mount these handlers without it serve rows that own no
-// worktree anyway.
+// WithWorktrees wires the workspace reads behind a chat's git fields. Optional because surfaces mounted
+// without it serve no worktree-owning rows; unwired, the worktree is simply absent.
 func (h *Handlers) WithWorktrees(
 	worktrees Worktrees,
 ) *Handlers {
@@ -163,13 +125,8 @@ func (h *Handlers) WithWorktrees(
 	return h
 }
 
-// WithNodes wires the Node read a worktree-owning chat's DTO resolves its own
-// sidebar FolderID/Order from (see Nodes, placementReader). Left unwired,
-// every worktree-owning chat serializes with FolderID/Order at their zero
-// value — the same degrade dto.WorkspacePlacementReader's own doc describes
-// for a row this fix has not reached yet — which is why this is a builder
-// rather than a New parameter, the same optional-capability shape
-// WithWorktrees already has.
+// WithNodes wires the Node read a worktree-owning chat's sidebar FolderID/Order come from; unwired,
+// they serialize as zero values.
 func (h *Handlers) WithNodes(
 	nodes Nodes,
 ) *Handlers {

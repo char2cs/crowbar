@@ -77,12 +77,8 @@ func New(
 	}
 }
 
-// workspaceID answers which worktree this request acts on: the chat group's
-// resolveChatWorktree middleware has already resolved the chat's worktree and
-// stashed the workspace on the context, so the answer is read back from
-// reqscope — never resolved a second time per request, and never taken from a
-// URL, because no chat-scoped URL carries a workspace id to take it from
-// (spec law 1).
+// workspaceID reads the chat's worktree that resolveChatWorktree stashed in
+// reqscope; chat-scoped URLs carry no workspace id to take it from.
 func (h *Handlers) workspaceID(
 	ctx *gin.Context,
 ) string {

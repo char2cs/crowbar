@@ -23,10 +23,8 @@ type createRequest struct {
 	Path string `json:"path"`
 }
 
-// Create handles POST /v0/projects/:projectId/repos. What it can check up
-// front (body, name, path on disk, a folder another project owns) is a 4xx;
-// then it answers 202 with the repo.create operation: one item for the repo,
-// under the id minted here, and one per protected branch as the work sets it up.
+// Create handles POST /v0/projects/:projectId/repos. Up-front checks answer 4xx; then it answers
+// 202 with the repo.create operation: one item for the repo, one per protected branch set up.
 func (h *Handlers) Create(
 	c *gin.Context,
 ) {
@@ -117,20 +115,9 @@ func (rp repoProgress) Workspace(id, branch string, err error) {
 // unsafeRepoNameMessage is the 400 both name-taking endpoints answer with.
 const unsafeRepoNameMessage = "name must not contain a path separator or be a dot-only component"
 
-// safeRepoName reports whether a user-supplied repository name may be used as
-// an on-disk identity.
-//
-// The name is not only a label. A repository with no parseable git remote falls
-// back to it for its worktree slug (worktreepath.RemoteSlug), which is joined
-// into <home>/projects/<project>/<slug>/<branch>/worktree — and filepath.Join
-// CLEANS what it joins, so "../../../../tmp/pwned" derives worktrees outside the
-// crowbar home. Workspaces created out there can never be reclaimed: every
-// removal guard refuses to touch anything that is not strictly under home.
-//
-// This is newly reachable. The name used to be filepath.Base(repoPath), which
-// cannot contain a separator; now both the create and the rename endpoint take
-// it verbatim from the client, so both check it here — before it is persisted,
-// rather than at each of the many places it is later joined.
+// safeRepoName reports whether a client-supplied repo name may be an on-disk identity. A repo with
+// no parseable remote uses its name as the worktree slug, so "../.." would place worktrees outside
+// the crowbar home where no removal guard can reclaim them; create and rename both check it.
 func safeRepoName(
 	name string,
 ) bool {

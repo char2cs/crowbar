@@ -14,17 +14,9 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Branches handles GET /v0/projects/:projectId/repos/:repoId/branches. Returns all remote branches
-// annotated with isProtected and hasWorkspace fields.
-//
-// It refreshes the remote-tracking refs FIRST. `git branch -r` reads only what
-// the clone already knows, and no other part of the daemon does a full fetch on
-// its own (OriginSyncManager refreshes a single subscribed protected branch;
-// Fetch is the user's Git-panel button) — so this list used to report the remote
-// as it stood at clone time: a teammate's branch pushed since the repo was
-// imported never appeared in the import picker, and a branch deleted on the
-// remote was offered forever. The refresh is best-effort: an offline machine
-// still gets the cached list rather than an error.
+// Branches handles GET /v0/projects/:projectId/repos/:repoId/branches, listing origin's branches
+// with isProtected and hasWorkspace. It fetches with prune first because nothing else does a full
+// fetch; the refresh is best-effort so an offline machine still gets the cached list.
 func (h *Handlers) Branches(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
@@ -40,7 +32,6 @@ func (h *Handlers) Branches(c *gin.Context) {
 		slog.WarnContext(ctx, "branches: could not refresh origin; listing cached remote-tracking refs",
 			"repo", repo.Name, "err", fErr)
 	}
-	// Through the git engine and its per-repo lock, never a bare shell-out.
 	all, err := h.remote.Branches(ctx, repo.Path)
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "failed to list branches")
@@ -119,10 +110,8 @@ type PRLinkDTO struct {
 	Title  string `json:"title"`
 }
 
-// PullRequests handles GET /v0/projects/:projectId/repos/:repoId/pull-requests.
-// Returns the open-PR head→base graph for the import dialog's parent hint. It is
-// advisory only — the import endpoint re-resolves parenting authoritatively — and
-// soft-fails to [] when the provider CLI is unavailable or unauthenticated.
+// PullRequests handles GET /v0/projects/:projectId/repos/:repoId/pull-requests: the open-PR graph
+// as an advisory parent hint (import re-resolves parenting), soft-failing to [] without a provider CLI.
 func (h *Handlers) PullRequests(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
@@ -145,11 +134,9 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	libs.WriteQueryOK(c, links)
 }
 
-// originBranches keeps the engine's origin/ remote-tracking branches, with the
-// "origin/" prefix stripped. Only origin is kept: every other remote's branch
-// would be offered as importable and then resolved against origin/<name>,
-// which may be a different branch or none at all. origin/HEAD (short name
-// "origin") has no prefix and falls away.
+// originBranches keeps origin's remote-tracking branches with the prefix stripped. Other remotes
+// are dropped because import resolves a name against origin/<name>; origin/HEAD ("origin")
+// has no prefix and falls away.
 func originBranches(all []gitdomain.Branch) []string {
 	var result []string
 	seen := map[string]bool{}

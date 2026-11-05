@@ -12,20 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
 
-// The project icon, on the same mechanism a repo's already used: an uploaded
-// image, an emoji, or the sidebar's default.
-//
-// What a project does NOT get is the repo's `PUT .../icon/github`. That one
-// reads the repo's `origin` remote to find an owner avatar, and a project is a
-// folder holding repos — it has no remote of its own, and the repos under it may
-// have several between them. Offering it would be a button that could only ever
-// fail.
-//
-// The default differs too, and that is the reason there is no avatarLabel or
-// avatarColor here. A repo with no icon falls back to a generated letter tile; a
-// project with no icon falls back to the Library glyph the sidebar draws for
-// every project, so "no icon" is a state the client already knows how to render
-// and the daemon has nothing to store for it.
+// A project icon is an uploaded image, an emoji, or the sidebar's default glyph.
+// Unlike a repo there is no GitHub-avatar variant (a project has no origin remote)
+// and no generated letter tile, so "no icon" needs nothing stored.
 
 // Icon handles GET /v0/projects/:projectId/icon, serving the on-disk icon bytes
 // with the content-type sniffed from them. 404 when the project has no icon.
@@ -45,12 +34,9 @@ func (h *Handlers) Icon(
 	icons.Serve(c, path)
 }
 
-// PutIcon handles PUT /v0/projects/:projectId/icon. It accepts the icon two
-// ways: a multipart/form-data "icon" field (web browsers), or a JSON body
-// {"path": "<absolute path>"} the daemon reads from disk itself. The latter is
-// the desktop path — the WKWebView crowbar:// scheme cannot carry a
-// multipart/binary request body, so the native file dialog yields a path and the
-// daemon reads it, the same way repo import reads a user-selected path.
+// PutIcon handles PUT /v0/projects/:projectId/icon from a multipart "icon" field
+// (web) or a JSON {"path"} the daemon reads (desktop: the WKWebView crowbar://
+// scheme cannot carry a multipart body).
 func (h *Handlers) PutIcon(
 	c *gin.Context,
 ) {
@@ -137,10 +123,8 @@ func (h *Handlers) DeleteIcon(
 	h.saveIcon(c, projectID, project.Update{AvatarHasIcon: &hasIcon, AvatarEmoji: &emoji})
 }
 
-// saveIcon persists an icon change and delivers the updated project on the
-// Projects WS stream. 204, consistent with every other icon mutation: the FE
-// apiFetch throws on any non-enveloped 200 body, and the new avatar arrives on
-// the stream rather than in this response.
+// saveIcon persists an icon change and answers 204, like every icon mutation:
+// the updated project arrives on the Projects stream, not in this response.
 func (h *Handlers) saveIcon(
 	c *gin.Context,
 	projectID string,
@@ -165,12 +149,8 @@ func (h *Handlers) iconPath(
 	return projectIconPath(home, c.Param("projectId")), true
 }
 
-// projectIconPath is <crowbarHome>/projects/<projectId>/icon.
-//
-// It sits BESIDE the repo directories rather than inside one of them: a repo's
-// own icon is <crowbarHome>/projects/<projectId>/<repoId>/icon, and repo ids are
-// uuids, so a file plainly named "icon" at the project level can never collide
-// with a repo's directory.
+// projectIconPath is <crowbarHome>/projects/<projectId>/icon, beside the repo
+// directories; repo ids are uuids, so "icon" can never collide with one.
 func projectIconPath(
 	crowbarHome string,
 	projectID string,

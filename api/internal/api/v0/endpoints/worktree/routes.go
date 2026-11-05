@@ -1,12 +1,6 @@
-// Package worktree mounts the worktree surface a CHAT addresses: the seven
-// lifecycle verbs on the thing actually being held, the branch rename, and the
-// batch branch import.
-//
-// It is what remains of the old `workspaces` endpoint group after spec §8 step
-// 6 (docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md). That group's
-// thirteen :wsId routes are deleted — every one had a chat-keyed replacement
-// live and in use — and the package is named for what it now serves rather than
-// for the id nobody may name any more (law 1).
+// Package worktree mounts the worktree surface a chat addresses: the seven lifecycle verbs on the
+// worktree it holds, the branch rename, and the batch branch import. Requests name the chat,
+// never a workspace id.
 package worktree
 
 import (
@@ -15,31 +9,9 @@ import (
 	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
 )
 
-// Register mounts the chat-keyed worktree routes on the supplied repo-scoped
-// group. reader, hierarchy and repos back the verbs' reads and worktree
-// operations; ops runs the slow verbs as operations; chats checks an import's
-// chat ids; remote lets the batch
-// import refuse an absent branch synchronously; worktrees resolves a chat to the
-// workspace behind its worktree (spec §3).
-//
-// The verbs mount on the repo-scoped group at :id — the param a sibling
-// .../chats/:id/promote already binds at that position — so lock/sync/merge sit
-// beside promote/rename/placement rather than in a second, differently-shaped
-// chat surface.
-//
-// They are registered from HERE rather than from chat.Register because the
-// bodies they run are these handlers': every one is a worktreehandlers.Handlers
-// method, so re-declaring the reader, the hierarchy and the operation service in
-// the chat package to serve them would be a second copy of this file's entire
-// dependency set.
-//
-// .../chats/import-batch is the BATCH import, and it is a route of its own
-// beside POST .../chats rather than a loop over it. POST .../chats with an
-// `import` body adopts ONE named branch; this one takes a set and resolves the
-// repo's open-PR head→base graph across it, creating the ancestors a branch is
-// parented under and falling back to a placeholder row for a branch another
-// worktree already holds. Driving it as N single creates would silently drop all
-// three of those.
+// Register mounts the chat-keyed worktree routes at .../chats/:id on the repo-scoped group, beside
+// chat's promote/rename, from here because their bodies are worktreehandlers methods. Batch import
+// is its own route because it resolves the open-PR graph across the set, which N creates cannot.
 func Register(
 	rg *gin.RouterGroup,
 	reader worktreehandlers.Reader,
@@ -66,8 +38,6 @@ func Register(
 	rg.POST("/chats/:id/rebase-onto-parent", h.ChatRebaseOntoParent)
 	rg.POST("/chats/:id/retry-provision", h.ChatRetryProvision)
 	rg.POST("/chats/:id/detach-holder", h.ChatDetachHolder)
-	// The chat-keyed branch rename. It is a PATCH on the branch and NOT a second
-	// meaning for POST /chats/:id/rename — see ChatRenameBranch for why that fold
-	// was declined.
+	// A PATCH on the branch, not a second meaning for POST /chats/:id/rename (see ChatRenameBranch).
 	rg.PATCH("/chats/:id/branch", h.ChatRenameBranch)
 }

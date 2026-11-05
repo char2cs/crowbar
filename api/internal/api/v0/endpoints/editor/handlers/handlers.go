@@ -1,15 +1,9 @@
 // Package handlers holds the gin handlers backing the editor endpoint: git
-// blame, the synchronous LSP feature requests (completion, hover, definition,
-// references, rename, code action, document symbol, signature help, code lens,
-// formatting), the document-sync notifications (didOpen, didChange, didSave,
-// didClose), the language-server status/restart lifecycle, and the
-// diagnostics snapshot (02 §2.5, 04 §3, 10).
+// blame, the synchronous LSP feature requests, the document-sync notifications,
+// the language-server status/restart lifecycle, and the diagnostics snapshot.
 //
-// The LSP engine is graceful-absent: when no language server is installed for a
-// file's language the feature methods return empty results and a nil error
-// rather than failing, so those responses still carry a 200 envelope. The
-// engine and git engine are guarded for nil before any work runs; an absent
-// engine yields a 503.
+// A missing language server is not an error: feature methods return empty
+// results with a 200. A nil LSP or git engine yields a 503.
 package handlers
 
 import (
@@ -226,11 +220,9 @@ func (h *Handlers) requireGit(
 	return true
 }
 
-// workspace answers which workspace this request acts on: the chat group's
-// resolveChatWorktree middleware has already resolved the chat's worktree and
-// stashed it on the context, so it is read back from reqscope. A miss means
-// the route is mounted outside that middleware, which is a wiring bug rather
-// than anything the caller did.
+// workspace reads the chat's worktree that resolveChatWorktree stashed in
+// reqscope. A miss means the route is mounted outside that middleware: a wiring
+// bug, hence 500 rather than 4xx.
 func (h *Handlers) workspace(
 	c *gin.Context,
 ) (domain.Workspace, bool) {
@@ -252,12 +244,8 @@ func (h *Handlers) worktreePath(
 	return ws.WorktreePath, true
 }
 
-// lspOwnerID answers the key the LSP engine's per-session pool is addressed
-// by: the :chatId path param. Editor/LSP is spec §4.2's OWNED bucket, so the
-// resolver still finds the worktree for a CWD, but the session itself is
-// never shared with a sibling chat that happens to hold the same worktree
-// (spec law 5) — keying by chat id rather than by worktree is what gives each
-// sibling its own LSP session.
+// lspOwnerID keys the LSP session pool by chat id, not worktree, so sibling
+// chats sharing a worktree each get their own session.
 func (h *Handlers) lspOwnerID(
 	c *gin.Context,
 ) string {

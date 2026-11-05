@@ -43,13 +43,9 @@ func (h *Handlers) State(
 	libs.WriteQueryOK(ctx, state)
 }
 
-// workspace answers which workspace provider's State route acts on
-// (routes.go): the chat group's resolveChatWorktree middleware has already
-// resolved the chat's worktree and stashed it on the context, so it is read
-// back from reqscope. A miss means the route is mounted outside that
-// middleware, which is a wiring bug rather than anything the caller did.
-// /protected-branches does not move (spec §4.2) and keeps its own repo-scoped
-// resolution (worktreeForRepo below), untouched by this helper.
+// workspace reads the chat's worktree that resolveChatWorktree stashed in
+// reqscope for the State route. A miss means the route is mounted outside that
+// middleware: a wiring bug, hence 500 rather than 4xx.
 func (h *Handlers) workspace(
 	ctx *gin.Context,
 ) (domain.Workspace, bool) {
@@ -61,13 +57,9 @@ func (h *Handlers) workspace(
 	return ws, true
 }
 
-// ProtectedBranches handles
-// GET /v0/projects/:projectId/repos/:repoId/protected-branches.
-// It resolves a worktree path for the repo by finding any workspace whose
-// RepoID matches the :repoId path param, then returns the list of protected
-// branch names. When capability is disabled, returns the
-// DefaultProtectedBranches fallback. The repo aggregate gains its own on-disk
-// path in W11/W12; until then the repo-scoped worktree lookup stands in.
+// ProtectedBranches handles GET /v0/projects/:projectId/repos/:repoId/protected-branches.
+// It asks any workspace of the repo, since a repo has no on-disk path of its own;
+// a disabled capability yields DefaultProtectedBranches.
 func (h *Handlers) ProtectedBranches(
 	ctx *gin.Context,
 ) {

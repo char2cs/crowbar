@@ -62,10 +62,8 @@ func (h *Handlers) CreateFile(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, body.Path)
 }
 
-// CopyFile handles POST /v0/projects/:projectId/home/files/copy. It mirrors the
-// workspace-scoped copy verb (files/handlers/files.go's Copy): sourcePath is
-// duplicated to destPath (both workspace-relative) byte-faithfully, so Duplicate
-// in the home explorer never corrupts binaries via the base64 content round trip.
+// CopyFile handles POST /v0/projects/:projectId/home/files/copy, duplicating
+// sourcePath to destPath server-side so binaries never round-trip through a text write.
 func (h *Handlers) CopyFile(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
@@ -96,10 +94,8 @@ func (h *Handlers) RenameFile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	// {path, newPath} — the shared rename contract the workspace files handler
-	// (files/handlers/files.go Rename) and the FE (file-tree-api renameFileNode /
-	// platform moveFile) already use. Binding {oldPath, newPath} here made every
-	// home-project explorer rename 400 on the shape mismatch.
+	// {path, newPath} is the rename contract shared with the chat-scoped files
+	// handler and the web client.
 	var body struct {
 		Path    string `json:"path"`
 		NewPath string `json:"newPath"`

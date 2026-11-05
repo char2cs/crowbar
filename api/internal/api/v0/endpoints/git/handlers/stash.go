@@ -82,10 +82,8 @@ func (h *Handlers) StashPop(
 	ctx.Status(http.StatusOK)
 }
 
-// resolveStashIndex resolves the stash index from the already-bound body,
-// falling back to the ?index= query param when the body omits it. It returns
-// the resolved index, or a non-empty human-readable reason when the index is
-// missing (empty string) or not an integer.
+// resolveStashIndex takes the stash index from the bound body, falling back to
+// ?index=. A non-empty reason means the index is missing or not an integer.
 func resolveStashIndex(
 	ctx *gin.Context,
 	bodyIndex *int,

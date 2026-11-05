@@ -33,11 +33,9 @@ type Streams interface {
 	Disconnect(clientID string)
 }
 
-// mintCodeResponse is the body of POST /pair/code. ServerFingerprint is the
-// daemon's TLS identity fingerprint (tlsid.FingerprintOf's format): a human
-// compares it against what the pairing client shows as the trust-on-first-
-// connect check, since the code alone only proves possession of this socket,
-// not which daemon a later TLS connection actually reaches.
+// mintCodeResponse is the body of POST /pair/code. A human compares
+// ServerFingerprint (tlsid.FingerprintOf format) with the pairing client's, since
+// the code proves socket access but not which daemon a later TLS connection reaches.
 type mintCodeResponse struct {
 	Code              string `json:"code"`
 	ServerFingerprint string `json:"serverFingerprint"`
@@ -74,10 +72,8 @@ func New(p Pairing, registry Registry, streams Streams, serverFingerprint string
 	return &Handlers{pairing: p, registry: registry, streams: streams, serverFingerprint: serverFingerprint}
 }
 
-// MintCode issues a fresh pairing code. Callable only over a non-TLS
-// connection — the unix socket, or a loopback dev TCP bind — which is the
-// whole reason a redeem over the network can trust it (this endpoint must
-// refuse a TLS caller and succeed for a plaintext one).
+// MintCode issues a fresh pairing code. It refuses TLS callers: minting only over
+// the unix socket or a loopback dev bind is what lets a network redeem trust it.
 func (h *Handlers) MintCode(c *gin.Context) {
 	if c.Request.TLS != nil {
 		libs.WriteErr(c, http.StatusForbidden, "pairing codes can only be minted over the local socket")

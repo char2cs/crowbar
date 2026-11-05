@@ -1,8 +1,7 @@
 // Package editor mounts the v0 editor REST routes: git blame, the synchronous
 // LSP feature requests, the document-sync notifications, and the diagnostics
-// snapshot (02 §2.5, 04 §3, 10). Every route carries blame's path in the
-// ?path= query because GET has no body, while the LSP routes take their path
-// in the JSON body. Live diagnostics ride the stream's lsp: scope.
+// snapshot. Blame takes its path in ?path= because GET has no body; the LSP
+// routes take it in the JSON body. Live diagnostics ride the stream's lsp: scope.
 package editor
 
 import (
@@ -11,24 +10,9 @@ import (
 	editorhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers"
 )
 
-// Register mounts the editor REST + WS surface on the flat chat-scoped group
-// (spec §7.1), the only surface editor/LSP is addressable through:
-// /v0/chats/:chatId/{blame,lsp/*} .
-//
-// editor/LSP is spec §4.2's OWNED bucket: the resolver still runs, for a CWD,
-// but the session itself is never shared with a sibling chat that happens to
-// hold the same worktree (spec law 5). The worktree is resolved from the
-// request context by chatScoped's own resolveChatWorktree middleware (see
-// handlers.Handlers.workspace), and the LSP engine calls key their session by
-// the chat id (handlers.Handlers.lspOwnerID), so a sibling chat sharing this
-// worktree gets its own LSP session.
-//
-// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/{blame,lsp/*}
-// mount is gone (spec §8 step 6): every caller had already moved to the mount
-// kept here.
-//
-// lspWSHandle is the pre-built broadcaster handle for the live diagnostics
-// stream, dual-mounted the same way as the REST routes.
+// Register mounts the editor routes at /v0/chats/:chatId/{blame,lsp/*}. The
+// worktree comes from chatScoped's resolveChatWorktree middleware, but LSP
+// sessions are keyed by chat id so sibling chats sharing a worktree never share one.
 func Register(
 	chatScoped *gin.RouterGroup,
 	lsp editorhandlers.LSPEngine,

@@ -22,11 +22,8 @@ type createRequest struct {
 	ParentID    string `json:"parentId"`
 	WorkspaceID string `json:"workspaceId"`
 	OwnWorktree bool   `json:"ownWorktree"`
-	// Branch names the fresh branch an ownWorktree create forks — read only
-	// when OwnWorktree is true. Blank keeps the server-generated name every
-	// caller before this field existed always got; distinct from Import's own
-	// Branch, which names a branch that already exists rather than one this
-	// create is about to cut.
+	// Branch names the fresh branch an ownWorktree create cuts; blank gets a generated name. Unlike
+	// Import.Branch, it names a branch that does not exist yet.
 	Branch string               `json:"branch"`
 	Import *createImportRequest `json:"import"`
 	// Surface is the view the new chat is born on; omitted means the provider's
@@ -35,55 +32,17 @@ type createRequest struct {
 	Surface string `json:"surface"`
 }
 
-// createImportRequest is the import half of the create body. Its PRESENCE is
-// what selects WorktreeImport — the three modes are then mutually explicit on
-// the wire (nothing, ownWorktree, import) rather than inferred from which
-// string happens to be non-empty.
-//
-// remote is a pointer for the reason lockRequest.Locked is: omitting it and
-// sending "" are different answers. Omitted means "the repo's own remote", the
-// only sane default for a branch discovered in that repo; an explicit "" means
-// a purely local branch with nothing to fetch it from.
+// createImportRequest's presence selects WorktreeImport, so the three modes (none, ownWorktree,
+// import) are explicit on the wire. Remote is a pointer because omitted means "the repo's remote"
+// while an explicit "" means a purely local branch.
 type createImportRequest struct {
 	Branch string  `json:"branch"`
 	Remote *string `json:"remote"`
 }
 
-// Create handles POST .../repos/:repoId/chats: spawns a fresh AgentChat and
-// starts a RUNNER on it, launching the provider's vendor CLI in a PTY. It
-// responds with the new chat's id; the spawned runner id is not surfaced here
-// (the client reads it back as liveRunnerId via GET .../chats or .../chats/:id).
-//
-// The URL no longer names a workspace to anchor the new chat to (Task 17): a
-// caller that wants one names it explicitly in the body's workspaceId, which
-// defaults to "" — a workspace-less chat, legal since WorkspaceID became
-// optional. The home mount still injects :wsId (RequireHomeWorkspace), which
-// wins when present so the project home's own create is unaffected.
-//
-// The optional parentId names where the chat is BORN in the Chats tree: another
-// chat (making it a thread of that chat), a folder ("new chat in this folder"), or
-// absent/"" for the panel root, which is the original behaviour exactly. It is
-// routed through the tree usecase rather than straight to a spawn because the
-// placement has to be written BEFORE the CLI starts — a thread is told what it
-// reads at spawn, and a thread placed afterwards spends its first session, the one
-// the user just asked for, not knowing it is one.
-//
-// A parentId that names nothing, or a row in another workspace, is refused with the
-// same errors a placement returns, and nothing is created.
-//
-// ownWorktree (model spec §4.1/§5.1) asks for the atomic create: a fresh
-// workspace forked from the new chat's resolved fork parent, minted and set on
-// the row in the SAME request — see ChatTreeUsecase.CreateChat. It only ever
-// applies when the request names no workspace at all: a wsID resolved from
-// either the path (:wsId, the home mount) or the body's workspaceId means the
-// caller asked to attach to an EXISTING workspace, and that path is unchanged
-// regardless of what ownWorktree says.
-//
-// import is the THIRD way, and this route is where importing a branch becomes a
-// chat create rather than a workspace one (spec §4.1: "Create/Import die as
-// routes — both are POST /chats with a WorktreeSpec"). It runs the same atomic
-// mint→place→attach sequence fork does, differing only in where the worktree
-// comes from: an existing branch adopted instead of a fresh one cut.
+// Create handles POST .../repos/:repoId/chats: places a new chat and starts its provider's CLI. The
+// chat attaches to the home mount's :wsId, else the body's workspaceId, else no workspace; with none
+// named, ownWorktree forks a fresh worktree and import adopts an existing branch.
 func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
@@ -112,6 +71,8 @@ func (h *Handlers) Create(
 		return
 	}
 
+	// Through the tree usecase: placement under parentId must be written before the CLI starts,
+	// because a thread learns it is one at spawn.
 	created, err := h.folders.CreateChat(rctx, agentusecase.CreateChatInput{
 		ID: body.ID, WorkspaceID: wsID, ProviderID: body.Provider, ParentID: body.ParentID,
 		Worktree: worktree, Surface: body.Surface,
@@ -131,10 +92,8 @@ type createdData struct {
 	WorkspaceID string `json:"workspaceId,omitempty"`
 }
 
-// knownSurface accepts the create body's `surface`: one of the surface names
-// design spec 2.5 defines, or "" for the provider's own default landing. It
-// is a SPELLING check only — whether the chosen provider can actually launch
-// onto that surface is the descriptor's answer, resolved at spawn.
+// knownSurface is a spelling check on the body's surface ("" means the provider's default); whether
+// the provider can launch there is the descriptor's answer, resolved at spawn.
 func knownSurface(surface string) bool {
 	switch surface {
 	case "", agents.SurfaceChat, agents.SurfaceTerminal:
@@ -144,16 +103,9 @@ func knownSurface(surface string) bool {
 	}
 }
 
-// worktreeSpec reads the create body's three mutually exclusive answers to "and
-// what worktree does this chat get?", writing the error response and returning
-// ok=false when the caller must stop.
-//
-// A request that asks for TWO is refused rather than resolved by precedence: a
-// caller sending both ownWorktree and import has contradicted itself, and
-// silently honouring one would hand back a chat on a branch it never asked for
-// — cut fresh when it meant to adopt, or the reverse. Same for an import that
-// also names a workspace to attach to: naming one means the worktree already
-// exists and is not this create's to make.
+// worktreeSpec resolves the create body's worktree mode, writing the error and returning false on
+// refusal. Contradictory asks (ownWorktree plus import, or import plus a workspace) are refused rather
+// than resolved by precedence, which would hand back a chat on a branch the caller never meant.
 func (h *Handlers) worktreeSpec(
 	ctx *gin.Context,
 	body createRequest,
@@ -198,21 +150,9 @@ func forkSpec(
 	return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork, Branch: body.Branch}, true
 }
 
-// importSpec describes the branch an importing create adopts, from the body's
-// branch plus the repo :repoId names.
-//
-// The repo facts are read here rather than taken from the caller because they
-// are not the caller's to assert: which directory git works in, and which
-// project owns it, follow from the repo already in the URL. Only the branch —
-// and, optionally, the remote it is fetched from — is something the caller
-// knows and the daemon does not.
-//
-// ParentWorkspaceID and ParentBranch are deliberately left empty. They are the
-// GIT LINEAGE parent, which a BATCH import resolves by walking the open-PR
-// graph across every branch it was handed at once; a single create has no such
-// graph to walk and must not invent one. The chat's own placement still follows
-// parentId exactly as every other create's does — the two have always been
-// independently written fields (see agentusecase.ImportSpec).
+// importSpec reads the repo facts from :repoId rather than the body, since only the branch and remote
+// are the caller's to assert. Git-lineage parents stay empty: a single create has no open-PR graph to
+// walk, unlike a batch import.
 func (h *Handlers) importSpec(
 	ctx *gin.Context,
 	in createImportRequest,

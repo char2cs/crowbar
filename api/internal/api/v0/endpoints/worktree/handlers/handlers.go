@@ -82,14 +82,8 @@ type Hierarchy interface {
 	) (domain.Workspace, error)
 }
 
-// Worktrees resolves a CHAT to the workspace behind the worktree it reads and
-// writes through — itself if it owns one, else its nearest ancestor that does
-// (spec docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3).
-//
-// It is how every verb here finds its target, past law 1's refusal to let a
-// request name a :wsId, and it is declared HERE, as the narrow slice this
-// consumer actually needs (law 4); the container's own resolver satisfies it
-// (law 6).
+// Worktrees resolves a chat to the workspace behind its worktree (its own, else its nearest
+// ancestor's); every verb finds its target through it since no request names a workspace id.
 type Worktrees interface {
 	Resolve(
 		ctx context.Context,
@@ -173,10 +167,8 @@ func New(
 	}
 }
 
-// WithWorktrees wires the chat→workspace resolver every verb runs on. A nil
-// resolver does NOT leave a half-working surface: Register simply does not mount
-// those routes without one, so the handler never has to answer a fiction about a
-// chat it cannot resolve.
+// WithWorktrees wires the chat→workspace resolver every verb runs on. Register does not mount
+// the verbs without one, so no route answers for a chat it cannot resolve.
 func (h *Handlers) WithWorktrees(
 	worktrees Worktrees,
 ) *Handlers {

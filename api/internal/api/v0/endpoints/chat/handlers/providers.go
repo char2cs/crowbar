@@ -34,12 +34,8 @@ func (h *Handlers) UploadDescriptor(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, report)
 }
 
-// Providers handles both GET .../chats/providers and the global settings GET:
-// the registered
-// agent providers enriched with connected (installed) + enabled (!disabled) and
-// returned in priority order (spec §3.1). The list is scope-independent — the
-// resolver reads crowbar home from app config, never the URL — so every mount
-// (repo-scoped or the home group's) yields the same ordered catalog.
+// Providers handles GET .../chats/providers and the global settings GET: the providers with connected
+// and enabled flags, in priority order. The list is scope-independent, so every mount returns the same.
 func (h *Handlers) Providers(
 	ctx *gin.Context,
 ) {
@@ -64,29 +60,14 @@ func (h *Handlers) DescriptorReports(
 	libs.WriteQueryOK(ctx, reports)
 }
 
-// UpdateProviderPreferences handles PUT /v0/settings/chat/providers: the full
-// ordered preference set (spec §3.2). The body is the COMPLETE ordered list of
-// known providers; the array position defines the new priority. The handler
-// replaces the whole preference table (upsert submitted, delete omitted) and
-// returns the freshly resolved list so the client reconciles from server truth
-// with no second fetch. An unknown provider id is rejected 400 by the usecase
-// (problem.ErrInvalidArgument) before any row is written.
+// UpdateProviderPreferences handles PUT /v0/settings/chat/providers: the complete ordered list
+// replaces the preference table (position is priority) and the resolved list comes back.
 func (h *Handlers) UpdateProviderPreferences(
 	ctx *gin.Context,
 ) {
-	// Both flags arrive NEGATIVELY, matching what the row stores rather than what
-	// the switch shows: a missing field decodes to false, which is the same
-	// default an absent DB row carries.
-	//
-	// That is NOT the same as "an omitted field is harmless". This is a
-	// full-replace PUT — the body is the complete preference set and every row is
-	// rewritten from it — so a submitted provider whose mcpDisabled is omitted has
-	// false WRITTEN over whatever the user chose, in the permissive direction: the
-	// tool surface comes back on. Every client must therefore send both flags for
-	// every provider on every write, whatever it is actually changing. The
-	// frontend does exactly one thing about this and it is load-bearing: a single
-	// commit() builds the whole flags table for every write path (see
-	// providers-settings.tsx).
+	// Both flags arrive negated, so a missing field decodes to the absent-row default. On this full-replace
+	// PUT an omitted mcpDisabled therefore re-enables the tool surface: clients must send both flags for
+	// every provider on every write.
 	var body struct {
 		Providers []struct {
 			ID          string `json:"id"`

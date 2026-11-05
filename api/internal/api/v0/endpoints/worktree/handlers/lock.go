@@ -8,29 +8,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// lockRequest is the POST .../chats/:id/lock body.
-//
-// `locked` is a POINTER because omitting it is a third, meaningful answer: it
-// clears the user's override and hands the question back to the provider, so a
-// branch that was manually unlocked goes back to being locked iff it is
-// protected. See domain.Workspace.LockOverride.
+// lockRequest is the POST .../chats/:id/lock body. Locked is a pointer because omitting it clears
+// the user's override, so the branch is locked iff protected (see domain.Workspace.LockOverride).
 type lockRequest struct {
 	Locked *bool `json:"locked"`
 }
 
-// ChatLock handles POST .../repos/:repoId/chats/:id/lock.
-//
-// It answers SYNCHRONOUSLY, unlike the git-backed operations around it: this is
-// one aggregate write with no git in it, and every way it can be refused — the
-// workspace is the project home, or a placeholder with no worktree of its own —
-// is something the user has to see while the menu they pressed it from is still
-// in front of them. A 202 would strand those behind an operation.
-//
-// The updated workspace still arrives on the workspaces WebSocket stream, so the
-// sidebar does not patch its own cache from this response.
-//
-// The BIND runs before the chat is resolved, so a malformed body is refused for
-// what is wrong with it and never reaches the store.
+// ChatLock handles POST .../chats/:id/lock synchronously: it is one aggregate write with no git, and
+// its refusals (project home, placeholder) must reach the user while the menu is open. The updated
+// workspace still arrives on the workspaces stream.
 func (h *Handlers) ChatLock(
 	c *gin.Context,
 ) {

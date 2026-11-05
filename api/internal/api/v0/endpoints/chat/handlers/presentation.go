@@ -22,13 +22,8 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		// means "nothing staged, use the chat's current one as-is." It has no
 		// "clear it" reading at all: a chat always runs SOME provider.
 		Provider string `json:"provider"`
-		// Model/Effort are POINTERS because "" is a real pick here — "the
-		// provider's own default", the same distinct fact domain.Chat.Model's
-		// own doc records. Absent (nil) leaves the chat's sticky selection
-		// alone; present, INCLUDING "", is a pick committed with this prompt.
-		// Bound as one pair: sending only one half clears the other, exactly
-		// as PATCH .../selection already documents, because which effort
-		// levels are valid is a property of the model.
+		// Model/Effort are pointers because "" is a real pick (the provider default): nil leaves the sticky
+		// selection alone. They bind as one pair, since valid efforts depend on the model.
 		Model  *string `json:"model"`
 		Effort *string `json:"effort"`
 	}

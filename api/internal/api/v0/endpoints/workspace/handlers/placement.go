@@ -10,45 +10,32 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// placeWorkspaceRequest is the PATCH .../workspaces/:wsId/placement body —
-// the workspace half of the same gesture .../chats/:id/placement already
-// serves for a chat or a folder row (folders.go's placeChatRequest).
+// placeWorkspaceRequest is the PATCH .../workspaces/:wsId/placement body, the workspace half of
+// the gesture .../chats/:id/placement serves for chat and folder rows.
 type placeWorkspaceRequest struct {
 	ParentID *string `json:"parentId"`
 	Order    *int    `json:"order"`
 }
 
-// workspacePlacementDTO is a locked branch's own sidebar row as this route
-// answers it: no conversation, no runtime — workspaceAnchorView (tree
-// package) carries no more than this either. Deliberately not dto.AgentChatDTO:
-// the subject here is never a real Chat aggregate, and rendering it as one
-// would promise fields (title, provider, working, ...) this row does not have.
+// workspacePlacementDTO is a locked branch's own sidebar row. Not dto.AgentChatDTO: the subject is
+// never a Chat aggregate, and that shape would promise fields (title, provider, ...) it lacks.
 type workspacePlacementDTO struct {
 	ID       string `json:"id"`
 	ParentID string `json:"parentId"`
 	Order    int    `json:"order"`
 }
 
-// placeWorkspaceResponse is the body of PATCH .../workspaces/:wsId/placement:
-// the moved branch's own row, and the folder and locked-branch rows the
-// densify shifted alongside it — the same shifted-siblings contract
-// placeChatResponse carries (folders.go), for the same reason: a drop
-// renumbers a whole sibling level, and a client told only about the row it
-// dragged holds stale orders for every sibling until its next reconnect. A
-// shifted chat sibling is reported through its own aggregate frame, and a
-// shifted repo header through the repo stream (writeHomeNode's announce).
+// placeWorkspaceResponse is the moved branch's row plus the folder and locked-branch rows the
+// densify shifted: a drop renumbers the whole sibling level. Shifted chats and repo headers are
+// announced on their own streams.
 type placeWorkspaceResponse struct {
 	Workspace workspacePlacementDTO `json:"workspace"`
 	Shifted   []dto.AgentChatDTO    `json:"shifted"`
 }
 
-// PlaceWorkspace handles PATCH .../workspaces/:wsId/placement: where a
-// LOCKED branch's own row sits in its repo's tree, and where among its
-// siblings — addressed by the workspace's own id, never by the chat that
-// owns its worktree (that chat still exists and still owns lock/sync/merge/
-// reparent/etc., see worktree/routes.go; only this ONE fact — the branch's
-// own sidebar position — moved off it, because it is a fact about the
-// branch, not about any conversation inside it).
+// PlaceWorkspace handles PATCH .../workspaces/:wsId/placement: where a locked branch's row sits
+// in its repo's tree. It is addressed by workspace id, not by the chat owning the worktree, which
+// still owns lock/sync/merge/reparent.
 func (h *Handlers) PlaceWorkspace(
 	ctx *gin.Context,
 ) {

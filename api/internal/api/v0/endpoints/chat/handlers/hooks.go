@@ -14,15 +14,9 @@ import (
 // runnerTokenHeader carries the per-runner token an HTTP hook proves itself with.
 const runnerTokenHeader = "X-Crowbar-Runner-Token"
 
-// HTTPHook handles POST .../chats/runners/:segid/hooks/:provider/:event: the one
-// hook ingress. A vendor CLI posts the provider's payload as the body, itself or
-// through curl; the runner, provider and event come from the path, and the runner
-// token authenticates it.
-//
-// The answer channel is the response itself. A hook that opened a prompt a human can
-// decide here is held open until they do, and the answer is the body. The CLI
-// closing its request means the prompt was decided at the terminal, so it is
-// abandoned.
+// HTTPHook handles POST .../chats/runners/:segid/hooks/:provider/:event, the one hook ingress,
+// authenticated by the runner token. A hook that opened a prompt a human can decide is held open and
+// answered with the decision; the CLI closing the request means it was decided at the terminal.
 func (h *Handlers) HTTPHook(
 	ctx *gin.Context,
 ) {

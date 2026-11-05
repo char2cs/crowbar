@@ -1,8 +1,6 @@
-// Package git mounts all v0 git routes for a worktree: status (dual-served
-// with the live WebSocket stream), diff, log, blame, branches, stashes,
-// conflicts, conflict-hunks, commit-diff, and all write routes (staging,
-// commit, sync, branch, stash, reset/merge/rebase, and operation
-// continue/abort).
+// Package git mounts the v0 git REST routes for a chat's worktree: status,
+// diff, log, branches, stashes, conflicts and commit-diff reads, plus staging,
+// commit, sync, branch, stash, reset/merge/rebase and operation continue/abort.
 package git
 
 import (
@@ -11,25 +9,9 @@ import (
 	githandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
 )
 
-// Register mounts the git REST and WebSocket surface on the flat chat-scoped
-// group (spec §7.1), the only surface git is addressable through:
-// /v0/chats/:chatId/git/... .
-//
-// git is spec §4.2's shared bucket: the worktree answers once, and every chat
-// holding it gets that answer, resolved from the request context by
-// chatScoped's own resolveChatWorktree middleware (see
-// handlers.Handlers.workspaceID).
-//
-// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/git/... mount
-// is gone (spec §8 step 6): every caller had already moved to the mount kept
-// here.
-//
-// gitWS is the pre-built broadcaster handle for the live git-status stream; it
-// is dual-served on the /git/status route (a plain GET answers REST, a
-// WebSocket upgrade is routed to gitWS) — the dedicated /ws/git route is gone
-// (W7-2).
-//
-// The slow verbs (push, fetch, pull, merge, rebase) run as operations on ops.
+// Register mounts /v0/chats/:chatId/git/... . Git state belongs to the
+// worktree, so every chat holding it sees the same answer. The slow verbs
+// (push, fetch, pull, merge, rebase) run as operations on ops.
 func Register(
 	chatScoped *gin.RouterGroup,
 	gitSvc githandlers.Git,
@@ -39,8 +21,7 @@ func Register(
 	mount(chatScoped, "/git", h)
 }
 
-// mount registers the 32-route git surface under prefix on rg. It is the
-// single definition of that surface.
+// mount registers the git surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,

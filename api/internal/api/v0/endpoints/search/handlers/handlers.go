@@ -46,12 +46,8 @@ func New(
 	}
 }
 
-// resolveWorkspace answers which workspace this request acts on: the chat
-// group's resolveChatWorktree middleware has already resolved the chat's
-// worktree and stashed it on the context, so the answer is read back from
-// reqscope — never resolved a second time per request, and never taken from a
-// URL, because no chat-scoped URL carries a workspace id to take it from
-// (spec law 1).
+// resolveWorkspace is the workspace this request acts on, read back from reqscope where the chat
+// group's resolveChatWorktree middleware stashed it; no chat-scoped URL carries a workspace id.
 func (h *Handlers) resolveWorkspace(
 	ctx *gin.Context,
 ) (domain.Workspace, error) {

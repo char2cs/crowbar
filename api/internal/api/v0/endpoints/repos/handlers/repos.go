@@ -66,10 +66,8 @@ type RepoDeleter interface {
 	) error
 }
 
-// RemoteRefresher is the narrow git surface the Branches handler uses to make
-// its listing reflect the remote as it is now rather than as the clone last
-// heard it. It goes through the git engine (not a bare shell-out) so the fetch
-// takes the same per-clone lock every other git operation does.
+// RemoteRefresher is the git surface the Branches handler uses to list the remote as it is now.
+// It goes through the git engine so the fetch takes the same per-clone lock as every git operation.
 type RemoteRefresher interface {
 	FetchPrune(ctx context.Context, repoPath string) error
 	Branches(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
@@ -89,19 +87,16 @@ type AvatarBytesFetcher func(
 	repoPath string,
 ) ([]byte, string, error)
 
-// RepoImporter runs the full per-repo import for a single repo path under an
-// already-persisted project: it persists the Repository, writes the repo icon
-// (local icon or best-effort GitHub owner avatar), adopts the default/protected
-// branches as workspaces, and returns the created repo (00 §14 Step 3).
+// RepoImporter imports one repo path under an existing project: it persists the Repository, writes
+// its icon, and adopts the default/protected branches as workspaces.
 type RepoImporter interface {
 	ImportRepo(
 		ctx context.Context,
 		in project.RepoImport,
 		progress project.RepoProgress,
 	) (domain.Repository, error)
-	// CheckRepoImportable reports whether repoPath may be imported under
-	// projectID — it refuses a folder another project has already added. Create
-	// runs it before the 202 so the refusal answers the request.
+	// CheckRepoImportable refuses a folder another project has already added. Create runs it
+	// before the 202 so the refusal answers the request.
 	CheckRepoImportable(
 		ctx context.Context,
 		projectID string,
@@ -193,10 +188,8 @@ func (h *Handlers) WithRepoDeleter(
 	return h
 }
 
-// WithRemoteRefresher wires the git surface the Branches handler uses to
-// refresh origin before listing. A nil arg leaves the handler serving the
-// clone's cached remote-tracking refs (tests, and any wiring without a git
-// engine).
+// WithRemoteRefresher wires the git surface the Branches handler uses to refresh origin before
+// listing. A nil arg leaves the handler serving the clone's cached remote-tracking refs.
 func (h *Handlers) WithRemoteRefresher(
 	remote RemoteRefresher,
 ) *Handlers {
@@ -206,10 +199,9 @@ func (h *Handlers) WithRemoteRefresher(
 	return h
 }
 
-// WithImporter wires the full repo-import usecase that Create runs in the
-// background so adding a repo auto-adopts the default/protected-branch
-// workspaces and seeds the GitHub avatar (00 §14 Step 3). A nil arg leaves the
-// handler on its bare buildRepo+Save fallback.
+// WithImporter wires the repo-import usecase Create runs in the background, which adopts the
+// default/protected-branch workspaces and seeds the avatar. A nil arg leaves Create on a bare
+// buildRepo+Save.
 func (h *Handlers) WithImporter(
 	importer RepoImporter,
 ) *Handlers {
@@ -219,10 +211,8 @@ func (h *Handlers) WithImporter(
 	return h
 }
 
-// WithUpdater wires the repo-update usecase the Patch handler calls to change a
-// repo's name, sidebar order or owning project. A nil arg leaves the PATCH
-// unavailable (the handler answers 500), matching the bare-handler fallback of
-// WithImporter.
+// WithUpdater wires the repo-update usecase the Patch handler calls to change a repo's name,
+// sidebar order or owning project. A nil arg leaves PATCH answering 500.
 func (h *Handlers) WithUpdater(
 	updater RepoUpdater,
 ) *Handlers {
@@ -281,12 +271,8 @@ func (h *Handlers) List(
 		libs.Fail(c, err)
 		return
 	}
-	// The route is hierarchical, so the project is a PATH parameter. Reading it
-	// from the query string (as this did) meant the filter never ran: the value
-	// was always empty, `filterByProject` returned everything, and every project
-	// listed every repo in the install. One project hides it completely — the
-	// unfiltered answer and the correct one are the same list — which is why it
-	// survived until a second project existed.
+	// The hierarchical route carries the project as a path parameter; the query form is the
+	// flat-route fallback. Without either, every project would list every repo.
 	projectID := c.Param("projectId")
 	if projectID == "" {
 		projectID = c.Query("projectId")
@@ -295,9 +281,8 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placementsOf(c.Request.Context(), repos)))
 }
 
-// Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace
-// tree is not yet composed by any usecase, so detail carries the repo fields
-// only.
+// Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO with the
+// repo fields only (no workspace tree).
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {

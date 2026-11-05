@@ -66,10 +66,9 @@ func (h *Handlers) CodeLensResolve(
 	writeRaw(c, result, err)
 }
 
-// SemanticTokens handles POST /v0/chats/:chatId/lsp/semanticTokens. The data
-// field carries the file's semantic tokens in the canonical legend — a delta
-// ({resultId, edits}) when previousResultId is set and the server supports
-// one, else the full set ({resultId, data}) — or null when none are offered.
+// SemanticTokens handles POST /v0/chats/:chatId/lsp/semanticTokens: a delta
+// ({resultId, edits}) when previousResultId is set and the server supports it,
+// else the full set ({resultId, data}), or null when none are offered.
 func (h *Handlers) SemanticTokens(
 	c *gin.Context,
 ) {
@@ -107,10 +106,9 @@ func (h *Handlers) SemanticTokensRange(
 	writeRaw(c, result, err)
 }
 
-// ExecuteCommand handles POST /v0/chats/:chatId/lsp/executeCommand: it runs a
-// command a code lens or code action carried. The data field carries the
-// server's result and the workspace edits the command applied, for the
-// editor to apply.
+// ExecuteCommand handles POST /v0/chats/:chatId/lsp/executeCommand, running a
+// code lens or code action command. It returns the server's result plus the
+// workspace edits the command applied, for the editor to apply.
 func (h *Handlers) ExecuteCommand(
 	c *gin.Context,
 ) {

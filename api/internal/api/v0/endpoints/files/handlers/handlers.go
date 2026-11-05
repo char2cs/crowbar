@@ -78,24 +78,9 @@ func New(files Files) *Handlers {
 	return &Handlers{files: files}
 }
 
-// workspaceID answers which worktree this request acts on, for either of the
-// two groups files is currently mounted on (routes.go): the chat-scoped
-// mount and the home mount (endpoints/home), whose RequireHomeWorkspace
-// injects the resolved home workspace as the :wsId param.
-//
-// On /v0/chats/:chatId/files/... the chat group's resolveChatWorktree
-// middleware has already resolved the chat's worktree and stashed the
-// workspace on the context, so the answer is read back from reqscope — never
-// resolved a second time per request, and never taken from a URL, because no
-// chat-scoped URL carries a workspace id to take it from (spec law 1). The
-// old /projects/:projectId/repos/:repoId/workspaces/:wsId/files/... mount is
-// gone (spec §8 step 6); the :wsId branch below now serves the home mount
-// alone.
-//
-// reqscope is consulted FIRST because it is the resolved truth: the mounts are
-// disjoint, so exactly one source is ever populated, and preferring the
-// middleware's answer means a future mount that carries both cannot silently
-// act on the URL instead of on the chat.
+// workspaceID answers which worktree this request acts on. The worktree that
+// resolveChatWorktree stashed in reqscope wins over a :wsId param, so a mount
+// carrying both can never act on the URL instead of on the chat.
 func (h *Handlers) workspaceID(
 	ctx *gin.Context,
 ) string {

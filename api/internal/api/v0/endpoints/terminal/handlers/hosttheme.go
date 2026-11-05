@@ -9,31 +9,17 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// hostThemeReq is the host terminal's resolved default colours, in the same "#rrggbb" wire
-// form the per-session theme frame already carries (resolve-css-color.ts output).
-//
-// There is no `dark` field, and that omission is deliberate rather than an oversight: the
-// polarity flag exists only to choose which DEC 2031 CSI ?997;n report to inject into an
-// ALREADY-RUNNING subscribed app, which is the per-session channel's job. Nothing born from
-// this endpoint has a foreground app yet, so a polarity here would be a field with no reader.
+// hostThemeReq is the host terminal's default colours in the per-session frame's "#rrggbb" form.
+// It has no dark flag: polarity only picks the DEC 2031 report for an already-running app, which
+// is the per-session channel's job.
 type hostThemeReq struct {
 	Bg string `json:"bg"`
 	Fg string `json:"fg"`
 }
 
-// SetHostTheme handles PUT /v0/settings/terminal/theme: it records the host terminal's
-// light/dark colours as what every SUBSEQUENTLY SPAWNED PTY answers an OSC 10/11 query with.
-//
-// This is the half of theme propagation the per-session channel structurally cannot cover.
-// A vendor CLI is exec'd by the daemon at session-creation time, so it is already running —
-// and, if it detects light/dark by querying the background, has usually already asked —
-// before any client can attach and push a theme down the session's socket. A CLI that
-// also subscribes to DEC 2031 re-queries when the late push notifies it; one without
-// 2031 support keeps its birth answer for good. This endpoint is what makes that first
-// answer correct.
-//
-// It is idempotent and unconditional — the frontend pushes at boot and on every theme change,
-// and the newest push simply wins.
+// SetHostTheme handles PUT /v0/settings/terminal/theme, recording the colours every later PTY
+// answers OSC 10/11 with: a CLI often queries before any client can attach and push a theme.
+// Idempotent; the frontend pushes at boot and on each theme change, and the newest wins.
 func (h *Handlers) SetHostTheme(ctx *gin.Context) {
 	var req hostThemeReq
 	if err := ctx.ShouldBindJSON(&req); err != nil {

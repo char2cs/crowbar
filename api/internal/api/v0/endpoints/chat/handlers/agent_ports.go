@@ -9,12 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// ChatUsecase is the chat aggregate as the handlers need it: the rows a
-// workspace's Chats panel lists, one chat's own record, and the writes that
-// retitle it or pin the model its next CLI is launched with.
-//
-// It starts no processes and reads no vendor CLI. Every route served off here
-// answers whether or not a runner has ever been placed on the chat.
+// ChatUsecase is the chat aggregate as the handlers need it: the listed rows, one chat's record, and
+// the writes that retitle it or pin its next CLI's model. It starts no processes, so every route served
+// off it answers whether or not a runner was ever placed on the chat.
 type ChatUsecase interface {
 	// ChatSnapshot is chatID's versioned snapshot: the chat, the runner live on
 	// it, its phase and the version that orders it against every frame. Every
@@ -39,22 +36,16 @@ type ChatUsecase interface {
 		workspaceID string,
 	) ([]domain.Chat, error)
 
-	// ListChatsInRepo returns every conversation-typed row whose cwd walk lands
-	// on a workspace in repoID — what List answers once a request no longer
-	// names a workspace (Task 17), and the enforcement of the repo boundary
-	// that fallback originally went without. A row with no resolvable workspace
-	// anywhere in its ancestry belongs to no repo, so it is dropped rather than
-	// returned into whichever repo happened to ask.
+	// ListChatsInRepo returns every conversation row whose cwd walk lands on a workspace in repoID. A row
+	// with no resolvable workspace in its ancestry belongs to no repo and is dropped, not leaked into
+	// whichever repo asked.
 	ListChatsInRepo(
 		ctx context.Context,
 		repoID string,
 	) ([]domain.Chat, error)
 
-	// CwdWorkspaceID answers where a row's CLI RUNS: the workspace of the
-	// nearest ancestor-or-self carrying one (model spec §3.2). It is how a
-	// BUBBLE, which carries no workspace of its own, is held to the mount it
-	// was reached through — the same walk ListChatsInRepo scopes the list
-	// beside it by, so Get and List cannot disagree. See chatGround.
+	// CwdWorkspaceID is the workspace a row's CLI runs in: that of its nearest ancestor-or-self carrying
+	// one. It is the same walk ListChatsInRepo scopes by, so Get and List cannot disagree on a bubble.
 	CwdWorkspaceID(
 		ctx context.Context,
 		chatID string,
@@ -87,25 +78,16 @@ type ChatUsecase interface {
 		chatID, model, effort string,
 	) error
 
-	// Promote fills a bubble's empty workspace slot: a worktree forked from the
-	// chat's resolved fork parent, with its current provider respawned into it
-	// (model spec §4.2). The chat keeps its id, title, placement and every turn
-	// it has taken. It refuses a chat that already has a workspace
-	// (ErrAlreadyPromoted), one with no workspace-owning ancestor to fork from
-	// (ErrNoForkParent), and one that has never had a provider to respawn as
-	// (ErrNothingToPromote).
+	// Promote fills a bubble's empty workspace slot with a worktree forked from its fork parent and
+	// respawns its provider there, keeping the chat's id, title, placement and turns. It refuses
+	// ErrAlreadyPromoted, ErrNoForkParent and ErrNothingToPromote.
 	Promote(
 		ctx context.Context,
 		chatID string,
 	) (domain.Chat, error)
 
-	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
-	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
-	// read, including a direct GetChat by id — the instant this returns.
-	//
-	// No route reaches it directly: the panel's DELETE goes through
-	// ChatTreeUsecase, because a chat's threads go with it and only the tree knows
-	// which those are.
+	// PurgeChat hard-deletes chatID, gone from every read once it returns, then best-effort kills its
+	// CLI. No route calls it directly: DELETE goes through ChatTreeUsecase, which knows the chat's threads.
 	PurgeChat(
 		ctx context.Context,
 		chatID string,
@@ -127,10 +109,8 @@ type TurnUsecase interface {
 	// Telemetry is the provider's own report of cost and capacity, absent until
 	// the provider makes one.
 	Telemetry(chatID string) (engineagents.Telemetry, bool)
-	// TelemetryOnChatSurface reports whether the report above can still be
-	// TRUE: the store is durable, and a chat that moved to a surface whose
-	// channel carries no usage would otherwise keep serving the last number
-	// it earned somewhere else, forever.
+	// TelemetryOnChatSurface reports whether Telemetry can still be true: the store is durable, so a chat
+	// moved to a surface whose channel carries no usage would otherwise serve a stale number forever.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 
 	// UploadAttachment stores one attachment into chatID's durable attachment
@@ -153,14 +133,9 @@ type TurnUsecase interface {
 // RunnerUsecase is the vendor CLI itself: which one is on a chat, what it has
 // been told, and the lifecycle gestures a client can aim at it.
 type RunnerUsecase interface {
-	// provider/selection are the composer's STAGED pick, committed atomically
-	// with the prompt. An empty provider is nothing staged, use the chat's
-	// current one as-is; a non-empty one that differs from it is switched to
-	// BEFORE the prompt is delivered — the frontend never calls a separate
-	// switch endpoint for this any more, so there is exactly one path from a
-	// picker row to a delivered prompt, not two. A nil selection is nothing
-	// staged; a non-nil one is committed even when both halves are "" — see
-	// domain.ChatSelection and agentusecase.Usecase.SubmitPrompt's own doc.
+	// SubmitPrompt delivers text, committing the composer's staged pick atomically with it: a non-empty
+	// provider that differs from the current one is switched to first, and a non-nil selection is
+	// committed even when both halves are empty (see domain.ChatSelection).
 	SubmitPrompt(
 		ctx context.Context,
 		chatID, text, clientRequestID, provider string,
@@ -189,10 +164,8 @@ type RunnerUsecase interface {
 		targetProviderID string,
 	) (newRunnerID string, err error)
 
-	// ResumeChat revives a dormant chat — one no runner points at, because its CLI
-	// exited or died with the daemon — resuming the provider that was last here into
-	// the conversation it left. A chat that is still live is a no-op: the id of the
-	// runner already on it comes straight back.
+	// ResumeChat revives a dormant chat (its CLI exited or died with the daemon) into the provider and
+	// conversation it left. A still-live chat is a no-op returning its current runner's id.
 	ResumeChat(
 		ctx context.Context,
 		chatID string,
@@ -252,11 +225,8 @@ type AnswerUsecase interface {
 	// prompt the chat's CLI is parked on; ErrConflict once the prompt has gone.
 	AnswerTerminalWait(ctx context.Context, chatID, answerID string) error
 
-	// AnswerChoice records a human's decision and hands it to the relay blocking the
-	// provider's gate. optionIDs name what was picked; reason and content carry the
-	// free-form parts a provider accepts (a deny message, an elicitation's filled-in
-	// form). It fails with problem.ErrConflict when no relay is waiting, because an
-	// answer that reaches nobody must never be reported as delivered.
+	// AnswerChoice hands a human's decision to the relay blocking the provider's gate. It fails with
+	// problem.ErrConflict when no relay is waiting: an answer that reaches nobody is never "delivered".
 	AnswerChoice(
 		ctx context.Context,
 		chatID, choiceID string,
@@ -276,10 +246,8 @@ type AnswerUsecase interface {
 		askID string,
 	) (agentusecase.HookAnswer, error)
 
-	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
-	// lifetime, independent of the global default (see
-	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
-	// current provider does not declare, with problem.ErrInvalidArgument (→ 400).
+	// SetChatPermissionLevel overrides chatID's trust dial independently of the global default, refusing
+	// (problem.ErrInvalidArgument) a level the chat's current provider does not declare.
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -291,10 +259,8 @@ type AnswerUsecase interface {
 // CLIs call back into. Nothing here is workspace-scoped.
 type ProviderUsecase interface {
 	InstallDescriptor(context.Context, []byte) (descriptorcheck.Report, error)
-	// ResolveProviders returns the enriched, priority-ordered provider list the
-	// backend owns: the descriptor catalog joined with the global preference table
-	// and the install probe (connected + enabled, in priority order). It takes no
-	// wsId — providers are global — and backs the enriched GET .../chats/providers.
+	// ResolveProviders returns the global, priority-ordered provider list: the descriptor catalog joined
+	// with the preference table and the install probe.
 	ResolveProviders(
 		ctx context.Context,
 	) ([]domain.AgentProvider, error)
@@ -305,22 +271,16 @@ type ProviderUsecase interface {
 		ctx context.Context,
 	) ([]descriptorcheck.Report, error)
 
-	// ReplaceProviderPreferences rewrites the whole global preference table from the
-	// submitted ordered set (array position → priority), validating ids against the
-	// catalog (unknown → problem.ErrInvalidArgument → 400) and returning the freshly
-	// resolved list. It backs PUT /v0/settings/chat/providers.
+	// ReplaceProviderPreferences rewrites the global preference table from the ordered set (position is
+	// priority), refusing unknown ids with problem.ErrInvalidArgument, and returns the resolved list.
 	ReplaceProviderPreferences(
 		ctx context.Context,
 		prefs []domain.AgentProviderPreference,
 	) ([]domain.AgentProvider, error)
 
-	// DispatchMCP runs one MCP JSON-RPC message for the runner named by runnerID,
-	// authenticated by token. It is the single seam onto the agent tool surface —
-	// the handler carries bytes and decides nothing — and the message is passed
-	// through raw because the JSON-RPC framing is the engine's business.
-	//
-	// The bool reports whether a reply should be sent: a JSON-RPC notification is
-	// answered with silence.
+	// DispatchMCP runs one raw MCP JSON-RPC message for runnerID, authenticated by token; the framing is
+	// the engine's business, so the handler only carries bytes. The bool is false for a notification,
+	// which gets no reply.
 	DispatchMCP(
 		ctx context.Context,
 		runnerID string,

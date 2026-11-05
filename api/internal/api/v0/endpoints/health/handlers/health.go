@@ -27,16 +27,9 @@ func New(deadLetters DeadLetters) *Health {
 	return &Health{deadLetters: deadLetters}
 }
 
-// Check is the GET /health handler. It reports liveness by returning the
-// daemon status, build version, pid and the count of refused chat hooks inside
-// the standard query envelope:
-// {"success":true,"data":{"chatDeadLetters":<n>,"pid":<n>,"status":"ok","version":"<v>"}}.
-//
-// The pid is load-bearing: the desktop supervisor signals the daemon
-// (SIGTERM on quit, SIGQUIT/SIGKILL on wedge) by this self-reported pid,
-// because asking the tauri-shell child handle for it deadlocks against the
-// plugin's blocking wait thread. A count that cannot be read is left out:
-// liveness never fails over it.
+// Check is the GET /health liveness handler: status, version, pid and the refused-chat-hook count.
+// The desktop supervisor signals the daemon by this self-reported pid because asking the tauri-shell
+// child handle deadlocks against its wait thread. An unreadable count is omitted, never a failure.
 func (h *Health) Check(
 	c *gin.Context,
 ) {

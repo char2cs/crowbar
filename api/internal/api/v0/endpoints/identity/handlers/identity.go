@@ -8,10 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// Get handles GET /v0/chats/:chatId/identity.
-// It returns the current human's GitHub/git identity as a best-effort response:
-// the request always succeeds with 200, even when gh is absent or the workspace
-// is unknown (all fields may be empty in that case).
+// Get handles GET /v0/chats/:chatId/identity, returning the human's GitHub/git
+// identity best-effort: always 200, with empty fields when gh is absent or the
+// workspace is unknown.
 func (h *Handlers) Get(
 	c *gin.Context,
 ) {

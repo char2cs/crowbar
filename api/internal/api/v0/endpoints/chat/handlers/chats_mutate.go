@@ -9,10 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Rename handles POST .../repos/:repoId/chats/:id/rename: sets the
-// chat's title. `?source=agent` applies the agent precedence rule (skip if
-// user-locked); the default (a human/FE rename) sets unconditionally and
-// locks. 404s (via requireChatInWorkspace) on an unknown id.
+// Rename handles POST .../chats/:id/rename. `?source=agent` yields to a user-locked title; the default
+// (a human rename) sets the title unconditionally and locks it.
 func (h *Handlers) Rename(
 	ctx *gin.Context,
 ) {
@@ -39,21 +37,8 @@ func (h *Handlers) Rename(
 	libs.WriteNoContent(ctx)
 }
 
-// Promote handles POST .../repos/:repoId/chats/:id/promote: fills a bubble's
-// empty workspace slot with a worktree forked from its resolved fork parent and
-// respawns its current provider there (model spec §4.2, wire contract §5.1).
-//
-// It responds with the promoted chat itself rather than a 204, because
-// the one thing the caller asked about — which workspace the row now owns — is
-// only knowable from the answer: the workspace is minted server-side, and the
-// row's own walks (ownsWorktree, workspaceId) change with it.
-//
-// It is a POST on the chat and not a PATCH of its workspaceId for the reason
-// the model spec gives promotion its own verb: this is not a field write. It
-// cuts a branch, adds a worktree, tears the running CLI down and brings a new
-// one up in the new directory — and it is one-way (§4.2, "a worktree is never
-// demoted"). 404s (via requireChatInWorkspace) on an unknown id; 409s on a
-// chat that already has one.
+// Promote handles POST .../chats/:id/promote. It answers with the promoted chat rather than 204
+// because the workspace it now owns is minted server-side and only knowable from the reply.
 func (h *Handlers) Promote(
 	ctx *gin.Context,
 ) {
@@ -79,17 +64,8 @@ func (h *Handlers) Promote(
 		promoted, rt, h.chatWorktree(ctx.Request.Context(), promoted)))
 }
 
-// SetSelection handles PATCH .../repos/:repoId/chats/:id/selection:
-// writes the chat's sticky choice of model and reasoning effort.
-//
-// The body is the WHOLE selection, not a patch of one field: an omitted or empty
-// value clears that half back to the provider's own default. The two move
-// together because they are not independent — which effort levels are valid is a
-// property of the model — so a partial write could store a pair that was never
-// jointly valid.
-//
-// 404s (via requireChatInWorkspace) on an unknown id; 400s when a value is
-// outside the provider's declared catalogue.
+// SetSelection handles PATCH .../chats/:id/selection with the WHOLE model+effort pair (empty clears to
+// the provider default): valid efforts depend on the model, so a partial write could store an invalid pair.
 func (h *Handlers) SetSelection(
 	ctx *gin.Context,
 ) {
@@ -116,26 +92,9 @@ func (h *Handlers) SetSelection(
 	libs.WriteNoContent(ctx)
 }
 
-// Delete handles DELETE .../repos/:repoId/chats/:id: hard-deletes the
-// chat AND EVERY CHAT THREADED BELOW IT, each through PurgeChat (best-effort PTY
-// teardown, then asynx Forget), plus any folder caught inside that subtree. Each
-// chat's event log is erased, not merely tombstoned, so it is gone from every
-// subsequent read, including a direct GetChat by id.
-//
-// The cascade is the panel's rule and it is the OPPOSITE of deleting a folder,
-// which promotes what it held. A thread is not filed under its parent, it
-// CONTINUES it — it reads that chat's turns whenever it asks — so promoting it
-// would leave a conversation whose entire premise has been deleted and which no
-// drag can restore. That is why this goes through the tree usecase rather than
-// straight to PurgeChat: only something holding the tree knows which chats those
-// are.
-//
-// The scoped "deleted" broadcast every client sees for each purged chat comes
-// from the hub projection's OnForget (Task 5), not from here; the folders taken
-// with them have no projection to ride, so those frames ARE sent from here,
-// keyed on :wsId when the request still has one (the home mount) and "" — every
-// subscriber, since the WS filter degrades to unfiltered with no :wsId bound —
-// otherwise. 404s (via requireChatInWorkspace) on an unknown id.
+// Delete handles DELETE .../chats/:id: hard-deletes the chat and every thread below it. Unlike a
+// folder delete, threads are not promoted: a thread continues its parent's turns and would be left
+// without a premise. Only the tree usecase knows which chats those are.
 func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {

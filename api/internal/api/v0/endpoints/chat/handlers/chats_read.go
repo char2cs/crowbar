@@ -12,16 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// List handles GET .../repos/:repoId/chats, returning every conversation-typed
-// chat, each carrying the runner facts derived for it by chatRuntime (its live
-// runner, that runner's PTY, its provider) — so the chat list can render
-// provider glyphs and attach a pane without a second round trip per row.
-//
-// A request that still names a workspace (the home mount's injected :wsId)
-// scopes to it exactly as before. Otherwise it scopes to the REPO in the URL:
-// each row's owning workspace is resolved through the cwd walk and its repo
-// compared against :repoId, so a bubble is listed under the repo it actually
-// runs in and no chat from another repo is served at all.
+// List handles GET .../chats: every conversation chat with its runner facts, so the list renders
+// provider glyphs and attaches panes without a round trip per row. Scoped to the home mount's :wsId
+// when present, else to the repo each row's cwd walk lands in.
 func (h *Handlers) List(
 	ctx *gin.Context,
 ) {
@@ -69,16 +62,8 @@ func (h *Handlers) chatsWithRuntimes(
 	return chats, runtimes, nil
 }
 
-// listChats backs List: wsID scopes to ListChatsByWorkspace when the request
-// still names a workspace (the home mount's injected :wsId), otherwise repoID
-// scopes to ListChatsInRepo — the walk that resolves each row's owning
-// workspace and compares its repo against the one in the URL.
-//
-// A request naming NEITHER cannot happen on any mounted route (the repo group
-// always binds :repoId, the home group always injects :wsId), and is answered
-// with nothing rather than with every chat the daemon knows: an unscoped list
-// is what this route used to serve by accident, and it is not a scope any
-// caller should be able to ask for.
+// listChats scopes to wsID when set, else repoID. A request naming neither (no mounted route can) gets
+// nothing, never every chat the daemon knows.
 func (h *Handlers) listChats(
 	ctx context.Context,
 	wsID string,
@@ -93,11 +78,7 @@ func (h *Handlers) listChats(
 	return h.chats.ListChatsInRepo(ctx, repoID)
 }
 
-// Get handles GET .../repos/:repoId/chats/:id, returning the chat with its
-// derived runner facts and the conversations it has hosted — the append-only history
-// that succeeds the deleted segment list. 404s (via requireChatInWorkspace) when id
-// names an unknown chat, or (for a request that still names a workspace) one
-// anchored to a DIFFERENT workspace.
+// Get handles GET .../chats/:id: the chat, its runner facts and the conversations it has hosted.
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {
@@ -143,38 +124,9 @@ func snapshotParts(s agentusecase.ChatSnapshot) (domain.Chat, dto.ChatRuntime) {
 		s.TerminalWait, s.AttachedSessionID, conversation, s.Ledger.Busy)
 }
 
-// requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to
-// the scope of the mount it was reached through — EVERY mount, not only the one
-// that happens to bind a workspace.
-//
-// The home mount injects :wsId (RequireHomeWorkspace) and a project home's chats
-// stay workspace-scoped, so there the test is the stored workspace, exactly as
-// before Task 17 — and exactly what the home list (ListChatsByWorkspace) is.
-//
-// The repo mount binds :repoId and no workspace at all. Addressing a chat by id
-// alone (model spec §5.1) retired the WORKSPACE comparison there and it stays
-// retired — any of the repo's own workspaces is legitimate — but it never
-// retired the REPO boundary, and nothing re-asserted it: every chat id in the
-// daemon resolved through a repo mount, project-home chats included, which no
-// repo's list will ever mention. So the repo mount compares the chat's GROUND
-// against :repoId (chatGround), the same membership ListChatsInRepo computes
-// for the list beside it.
-//
-// A request naming neither cannot happen on any mounted route (the repo group
-// always binds :repoId, the home group always injects :wsId) and is left alone,
-// the same posture listChats takes on the same impossible input.
-//
-// It is the by-id scope check shared by Get/Switch/Rename/Handoff (and
-// Delete, Task 5): every one of those routes takes a bare chat id with no
-// other scoping input. The unknown-id and wrong-scope cases both return
-// HTTP 404 (never the chat body), so no out-of-scope chat is ever served
-// to the caller; the two responses carry DIFFERENT body
-// messages ("chat not found in workspace" vs the mapped GetChat not-found
-// text), so a probe can still tell "exists elsewhere" from "does not exist" —
-// an accepted minor, the scope check's job is to deny cross-scope ACCESS,
-// not to perfectly hide existence. ok is false exactly when the caller must
-// return immediately because a response was already written (either this 404
-// or a mapped GetChat error).
+// requireChatInWorkspace loads chatID and holds it to the scope of the mount it was reached through,
+// 404ing otherwise: the home mount compares the stored workspace, the repo mount the chat's ground repo.
+// ok is false when a response was already written. The messages differ, so existence is not hidden.
 func (h *Handlers) requireChatInWorkspace(
 	ctx *gin.Context,
 	chatID string,
@@ -210,17 +162,9 @@ func (h *Handlers) chatInMountScope(
 	return ground.RepoID == repoID
 }
 
-// chatGround resolves the workspace a chat RUNS on: its own, or — for a bubble,
-// which carries none — the one its cwd walk lands on (model spec §3.2). A
-// resolved workspace's RepoID is a WHOLE answer even when empty: that is
-// exactly what a project-home workspace is.
-//
-// !ok means "no answer", never "no repo", and the caller must wave it through.
-// A row whose whole ancestry owns no workspace has no scope to be held to (the
-// posture matchScopeOrUnscoped takes on the socket) and a failed read is not a
-// scope verdict; 404ing either would hand the client's vanished-chat recovery
-// the very deletion this check exists to prevent. It is the one asymmetry with
-// ListChatsInRepo, which merely drops such a row from a list.
+// chatGround resolves the workspace a chat runs on: its own, or a bubble's cwd-walk result. !ok means
+// "no answer", and the caller lets it through: 404ing an unscoped row or a failed read would make the
+// client's vanished-chat recovery delete it.
 func (h *Handlers) chatGround(
 	ctx context.Context,
 	chat domain.Chat,

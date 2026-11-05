@@ -74,7 +74,7 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 		return
 	}
 	// Emoji takes precedence over an on-disk image: clear the icon flag and
-	// best-effort remove any previously stored icon file.
+	// best-effort remove the stored icon file.
 	if iconPath, ok := h.iconPath(c); ok {
 		icons.Remove(c.Request.Context(), iconPath)
 	}
@@ -108,13 +108,9 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon. It accepts the
-// icon two ways: a multipart/form-data "icon" field (web browsers), or a JSON
-// body {"path": "<absolute path>"} the daemon reads from disk itself. The latter
-// is the desktop path: the WKWebView crowbar:// scheme cannot carry a
-// multipart/binary request body, so the native file dialog yields a path and the
-// daemon reads it — the same way repo import reads a user-selected path.
-// Accepts image/png, image/jpeg, image/webp; max 5 MB.
+// PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon from a multipart "icon" field or
+// a JSON {"path"} the daemon reads itself (the desktop crowbar:// scheme cannot carry a multipart
+// body). Accepts png, jpeg, webp up to 5 MB.
 func (h *Handlers) PutIcon(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {

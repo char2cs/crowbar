@@ -174,22 +174,9 @@ func branchNames(branches []importBranchRequest) []string {
 	return names
 }
 
-// branchesMissingFromRemote refreshes the remote-tracking refs and returns the
-// requested branches origin does not have, so Import can refuse them
-// synchronously.
-//
-// The refresh runs HERE rather than trusting the picker's own GET …/branches:
-// the check has to hold for any caller, and the branch may have been deleted on
-// the remote between listing and importing. It is the same fetch the import
-// would perform per branch anyway, hoisted ahead of the 202 so its result can
-// still be an HTTP error. Refusal is then decided on the LOCAL refs it just
-// wrote, never a second live `ls-remote` — a hiccup in that query must never
-// veto a branch the refs confirm (the bug that once fabricated a fresh fork off
-// the default branch).
-//
-// Every uncertainty resolves to "not missing": a failed fetch (offline — absence
-// is unprovable), an unreadable ref, or no git surface wired at all (tests). The
-// usecase's per-branch placeholder rows stay the backstop for those.
+// branchesMissingFromRemote fetches, then returns the requested branches origin lacks so Import
+// can refuse them before the 202; it decides on the just-written local refs, not a live ls-remote.
+// Any uncertainty (offline, unreadable ref, no git surface) is "not missing"; placeholders backstop it.
 func (h *Handlers) branchesMissingFromRemote(
 	ctx context.Context,
 	repoPath string,

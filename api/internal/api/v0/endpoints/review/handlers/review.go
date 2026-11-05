@@ -11,18 +11,9 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Get handles GET /v0/chats/:chatId/review, returning the composite
-// branch-review read model for the workspace.
-//
-// The response goes through BranchReviewDTOFrom rather than the domain object.
-// That is not cosmetic: a FileDiff for a BINARY file carries a nil Lines slice,
-// which marshals to JSON `null`, and the review pane reads `diff.lines.length`
-// unguarded — so a single binary file anywhere in a branch took the whole pane
-// down with "null is not an object". The DTO normalises those slices to `[]`,
-// and did so all along; this endpoint simply was not using it. It was reachable
-// only from its own tests, one of which
-// (TestBranchReviewDTOFromEmptySlicesAreNonNil) asserts exactly the property
-// whose absence caused the crash.
+// Get handles GET /v0/chats/:chatId/review, returning the composite branch-review read model.
+// It serves the DTO, not the domain object, because a binary file's nil Lines would marshal to
+// null and the review pane reads lines.length unguarded; the DTO normalises nil slices to [].
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {

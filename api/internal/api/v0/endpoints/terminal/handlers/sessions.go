@@ -16,15 +16,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// CreateSession handles POST /v0/chats/:chatId/terminals.
-//
-// Per D2 the response is 201 {sessionId} synchronously: the FE needs the id
-// immediately to open the raw PTY WebSocket.
-//
-// The session is OWNED by :chatId and RUNS in the worktree that chat resolved
-// to — the two arguments to eng.Create, and the whole point of the re-key.
-// Sibling chats on one worktree get the same WorktreePath and disjoint
-// sessions.
+// CreateSession handles POST /v0/chats/:chatId/terminals, answering 201 {sessionId} synchronously
+// so the client can open the PTY WebSocket. The session is owned by :chatId and runs in its
+// worktree; sibling chats on one worktree get disjoint sessions.
 func (h *Handlers) CreateSession(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
@@ -33,9 +27,7 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 
 	chatID := ctx.Param("chatId")
 
-	// Resolved once by resolveChatWorktree before this handler ran; a miss
-	// means the route is mounted outside that middleware, which is a wiring
-	// bug rather than anything the caller did.
+	// A miss means the route is mounted outside resolveChatWorktree: a wiring bug.
 	ws, ok := reqscope.Workspace(ctx)
 	if !ok {
 		libs.WriteErr(ctx, http.StatusInternalServerError, "chat worktree not resolved")
@@ -66,16 +58,8 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, gin.H{"sessionId": sid})
 }
 
-// ListSessions handles GET /v0/chats/:chatId/terminals. It returns the
-// sessions OWNED BY THAT CHAT from the in-memory engine registry with their
-// real lifecycle state (active|detached|suspended) (D6: terminals are
-// ephemeral, no persistence).
-//
-// A sibling chat sharing this chat's worktree is NOT listed here, and that is
-// the behavioural fix the re-key delivers: keyed by workspace, this listing
-// used to hand one chat every other chat's shells the moment two of them shared
-// a worktree — which batch import and repo-add make the common case, not the
-// exotic one.
+// ListSessions handles GET /v0/chats/:chatId/terminals: the sessions owned by this chat (not its
+// worktree siblings) from the in-memory registry, with lifecycle state. Terminals are not persisted.
 func (h *Handlers) ListSessions(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
