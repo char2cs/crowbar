@@ -51,14 +51,16 @@ import (
 // cannot reproduce the loss: it settles the very projection whose lag was the bug, before
 // the stop is ever issued. Both reasons are stated because neither alone would be honest.
 //
-// No timing anywhere: every step blocks on a real signal (the HTTP response, then
-// Quiesce).
+// No timing anywhere: every step blocks on a real signal (the HTTP response, the
+// runner-gone frame, then Quiesce). A Stop returns once the CLI is told to quit; its
+// exit is recorded by the CLI's own exit callback, which may land after the 204.
 func TestRegression_ChatStoppedMidTurn_SpunTheWorkspaceForever(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
 
 	chatID, runnerID := createLiveStubChat(t, h, imported)
+	feed := recordSidebar(t, h)
 
 	// The prompt opens the turn.
 	postHook(t, h, repoBase(imported), "livestub", runnerID, "user_prompt", `{"prompt":"a long-running task"}`)
@@ -70,6 +72,7 @@ func TestRegression_ChatStoppedMidTurn_SpunTheWorkspaceForever(t *testing.T) {
 	// teardown is the only thing that can, and it gets no second chance.
 	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
+	feed.awaitRunnerGone(chatID, runnerID)
 	h.Quiesce()
 
 	require.Empty(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID,
