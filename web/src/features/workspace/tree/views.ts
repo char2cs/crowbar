@@ -127,7 +127,7 @@ export function viewsFromStores(
   const repoViews = new Map<string, RepoView>()
   for (const repo of repos) {
     const members = repoMembers(repo)
-    const ownerChats = resolveOwnerChats(members.workspaces, members.chats)
+    const ownerChats = resolveOwnerChats(members.workspaces)
     const ownerOfChat = resolveOwnerOfChat(ownerChats, members.chats)
     const titles = new Map(members.chats.map((c) => [c.id, c.title]))
     for (const chat of members.chats) chats.set(chat.id, chatView(chat, ownerOfChat.get(chat.id)))

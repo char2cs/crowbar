@@ -215,7 +215,7 @@ export function legacyTreeIndex(repos: readonly Repo[], home: LegacyHome | null)
       repo.folders ?? [],
       chats.filter((c) => c.id !== owner),
     )
-    emit(out, foldOwners(forest, resolveOwnerChats(workspaces, chats)), repo.id)
+    emit(out, foldOwners(forest, resolveOwnerChats(workspaces)), repo.id)
   }
   return indexNodes(out)
 }

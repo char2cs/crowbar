@@ -9,10 +9,8 @@ export function owningChatIdOfWorkspace(repos: readonly Repo[], wsId: string): s
     if (ws?.owningChatId) return ws.owningChatId
     const owner = repo.chats?.find((c) => c.ownsWorktree && c.workspaceId === wsId)
     if (owner) return owner.id
-    if (repo.defaultWorkspaceId === wsId) {
-      if (repo.defaultOwningChatId) return repo.defaultOwningChatId
-      const home = repo.chats?.find((c) => c.ownsWorktree && c.workspaceId === wsId)
-      if (home) return home.id
+    if (repo.defaultWorkspaceId === wsId && repo.defaultOwningChatId) {
+      return repo.defaultOwningChatId
     }
   }
   return null

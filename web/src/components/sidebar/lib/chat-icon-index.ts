@@ -51,7 +51,7 @@ export function chatIconIndex(repos: readonly Repo[]): Map<string, ChatIconField
   for (const repo of repos) {
     const chats = (repo.chats ?? EMPTY_CHATS).filter((c) => c.repoId === repo.id)
     const workspaces = repo.workspaces.filter((w) => w.status !== 'deleted')
-    const ownerChats = resolveOwnerChats(workspaces, chats)
+    const ownerChats = resolveOwnerChats(workspaces)
     const ownerOfChat = resolveOwnerOfChat(ownerChats, chats)
     const workspaceById = new Map(workspaces.map((w) => [w.id, w]))
     for (const [chatId, wsId] of ownerOfChat) {

@@ -16,10 +16,7 @@ export function resolveHomeOwnerId(
 // Workspace id -> owning chat, CONFIRMED pairs only (the workspace record is present). This feeds
 // legacyTreeIndex, which folds a chat onto its workspace node; folding an unconfirmed claim would
 // strip the chat with no node to fold onto. The owner need not be in `chats` yet: the DTO wins.
-export function resolveOwnerChats(
-  workspaces: readonly Workspace[],
-  _chats: readonly Chat[],
-): Map<string, string> {
+export function resolveOwnerChats(workspaces: readonly Workspace[]): Map<string, string> {
   const ownerChats = new Map<string, string>()
   for (const ws of workspaces) {
     if (ws.owningChatId) ownerChats.set(ws.id, ws.owningChatId)
