@@ -48,9 +48,8 @@ export const BlockSelectionKit = [
       belowRootNodes: (props) => {
         if (!hasSelectableClass(props)) return null
 
-        // `belowRootNodes`' props are generic over this plugin's config while `BlockSelection`
-        // takes plain `PlateElementProps`: same runtime shape, but TS won't unify them (upstream
-        // casts too).
+        // Same runtime shape as `PlateElementProps`, but TS won't unify this plugin's generic
+        // `belowRootNodes` props with it (upstream casts too).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the two plugin generics do not unify structurally
         return <BlockSelection {...(props as any)} />
       },
