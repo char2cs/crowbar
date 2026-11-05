@@ -26,7 +26,6 @@ const MAX_LINES_BASELINE = [
 // stabilization plan (docs/plans/2026-09-24-stabilization.md §7). Each entry
 // goes when its file is fixed; never add to these lists.
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
-  'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
   'src/features/panes/components/pane-sash.tsx',
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',
