@@ -1,9 +1,6 @@
-// Package tlsid owns the daemon's long-lived TLS identity: a self-signed
-// certificate generated once and reused for the life of the installation.
-//
-// Stability is the whole point. A client pairs by confirming this identity's
-// fingerprint, so regenerating it silently breaks every paired client — the
-// certificate is created only when absent and never rotated automatically.
+// Package tlsid owns the daemon's long-lived self-signed TLS identity. Clients pair
+// by its fingerprint, so it is created only when absent and never rotated
+// automatically.
 package tlsid
 
 import (
@@ -73,11 +70,9 @@ func Load(dir string) (*Identity, error) {
 	return &Identity{Certificate: pair, Fingerprint: FingerprintOf(pair.Certificate[0])}, nil
 }
 
-// FingerprintOf renders a certificate's SHA-256 as grouped lowercase hex.
-// It deliberately keeps only the first 96 bits (24 hex chars) of the SHA-256
-// digest, grouped as 6 space-separated 4-char groups, for a short human-
-// comparable string. This truncated format is a contract with Rust-side code
-// and must not be changed without updating all fingerprint formatters.
+// FingerprintOf renders the first 96 bits of a certificate's SHA-256 as six
+// space-separated groups of 4 lowercase hex chars. The format is a contract with the
+// Rust-side formatters and must change with them.
 func FingerprintOf(der []byte) string {
 	sum := sha256.Sum256(der)
 	full := hex.EncodeToString(sum[:])

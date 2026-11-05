@@ -220,9 +220,8 @@ func entryKind(
 	}
 }
 
-// resolveRoot follows symlinks in dir itself, so a state directory moved to
-// another disk behind a link is scanned and copied as the directory it points
-// at. found is false, and root is dir unchanged, when nothing exists there; a
+// resolveRoot follows symlinks in dir itself, so a state dir moved behind a link is
+// copied as its target. found is false (root is dir) when nothing exists there; a
 // dangling link is an error.
 func resolveRoot(
 	dir string,

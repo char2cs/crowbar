@@ -11,14 +11,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// ── durable state: .buf files and meta rows ──────────────────────────────────
-//
-// Every write below runs under the entry's lifecycle lock and after checking the entry's
-// state, which is what keeps disk in step with the state machine (invariant B3): nothing
-// can persist a session after it ended, because ending happens under the same lock and
-// deletes what persisting wrote. A command session (agentic vendor CLI) is never
-// persisted: restore can only birth a login shell, so a row for one would come back as a
-// bare shell wearing the agent's frame.
+// Durable state: every write below runs under the entry's lifecycle lock after a state
+// check, so nothing persists a session after it ended. Command sessions are never
+// persisted: restore can only birth a login shell.
 
 func (e *terminalEngine) meta() SessionMetaStore {
 	e.cbMu.RLock()
@@ -183,14 +178,9 @@ func oldestFirst(cs []candidate) {
 	sort.Slice(cs, func(i, j int) bool { return cs[i].lastActive.Before(cs[j].lastActive) })
 }
 
-// runMaintenanceOnce performs the sweep in order:
-//
-//  1. Cadence flush — persist each live shell whose screen changed.
-//  2. Per-chat soft limit — idle-gated-suspend the oldest idle detached shells of a chat
-//     with more than softLimitPerChat detached shells.
-//  3. Global ceiling — while over maxTotalSessions or maxTotalModelBytes: drop cached
-//     blobs, then idle-gated-suspend, then force-suspend detached running shells, then
-//     evict the oldest suspended sessions (the only step that lowers the count).
+// runMaintenanceOnce sweeps in order: flush each changed live shell; suspend the oldest
+// idle detached shells of a chat over softLimitPerChat; then, while over the global caps,
+// drop cached blobs, suspend, force-suspend, and finally evict the oldest suspended.
 func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	for _, ent := range e.snapshot() {
 		e.flushOnce(ctx, ent)

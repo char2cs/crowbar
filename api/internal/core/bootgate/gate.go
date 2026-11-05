@@ -85,10 +85,9 @@ func (g *Gate) Open(
 	g.real.Store(&h)
 }
 
-// ServeHTTP hands the request to the real handler once Open has run. Before
-// that it answers GET /v0/health with the current Report, shows a browser a
-// page that reloads once ready, and refuses every other request with a 503
-// whose code names the state.
+// ServeHTTP hands the request to the real handler once Open has run. Before that it
+// answers GET /v0/health with the current Report, shows a browser a self-reloading
+// page, and refuses everything else with a 503 whose code names the state.
 func (g *Gate) ServeHTTP(
 	w http.ResponseWriter,
 	r *http.Request,

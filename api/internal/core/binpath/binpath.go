@@ -1,8 +1,6 @@
-// Package binpath resolves external CLI binaries robustly. A daemon launched
-// by macOS launchd (the packaged .app) inherits a minimal PATH
-// (/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin) that misses Homebrew, so a
-// bare exec of tools like gh fails even when they are installed. Resolve falls
-// back to well-known install locations after the PATH lookup.
+// Package binpath resolves external CLI binaries robustly. A daemon launched by
+// launchd inherits a minimal PATH that misses Homebrew, so Resolve falls back to
+// well-known install locations after the PATH lookup.
 package binpath
 
 import (
@@ -11,14 +9,9 @@ import (
 	"path/filepath"
 )
 
-// wellKnownDirs are extra directories probed when the PATH lookup fails, in
-// priority order.
-//
-// ~/.local/bin is first and is NOT reachable by a PATH lookup alone: the daemon
-// repairs launchd's minimal PATH from a LOGIN NON-INTERACTIVE shell (core/shellenv),
-// which sources .zshenv/.zprofile but never .zshrc — and .zshrc is where that dir is
-// conventionally put on PATH. It is also where user-installed vendor CLIs land by
-// default, so without it the packaged .app cannot spawn one at all.
+// wellKnownDirs are extra directories probed, in priority order, when the PATH lookup
+// fails. ~/.local/bin comes first: vendor CLIs install there, and it is usually added
+// in .zshrc, which the login non-interactive shell behind core/shellenv never sources.
 func wellKnownDirs() []string {
 	dirs := make([]string, 0, 4)
 	if home, err := os.UserHomeDir(); err == nil {
@@ -31,10 +24,9 @@ func wellKnownDirs() []string {
 	)
 }
 
-// Resolve returns the executable path for name: the PATH lookup first, then
-// the well-known dirs. When nothing is found it returns name unchanged so the
-// subsequent exec fails with the usual "executable not found", preserving the
-// call site's soft-fail semantics.
+// Resolve returns the executable path for name: the PATH lookup first, then the
+// well-known dirs. When nothing is found it returns name unchanged so the exec
+// fails with the usual "executable not found".
 func Resolve(
 	name string,
 ) string {

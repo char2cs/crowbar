@@ -20,10 +20,9 @@ type SessionMeta struct {
 	LastActiveAt time.Time
 }
 
-// SessionMetaStore is the port through which the engine persists and removes
-// terminal-session metadata without importing GORM, the domain layer, or any
-// usecase package. The implementation lives in the terminal usecase and is
-// injected via Engine.SetMetaStore after both layers are constructed.
+// SessionMetaStore is the port through which the engine persists terminal-session
+// metadata without importing GORM or the domain; the terminal usecase implements it
+// and it is injected via Engine.SetMetaStore.
 type SessionMetaStore interface {
 	// Save upserts the session metadata row, preserving CreatedAt on update.
 	Save(
@@ -37,16 +36,9 @@ type SessionMetaStore interface {
 		sessionID string,
 	) error
 
-	// StorageDir returns the per-chat storage directory where terminal
-	// scrollback files (.buf) are written. It resolves the chat to the
-	// workspace behind its worktree for the (projectID, repoID) pair and
-	// delegates to worktreepath.StorageDir.
-	//
-	// The engine passes the OWNING CHAT id, never a workspace id: scrollback
-	// belongs to the session, the session belongs to one chat, and two sibling
-	// chats sharing a worktree must not write into one another's .buf files.
-	// Resolving chat → workspace is this store's job precisely so the engine
-	// never has to hold a workspace id it would then be tempted to scope by.
+	// StorageDir returns the per-chat directory for scrollback .buf files. It takes the
+	// owning chat id, never a workspace id, so sibling chats sharing a worktree never
+	// write into each other's buffers; resolving chat to workspace is the store's job.
 	StorageDir(
 		ctx context.Context,
 		chatID string,

@@ -2,13 +2,9 @@
 
 package session
 
-// isIdleLocked reports whether the shell is idle (no foreground child process).
-// It reads the PTY's foreground process group (TIOCGPGRP, via the ptyForegroundPgid
-// seam) and compares it to the shell's own process group. If they match, the shell is
-// the foreground process — i.e. it is idle (waiting at its prompt).
-//
+// isIdleLocked reports whether the shell is idle at its prompt: the PTY's foreground
+// process group is the shell's own. False on any ioctl/getpgid error or a dead session.
 // Caller must hold s.mu.
-// Returns false on any ioctl/getpgid error or if the session is not live.
 func (s *Session) isIdleLocked() bool {
 	if s.ptmx == nil || s.cmd == nil || s.cmd.Process == nil {
 		return false

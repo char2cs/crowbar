@@ -21,27 +21,17 @@ type Client struct {
 	http *http.Client
 }
 
-// DefaultTimeout bounds one in-PTY callback into the daemon: a hook posting a
-// turn, a handoff fetch. Those are small reads and writes against local state,
-// and the process making them is blocking a vendor CLI, so the budget is short
-// on purpose — a wedged daemon must not hold a hook open.
-//
-// It is NOT the budget for every caller. A request whose daemon-side work is a
-// git operation needs a budget consistent with the daemon's own git ceiling, or
-// the client gives up on work the daemon was still legitimately doing and
-// reports a transport failure for it. See NewClientWithTimeout.
+// DefaultTimeout bounds one in-PTY callback (a hook, a handoff fetch): it blocks a
+// vendor CLI, so a wedged daemon must not hold it open. Callers whose daemon-side work
+// is git need NewClientWithTimeout instead.
 const DefaultTimeout = 5 * time.Second
 
 func NewClient(host string) (*Client, error) {
 	return NewClientWithTimeout(host, DefaultTimeout)
 }
 
-// NewClientWithTimeout builds a client whose per-request budget the CALLER
-// chooses, for callers whose daemon-side work is not a small local read.
-//
-// It exists so that raising one caller's budget cannot silently raise
-// everyone's: the client is shared by the hook and handoff callbacks, where a
-// short timeout is the correct behaviour, and by the MCP relay, where it is not.
+// NewClientWithTimeout builds a client with a caller-chosen per-request budget, so the
+// MCP relay can wait on git work without raising the hook callbacks' short timeout.
 func NewClientWithTimeout(host string, timeout time.Duration) (*Client, error) {
 	network, addr := "tcp", strings.TrimPrefix(host, "tcp://")
 	if addr == host {
@@ -61,10 +51,8 @@ func NewClientWithTimeout(host string, timeout time.Duration) (*Client, error) {
 	}}, nil
 }
 
-// Get issues a GET request against path over the daemon's unix socket,
-// returning the response status and raw body. It never returns a non-nil
-// error on a non-2xx status; callers decode the {success,error,data} envelope
-// themselves to distinguish daemon-reported failures from transport failures.
+// Get issues a GET request against path, returning the status and raw body. A non-2xx
+// status is not an error; callers decode the envelope to tell daemon failures apart.
 func (c *Client) Get(ctx context.Context, path string) (_ int, _ []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix"+path, nil)
 	if err != nil {
@@ -82,10 +70,8 @@ func (c *Client) PostJSON(ctx context.Context, path string, body any) (int, []by
 	return c.doJSON(ctx, http.MethodPost, path, body)
 }
 
-// PatchJSON issues a PATCH request against path with body marshalled as JSON,
-// over the daemon's unix socket. It mirrors PostJSON exactly (including its
-// non-2xx-is-not-an-error contract) for the routes that mutate in place
-// rather than create — the worktree lifecycle's branch rename among them.
+// PatchJSON issues a PATCH request against path with body marshalled as JSON. Like
+// PostJSON, a non-2xx status is not an error.
 func (c *Client) PatchJSON(ctx context.Context, path string, body any) (int, []byte, error) {
 	return c.doJSON(ctx, http.MethodPatch, path, body)
 }

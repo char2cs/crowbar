@@ -21,12 +21,9 @@ type runState struct {
 	counts Counts
 }
 
-// RunPreOpen starts the boot's run when any step is pending, preflights every
-// pending step of both phases (plans, git, the state backup), then runs the
-// pending pre-open steps, in catalog order, before any database is open. A
-// failure halts the session and is returned as the *Halt; a ctx cancelled
-// before or during a step ends the run as interrupted, and its error is
-// returned as is.
+// RunPreOpen preflights every pending step of both phases, then runs the pending
+// pre-open steps in catalog order before any database opens. A failure halts the
+// session as a *Halt; a ctx cancel ends the run as interrupted, its error returned as is.
 func (s *Session) RunPreOpen(
 	ctx context.Context,
 	impls Impls,

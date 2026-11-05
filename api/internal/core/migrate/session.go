@@ -187,10 +187,9 @@ func (e runEnd) record(
 	return record{Kind: kindRunEnd, At: at, Run: e.run, To: &layout, Counts: counts, Outcome: e.outcome, Error: e.detail}
 }
 
-// endOfDangling is how Begin ends a run a killed process left open: completed
-// when every step it set out to do is done, else interrupted. A step the catalog
-// dropped cannot be vouched for; a recurring step ran again only if this run
-// says it finished, since an earlier run's done says nothing of this attempt.
+// endOfDangling ends a run a killed process left open: completed if every step it set
+// out to do is done, else interrupted. A dropped step cannot be vouched for, and a
+// recurring step counts only if this run says it finished.
 func (c *Catalog) endOfDangling(
 	layout int,
 	v ledgerView,

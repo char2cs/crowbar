@@ -11,18 +11,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// terminateSignal sends a clean-exit SIGTERM — a PID-level action, never a PTY
-// write (spec §8) — so a well-behaved child gets the chance to flush state
-// before it dies, unlike Kill's unconditional SIGKILL.
-//
-// pty.Start (creack/pty) sets SysProcAttr.Setsid on every child spawned by
-// this package (spawn/spawnCmd), so the child is always its own session AND
-// process-group leader: pgid == pid. Signalling the group (a negative pid)
-// reaches any grandchildren the CLI itself spawned, not just the immediate
-// PID — mirroring how a real terminal hangup propagates. Falls back to a
-// direct single-process signal if the group send fails (e.g. ESRCH because
-// the child already changed its own pgid), so a stale/mismatched group id
-// never masks a live, signalable process.
+// terminateSignal SIGTERMs the child's process group (pty.Start sets Setsid, so
+// pgid == pid) to give it and its descendants a chance to flush, falling back to the
+// single process when the group send fails (the child changed its pgid).
 func terminateSignal(proc *os.Process) error {
 	if err := unix.Kill(-proc.Pid, syscall.SIGTERM); err == nil {
 		return nil
@@ -30,10 +21,8 @@ func terminateSignal(proc *os.Process) error {
 	return proc.Signal(syscall.SIGTERM)
 }
 
-// killSignal SIGKILLs the child's whole process group — the same group Terminate signals —
-// so a hard kill cannot leave the processes the child spawned running behind it. It falls
-// back to killing the single process when the group send fails (the child changed its own
-// pgid), for the same reason terminateSignal does. A child that already exited is not an error.
+// killSignal SIGKILLs the child's whole process group so nothing it spawned survives,
+// falling back to the single process like terminateSignal. An exited child is not an error.
 func killSignal(proc *os.Process) error {
 	if err := unix.Kill(-proc.Pid, syscall.SIGKILL); err == nil {
 		return nil

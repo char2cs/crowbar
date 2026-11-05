@@ -20,10 +20,8 @@ type shadowState struct {
 	g0              byte
 	g1              byte
 	glLock          int
-	// keypadApplication mirrors DECKPAM/DECKPNM (ESC = / ESC >). x/vt surfaces this only as
-	// an EnableMode/DisableMode callback for DECMode(66) (ModeNumericKeypad) and never via a
-	// getter, so it is tracked here and re-emitted as ESC = by the serializer — a plain
-	// DECSET ?66h would NOT re-establish application-keypad on the live client.
+	// keypadApplication mirrors DECKPAM/DECKPNM. x/vt exposes it only via mode callbacks,
+	// so it is tracked here and re-emitted as ESC =, since DECSET ?66h would not restore it.
 	keypadApplication bool
 	modes             map[int]bool
 	fg                color.Color
@@ -98,10 +96,9 @@ func (s *shadowState) setDefaultColor(
 	}
 }
 
-// resetTransientModes clears alt-screen, mouse, focus, bracketed-paste, app-cursor-keys,
-// application-keypad, origin, charset designation, scroll region and cursor shape, and
-// restores autowrap to its default-ON state. Title and the scrollback are intentionally
-// preserved.
+// resetTransientModes clears alt-screen, mouse, focus, bracketed-paste, cursor/keypad
+// app modes, origin, charsets, scroll region and cursor shape, and restores autowrap
+// ON. Title and scrollback are kept.
 func (s *shadowState) resetTransientModes() {
 	s.altScreen = false
 	s.cursorShapeSet = false

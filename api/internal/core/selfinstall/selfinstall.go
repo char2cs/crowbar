@@ -8,10 +8,9 @@ import (
 	"path/filepath"
 )
 
-// Install copies the running executable to <homeDir>/bin/crowbar (0755) so the
-// vendor CLIs can launch `crowbar mcp` by absolute path. Idempotent:
-// re-copies only when the destination is missing or a different size. Best-effort
-// at the call site (a failure must not stop the daemon).
+// Install copies the running executable to <homeDir>/bin/crowbar (0755) so vendor CLIs
+// can launch `crowbar mcp` by absolute path. It re-copies only when the destination is
+// missing or a different size; callers treat failure as non-fatal.
 func Install(homeDir string) (string, error) {
 	src, err := os.Executable()
 	if err != nil {

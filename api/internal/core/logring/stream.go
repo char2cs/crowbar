@@ -14,10 +14,8 @@ type Stream interface {
 	// so the daemon restarted and the replay holds the last 500 records.
 	Reset() bool
 
-	// Live delivers each record logged after the stream opened. The channel is
-	// closed by Close, or by the ring when the reader falls 256 records behind,
-	// in which case the reader should reconnect with since set to the last Seq
-	// it received.
+	// Live delivers each record logged after the stream opened. Close closes it, as does
+	// the ring when the reader falls 256 behind; reconnect with since set to the last Seq.
 	Live() <-chan Record
 
 	// Close unsubscribes the stream and closes Live. It is safe to call more

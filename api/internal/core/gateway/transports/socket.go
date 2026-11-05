@@ -17,15 +17,9 @@ var chmod = os.Chmod
 // binding would steal the address from a healthy daemon.
 var ErrDaemonRunning = errors.New("gateway: socket: daemon already running")
 
-// NewSocket binds a Unix domain socket for the daemon. host is the full
-// "unix://[path]" string; an empty path resolves to the socket of the Crowbar
-// home (see SocketPath) so every client (CLI, the desktop proxy) finds the
-// daemon at a fixed, well-known location. The socket's directory is created.
-//
-// A stale socket left behind by a crashed daemon is removed before binding; a
-// socket that still has a live daemon behind it yields ErrDaemonRunning rather
-// than being clobbered. The returned listener removes the socket file on Close
-// so a clean shutdown never leaves a stale socket for the next launch.
+// NewSocket binds the daemon's Unix socket for host ("unix://[path]"; empty path is
+// the home's SocketPath), creating its directory. A stale socket is removed, a live
+// one yields ErrDaemonRunning, and Close removes the socket file.
 func NewSocket(
 	host string,
 ) (net.Listener, error) {

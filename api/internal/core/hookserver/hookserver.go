@@ -1,11 +1,7 @@
-// Package hookserver is the daemon's loopback listener for the vendor CLIs that
-// post their hooks themselves (native HTTP hook delivery) instead of running a
-// relay process per event.
-//
-// It serves exactly one route — the runner-keyed hook route — and nothing else of
-// the daemon's API, which is unauthenticated and so must never be reachable from a
-// TCP port any local process can dial. The hook route authenticates itself with the
-// per-runner token.
+// Package hookserver is the daemon's loopback listener for vendor CLIs that post
+// their hooks natively over HTTP. It serves only the runner-keyed hook route, which
+// authenticates with the per-runner token: the rest of the API is unauthenticated
+// and must never be reachable from a TCP port any local process can dial.
 package hookserver
 
 import (
