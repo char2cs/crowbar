@@ -1,89 +1,6 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
-
-// Mocked so the real registry's store creation doesn't need a real
-// IndexedDB/localStorage write path — same setup recents-actions.test.ts
-// uses for exercising the real registry.
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
-}))
-vi.mock('@/lib/api/sidebar-placement', () => ({
-  // Echoes the call back as the {workspace, shifted} envelope the real
-  // .../workspaces/:wsId/placement PATCH answers with.
-  placeWorkspace: vi.fn(async (wsId: string, placement: { folderId?: string; order?: number }) => ({
-    workspace: { id: wsId, parentId: placement.folderId ?? '', order: placement.order ?? 0 },
-    shifted: [],
-  })),
-  // Echoes the call's own args back as the {folder, shifted} envelope the
-  // real .../chats/folders PATCH answers with (Task 34) — fireRowPlacementCall
-  // applies `folder` straight to the sidebar store, so this has to resolve to
-  // something shaped like a real FolderDTO rather than `undefined`.
-  placeFolder: vi.fn(
-    async (
-      projectId: string,
-      repoId: string,
-      folderId: string,
-      placement: { parentId?: string; order?: number },
-    ) => ({
-      folder: {
-        id: folderId,
-        repoId,
-        projectId,
-        name: folderId,
-        parentId: placement.parentId ?? '',
-        order: placement.order ?? 0,
-      },
-      shifted: [],
-    }),
-  ),
-  // {@link placeFolder}'s home-scoped mirror — same envelope, repoId ''.
-  placeHomeFolder: vi.fn(
-    async (
-      projectId: string,
-      folderId: string,
-      placement: { parentId?: string; order?: number },
-    ) => ({
-      folder: {
-        id: folderId,
-        repoId: '',
-        projectId,
-        name: folderId,
-        parentId: placement.parentId ?? '',
-        order: placement.order ?? 0,
-      },
-      shifted: [],
-    }),
-  ),
-  // The real PATCH .../repos/:repoId answers 204 (no body) — the repo's own
-  // updated DTO rides the `repos` broadcast, never this response.
-  placeRepo: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/lib/api/workspace', () => ({
-  reparentWorkspace: vi.fn(),
-}))
-vi.mock('@/features/agent/api/agent-chat-commands', () => ({
-  // Echoes the call's own args back as `{chat, shifted}` the same way
-  // `placeFolder`'s mock above does — `fireRowPlacementCall`'s 'chat' case
-  // applies `chat.parentId`/`chat.order` straight to the sidebar store now
-  // (the response used to be discarded entirely), so a mock returning `{}`
-  // for `chat` would make every one of those tests pass by accident.
-  setChatPlacement: vi.fn(
-    async (workspaceId: string, chatId: string, patch: { parentId?: string; order?: number }) => ({
-      chat: { id: chatId, workspaceId, parentId: patch.parentId ?? '', order: patch.order ?? 0 },
-      shifted: [],
-    }),
-  ),
-}))
-// `resolveHomeRowScope` (home-tree.ts) reads this to name the project a
-// resolved home row belongs to — a real async fetch+cache round trip these
-// tests have no reason to exercise.
-const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  getHomeWorkspaceId,
-  getHomeOwningChatId: () => null,
-}))
+import { stubDropBoundary } from '@/__tests__/__fixtures__/drop-boundary'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import {
@@ -130,15 +47,8 @@ import {
 import { readSelect, selectHomeTree, selectRepos } from '@/core/entities/select'
 import { ApiError } from '@/lib/errors/api-error'
 
-/**
- * `performSidebarDrop` — the row-to-row half of spec §8.1 (Task 33). Adapts
- * `drop-plan.ts`'s (git show 9ad89156) container/fork-lineage math to
- * `SidebarRow`/`SIDEBAR_DROP_POLICY`, minus its `project`/`repo` subjects and
- * its optimistic `writes` half (this plan has no local optimistic paint).
- *
- * `performSidebarPaneDrop`'s own suite (below, unchanged from Task 22) covers
- * §8.1's other two targets — the middle/edge of a PANE.
- */
+// `performSidebarDrop` is the row-to-row drop (container and fork-lineage math over
+// `SidebarRow`s, no optimistic paint); `performSidebarPaneDrop` below is the drop onto a pane.
 
 /** Which view record holds `chatId` — the grouping fact a merge writes and a
  *  click never shares. */
@@ -254,6 +164,7 @@ function confirmReparent(wsId: string, parentId: string): void {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  stubDropBoundary()
   resetEntities()
   seedRepos([makeRepo()])
   treeUiStore.setState(treeUiStore.getInitialState(), true)
@@ -273,8 +184,7 @@ beforeEach(() => {
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
-  // Task 26: panes/buffers are a window-level singleton now, never destroyed
-  // by destroyWorkspaceStore — reset it to a pristine store between tests.
+  // Panes/buffers are a window-level singleton destroyWorkspaceStore never touches.
   resetWindowPaneStoreForTests()
 })
 
@@ -334,10 +244,8 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
     })
   })
 
-  // REGRESSION (K3, same model): a level interleaves branches, folders AND
-  // chats on one order, but the index used to be computed over a tree built
-  // from workspaces+folders only — a branch dropped beside a CHAT sibling
-  // never found its target and clamped to the end of the chat-less list.
+  // A level interleaves branches, folders AND chats on one order, so a branch dropped beside a
+  // CHAT sibling indexes over all three.
   describe('a branch beside its CHAT siblings', () => {
     beforeEach(() => {
       seedRepos([
@@ -957,10 +865,8 @@ describe('performSidebarDrop — chats', () => {
     })
   })
 
-  // The gap under an EXPANDED parent is the slot before its first child —
-  // where the drop line is drawn, and what every other planner already
-  // means by 'after' there. A chat used to be filed as a sibling after the
-  // whole subtree instead.
+  // The gap under an EXPANDED parent is the slot before its first child: where the drop line is
+  // drawn, and what every other planner means by 'after' there.
   describe('"after" an expanded chat with threads', () => {
     beforeEach(() => {
       seedRepoChats([
@@ -1062,11 +968,7 @@ describe('performSidebarDrop — chats', () => {
     expect(setChatPlacement).not.toHaveBeenCalled()
   })
 
-  // The literal "can't group chats into a folder" gap, caught live: filing a
-  // chat into a folder used to be a silent no-op — `planChatDrop` refused any
-  // non-chat target outright. `kind: 'folder'` is one aggregate in the
-  // current unified row model (deriveRows's folder push is the same
-  // `AgentChatFolder` this targets), so there is a real placement to make.
+  // A folder row is the same `AgentChatFolder` a chat files into, so the drop is a real placement.
   it('a chat dropped onto a folder row files it there', async () => {
     seedRepoChats(
       [repoChat('chat-a')],
@@ -1091,7 +993,7 @@ describe('performSidebarDrop — chats', () => {
   // (deriveRows), which can never have a `workspaceId` to fall back
   // on any other way.
   it('a chat dropped onto a home folder still resolves the home workspace off the chat itself', async () => {
-    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
     seedHomeTree('proj-1', {
       chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'c1', order: 0 }],
       folders: [{ id: 'home-folder-1', repoId: '', name: 'F', order: 1 }],
@@ -1127,7 +1029,7 @@ describe('performSidebarDrop — chats', () => {
       })
 
     beforeEach(() => {
-      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {
         chats: [
           {
@@ -1174,10 +1076,8 @@ describe('performSidebarDrop — chats', () => {
       })
     })
 
-    // REGRESSION (K3): a repo whose main checkout has been chatted in draws
-    // its header row id'd by that chat, not by the workspace — the sibling
-    // list has to hold the id the row actually carries or the target is
-    // never found and the index clamps to the end.
+    // A repo whose main checkout has been chatted in draws its header id'd by that chat, so the
+    // sibling list holds the id the row actually carries.
     it('finds a repo header id’d by its owning chat among the home siblings', async () => {
       seedRepos(
         readSelect(selectRepos).map((r) =>
@@ -1218,8 +1118,7 @@ describe('performSidebarDrop — chats', () => {
       expect(toast.error).toHaveBeenCalled()
     })
 
-    // REGRESSION (K3, repo-scoped half): two threads under a locked branch,
-    // reordered while a DIFFERENT workspace's pane is the active one.
+    // Two threads under a locked branch, reordered while a DIFFERENT workspace's pane is active.
     it('reorders a thread past its sibling under an unmounted locked branch, indexed off the rendered rows', async () => {
       seedRepos([
         {
@@ -1249,15 +1148,11 @@ describe('performSidebarDrop — chats', () => {
   })
 })
 
-// A project-home FOLDER as the DRAGGED SUBJECT (not the target — see the
-// chat-target tests above for that half) — the literal "can't drag/group a
-// home folder" gap, caught live: `planTreeRowDrop` is entirely `Repo`-shaped
-// and can never see one, so every drag involving one was a silent no-op.
+// A project-home FOLDER as the dragged SUBJECT: `planTreeRowDrop` is `Repo`-shaped and never
+// sees one, so home folders have their own planner.
 describe('performSidebarDrop — a project-home folder as the dragged subject', () => {
-  // `planHomeFolderDrop` (via `resolveHomeOwnerId`) resolves the row that owns
-  // `home-ws-1` off `ownsWorktree` — minted chat-first, atomically, at that
-  // workspace's own creation (2026-09-08 sidebar-placement-unification
-  // Task 9), never a boot backfill, and never `type: 'branch'`.
+  // `planHomeFolderDrop` resolves the row owning `home-ws-1` off `ownsWorktree`, never
+  // `type: 'branch'`.
   const HOME_OWNING_CHAT = {
     id: 'home-branch-row',
     repoId: '',
@@ -1281,7 +1176,7 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
   })
 
   beforeEach(() => {
-    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
   })
 
   it('reorders a home folder among its siblings via placeHomeFolder', async () => {
@@ -1299,10 +1194,8 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
       'before',
     )
 
-    // No `parentId` here — both folders already share the bare root as their
-    // container, so this is a pure reorder. Sending `parentId: ''` anyway
-    // (this used to) recomputed a value the backend's own `MoveInput` never
-    // needed and can disagree with (see `planTreeRowDrop`'s own note).
+    // A pure reorder sends no `parentId`: both folders share the root, and a recomputed one can
+    // disagree with the backend's `MoveInput`.
     expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-b', {
       order: 0,
     })
@@ -1351,10 +1244,8 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
     ).toBe('home-folder-b')
   })
 
-  // A repo's header row is a real root-level sibling of a home folder, and
-  // never a container for one: 'after' the EXPANDED header (its branches
-  // showing) is the slot after it among the root rows, not "first child" —
-  // which used to file the folder at index 0 of the root instead.
+  // A repo header is a root-level sibling of a home folder, never its container: 'after' the
+  // EXPANDED header is the slot after it among the root rows, not "first child".
   describe('relative to a repo header row', () => {
     const repoHeader = branchRow('home-1', {
       parentId: null,
@@ -1431,7 +1322,7 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
     })
 
   beforeEach(() => {
-    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
   })
 
   it('files a repo into a project-home folder', async () => {
@@ -1871,9 +1762,7 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     openChatInOwnPane(chatRow('c2', 'ws-1'))
     openChatInOwnPane(chatRow('c3', 'ws-1'))
 
-    // THE BUG. Three separately clicked chats used to draw as three columns
-    // at once: each click appended a peer leaf to the one shared tiling tree,
-    // so "its own view" was true in the data and invisible on screen.
+    // Each click is its own view: only the last is on screen, not three columns of one tiling tree.
     const showing = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(showing).toHaveLength(1)
     expect(windowPaneStore.getState().panes[showing[0]]?.chatId).toBe('c3')
@@ -1970,7 +1859,7 @@ describe('performSidebarPaneDrop — cross-workspace', () => {
 
 /** A branch row is addressed by its workspace's owning chat; everything planned
  *  here is in the workspace id space, so the id is translated first. */
-// ── targetInRecents (spec §8.1's Recents-row targets — Task 2b) ──
+// ── targetInRecents (Recents-row targets) ──
 
 function makeChatRepo(): Repo {
   return {
@@ -2156,11 +2045,10 @@ describe('performSidebarDrop — targetInRecents', () => {
     })
   })
 
-  // REGRESSION: a home chat's Recents entry carries the project-HOME
-  // workspace, which `resolveRowRepo` (repo id spaces only) never resolves —
-  // so a drop above/below one returned before ever reordering the band.
+  // A home chat's Recents entry carries the project-HOME workspace, which `resolveRowRepo`
+  // (repo id spaces only) cannot resolve.
   it('reorders above/below a HOME chat’s Recents entry — its workspace is the project home, not a repo', async () => {
-    getHomeWorkspaceId.mockReturnValue('home-ws-2')
+    vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-2')
     seedHomeTree('proj-2', {
       chats: [{ id: 'home-chat', repoId: '', workspaceId: 'home-ws-2', title: 'h', order: 0 }],
       folders: [],
@@ -2182,12 +2070,10 @@ describe('performSidebarDrop — targetInRecents', () => {
     expect(windowPaneStore.getState().viewOrder).toEqual([homePane, ROOT_PANE_ID].map(viewOfPane))
   })
 
-  // REGRESSION: a home chat's Recents entry is stamped from the resolver
-  // (`workspaceIdsForProject`), not the home tree — its project has to
-  // resolve the same way, or a drop beside it is a silent no-op whenever the
-  // tree store has no entry for that project yet.
+  // A home chat's Recents entry is stamped from the resolver, not the home tree, so its project
+  // resolves the same way even before that project's home tree loads.
   it('reorders beside a HOME chat entry whose project has no home tree loaded', async () => {
-    getHomeWorkspaceId.mockImplementation((projectId: string) =>
+    vi.mocked(getHomeWorkspaceId).mockImplementation((projectId: string) =>
       projectId === 'proj-2' ? 'home-ws-2' : null,
     )
     resetEntities()
@@ -2213,9 +2099,8 @@ describe('performSidebarDrop — targetInRecents', () => {
 })
 
 describe('performSidebarDrop — a branch row is addressed by its owning chat', () => {
-  /** The repo above, plus the owning chats minted chat-first for it: one for
-   *  the home workspace, one for the locked branch `ws-a` — never `type:
-   *  'branch'` (2026-09-08 sidebar-placement-unification Task 9). */
+  /** The repo above plus its owning chats: one for the home workspace, one for the locked
+   *  branch `ws-a` (never `type: 'branch'`). */
   function repoWithBranchRows(): Repo {
     const base = makeRepo()
     return {
