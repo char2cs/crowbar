@@ -13,10 +13,8 @@ import {
 } from '@/features/terminal/components/lazy-terminal'
 import { cn } from '@/lib/utils'
 
-/**
- * `pending` is not idle: offering Resume there would spawn a second CLI. A null
- * sessionId is a live runner with no terminal (codex), not dormancy.
- */
+/** `pending` is not idle: offering Resume there would spawn a second CLI. A null
+ *  sessionId is a live runner with no terminal (codex), not dormancy. */
 export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
