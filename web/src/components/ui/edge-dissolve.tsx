@@ -4,21 +4,14 @@ import { cn } from '@/lib/utils'
 interface DissolveLayerSpec {
   /** px blur radius for THIS layer's backdrop-filter. */
   blur: number
-  /** Fractions of the zone height (0 = the zone's own "far" edge, 1 = its
-   *  "near" edge) where this layer's mask ramps transparent -> black (->
-   *  black -> transparent for a mid-zone layer; the last two layers run all
-   *  the way to the near edge, so they only need the transparent -> black
-   *  ramp). Ported verbatim from composer.css's `.dissolve-layer`
-   *  `:nth-child` rules — see that file's own doc for why the recipe looks
-   *  like this (stacked masked layers faking a blur that ramps, since a
-   *  single backdrop-filter can't). */
+  /** Mask stops as fractions of the zone (0 = far edge, 1 = near): transparent→black, then →black→
+   *  transparent for mid layers; the last two run to the near edge. From composer.css's
+   *  `.dissolve-layer`: stacked masked layers fake a ramping blur one backdrop-filter can't. */
   stops: number[]
 }
 
-// The exact 7-layer recipe from composer.css's `.dissolve-layer`, written
-// generically instead of as `:nth-child` rules tied to one hard-coded zone
-// height — this needs to run at whatever height a caller's own row implies,
-// not just the composer's own measured dock height.
+// composer.css's 7-layer `.dissolve-layer` recipe, as data rather than `:nth-child` rules tied
+// to one zone height, so it runs at whatever height the caller implies.
 const LAYERS: DissolveLayerSpec[] = [
   { blur: 1, stops: [0, 0.1, 0.3, 0.4] },
   { blur: 2, stops: [0.1, 0.2, 0.4, 0.5] },
@@ -33,10 +26,8 @@ function layerStyle(layer: DissolveLayerSpec, height: number): CSSProperties {
   const firstStop = layer.stops[0]!
   const lastStop = layer.stops[layer.stops.length - 1]!
   const top = Math.max(0, height * firstStop - layer.blur)
-  // A 2-stop layer runs to the zone's own near edge (bottom: 0 in this
-  // component's own "as authored" frame — see the edge="top" doc below for
-  // how that becomes the visual TOP once flipped); a 4-stop layer's own
-  // fade-out means it stops short of it.
+  // A 2-stop layer runs to the near edge (bottom: 0 as authored; edge="top" flips it); a 4-stop
+  // layer's fade-out stops short of it.
   const bottom = layer.stops.length === 4 ? Math.max(0, height * (1 - lastStop) - layer.blur) : 0
   const colors =
     layer.stops.length === 4
@@ -63,35 +54,14 @@ interface EdgeDissolveProps {
   /** Which edge of its positioned ancestor this dissolves FROM — content
    *  passing under that edge is what blurs. */
   edge: 'top' | 'bottom'
-  /** The dissolve zone's own height in px. Bigger gives the blur more room
-   *  to ramp gradually; the composer's own zone is roughly 2-4x its dock's
-   *  height (composer.css's `--dissolve-h`) — same proportions are a
-   *  reasonable start for a caller sizing this off its own header. */
+  /** Zone height in px; taller ramps the blur more gradually (the composer's is ~2-4x its dock). */
   height: number
   className?: string
 }
 
-/**
- * The chat composer's own "glass" — content passing behind this blurs and
- * fades rather than being clipped by a hard edge (composer.css's
- * `.dissolve`/`.dissolve-layer`, "the layered-mask recipe" it cites). Pulled
- * out generically so it can anchor to either edge at any height, rather than
- * staying wired to the composer's own measured dock height and scrollbar
- * inset.
- *
- * The recipe is authored ONCE, as if for edge="bottom" (matching the
- * composer's own orientation: sharp far edge, heaviest blur at the near
- * edge). edge="top" reuses the IDENTICAL layer math and just flips the
- * whole stack vertically (`scaleY(-1)`) rather than re-deriving mirrored
- * percentages — blur is isotropic, so only the mask's distribution needs to
- * flip, and a transform does that for free.
- *
- * Purely decorative: `pointer-events: none` and `aria-hidden`, same as the
- * composer's own dissolve — a caller positions this absolutely within its
- * own `position: relative` box (it does not position itself beyond pinning
- * to its own edge) and stacks real content both before it (what should
- * blur) and after it (what should stay sharp — a header's own label, say).
- */
+// The composer's "glass": content behind blurs and fades instead of clipping at a hard edge.
+// Authored once for edge="bottom"; "top" flips the stack with scaleY(-1) (blur is isotropic).
+// Decorative, no pointer events; the caller positions it inside its own relative box.
 export function EdgeDissolve({ edge, height, className }: EdgeDissolveProps) {
   return (
     <div

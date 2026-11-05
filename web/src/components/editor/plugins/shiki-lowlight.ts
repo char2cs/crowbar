@@ -1,8 +1,6 @@
-/**
- * A lowlight stand-in for `@platejs/code-block` over the shared shiki grammars. `highlight`
- * must stay synchronous: an unready grammar yields an empty tree, and the block re-decorates
- * on `onGrammarReady`. Scopes map onto the `hljs-*` classes the block's stylesheet colours.
- */
+// A lowlight stand-in for `@platejs/code-block` over the shared shiki grammars, mapping scopes to
+// the block stylesheet's `hljs-*` classes. `highlight` stays synchronous: an unready grammar yields
+// an empty tree, and the block re-decorates on `onGrammarReady`.
 import type { StateStack } from 'shiki/textmate'
 import {
   grammarFor,

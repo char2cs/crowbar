@@ -3,17 +3,9 @@ import type React from 'react'
 import { buildFlickerStrip } from '@/components/ui/flicker-strip'
 import { cn } from '@/lib/utils'
 
-// Discover every flip-dot spinner SVG as raw markup at build time. Adding a
-// spinner = drop an .svg in ./spinners — no index, no codegen.
-//
-// The assets animate with SMIL, but we do NOT mount them that way: their 25
-// discrete `<animate>` timers run on the main thread and make every step
-// rebuild the whole layer tree, so one 16px spinner costs in proportion to the
-// size of the entire app. buildFlickerStrip flattens the timeline into a static
-// sprite strip that plays as a single stepped `transform` — see flicker-strip.ts
-// for why that is exact and why it is cheap. Inlining the markup (rather than
-// an <img src>) stays load-bearing either way: it lets the dots'
-// fill="currentColor" inherit the Crowbar theme token from an ancestor.
+// Every ./spinners/*.svg as raw markup at build time (drop in a file to add one). Played as a baked
+// stepped-transform strip, not SMIL (see flicker-strip.ts); inlined rather than <img> so the dots'
+// fill="currentColor" inherits the theme token.
 const SPINNERS = Object.values(
   import.meta.glob('./spinners/*.svg', { eager: true, query: '?raw', import: 'default' }),
 ) as string[]
@@ -31,20 +23,14 @@ export function FlickerSpinner({
   className,
   ...props
 }: React.ComponentProps<'span'>): React.ReactElement {
-  // Random-pick one spinner per instance, stable for the component's lifetime
-  // (mirrors the retired WorkspaceAgentSpinner's spinnerNames pick).
+  // Random-pick one spinner per instance, stable for the component's lifetime.
   const [index] = useState(() => Math.floor(Math.random() * SPINNERS.length))
   const strip = stripFor(index)
   const boxRef = useRef<HTMLSpanElement>(null)
   const stripRef = useRef<HTMLSpanElement>(null)
 
-  // A spinner nobody can see still drives the compositor. The sidebar's panels
-  // are an off-viewport scroll-snap carousel and rows scroll out of view, so
-  // park the animation while the box is off-screen.
-  //
-  // Deliberately fail-open: the play state starts `running` and only a
-  // definitive not-intersecting observation pauses it. A spinner frozen by a
-  // wrong guess reads as "hung", which is far worse than the frames it saves.
+  // Park the animation while off-screen (the sidebar carousel, scrolled-out rows). Fail-open: only a
+  // definitive not-intersecting pauses it, since a wrongly frozen spinner reads as "hung".
   useEffect(() => {
     const box = boxRef.current
     if (!box || typeof IntersectionObserver === 'undefined') return
@@ -67,17 +53,12 @@ export function FlickerSpinner({
       // tests assert on it. They used to look for an <animate> element, which
       // is no longer how the animation is expressed.
       data-flicker-spinner=""
-      // Exempts this subtree from the prefers-reduced-motion kill-switch in
-      // index.css. SMIL was never subject to it; a CSS animation is, and
-      // freezing an indeterminate status spinner turns "still working" into
-      // "looks hung". Guarded by __tests__/reduced-motion.test.ts.
+      // Exempt from index.css's reduced-motion kill-switch: a frozen status spinner reads as
+      // "hung". Guarded by __tests__/reduced-motion.test.ts.
       data-essential-motion=""
-      // Size via className (default size-4). Color is NOT baked in here: the
-      // SVG dots use fill="currentColor", so callers color this by wrapping it
-      // in (or applying) a text-* theme token span — never a hardcoded color.
-      // overflow-hidden is the frame window the strip slides behind. shrink-0:
-      // in a squeezed flex row the box would narrow but keep its height, and the
-      // strip (N boxes wide) then plays crushed slivers instead of frames.
+      // Sized by className and coloured by an ancestor text-* token (fill="currentColor").
+      // overflow-hidden is the strip's frame window; shrink-0 stops a squeezed flex row narrowing the
+      // box, which would play crushed slivers.
       className={cn(
         'relative inline-flex size-4 shrink-0 items-center justify-center overflow-hidden',
         className,
@@ -88,22 +69,16 @@ export function FlickerSpinner({
         <span
           ref={stripRef}
           aria-hidden="true"
-          // `mx-0!` cancels the `[&_svg]:-mx-0.5` that Button and Tabs put on
-          // every descendant icon: unlike their sizing rule that one has no
-          // :not() opt-out, and a 2px horizontal pull on the strip slides a
-          // sliver of the neighbouring frame into the window.
+          // `mx-0!` cancels Button/Tabs' `[&_svg]:-mx-0.5`, which has no :not() opt-out and would
+          // slide a sliver of the next frame into the window.
           className="absolute inset-y-0 left-0 [&>svg]:block [&>svg]:size-full [&>svg]:mx-0!"
           style={{
-            // N frames wide, stepped one frame-width per tick. translateX(-100%)
-            // is the strip's own width, so steps(N) lands exactly on frame
-            // boundaries; `steps()` defaults to jump-end, which holds frame 0
-            // from t=0 — the same phase SMIL starts on.
+            // N frames wide; translateX(-100%) is the strip width, so steps(N) lands on frame
+            // boundaries, and jump-end holds frame 0 from t=0 like SMIL.
             width: `${strip.frames * 100}%`,
             animation: `flicker-strip ${strip.duration} steps(${strip.frames}) infinite`,
-            // Promotes the strip so playback is a compositor transform on an
-            // already-painted layer: no style recalc, no layer-tree rebuild,
-            // and it keeps running while the window is unfocused.
-            //
+            // Promoted, so playback is a compositor transform on a painted layer: no style recalc
+            // or layer-tree rebuild, and it runs while the window is unfocused.
             // react-doctor-disable-next-line no-permanent-will-change -- the rule's fix (add on animationstart, remove on animationend) does not apply: this animation is `infinite` and runs for the element's entire mounted lifetime, and the element is mounted only while something is loading. There is no "end" to remove the hint at, and dropping it costs the promotion this spinner was rebuilt from SMIL to get (−59% main thread, measured).
             willChange: 'transform',
           }}

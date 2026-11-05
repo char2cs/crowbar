@@ -58,22 +58,9 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   isActive?: boolean
   isDragged?: boolean
   action?: React.ReactNode
-  /**
-   * 'pill' (default, unchanged): the filled/rounded/shadowed treatment.
-   * 'underline': flat, no radius, no fill at rest — a static 2px `bg-primary`
-   * bar on the active tab, matching Main.dc.html's `.hitem`/`.hitem.is-on`
-   * rule. This is NOT the compound `TabsList variant="underline"` system
-   * (that one drives a single sliding indicator across `Tabs.Root`-managed
-   * children, which doesn't fit a dnd-kit-sortable, dynamically-mutating tab
-   * strip) — it's the same visual tokens (bg-primary, 2px), applied
-   * per-button so any standalone `Tab` can carry it.
-   * 'ghost': the IDE sector's own tab strip — the same toolbar-button recipe
-   * as its row neighbours (`SplitToggleButton`/`CloseViewButton`/
-   * `TabAddButton`: transparent at rest, `sidebar-element-hover` on
-   * hover/active, rounded-sm, no underline bar) so a tab reads as the same
-   * chrome family as the buttons beside it rather than a distinct pill or
-   * underline treatment.
-   */
+  /** 'pill' (default): filled and rounded. 'underline': a static 2px `bg-primary` bar per button,
+   *  not TabsList's sliding indicator (which can't follow a sortable strip). 'ghost': the IDE
+   *  strip's toolbar-button recipe, so tabs read as the same chrome as their neighbours. */
   variant?: 'pill' | 'underline' | 'ghost'
   size?: 'xs' | 'sm' | 'md' | 'lg'
   labelPosition?: 'start' | 'center' | 'end'
@@ -100,35 +87,15 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
   ) => (
     <button
       ref={ref}
-      // A click activates the tab; it should not ALSO leave it visibly
-      // focused. `:focus-visible` is meant to tell a mouse click and a
-      // keyboard Tab-press apart on its own, but WebKit shows the ring for
-      // both (Chromium doesn't) — caught live: every pane click left its
-      // tab wearing the ring for as long as focus sat there, flashing on
-      // every switch. `preventDefault()` on mousedown SHOULD be enough on
-      // its own (it stops a click from moving focus at all; keyboard
-      // navigation never goes through mousedown, so it loses nothing) — but
-      // this WebKit build kept showing the ring even with it in place, on a
-      // REAL trackpad click specifically (every synthetic click this was
-      // tested against — WebDriver-dispatched, `element.click()` — never
-      // reproduced it, confirmed with a 90-frame :focus-visible/:focus
-      // logger across a fresh reload). `onClick`'s own blur below is the
-      // belt-and-suspenders fix: it does not depend on WHICH heuristic this
-      // engine actually used to decide the ring was earned, it just refuses
-      // to let one survive a mouse click, full stop. Runs after a caller's
-      // own handler and only if that handler left the event alone, so
-      // dnd-kit's own drag-activation mousedown (the editor tab strip's
-      // reordering) is untouched.
+      // A click must not leave the focus ring: WebKit shows `:focus-visible` for real trackpad clicks.
+      // preventDefault on mousedown stops the focus move (keyboard never uses mousedown), unless a
+      // caller's handler (dnd-kit's drag activation) already took the event.
       onMouseDown={(e) => {
         onMouseDown?.(e)
         if (!e.defaultPrevented) e.preventDefault()
       }}
-      // `e.detail` is the spec's own way to tell a mouse click from a
-      // keyboard-activated one (Enter/Space on a focused button): a real
-      // click reports the number of times the button was pressed at that
-      // point (>= 1), a keyboard activation reports 0. Blurring only the
-      // mouse case is what keeps this from also undoing REAL keyboard
-      // focus — the one case `:focus-visible` exists to show a ring for.
+      // And blur on a mouse click (`detail >= 1`; keyboard activation reports 0) as a backstop for
+      // whatever WebKit heuristic still earns the ring, keeping real keyboard focus visible.
       onClick={(e) => {
         onClick?.(e)
         if (e.detail !== 0) e.currentTarget.blur()
