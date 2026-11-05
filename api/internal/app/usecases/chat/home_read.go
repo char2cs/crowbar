@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 
+	apptree "github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
@@ -123,56 +124,15 @@ func (u *homeCorrectedTreeChats) ListByWorkspace(
 	return append(out, folderRows...), nil
 }
 
-// foldersReachableFrom finds every folder between workspaceRows and the panel root, as
-// Chat-shaped rows, so the lineage walk can climb through them (any repo). The BFS is
-// seeded with every workspace row's id plus the root, since a folder may nest under either.
+// foldersReachableFrom is every folder between workspaceRows and the panel root.
 func foldersReachableFrom(
-	ctx context.Context,
-	folders TreeFolders,
-	nodes TreeNodes,
-	workspaceRows []domain.Chat,
+	ctx context.Context, folders TreeFolders, nodes TreeNodes, workspaceRows []domain.Chat,
 ) ([]domain.Chat, error) {
 	byParent, err := childrenByParent(ctx, nodes)
 	if err != nil {
 		return nil, err
 	}
-	var found []domain.Chat
-	queried := map[string]bool{}
-	seenFolder := map[string]bool{}
-	queue := make([]string, 0, len(workspaceRows)+1)
-	queue = append(queue, "")
-	for _, row := range workspaceRows {
-		queue = append(queue, row.ID)
-	}
-	for len(queue) > 0 {
-		parent := queue[0]
-		queue = queue[1:]
-		if queried[parent] {
-			continue
-		}
-		queried[parent] = true
-		for _, n := range byParent[parent] {
-			if n.Kind != tree.KindFolder || seenFolder[n.ID] {
-				continue
-			}
-			seenFolder[n.ID] = true
-			f, ferr := folders.FindByKey(ctx, n.ID)
-			if ferr != nil {
-				return nil, ferr
-			}
-			if f == nil {
-				continue
-			}
-			found = append(found, domain.Chat{
-				ID: f.ID, Type: domain.ChatTypeFolder, RepoID: f.RepoID,
-				Title: f.Name, ParentID: n.ParentID, Order: n.Order,
-			})
-			if !queried[n.ID] {
-				queue = append(queue, n.ID)
-			}
-		}
-	}
-	return found, nil
+	return apptree.FoldersBelow(ctx, folders, byParent, workspaceRows)
 }
 
 // correctOne overlays row's live Node position.

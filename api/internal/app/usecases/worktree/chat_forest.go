@@ -46,15 +46,11 @@ func newChatForest(
 	return chatForest{byID: byID, tree: tree.New(treeNodes)}
 }
 
-// foldersReachableFromRoots BFS-discovers every Folder+Node row between baseRows' ids and the panel root,
-// as Chat-shaped views, seeding "" plus every baseRows id so folders under chats are found too.
+// foldersReachableFromRoots is every folder below the root or rows; a nil port finds nothing.
 func foldersReachableFromRoots(
-	ctx context.Context,
-	folders Folders,
-	nodes Nodes,
-	baseRows []domain.Chat,
+	ctx context.Context, folders Folders, nodes Nodes, rows []domain.Chat,
 ) ([]domain.Chat, error) {
-	if folders == nil || nodes == nil {
+	if nodes == nil {
 		return nil, nil
 	}
 	all, err := nodes.ListAll(ctx)
@@ -65,43 +61,7 @@ func foldersReachableFromRoots(
 	for _, n := range all {
 		byParent[n.ParentID] = append(byParent[n.ParentID], n)
 	}
-	var found []domain.Chat
-	queried := map[string]bool{}
-	seenFolder := map[string]bool{}
-	queue := make([]string, 0, len(baseRows)+1)
-	queue = append(queue, "")
-	for _, row := range baseRows {
-		queue = append(queue, row.ID)
-	}
-	for len(queue) > 0 {
-		parent := queue[0]
-		queue = queue[1:]
-		if queried[parent] {
-			continue
-		}
-		queried[parent] = true
-		for _, n := range byParent[parent] {
-			if n.Kind != dtree.KindFolder || seenFolder[n.ID] {
-				continue
-			}
-			seenFolder[n.ID] = true
-			f, ferr := folders.FindByKey(ctx, n.ID)
-			if ferr != nil {
-				return nil, ferr
-			}
-			if f == nil {
-				continue
-			}
-			found = append(found, domain.Chat{
-				ID: f.ID, Type: domain.ChatTypeFolder, RepoID: f.RepoID,
-				Title: f.Name, ParentID: n.ParentID, Order: n.Order,
-			})
-			if !queried[n.ID] {
-				queue = append(queue, n.ID)
-			}
-		}
-	}
-	return found, nil
+	return tree.FoldersBelow(ctx, folders, byParent, rows)
 }
 
 func (f chatForest) ancestry(

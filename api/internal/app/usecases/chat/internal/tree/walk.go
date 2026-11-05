@@ -131,7 +131,7 @@ func buildForest(
 	rows []domain.Chat,
 ) (tree.Tree, map[string]domain.Chat) {
 	if table, err := readNodeTable(ctx, nodes); err == nil {
-		if folderRows, ferr := foldersReachableFromRoots(ctx, folders, table, rows); ferr == nil {
+		if folderRows, ferr := tree.FoldersBelow(ctx, folders, table.byParent, rows); ferr == nil {
 			rows = append(rows, folderRows...)
 		}
 		rows = append(rows, workspaceAnchorsReachable(table, rows)...)
@@ -238,53 +238,3 @@ func ResolveCwdWorkspaceID(
 	return id, ok, nil
 }
 
-// foldersReachableFromRoots discovers every Folder+Node row below "" or any baseRows id (an owning chat has
-// no Node to be discovered through). It duplicates the chat package's foldersReachableFrom because this
-// package cannot import the package that imports it; a nil folders port finds nothing.
-func foldersReachableFromRoots(
-	ctx context.Context,
-	folders Folders,
-	table nodeTable,
-	baseRows []domain.Chat,
-) ([]domain.Chat, error) {
-	if folders == nil {
-		return nil, nil
-	}
-	var found []domain.Chat
-	queried := map[string]bool{}
-	seenFolder := map[string]bool{}
-	queue := make([]string, 0, len(baseRows)+1)
-	queue = append(queue, "")
-	for _, row := range baseRows {
-		queue = append(queue, row.ID)
-	}
-	for len(queue) > 0 {
-		parent := queue[0]
-		queue = queue[1:]
-		if queried[parent] {
-			continue
-		}
-		queried[parent] = true
-		for _, n := range table.byParent[parent] {
-			if n.Kind != dtree.KindFolder || seenFolder[n.ID] {
-				continue
-			}
-			seenFolder[n.ID] = true
-			f, ferr := folders.FindByKey(ctx, n.ID)
-			if ferr != nil {
-				return nil, ferr
-			}
-			if f == nil {
-				continue
-			}
-			found = append(found, domain.Chat{
-				ID: f.ID, Type: domain.ChatTypeFolder, RepoID: f.RepoID,
-				Title: f.Name, ParentID: n.ParentID, Order: n.Order,
-			})
-			if !queried[n.ID] {
-				queue = append(queue, n.ID)
-			}
-		}
-	}
-	return found, nil
-}
