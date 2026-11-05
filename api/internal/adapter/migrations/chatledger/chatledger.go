@@ -13,10 +13,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// Result is one legacy chat as ledger rows: At is the legacy record's time,
-// Seq is 1..n in order. Skipped names each legacy record, or part of one, the
-// chat is left without, and why; LeftOut counts them, as the chat's marker
-// does. A record another row restates is converted, not skipped.
+// Result is one legacy chat as ledger rows (At is the legacy record's time, Seq is
+// 1..n). Skipped names each legacy record or part left out and why, LeftOut counts
+// them as the marker does; a record another row restates is converted, not skipped.
 type Result struct {
 	Rows    []ledger.Row
 	Skipped []string

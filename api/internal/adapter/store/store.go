@@ -23,13 +23,9 @@ type Store[T any, K comparable] interface {
 	) ([]T, error)
 }
 
-// ScopedStore is a Store that can additionally answer a narrowed list query, so
-// a caller that needs one parent's rows never materialises the whole table.
-//
-// FindWhere matches on the NON-ZERO fields of match, conjunctively. A zero field
-// is not a filter — it is "don't care" — so this can express "every folder under
-// project P and repo R" but never "every folder whose ParentID is empty"; that
-// distinction is drawn in memory over an already-narrowed set.
+// ScopedStore is a Store that can also answer a narrowed list query. FindWhere
+// matches the non-zero fields of match conjunctively; a zero field means "don't
+// care", so "ParentID is empty" must be filtered in memory over the narrowed set.
 type ScopedStore[T any, K comparable] interface {
 	Store[T, K]
 	FindWhere(

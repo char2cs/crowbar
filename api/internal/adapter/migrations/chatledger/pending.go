@@ -46,10 +46,9 @@ type recorded struct {
 	noted  func(key string) (migrate.Note, bool)
 }
 
-// owed decides a chat of n legacy records: convert it unless it was converted,
-// or skipped by this converter; a converted chat an older build has since added to is recorded,
-// once per count, and never imported over what the ledger holds. Counting
-// misses an edit in place, or a delete and an add together: neither is seen.
+// owed decides a chat of n legacy records: convert unless converted or skipped by
+// this converter. A converted chat an older build has since added to is recorded once
+// per count, never imported over the ledger; counting misses edits in place.
 func (r recorded) owed(chatID string, n int64) duty {
 	counts, converted := r.marked(chatID)
 	if !converted {

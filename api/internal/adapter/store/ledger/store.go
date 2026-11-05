@@ -69,10 +69,9 @@ func (s *Store) Subscribe(fn Subscriber) {
 	s.subs = append(s.subs, fn)
 }
 
-// Do runs decide under chatID's writer against the chat's current State and
-// appends the rows it returns: seqs assigned, each row checked, rows and head
-// committed in one transaction, the State advanced, subscribers called. It
-// returns the committed rows and the State after them. No rows commit nothing.
+// Do runs decide under chatID's writer against the chat's current State, then
+// commits the returned rows and head in one transaction and notifies subscribers.
+// It returns the committed rows and the resulting State; no rows commit nothing.
 func (s *Store) Do(
 	ctx context.Context,
 	chatID string,

@@ -21,10 +21,9 @@ const (
 	adoptedKey = "adopted-marker"
 )
 
-// Adopting is impl for legacy step number, except on a home where an older
-// daemon finished the step and left its marker: there the step is adopted
-// and impl neither applies nor verifies anything. The adoption is recorded
-// before the marker goes, so an attempt stopped in between never re-runs it.
+// Adopting is impl for legacy step number, except where an older daemon left the
+// step's marker: there the step is adopted without applying or verifying. The adoption
+// is recorded before the marker is deleted, so an interrupted attempt never re-runs it.
 func Adopting(
 	number int,
 	impl migrate.Impl,

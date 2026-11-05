@@ -9,10 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// bindSessions binds every conversation of each provider when it began, so
-// the turns on it mark it turned, then binds the current one again last so
-// the chat resumes it. A session another chat owns is a conflict marker; one
-// naming no provider or no session is left out, so the next prompt starts one.
+// bindSessions binds each provider's conversations when they began, so their turns
+// mark them turned, then rebinds the current one last so the chat resumes it. A session
+// another chat owns is a conflict marker; one missing provider or session is left out.
 func (c *conversion) bindSessions(in LegacyChat, owner Owner) {
 	c.current, c.bound = map[string]string{}, map[string]bool{}
 	byProvider := map[string][]LegacyConversation{}

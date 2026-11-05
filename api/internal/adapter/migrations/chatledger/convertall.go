@@ -17,11 +17,9 @@ type legacyHome struct {
 	counts map[string]int64
 }
 
-// convertAll imports, in order, each chat the boot owes a conversion. A chat
-// whose ledger already has rows, or whose records cannot be converted, is
-// skipped and noted with why; one whose import fails is skipped until the next
-// boot. An unreadable session index, a fault of the whole store, or every
-// import failing stops it, and charges no chat an attempt.
+// convertAll imports, in order, each chat the boot owes a conversion. A chat with
+// ledger rows or unconvertible records is skipped with why; a failed import waits for
+// the next boot. A whole-store fault or every import failing stops it, charging no chat.
 func convertAll(
 	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, legacy legacyHome,
 ) (migrate.Counts, error) {
@@ -202,10 +200,9 @@ func interrupted(ctx context.Context, err error) bool {
 	return ctx.Err() != nil && errors.Is(err, ctx.Err())
 }
 
-// skip notes why chat was not converted and by which converter: no later boot
-// tries it again until a newer converter might convert it. An import that
-// failed is noted by no converter, so the next boots retry it, importAttempts
-// times in all: a chat failing at every boot is then given up like the others.
+// skip notes why chat was not converted and by which converter, so no later boot
+// retries it until a newer converter. A failed import is noted by no converter and
+// retried on later boots, importAttempts times in all, before it is given up.
 func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
 	msg, counts := "chatledger: skipped a chat that cannot be converted", migrate.Counts{legacyRecords: n, "converter": converterVersion}
 	level := slog.LevelWarn
