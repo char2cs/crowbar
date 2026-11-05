@@ -30,6 +30,11 @@ func Logger() gin.HandlerFunc {
 			"path", c.Request.URL.Path, "status", status, "took", took,
 		}
 		ctx := c.Request.Context()
+		// A canceled request's 500 is the client leaving (a pane closed), not a failure.
+		if status >= 500 && ctx.Err() != nil {
+			slog.DebugContext(ctx, "http: client went away", attrs...)
+			return
+		}
 		if errs := c.Errors.Errors(); len(errs) > 0 && status >= 500 {
 			slog.ErrorContext(ctx, "http: request failed", append(attrs, "err", strings.Join(errs, "; "))...)
 			return

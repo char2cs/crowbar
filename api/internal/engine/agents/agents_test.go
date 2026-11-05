@@ -151,20 +151,16 @@ func TestAgent_ContextStepsDifferBetweenFreshAndResume(t *testing.T) {
 	assert.Contains(t, resumed[0].Args, "positional")
 }
 
-// TestAgent_Codex_ResumeContextStepsIsEmpty: codex's resume-context delivery does
-// NOT ride ContextSteps at all — a resumed codex thread is entirely owned by the
-// api connection (apiOwnsResume, chat/internal/runner/prompts.go), which delivers
-// the identical {context} document over its own live connection (InjectAt "context",
-// apiconn.go) instead of any CLI argv. codex.yaml declaring no
-// resume_context_inject is that fact made explicit, not an oversight — asserted
-// here so a reintroduced stanza (unreachable dead weight; spawn.go's own
-// apiOwnsResume gate already withholds ContextSteps(true) from codex's redundant
-// PTY) fails loudly instead of silently.
-func TestAgent_Codex_ResumeContextStepsIsEmpty(t *testing.T) {
+// TestAgent_Codex_ResumeContextRidesThePositionalPrompt: a chat-surface resume
+// carries the gap over the api connection, but the terminal surface's
+// `codex resume <id> [PROMPT]` has only its positional prompt to carry it.
+func TestAgent_Codex_ResumeContextRidesThePositionalPrompt(t *testing.T) {
 	codex := get(t, "codex")
 
 	assert.NotEmpty(t, codex.ContextSteps(false), "a fresh codex spawn still carries {context} as developer_instructions")
-	assert.Empty(t, codex.ContextSteps(true), "a resumed codex thread's context now rides the api connection, not CLI argv")
+	resumed := codex.ContextSteps(true)
+	require.Len(t, resumed, 1)
+	assert.Equal(t, "{context}", resumed[0].Args["positional"])
 }
 
 func TestAgent_ContextStepsAreADefensiveCopy(t *testing.T) {
