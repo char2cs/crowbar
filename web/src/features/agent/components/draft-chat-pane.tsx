@@ -18,11 +18,9 @@ interface DraftChatPaneProps {
   belowOverlayHeader: boolean
 }
 
-/**
- * A thread nobody has written to yet: the blank chat, with no chat behind it.
- * Sending creates the chat and hands it this prompt; closing the pane leaves
- * nothing on the daemon or in the sidebar.
- */
+/** A thread nobody has written to yet: the blank chat, with no chat behind it.
+ *  Sending creates the chat and hands it this prompt; closing the pane leaves
+ *  nothing on the daemon or in the sidebar. */
 export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: DraftChatPaneProps) {
   const providers = usePaneProviders(wsId, hostId)
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
