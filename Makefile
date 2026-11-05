@@ -11,7 +11,7 @@ export CARGO_HOME := $(HOME)/.cargo
 dev dev-api dev-web dev-desktop dev-bundle seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
 # Which worktree launched this dev instance. Debug builds put it in the window
-# title (see apply_dev_window_title in desktop/src-tauri/src/lib.rs) so that the
+# title (see apply_window_title in desktop/src-tauri/src/dev_identity.rs) so that the
 # several dev apps running on one machine — one per worktree, all of them a
 # `target/debug/crowbar-desktop` window called "Crowbar" — can be told apart.
 #
