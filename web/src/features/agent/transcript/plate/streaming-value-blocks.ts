@@ -42,11 +42,9 @@ export interface LeafDiff {
   next: Node
 }
 
-/**
- * Collects every differing leaf when both trees share the same shape, returning
- * false for a structural change — tells a mark completing in place apart from a
- * block whose shape changed and must be replaced whole.
- */
+/** Collects every differing leaf when both trees share the same shape, returning
+ *  false for a structural change — tells a mark completing in place apart from a
+ *  block whose shape changed and must be replaced whole. */
 export function leafDivergences(prev: Node, next: Node, path: Path, out: LeafDiff[]): boolean {
   const prevIsText = typeof prev.text === 'string'
   const nextIsText = typeof next.text === 'string'
@@ -115,11 +113,9 @@ export interface TextDivergence {
   replacement: string
 }
 
-/**
- * How `next`'s trailing leaf diverges from `prev`'s: a pure append, or a
- * partial prefix when turn reconciliation rewrites the tail. Null for any
- * structural change (marks, a non-trailing leaf, child count, block type).
- */
+/** How `next`'s trailing leaf diverges from `prev`'s: a pure append, or a
+ *  partial prefix when turn reconciliation rewrites the tail. Null for any
+ *  structural change (marks, a non-trailing leaf, child count, block type). */
 export function trailingTextDivergence(prev: Node, next: Node): TextDivergence | null {
   const prevIsText = typeof prev.text === 'string'
   const nextIsText = typeof next.text === 'string'

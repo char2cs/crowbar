@@ -1,9 +1,7 @@
 import type { Value } from 'platejs'
 
-/**
- * Where a streaming message's settled prefix ends. Derived from the text alone:
- * the prefix's NODES are the editor's own `children`, never copied here.
- */
+/** Where a streaming message's settled prefix ends. Derived from the text alone:
+ *  the prefix's NODES are the editor's own `children`, never copied here. */
 export interface StreamCursor {
   /** Text offset where the unsettled tail begins. */
   offset: number
@@ -51,12 +49,9 @@ function fenceAfter(fence: Fence | null, line: string): Fence | null {
 export type DiagramFence = 'mermaid' | 'excalidraw'
 const DIAGRAMS: DiagramFence[] = ['mermaid', 'excalidraw']
 
-/**
- * The diagram language of the fence still open at the end of `md`, scanning
- * from `from` (a stream cursor offset, never inside a fence). An opening line
- * with no newline yet counts once its info string is a prefix of a diagram
- * language, so a half-typed ```merm is a diagram, not code.
- */
+// The diagram language of the fence still open at the end of `md`, scanning from a stream cursor
+// (never inside a fence). An unterminated opening line counts once its info string prefixes a
+// diagram language, so a half-typed ```merm is a diagram, not code.
 export function openDiagramFence(md: string, from: number): DiagramFence | null {
   let fence: Fence | null = null
   let pos = from
@@ -82,12 +77,9 @@ interface Scan {
   backward: boolean
 }
 
-/**
- * Lines at which the text before them parses on its own, exactly as it does in
- * the whole message: a column-0 line after a blank line, outside a fence. A
- * list marker qualifies only after a chunk that cannot be a list, since a
- * marker after a blank line continues the list before it.
- */
+// Lines before which the text parses on its own exactly as in the whole message: column 0, after
+// a blank line, outside a fence. A list marker qualifies only after a chunk that cannot be a
+// list, since after a blank line it continues the list before it.
 function scanFrom(md: string, from: number): Scan {
   const candidates: number[] = []
   let fence: Fence | null = null
@@ -126,15 +118,9 @@ function scanFrom(md: string, from: number): Scan {
   return { candidates, backward: false }
 }
 
-/**
- * `md` as a Plate value, parsing only the unsettled tail. The settled prefix is
- * taken from `current` (the editor's children, which already hold it), so its
- * nodes keep their identity from delta to delta and `applyStreamedValue`
- * skips them without comparing.
- *
- * The result equals `parse(md)` up to node ids; anything the scan cannot prove
- * safe falls back to the whole parse.
- */
+// `md` as a Plate value, parsing only the unsettled tail; the prefix reuses `current`'s nodes so
+// `applyStreamedValue` skips them by identity. Equals `parse(md)` up to node ids: anything the
+// scan cannot prove safe falls back to the whole parse.
 export function parseStreamingMarkdown(
   md: string,
   cursor: StreamCursor,

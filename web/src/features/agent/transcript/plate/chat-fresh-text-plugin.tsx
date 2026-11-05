@@ -12,10 +12,8 @@ import {
   settleFreshWord,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 
-/**
- * Reads `props.leaf`, not `props.text`: the marks are decorations and never touch
- * the document. Settles on the real `animationend`, never a timer.
- */
+/** Reads `props.leaf`, not `props.text`: the marks are decorations and never touch
+ *  the document. Settles on the real `animationend`, never a timer. */
 function ChatFreshTextLeaf(props: PlateLeafProps) {
   const { editor, leaf, children } = props
   const record = leaf as unknown as Record<string, unknown>

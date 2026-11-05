@@ -130,10 +130,8 @@ function PromptActs({
   )
 }
 
-/**
- * A prompt, from Enter to its settle, under the one key `p:<requestId>`. A
- * harness message or a provider note is not the user's, so it wears no bubble.
- */
+/** A prompt, from Enter to its settle, under the one key `p:<requestId>`. A
+ *  harness message or a provider note is not the user's, so it wears no bubble. */
 function UserRowBody({
   chatId,
   id,
