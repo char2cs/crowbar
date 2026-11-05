@@ -1,12 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useFileTreeStore } from '@/features/file-explorer/file-explorer/stores/file-explorer-tree-store'
 
-// Live-reported: "folders that were opened get lost when switching contexts."
-// This state used to be one flat Set shared by every workspace, so switching
-// which workspace was active either borrowed another workspace's unrelated
-// path strings (looks collapsed) or had its own expansion silently
-// overwritten by another workspace's toggles. These pin the per-workspace
-// scoping that fixed it.
+// Expanded paths are scoped per workspace: switching workspaces never borrows another's paths or
+// lets its toggles overwrite this one's.
 describe('useFileTreeStore expanded-path scoping', () => {
   beforeEach(() => {
     useFileTreeStore.setState({ expandedPathsByWorkspace: {}, selectedFiles: new Set() })

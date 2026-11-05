@@ -65,10 +65,8 @@ describe('activeEditors', () => {
     expect(r.get('p1')).toBeUndefined()
   })
 
-  // R12: a close→reopen of the same file reuses the uri but recreates the model
-  // (the old one was disposed). Deduping on uri alone retained the disposed model
-  // and never re-notified satellites, crashing on the next read. The dedup must
-  // therefore compare model identity too.
+  // A close→reopen of the same file keeps the uri but recreates the model, so the dedup must
+  // compare model identity too, or satellites keep reading the disposed one.
   it('RE-notifies when set with a NEW model for the SAME uri (model-identity dedup)', () => {
     const r = freshRegistry
     const m1 = { id: 'model-1' }

@@ -6,10 +6,8 @@ import {
 } from '@/features/editor/components/html/html-preview-document'
 import { mimeForPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
 
-// The preview frame is sandboxed with an opaque origin and loaded from
-// srcdoc: a relative path resolves against nothing, so local assets must be
-// inlined. (The old path-to-URL conversion was the identity function, so
-// every relative asset in a previewed page was broken.)
+// The preview frame is sandboxed with an opaque origin and loaded from srcdoc: a relative path
+// resolves against nothing, so local assets must be inlined.
 const loadAsset = vi.fn(async (reference: string) => `data:x;ref=${reference}`)
 
 describe('buildHtmlPreviewDocument', () => {

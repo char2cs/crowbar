@@ -6,19 +6,9 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { workspaceRef } from '@/lib/api/documents'
 
-/**
- * A pane renders `paneBuffers.find((b) => b.id === pane.activeEditorTabId)`,
- * where `paneBuffers` is derived from `pane.editorTabIds` (see
- * pane-container.tsx). So a pane whose `activeEditorTabId` names a buffer
- * absent from its own `editorTabIds` resolves the active buffer to `null`
- * and renders NOTHING — a blank editor.
- *
- * `activateEditorTabInPane` refuses to set `activeEditorTabId` for a tab
- * outside `editorTabIds`, which is why jump navigation must never call it
- * for a buffer the target pane does not already hold. This is the
- * invariant every navigation path has to satisfy. Task 26: panes/buffers
- * are window-level now — read `windowPaneStore`, not a per-workspace store.
- */
+// A pane renders only an active buffer among its own `editorTabIds` (see pane-container.tsx);
+// `activateEditorTabInPane` refuses a non-member, so jump navigation must never use it for a
+// buffer the target pane does not already hold.
 const rendersSomething = (paneId: string): boolean => {
   const pane = windowPaneStore.getState().panes[paneId]
   if (!pane?.activeEditorTabId) return false
@@ -47,20 +37,12 @@ describe('jump navigation — pane membership invariant', () => {
       name: 'a.ts',
     })
 
-    // Detach the tab from the pane while the buffer itself stays alive — exactly
-    // the state jump navigation lands in after the file's tab was closed.
-    // Removing the sole tab correctly leaves the pane with none (its own
-    // empty-stage fallback, no more "reseed with a New Tab placeholder" —
-    // that concept was retired) — activeEditorTabId is null here already;
-    // the invariant under test is that activateEditorTabInPane refuses to
-    // point it at `id` anyway, since the pane still doesn't hold it.
+    // Detach the tab while the buffer stays alive, the state jump navigation lands in after the
+    // file's tab was closed; activateEditorTabInPane must still refuse to point the pane at `id`.
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, id)
 
-    // `activateEditorTabInPane` refuses a non-member: it never lets the pane
-    // point at something it does not hold (a populated tab strip with
-    // nothing rendered) — the old failure mode this invariant guards
-    // against.
+    // The pane never points at something it does not hold (a tab strip with nothing rendered).
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).not.toBe(id)
     expect(rendersSomething(ROOT_PANE_ID)).toBe(false)
   })
@@ -74,7 +56,7 @@ describe('jump navigation — pane membership invariant', () => {
     }
     const id = windowPaneStore.getState().bufferActions.openContent(spec)
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
-    // The pane let go of its last reference: the buffer is gone (C2).
+    // The pane let go of its last reference: the buffer is gone.
     expect(windowPaneStore.getState().buffers).toEqual([])
 
     windowPaneStore.getState().bufferActions.openContent(spec)

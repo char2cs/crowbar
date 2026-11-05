@@ -115,11 +115,9 @@ describe('AddHostDialog', () => {
     )
   })
 
-  // The TOFU gate this task exists to enforce: an "innocent" refactor that pipes
-  // the probe result straight into pairing (skipping the human confirm click)
-  // is the single most plausible regression here. Retrying after a rejected code
-  // must reuse the SAME confirmed fingerprint rather than re-probing — proving
-  // pairRemoteHost/redeemPairingCode can never fire on a value the user never saw.
+  // The TOFU gate: pairing must never take the probe result without the user's confirm. Retrying
+  // after a rejected code reuses the same confirmed fingerprint rather than re-probing, so
+  // pairRemoteHost/redeemPairingCode never fire on a value the user never saw.
   it('retrying a rejected code reuses the confirmed fingerprint without re-probing', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode)

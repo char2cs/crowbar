@@ -29,17 +29,14 @@ const frame = (container: HTMLElement) => container.querySelector('iframe')
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
-  // Task 26: panes/buffers are a window-level singleton now.
   resetWindowPaneStoreForTests()
   readDocument.mockReset()
   readDocument.mockImplementation(async (ref: DocumentRef) => ({ ref, text: 'png-bytes' }))
 })
 
-// Regression pin (Task 20): the preview frames potentially agent-generated /
-// untrusted HTML. `allow-same-origin` COMBINED with `allow-scripts` lets that
-// document reach the parent Crowbar origin and remove its own sandbox — so the
-// sandbox string must never re-include it. This asserts on the real rendered
-// iframe attribute, not the source text, so it also catches a runtime rebuild.
+// The preview frames possibly agent-generated HTML: `allow-same-origin` with `allow-scripts`
+// would let it reach the Crowbar origin and lift its own sandbox. Asserted on the rendered iframe
+// attribute, so a runtime rebuild is caught too.
 describe('HtmlPreview iframe sandbox', () => {
   it('never grants allow-same-origin', async () => {
     const container = await previewOf(workspaceRef('w1', 'a.html'), '<h1>hi</h1>')

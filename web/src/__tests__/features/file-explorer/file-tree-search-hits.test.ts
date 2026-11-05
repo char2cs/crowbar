@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { computeFileTreeSearchHits } from '@/features/file-explorer/lib/visible-file-tree-rows'
 import type { FileEntry } from '@/features/file-system/types/app'
 
-// Regression: the file-tree search was wired to filterFileTreeForFffHits with a
-// hardcoded [] (the query was never used), so every search showed "No matching
-// files". computeFileTreeSearchHits is the missing piece that turns the query
-// into hits.
+// computeFileTreeSearchHits turns the query into the hits filterFileTreeForFffHits prunes by.
 const tree: FileEntry[] = [
   { name: 'README.md', path: 'README.md', isDir: false },
   { name: 'Makefile', path: 'Makefile', isDir: false },

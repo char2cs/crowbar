@@ -154,9 +154,8 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   })
 })
 
-// A file dragged out of the explorer and dropped on a pane opens as a tab of
-// THAT pane, named explicitly (C8) — never a pane of its own, whatever edge
-// zone it lands in (spec §6.3/§7.2), and never through a window-global bus.
+// A file dragged out of the explorer onto a pane opens as a tab of that pane, named explicitly:
+// never a pane of its own, whatever edge zone it lands in, and never through a window-global bus.
 describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   let pane: HTMLElement
 

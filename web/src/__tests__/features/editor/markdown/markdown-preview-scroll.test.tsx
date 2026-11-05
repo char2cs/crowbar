@@ -80,13 +80,8 @@ function makePreview(
   }
 }
 
-/**
- * Store holding a markdown source plus its preview buffer, with the preview as
- * the pane's active tab — the state PaneContainer renders MarkdownPreview in.
- * Task 26: panes/buffers are window-level now — seed `windowPaneStore`, not
- * the per-workspace store `createWorkspaceStore` still returns (kept only
- * because MarkdownPreview renders inside a WorkspaceStoreContext.Provider).
- */
+/** A markdown source plus its preview buffer, the preview active in the pane: the state
+ *  PaneContainer renders MarkdownPreview in. The workspace store only provides the context. */
 function setupStore(paths: string[]) {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
@@ -139,9 +134,8 @@ describe('MarkdownPreview scroll retention', () => {
     clearPreservedScroll()
   })
 
-  // Regression: switching the pane to another tab unmounts the preview (only the
-  // active buffer is rendered), so its scroll offset used to reset to the top on
-  // the way back.
+  // Switching tabs unmounts the preview (only the active buffer renders); the scroll offset must
+  // survive the way back.
   it('restores the scroll offset when the tab is switched away and back', () => {
     const store = setupStore(['/repo/README.md'])
 

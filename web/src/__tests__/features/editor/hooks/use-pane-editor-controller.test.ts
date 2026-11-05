@@ -162,8 +162,8 @@ describe('usePaneEditorController', () => {
     expect(openListeners.size).toBe(0)
   })
 
-  // R12 regression: closing the LAST tab must clear the pane's registry entry,
-  // or satellites keep a disposed model's context ('Model is disposed!').
+  // Closing the last tab must clear the pane's registry entry, or satellites keep a disposed
+  // model's context ('Model is disposed!').
   it('clears the registry when the last tab closes (active buffer -> null)', () => {
     const { store, deps } = setup()
     expect(deps.registry.get('p1')?.filePath).toBe('/a.ts')
@@ -173,7 +173,7 @@ describe('usePaneEditorController', () => {
     expect(deps.registry.get('p1')).toBeUndefined()
   })
 
-  // R12 regression: reopening the SAME file after a close re-publishes the context.
+  // Reopening the same file after a close re-publishes the context.
   it('re-publishes the context when the same file is reopened after a close', () => {
     const { store, deps } = setup()
 
