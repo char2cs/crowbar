@@ -16,7 +16,7 @@ import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { report } from '@/lib/errors/report'
 import { joinPath } from '@/utils/path-helpers'
 
-/** Which pane a file opens into (C8). Omitted, the focused pane. */
+/** Which pane a file opens into; omitted, the focused pane. */
 export interface FileOpenTarget {
   paneId?: string
 }

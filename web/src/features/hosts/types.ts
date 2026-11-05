@@ -11,7 +11,7 @@ export interface Host {
   clientId: string
 }
 
-/** 'needs-repair': a 401 on an otherwise-'up' host mid-session (spec §3) —
+/** 'needs-repair': a 401 on an otherwise-'up' host mid-session —
  *  distinct from 'down' so the UI doesn't silently retry a dead credential. */
 export type HostStatus = 'unknown' | 'probing' | 'up' | 'down' | 'needs-repair'
 

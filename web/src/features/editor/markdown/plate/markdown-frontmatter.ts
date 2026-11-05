@@ -18,7 +18,7 @@ function isCloseDelimiterLine(line: string): boolean {
   return trimmed === '---' || trimmed === '...'
 }
 
-/** A line that carries no content — empty, or only spaces/tabs (M2). */
+/** A line that carries no content — empty, or only spaces/tabs. */
 function isBlankLine(line: string): boolean {
   return /^[ \t\r]*$/.test(line)
 }
