@@ -155,7 +155,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
         <div
           className="max-h-80 [&>svg]:h-auto [&>svg]:max-h-80 [&>svg]:w-full"
           style={{ filter: darkFilter }}
-          // react-doctor-disable-next-line dangerous-html-sink -- `svgMarkup` is DOMPurify.sanitize() output (l.126 above, USE_PROFILES svg) of exportToSvg's own render; sanitized before setSvgMarkup ever stores it.
+          // react-doctor-disable-next-line dangerous-html-sink -- `svgMarkup` is DOMPurify.sanitize() output (USE_PROFILES svg) of exportToSvg's own render, sanitized before setSvgMarkup ever stores it.
           dangerouslySetInnerHTML={{ __html: svgMarkup }}
         />
       ) : (

@@ -63,9 +63,9 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
   // Another chat or provider means another CLI's skills. AgentChatView's key remounts on chatId
   // but not on providerId alone, so a key cannot replace this reset.
   useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- a provider switch keeps the key (see above), so only this reset closes the old CLI's menu.
     setOpen(false)
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- same reset: the old CLI's catalog must not answer the new one's query.
     setState({ state: 'closed' })
   }, [wsId, chatId, providerId])
 

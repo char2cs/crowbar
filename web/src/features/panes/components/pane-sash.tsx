@@ -108,7 +108,7 @@ export function PaneSash({
         teardownDrag()
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only: teardownDrag reads refs, so the first one is as good as the latest.
   }, [])
 
   const handlePointerDown = useCallback(
@@ -172,7 +172,7 @@ export function PaneSash({
       onPointerUpRef.current = onUp
 
       isDraggingRef.current = true
-      // react-doctor-disable-next-line effect-needs-cleanup -- this is an event handler, not an effect; listeners are removed via `teardownDrag` + the unmount effect (l.112-116).
+      // react-doctor-disable-next-line effect-needs-cleanup -- this is an event handler, not an effect; listeners are removed by `teardownDrag`, which the unmount effect also runs mid-drag.
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
