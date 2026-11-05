@@ -10,50 +10,21 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// The anchor half: whether a review comment may be attached where the agent asked,
-// and what it is told when it may not.
-//
-// It lives beside the renderers rather than in a package of its own because the two
-// share the diff's geometry — the same hunk ranges that decide an anchor is invalid
-// are the ones a scope listing prints — and a refusal here IS agent-facing text. A
-// verdict a model cannot read is a verdict it cannot act on.
+// The anchor half: whether a review comment may sit where the agent asked, and what it is told if not.
+// It lives beside the renderers because both share the diff's hunk geometry and a refusal is agent text.
 
-// MaxBodyChars caps a body on the way IN — the finding a model posts. It is the
-// renderer's because the same call that places a comment is the one that
-// decides its body is postable.
+// MaxBodyChars caps a body a model writes. Stored bodies are re-serialised in every later event of
+// their thread, so unbounded input would grow without limit.
 const MaxBodyChars = 4000
 
 const (
-	// maxAnchorRangesShown bounds how many changed ranges a rejected anchor is
-	// told about.
-	//
-	// A rejection has to name the legal move or the model guesses the same wrong
-	// number again, and the legal moves here are the file's changed ranges. But a
-	// single file may contribute up to a thousand hunks to an outline, and an error
-	// carrying a thousand ranges is a page of tool output spent on a failed call.
-	//
-	// 8 is about seventy characters — small beside the sentence explaining the rule
-	// — and it is enough because the ranges chosen are the ones NEAREST the anchor
-	// the model actually tried (see nearestRanges), not the first eight in the file.
-	// A model anchoring on a function it just read is within a hunk or two of the
-	// right answer; it does not need the other side of the file.
+	// maxAnchorRangesShown bounds how many changed ranges a rejected anchor is told about. A file may
+	// have a thousand hunks; eight is enough because the ranges shown are those nearest the attempt.
 	maxAnchorRangesShown = 8
 )
 
-// checkBody is the one gate every free-text body a model WRITES passes through:
-// it must say something, and it must be small enough to store.
-//
-// The upper bound is the half that did not exist. maxMessageBodyChars and
-// maxTurnBodyChars bound what is rendered BACK; nothing bounded what went in, so
-// a body was unbounded in the store and — because a reply emits the whole thread
-// aggregate as its event payload — re-serialised on every later message of that
-// thread. See MaxBodyChars.
-//
-// The refusal names the length AND the limit, because the model's only recovery
-// is to shorten and retry, and it cannot do that against an error that merely
-// says "too long". Runes are counted for the same reason truncateBody counts
-// them: the limit is about how much text this is, not how many bytes UTF-8 spent
-// on it.
+// CheckBody gates every free-text body a model writes: non-empty and at most MaxBodyChars runes. The
+// refusal names the length and the limit because shortening and retrying is the model's only recovery.
 func CheckBody(tool, body string) error {
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("agenttools: %s: body must not be empty", tool)
@@ -89,27 +60,9 @@ func CheckRange(start, end int) error {
 	return nil
 }
 
-// validateAnchor rejects an anchor that does not land in a hunk of the CURRENT
-// review rather than storing it: a floating comment is worse than no comment,
-// because the user sees a finding with no code next to it and cannot tell what it
-// refers to.
-//
-// The side selects which pair of the hunk's four numbers applies. right is the
-// branch (NewStart/NewLines), left the base revision (OldStart/OldLines) — a
-// deleted line only exists on the left, and the two numberings diverge by every
-// insertion above them, so validating against the wrong pair would accept anchors
-// that render nowhere.
-//
-// A file matches on either path because a rename carries both: Path is the new
-// name the review addresses it by, OldPath the name it had on the base side.
-//
-// A binary file is rejected by the hunk loop finding nothing to match: git emits no
-// `@@` headers for one, so its Hunks slice is empty.
-//
-// A file whose outline is partial (its hunk count ran past the collection cap) can
-// still refuse a legitimate anchor past the cap. That is the safe direction: the
-// model is told to re-read the scope, rather than the user being shown a comment
-// against nothing.
+// Validate rejects an anchor outside every hunk of the current review on its side (right = branch,
+// left = base): a floating comment shows the user a finding with no code beside it. A file matches on
+// Path or OldPath (renames); a partial outline may refuse a valid anchor, which is the safe direction.
 func Validate(
 	outline []gitdomain.FileOutline,
 	path string,
@@ -123,10 +76,6 @@ func Validate(
 		if anchorInAnyHunk(f.Hunks, start, end, side) {
 			return nil
 		}
-		// The refusal is built from the file's own geometry rather than written as
-		// a fixed sentence, because the model has to recover from it and the only
-		// thing it can recover with is where the legal anchors are. See
-		// anchorRejection.
 		return anchorRejection(f, path, start, end, side)
 	}
 	return fmt.Errorf(
@@ -135,11 +84,8 @@ func Validate(
 	)
 }
 
-// anchorInAnyHunk requires the WHOLE range to fall inside one hunk. lo+span-1 is
-// the hunk's last line, so a hunk at NewStart 40 spanning 10 lines covers 40..49
-// inclusive: 39 and 50 are outside it. A side that is absent (`@@ -1,2 +0,0 @@`
-// gives span 0) has an empty range and matches nothing, since checkAnchorRange has
-// already established start <= end.
+// anchorInAnyHunk requires the whole range inside one hunk, inclusive at both ends. An absent side
+// (span 0) matches nothing, since CheckRange already established start <= end.
 func anchorInAnyHunk(
 	hunks []gitdomain.HunkShape,
 	start, end int,
@@ -168,26 +114,9 @@ func (r HunkRange) String() string {
 	return strconv.Itoa(r.lo) + "-" + strconv.Itoa(r.hi)
 }
 
-// anchorRejection is the message a model reads when its anchor was refused, and
-// the whole reason it is built rather than written as one constant string: a
-// rejection is a recovery instruction, and the only recovery instruction worth
-// giving is the LEGAL MOVE.
-//
-// The rule itself does not move. The whole range must sit inside ONE hunk, and it
-// fails closed, because a comment that floats off the diff shows the user a
-// finding with no code beside it. What changed is that the message now says what
-// the legal anchors ARE — the server is holding the file's hunk geometry at this
-// exact point, and withholding it left the model guessing at the same numbers
-// again.
-//
-// The message it replaced said "are not in any changed hunk ...; call
-// get_review_scope and anchor inside a changed range", which failed a model twice
-// over. It was wrong about the commonest rejection — an anchor spanning two hunks
-// has BOTH endpoints in a changed hunk, so a model told none of it was changed
-// moves the anchor in the wrong direction — and the recovery move it named is a
-// dead end, because get_review_scope reports a status, two counts and a path per
-// file and no line numbers whatsoever. get_review_scope is still named here, for
-// the question it can actually answer: which files the review covers.
+// anchorRejection is built from the file's own hunk geometry because a rejection is a recovery
+// instruction: it names the legal ranges, since get_review_scope reports no line numbers and the
+// commonest refusal (a range spanning two hunks) has both endpoints inside changed lines.
 func anchorRejection(
 	file gitdomain.FileOutline,
 	path string,
@@ -200,10 +129,7 @@ func anchorRejection(
 		return sidelessAnchorRejection(file, path, start, end, side)
 	}
 	shown, hidden := nearestRanges(ranges, start, end)
-	//nolint:staticcheck // ST1005: this is prose for a MODEL recovering from a rejection,
-	// not a clause a Go caller wraps with %w and re-cases — it is never wrapped further
-	// (see validateAnchor's call site), so the terminal period ends a real sentence
-	// instead of dangling mid-thought. See the doc above for why the wording is fixed.
+	//nolint:staticcheck // ST1005: prose for a model, never wrapped further, so it ends in a period.
 	return fmt.Errorf(
 		"agenttools: post_review_comment: lines %d-%d of %s are not inside a single changed hunk "+
 			"on the %s side. A comment must sit entirely within ONE changed range — a range that "+
@@ -214,14 +140,9 @@ func anchorRejection(
 	)
 }
 
-// sidelessAnchorRejection answers the two cases where the side the model chose has
-// no changed lines at all, and they need different advice: a file that changed
-// only on the OTHER side (a deletion, whose lines exist only on the left) can be
-// commented on by switching sides, and a file with no line-level diff on either
-// side (a binary) can never be commented on and the model should stop trying.
-//
-// Telling the two apart matters because the first is one argument away from
-// success and the second is not, and the old message gave both the same advice.
+// sidelessAnchorRejection answers a side with no changed lines: a file changed only on the other side
+// (a deletion) is one argument away from success, while one with no line diff at all (a binary) never
+// takes an anchored comment.
 func sidelessAnchorRejection(
 	file gitdomain.FileOutline,
 	path string,
@@ -232,8 +153,7 @@ func sidelessAnchorRejection(
 	other := otherSide(side)
 	elsewhere := RangesOnSide(file.Hunks, other)
 	if len(elsewhere) == 0 {
-		//nolint:staticcheck // ST1005: prose for a model, not a wrapped Go clause — same
-		// rationale as anchorRejection above.
+		//nolint:staticcheck // ST1005: prose for a model, never wrapped further.
 		return fmt.Errorf(
 			"agenttools: post_review_comment: lines %d-%d of %s cannot be anchored: git reports no "+
 				"line-level changes for this file on either side, which is what a binary file looks "+
@@ -242,8 +162,7 @@ func sidelessAnchorRejection(
 		)
 	}
 	shown, hidden := nearestRanges(elsewhere, start, end)
-	//nolint:staticcheck // ST1005: prose for a model, not a wrapped Go clause — same
-	// rationale as anchorRejection above.
+	//nolint:staticcheck // ST1005: prose for a model, never wrapped further.
 	return fmt.Errorf(
 		"agenttools: post_review_comment: lines %d-%d of %s cannot be anchored on the %s side: that "+
 			"side of the file has no changed lines at all. It changed only on the %s side, where the "+
@@ -252,11 +171,8 @@ func sidelessAnchorRejection(
 	)
 }
 
-// RangesOnSide reduces the hunks to the ranges a comment may anchor inside on one
-// side, in the same order git emitted them.
-//
-// A span of zero is dropped rather than rendered: `@@ -1,2 +0,0 @@` gives the new
-// side start 0 and span 0, and "0--1" is not a range anybody can anchor to.
+// RangesOnSide reduces the hunks to the ranges a comment may anchor inside on one side, in git order.
+// A zero span (`@@ -1,2 +0,0 @@`) is dropped: "0--1" is not an anchorable range.
 func RangesOnSide(
 	hunks []gitdomain.HunkShape,
 	side domain.ReviewSide,
@@ -275,13 +191,8 @@ func RangesOnSide(
 	return out
 }
 
-// nearestRanges picks the ranges to name, and reports how many it left out.
-//
-// It keeps a contiguous window around the range CLOSEST to what the model tried,
-// not the first few in the file. A file may carry up to a thousand hunks, and a
-// model that anchored near the bottom of one is not helped by the ranges at the
-// top; a window keeps the answer near the model's own intent and keeps the list in
-// file order with no second sort.
+// nearestRanges picks a contiguous window around the range closest to the attempt, and reports how
+// many it left out. A window keeps the list near the model's intent and in file order without a sort.
 func nearestRanges(
 	ranges []HunkRange,
 	start int,
@@ -342,13 +253,8 @@ func RenderRanges(
 	return strings.Join(out, ", ")
 }
 
-// rangesCaveat states what the list does not cover, for the same reason every
-// other cap on this surface states it: a model reads a short list as the whole
-// list and then concludes the range it wanted does not exist.
-//
-// The two caveats are independent. hidden counts ranges this message chose not to
-// print; partial marks a file whose hunk collection was capped upstream, so ranges
-// exist that the daemon itself never saw.
+// rangesCaveat states what the list omits, since a model reads a short list as complete. hidden counts
+// ranges not printed; partial marks a file whose hunks were capped upstream, so some were never seen.
 func rangesCaveat(
 	hidden int,
 	partial bool,

@@ -34,10 +34,9 @@ func FactsOf(st ledger.State) LedgerFacts {
 	return facts
 }
 
-// ApplyLedger installs facts published by the chat's ledger writer, bumps the
-// chat's version and emits a snapshot frame when moved (the batch moved its
-// newest turn) or the facts changed. It runs under that writer, so it never reads the
-// ledger itself. It reports whether Busy flipped, and the chat's workspace.
+// ApplyLedger installs facts from the chat's ledger writer and, when moved or the facts changed, bumps
+// the version and emits a frame. It runs under that writer, so it never reads the ledger itself. It
+// reports whether Busy flipped, and the chat's workspace.
 func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts LedgerFacts, moved bool) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

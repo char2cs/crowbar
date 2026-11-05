@@ -8,11 +8,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Decide turns the options a person picked into the decision a provider can be
-// asked to render.
-//
-// The picked options must be of ONE kind: a decision that both allows and denies
-// is not a decision, and no provider's answer format can express it.
+// Decide turns the options a person picked into a decision a provider can render. The options must be
+// of one kind: no provider's answer format can express a decision that both allows and denies.
 func Decide(
 	choice domain.ActivityChoice,
 	optionIDs []string,

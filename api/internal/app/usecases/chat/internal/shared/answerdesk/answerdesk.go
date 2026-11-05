@@ -1,11 +1,8 @@
-// Package answerdesk is the desk of provider prompts currently parked on a human
-// decision.
+// Package answerdesk holds provider prompts parked on a human decision.
 //
-// A vendor CLI that needs permission holds its hook's HTTP request open, and the
-// answer is that request's response body. The desk is where the held hook is
-// registered so Crowbar's UI can find it, decide for it, and hand back exactly the
-// bytes the provider expects — and where one nobody answers in time is released,
-// its question closed as what its channel then hands the provider.
+// A vendor CLI asking permission holds its hook's HTTP request open; the answer is that request's
+// response body. The desk registers the held hook so the UI can decide for it and hand back exactly the
+// bytes the provider expects, and releases one nobody answers in time.
 package answerdesk
 
 import (
@@ -164,10 +161,8 @@ func (d *Desk) ReleaseRunner(runnerID string) []*Slot {
 	return blocked
 }
 
-// record writes one outcome back to the ledger. A failure is logged and never
-// returned: the relay has already been released, and refusing to admit that
-// because a write failed would leave the CLI blocked on a person who can no
-// longer answer.
+// record writes one outcome to the ledger. A failure is logged, not returned: the relay is already
+// released, and failing here would leave the CLI blocked on a person who can no longer answer.
 func (d *Desk) record(
 	ctx context.Context,
 	slot *Slot,

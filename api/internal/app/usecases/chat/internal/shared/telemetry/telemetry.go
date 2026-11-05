@@ -1,12 +1,7 @@
 // Package telemetry holds the last usage report each chat's provider sent.
 //
-// It optionally persists that report so it survives a daemon restart: a
-// report that outlived the process it described used to be a number the UI
-// showed and nobody could explain, but the DTO already carries ObservedAt, so
-// staleness is expressible — losing the number entirely on every restart is
-// worse for the user than showing a timestamped last-known value. What this
-// does NOT do is invent one: a chat nothing has ever reported for stays
-// unknown, not zero, restart or not (see Get's own doc).
+// It optionally persists that report across restarts: the report carries ObservedAt, so a timestamped
+// last-known value beats losing it. A chat nothing has ever reported for stays unknown, never zero.
 package telemetry
 
 import (
@@ -19,33 +14,25 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Persistence is telemetry's seam onto durable storage. Satisfied directly by
-// store.Store[domain.AgentChatTelemetry, string] — narrowed to the three
-// methods this package actually calls so it depends on the shape it uses, not
-// the generic store package.
+// Persistence is telemetry's seam onto durable storage, satisfied by
+// store.Store[domain.AgentChatTelemetry, string] and narrowed to the methods this package calls.
 type Persistence interface {
 	Save(ctx context.Context, row domain.AgentChatTelemetry) error
 	Delete(ctx context.Context, chatID string) error
 	FindAll(ctx context.Context) ([]domain.AgentChatTelemetry, error)
 }
 
-// Store is the per-chat telemetry cache. Reads are frequent (every poll of a
-// chat's header) and writes are rare (one per telemetry hook), so it takes a
-// read/write lock rather than a plain mutex. Get never touches persist — only
-// Set, Forget and construction do — so a durable Store costs a poll nothing.
+// Store is the per-chat telemetry cache. Reads (every header poll) far outnumber writes (one per
+// telemetry hook), hence the RWMutex; Get never touches persist, so durability costs a poll nothing.
 type Store struct {
 	mu      sync.RWMutex
 	reports map[string]engineagents.Telemetry
 	persist Persistence
 }
 
-// NewDurable returns a Store seeded from persist's rows, that writes every
-// Set/Forget through to it — so a chat's last report survives a daemon
-// restart. A nil persist keeps reports in this process only.
-//
-// A hydration failure is logged and swallowed: it must not stop the daemon
-// from starting, it just means every chat opens gauge-less until its provider
-// reports again — no worse than the old, always-empty boot.
+// NewDurable returns a Store seeded from persist that writes every Set/Forget through to it; a nil
+// persist keeps reports in memory only. A hydration failure is logged, not returned: it must not stop
+// the daemon, and chats just open gauge-less until their provider reports again.
 func NewDurable(ctx context.Context, persist Persistence) *Store {
 	s := &Store{reports: map[string]engineagents.Telemetry{}, persist: persist}
 	if persist == nil {
@@ -67,11 +54,8 @@ func NewDurable(ctx context.Context, persist Persistence) *Store {
 	return s
 }
 
-// Set replaces the chat's report, in memory and — when durable — on disk. A
-// provider restates its whole telemetry on every report, so there is nothing
-// to merge. The durable write is best-effort: a failure is logged, not
-// returned, because the in-memory report (which IS the read path) is already
-// correct either way, and the next report retries the write regardless.
+// Set replaces the chat's report (each report restates everything, so nothing merges). The durable
+// write is best-effort: the in-memory report is the read path, and the next report retries the write.
 func (s *Store) Set(ctx context.Context, chatID string, report engineagents.Telemetry) {
 	s.mu.Lock()
 	s.reports[chatID] = report

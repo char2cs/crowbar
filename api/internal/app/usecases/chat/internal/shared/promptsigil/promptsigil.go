@@ -1,17 +1,10 @@
-// Package promptsigil keeps Crowbar's own attachment encoding from reading as
-// a CLI's control gesture, and undoes that again on the way back.
+// Package promptsigil keeps Crowbar's own attachment encoding from reading as a CLI's control gesture,
+// and undoes that on the way back.
 //
-// A vendor CLI decides what a message MEANS from its first character: both
-// shipped ones open a shell mode on `!`. Crowbar writes an image attachment as
-// `![alt](chats/<chatID>/attachments/<file>)`, so something attached before
-// anything was typed puts that character at the front of the message with
-// nobody having typed it. Measured on a shipped CLI: such a message was
-// RUN as `[screenshot.png](/…/shot.png)` and never reached the model — and,
-// because no prompt event ever fired, never became a ledger turn either. It
-// simply vanished.
-//
-// WHICH characters those are, and what hides one, is the descriptor's to say
-// (presentation.prompt_submit.leading_sigils) — nothing here knows `!`.
+// A vendor CLI reads a message's first character as a mode switch (e.g. `!` opens a shell). An image
+// attachment written as `![alt](chats/<chatID>/attachments/<file>)` at the front of a message would be
+// run as a shell command and never reach the model. Which characters are sigils, and what escapes one,
+// comes from the descriptor (presentation.prompt_submit.leading_sigils); nothing here knows `!`.
 package promptsigil
 
 import (
@@ -20,11 +13,9 @@ import (
 	"strings"
 )
 
-// leadingAttachmentPattern matches a message OPENING with a durable attachment
-// reference, in either the image form `![alt](…)` — whose own first character
-// is the sigil this package exists for — or the plain link form `[name](…)`.
-// Same segment rules as the dispatch rewrite's own pattern: a chatID and a
-// filename with no "/" in either, so neither can walk out of the store.
+// leadingAttachmentPattern matches a message opening with a durable attachment reference, image form
+// `![alt](…)` or link form `[name](…)`. Neither the chatID nor the filename may contain "/", so neither
+// can walk out of the store.
 var leadingAttachmentPattern = regexp.MustCompile(
 	`^!?\[[^\]\n]*\]\(chats/([^/\s)]+)/attachments/[^/)\s]+\)`,
 )
@@ -41,15 +32,9 @@ func opensWithASigil(chars []string, text string) bool {
 	return slices.ContainsFunc(chars, func(char string) bool { return strings.HasPrefix(text, char) })
 }
 
-// Guard returns a copy of text whose first character is no longer one of this
-// provider's sigils WHEN that character is one Crowbar itself wrote — the `!`
-// of its own leading image attachment. Everything else passes through
-// byte-identical, which is the whole point: a `!` a PERSON typed still opens
-// shell mode, and the `/compact` Crowbar sends down this same path as prompt
-// text is still a slash command.
-//
-// Idempotent. Applied twice, the second call sees escape's own first character
-// (not a sigil) and does nothing.
+// Guard prefixes escape to text only when its leading sigil is one Crowbar wrote (its own leading
+// attachment reference); anything else passes through byte-identical, so a typed `!` or a `/compact`
+// keeps its meaning. Idempotent: a guarded text no longer opens with a sigil.
 func Guard(chars []string, escape, chatID, text string) string {
 	if len(chars) == 0 || escape == "" || text == "" {
 		return text
@@ -60,14 +45,9 @@ func Guard(chars []string, escape, chatID, text string) string {
 	return escape + text
 }
 
-// Strip is Guard's inverse, for the way back: a user_prompt event reports the
-// text the CLI ACTUALLY received, escape and all, and that report is what
-// becomes the durable ledger turn (see turn.go, which restores the attachment
-// path on the same line). Without this the person's own message would be
-// stored, forever, one byte longer than they wrote it.
-//
-// Removes at most one escape, and only in front of exactly what Guard would
-// have put it in front of.
+// Strip is Guard's inverse: a user_prompt event reports the text the CLI received, escape included, and
+// that becomes the durable ledger turn. It removes at most one escape, and only where Guard would have
+// added it.
 func Strip(chars []string, escape, chatID, text string) string {
 	if len(chars) == 0 || escape == "" || !strings.HasPrefix(text, escape) {
 		return text

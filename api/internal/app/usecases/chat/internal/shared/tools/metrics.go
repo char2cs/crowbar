@@ -8,22 +8,9 @@ type ToolStat struct {
 	Failures int
 }
 
-// Metrics counts how many times each tool was called and how many of those
-// calls failed, across every ToolSet built for every runner in the daemon's
-// lifetime.
-//
-// It is the answer to "do agents actually use these tools?" — the shell
-// command this surface replaces is known to be ignored by real models, and
-// without a count that stays a feeling instead of a number. A failed call is
-// recorded too, and deliberately not dropped: an unauthorized or out-of-scope
-// attempt is the most interesting datum this can produce, since it means an
-// agent tried something it should not have, or that scope resolution itself is
-// misconfigured.
-//
-// Unlike every other Deps port, a nil *Metrics must never suppress a tool's
-// registration — losing observability is not a reason to lose capability. Every
-// method is therefore safe to call on a nil receiver, which lets ToolSet.Call
-// invoke Record unconditionally instead of nil-checking at every call site.
+// Metrics counts calls and failures per tool across the daemon's lifetime; a failure (e.g. out of scope)
+// is kept as the most telling datum. Unlike other Deps ports, nil never suppresses a tool: every method
+// is nil-receiver safe, since losing observability is no reason to lose capability.
 type Metrics struct {
 	mu    sync.Mutex
 	stats map[string]ToolStat
@@ -51,11 +38,8 @@ func (m *Metrics) Record(tool string, ok bool) {
 	m.stats[tool] = stat
 }
 
-// Snapshot returns a point-in-time copy of every tool's counters. It is a copy
-// specifically so a caller mutating the returned map — a test asserting on it,
-// a future HTTP handler serializing it — can never corrupt the live counters. A
-// nil receiver returns nil rather than panicking, matching Record's fail-open
-// behavior.
+// Snapshot returns a copy of every tool's counters, so a caller cannot corrupt the live ones. A nil
+// receiver returns nil, matching Record.
 func (m *Metrics) Snapshot() map[string]ToolStat {
 	if m == nil {
 		return nil

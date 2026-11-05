@@ -1,18 +1,9 @@
-// Package seam declares the vocabulary that crosses this feature's components:
-// the ports it reaches the rest of the daemon through: the PTY it starts vendor CLIs on, the workspace layout it
-// runs them in, and the chat ancestry a thread inherits.
+// Package seam declares the ports the chat feature reaches the rest of the daemon through: the PTY it
+// starts vendor CLIs on, the workspace layout it runs them in, and the chat ancestry a thread inherits.
 //
-// They are declared HERE, by the consumer, and narrowly: each one names only
-// what this feature actually calls, so a change on the other side of the seam
-// that this feature does not use cannot reach it.
-//
-// This package has no test file, and deliberately so: it declares interfaces and
-// nothing else, so there is no behaviour to exercise and no statement to cover. A
-// test asserting that the declarations exist would pass on any tree that
-// compiles. What CAN be checked — that the production terminal engine and
-// workspace reader satisfy them — is checked where those live, as compile-time
-// assertions, because a satisfaction claim belongs next to the implementation
-// making it.
+// They are declared by the consumer and narrowly, so a change on the other side that this feature does
+// not use cannot reach it. The package has no tests: implementations assert satisfaction at compile time
+// where they live.
 package seam
 
 import (
@@ -27,15 +18,9 @@ import (
 // nothing of: the ingress keeps it as a dead letter.
 var ErrHookNotRecorded = errors.New("agent: hook acknowledged, not recorded")
 
-// ChatFeed is where the chat usecase publishes the LIVE facts about a
-// conversation that no aggregate projection carries: each is derived from a
-// hook, a screen or an in-memory registry, and each is pushed on the chat
-// feed as it moves. Bound once, at sweep start, by the layer that owns the
-// hub. A nil field is a feed nobody listens to, and is skipped.
-//
-// One struct rather than one setter per fact, so a new live fact is one field
-// here and one line where the hub is wired — not a new parameter threaded
-// through three signatures.
+// ChatFeed is where the chat usecase publishes live conversation facts no aggregate projection carries.
+// It is bound once, at sweep start, by the layer that owns the hub; a nil field is skipped. One struct
+// rather than a setter per fact, so a new live fact is one field here and one line where the hub is wired.
 type ChatFeed struct {
 	// Telemetry is the provider's newest usage report for the chat.
 	Telemetry func(chatID, workspaceID string, report engineagents.Telemetry)
@@ -52,31 +37,18 @@ type TerminalCommander interface {
 		env []string,
 		onExit func(engineterminal.Exit),
 	) (string, error)
-	// TerminateGraceful quits a vendor CLI: a clean-exit SIGTERM, never SIGKILL.
-	// It is the ONLY way this package ends a runner — we kill the process and let
-	// its death carry the runner away (the engine's onExit → runner.Exit →
-	// the live row disappears), because the PTY is the sole authority on liveness
-	// and asserting an Exit we have not observed would make us a second one.
-	//
-	// Graceful because a well-behaved CLI flushes its native transcript on
-	// SIGTERM, so the provider being switched out keeps its last turn.
+	// TerminateGraceful quits a vendor CLI with SIGTERM, never SIGKILL, so it flushes its native
+	// transcript. It is the only way a runner ends: the observed exit removes the runner, because the
+	// PTY is the sole authority on liveness.
 	TerminateGraceful(
 		ctx context.Context,
 		sessionID string,
 	) error
 	// Write sends raw keystrokes to a live session's PTY.
 	Write(ctx context.Context, sessionID string, data []byte) error
-	// SessionLive reports whether a terminal session id is backed by a LIVE PTY right
-	// now. Its one caller is ReconcileRunnersOnBoot (below): it is the single authority
-	// boot reconciliation asks, Exiting every runner whose PTY did not survive the
-	// restart. A false here means the CLI is definitively gone, even though no event
-	// ever recorded it.
-	//
-	// It is deliberately NOT the engine's SessionExists, which is also true for a
-	// PTY-less suspended placeholder — a session whose process is already dead and
-	// whose only remaining substance is scrollback on disk. Asking the registry "do
-	// you know this id?" instead of "is this process alive?" is what previously let a
-	// restart-orphaned chat keep advertising a live agent.
+	// SessionLive reports whether a session id is backed by a live PTY now; boot reconciliation exits
+	// every runner for which it is false. Not SessionExists, which is also true for a suspended
+	// placeholder whose process is dead and would keep an orphaned chat advertising a live agent.
 	SessionLive(
 		ctx context.Context,
 		sessionID string,
@@ -90,30 +62,17 @@ type WorkspaceReader interface {
 		ctx context.Context,
 		workspaceID string,
 	) (crowbarHome, projectID, repoID, worktree string, err error)
-	// AgentChatsDir returns the directory holding the workspace's own agent-work
-	// state — per-spawn tmp dirs (the rendered hook config; nothing else — no
-	// descriptor copies any credential into them, and none may). It is ALWAYS
-	// strictly under crowbar
-	// home, even for a home-kind / adopted-checkout workspace whose worktree (Cwd)
-	// is the user's REAL directory outside home: for a managed worktree it is the
-	// sibling of the worktree, and for an adopted checkout it reroots under home
-	// so plaintext state never lands on the user's filesystem. The worktree/Cwd is
-	// unaffected — WorktreeDir still returns it unchanged.
-	//
-	// NOT the chat's own directory: that is keyed by the chat's id alone
-	// (worktreepath.LedgerChatsDir), never by this workspace lookup, because
-	// WorkspaceID is optional and mutable (spec §1.5).
+	// AgentChatsDir returns the workspace's per-spawn tmp dirs (rendered hook config, never credentials).
+	// It is always under crowbar home, even for an adopted checkout, so plaintext state never lands in
+	// the user's directory. Not the chat's own dir, which is keyed by chat id since WorkspaceID is mutable.
 	AgentChatsDir(
 		ctx context.Context,
 		workspaceID string,
 	) (string, error)
 }
 
-// ChatLineage answers "what does this chat read" at spawn time: the chat
-// ancestors, nearest parent first, that a thread inherits context from.
-//
-// It is an interface rather than the concrete reader so a test can answer the
-// question without two tables behind it.
+// ChatLineage returns, at spawn time, the chat ancestors (nearest parent first) a thread inherits
+// context from.
 type ChatLineage interface {
 	Ancestors(
 		ctx context.Context,

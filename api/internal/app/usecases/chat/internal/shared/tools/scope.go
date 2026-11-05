@@ -18,31 +18,14 @@ var (
 	// ErrOutOfScope means the caller is real but asked about something outside
 	// what its position in the workspace tree permits.
 	ErrOutOfScope = errors.New("agenttools: out of scope")
-	// ErrOwnThread means the caller asked for a chat that hangs BELOW its own in
-	// the Chats tree: one of its threads, or a thread of one.
-	//
-	// It is a separate refusal from ErrOutOfScope because it refuses for the
-	// opposite reason. The caller can see that chat's workspace perfectly well
-	// and would be served any other chat in it — sibling chats included, which is
-	// what this tool was built for. What it may not do is read DOWNWARD, because
-	// a thread already reads this chat: serving the descendant would close the
-	// loop and make a parent and its own threads one conversation with two
-	// windows onto it. Three threads off one chat are three independent attempts,
-	// and they only stay independent while the chat that spawned them cannot look
-	// into any of them.
-	//
-	// The wording is what the MODEL reads — a tool error rides back as result
-	// text — so it says which direction is closed rather than reporting a generic
-	// refusal the model would retry against.
+	// ErrOwnThread means the caller asked for a chat below its own in the Chats tree. Threads already read
+	// their parent, so reading down would merge independent attempts into one conversation. The model
+	// reads this text, so it names the closed direction instead of a generic refusal.
 	ErrOwnThread = errors.New(
 		"agenttools: that chat is a thread of this one; a chat reads the chats ABOVE it, never below",
 	)
-	// ErrToolsDisabled means the caller is real and in scope, but the user has
-	// switched Crowbar's tool surface off for the provider it runs on.
-	//
-	// The wording is what the MODEL reads — a tool error rides back as result
-	// text — so it names the switch and where it lives rather than reporting a
-	// generic refusal the model would retry against.
+	// ErrToolsDisabled means the user switched Crowbar's tools off for the caller's provider. The model
+	// reads this text, so it names the switch rather than a refusal it would retry.
 	ErrToolsDisabled = errors.New(
 		"agenttools: Crowbar's tools are switched off for this provider " +
 			"(Settings → Providers → Tools); no tool call will be served",
@@ -55,15 +38,8 @@ type RunnerReader interface {
 	RunnerByID(runnerID string) (agents.Runner, bool)
 }
 
-// ChatReader is the read port the chat-facing tools need from the chat store:
-// one chat by id, plus every chat in ONE read.
-//
-// It lists the whole table rather than one workspace's chats because
-// list_workspaces folds in the chats of every workspace it can see, and the
-// store's own ListByWorkspace is a full scan filtered in Go — so asking it once
-// per visible workspace read the same table, and unmarshalled every row of it,
-// V times over to answer a single question. Bucketing one read by WorkspaceID
-// costs one pass instead.
+// ChatReader is the chat store's read port: one chat by id, or every chat in one read. list_workspaces
+// buckets a single full read by workspace; per-workspace listing would rescan the table each time.
 type ChatReader interface {
 	Get(ctx context.Context, chatID string) (domain.Chat, error)
 	ListChats(ctx context.Context) ([]domain.Chat, error)
@@ -77,19 +53,9 @@ type WorkspaceLister interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
-// Caller is an authenticated agent and everything it is allowed to reach.
-//
-// ProviderID names the vendor CLI behind this caller (its runner's provider). It
-// is carried here so anything an agent WRITES can be attributed to the agent that
-// wrote it — a review comment with no author renders as a blank name beside the
-// user's own comments in the review UI.
-//
-// The visible set is reached through Visible and CanSee, never as a field,
-// because it is loaded LAZILY: computing it is a full workspace-table scan plus a
-// JSON unmarshal per row, and most tools never look at it — set_chat_title needs
-// no workspace tree at all, and the review tools need a single membership answer.
-// A copy of a Caller shares the same set, so the load happens at most once per
-// resolved caller however many times it is passed by value.
+// Caller is an authenticated agent and everything it may reach. ProviderID attributes what it writes.
+// The visible set is loaded lazily (a full workspace scan most tools never need) and shared by every
+// copy, so it loads at most once per resolved caller.
 type Caller struct {
 	RunnerID   string
 	ChatID     string
@@ -98,13 +64,8 @@ type Caller struct {
 	visible    *visibleSet
 }
 
-// Visible returns every workspace this caller may act on, always including its
-// own, loading the set on first use.
-//
-// It returns an error rather than an empty slice when the set cannot be loaded,
-// because to list_workspaces those two are opposite answers: "you can see
-// nothing" is a statement a model will act on, and reporting it for what is
-// really a failed read would tell an agent its siblings do not exist.
+// Visible returns every workspace this caller may act on, always including its own, loading the set on
+// first use. A failed load is an error, never an empty slice: "you can see nothing" is an answer.
 func (c Caller) Visible() ([]domain.Workspace, error) {
 	if c.visible == nil {
 		return nil, fmt.Errorf("agenttools: visible: caller carries no visibility set: %w", ErrUnauthorized)
@@ -112,14 +73,8 @@ func (c Caller) Visible() ([]domain.Workspace, error) {
 	return c.visible.get()
 }
 
-// CanSee reports whether wsID is one of the workspaces this caller may act on.
-//
-// A set that could not be loaded DENIES. This is the authority check every
-// cross-workspace tool funnels through — reading another chat's log, replying to
-// or resolving another workspace's review thread — so the failure direction is
-// not a style choice: treating an unreadable workspace tree as "no restriction"
-// would hand an agent every workspace on the machine at the exact moment the
-// daemon lost the ability to tell them apart.
+// CanSee reports whether wsID is one of the workspaces this caller may act on. Every cross-workspace
+// tool funnels through it, so a set that could not be loaded denies.
 func (c Caller) CanSee(wsID string) bool {
 	all, err := c.Visible()
 	if err != nil {
@@ -133,16 +88,9 @@ func (c Caller) CanSee(wsID string) bool {
 	return false
 }
 
-// visibleSet is one caller's downward visibility, computed at most once and only
-// if something asks.
-//
-// The mutex is not defensive: a Caller is passed by value into a tool handler
-// while the pointer to this set is shared with every copy, and nothing stops a
-// handler from consulting it off more than one goroutine — a broadcast fan-out
-// or a future concurrent tool would do exactly that. The error is memoised
-// alongside the set so a caller cannot see a different visible set at two points
-// in the same tool call: a check that passes and a later one that fails is
-// harder to reason about than either outcome consistently.
+// visibleSet is one caller's downward visibility, computed at most once and only if asked. Copies of a
+// Caller share it across goroutines, hence the mutex; the error is memoised too so one call never sees
+// two different answers.
 type visibleSet struct {
 	mu     sync.Mutex
 	load   func() ([]domain.Workspace, error)
@@ -162,10 +110,8 @@ func (v *visibleSet) get() ([]domain.Workspace, error) {
 	return v.all, v.err
 }
 
-// Resolver is the authority model: given an authenticated runner, it decides
-// which workspaces — and by extension which chats — that runner may reach.
-// Every agent tool goes through it so authorization happens in exactly one
-// place.
+// Resolver is the authority model: it decides which workspaces (and so chats) an authenticated runner
+// may reach. Every agent tool goes through it, so authorization lives in one place.
 type Resolver struct {
 	minter     *TokenMinter
 	runners    RunnerReader
@@ -182,11 +128,8 @@ func NewResolver(
 	return &Resolver{minter: minter, runners: runners, workspaces: workspaces}
 }
 
-// Resolve authenticates (runnerID, token) and computes what that caller may
-// see.
-//
-// It resolves through the live table: a runner that has exited resolves to
-// nothing.
+// Resolve authenticates (runnerID, token) against the live runner table, so an exited runner resolves
+// to nothing.
 func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller, error) {
 	// A resolver missing a port authenticates nobody, so it refuses everybody:
 	// a misconfiguration fails CLOSED, never crashes on the first call.
@@ -213,18 +156,8 @@ func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller,
 	}, nil
 }
 
-// visibleLoader defers the workspace-tree read until a tool actually needs it.
-//
-// Resolve runs on EVERY MCP call, and the read it used to do here is a full
-// table scan with a JSON unmarshal per row — paid by set_chat_title, which never
-// looks at a workspace other than its own, as much as by list_workspaces, which
-// is the only tool that wants the whole tree.
-//
-// It closes over Resolve's context deliberately: ToolSet.Call hands the same
-// context to Resolve and to the tool handler it dispatches, so the deferred read
-// runs under the request that asked for it and is cancelled with it. Binding the
-// context here rather than taking one per call is what keeps CanSee's signature
-// free of a context it would only ever be given the same value of.
+// visibleLoader defers the full workspace scan until a tool needs it, since Resolve runs on every MCP
+// call. It closes over Resolve's context, which is the same request context the handler runs under.
 func (r *Resolver) visibleLoader(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -238,20 +171,9 @@ func (r *Resolver) visibleLoader(
 	}
 }
 
-// visibleFrom applies the three-tier rule and is downward only by
-// construction: none of its branches ever consult a workspace's ancestors.
-//
-// It drops deleted workspaces first, so all three branches inherit the filter.
-// WorkspaceLister.List returns the residual rows of workspaces the user has
-// already deleted, and every other consumer of that list skips them (the
-// branch-taken checks in the workspaces handler and in worktree, and merge
-// eligibility). Without this the tool surface would be the one place that does
-// not: list_workspaces would advertise workspaces the user's own sidebar no
-// longer shows, and the tools reached through CanSee would act on them.
-//
-// The caller's own workspace is kept regardless, because Caller.Visible always
-// containing it is an invariant the tools rely on — a runner whose workspace is
-// mid-delete must still resolve to itself rather than to nothing.
+// visibleFrom applies the three-tier rule, downward only: no branch consults ancestors. Deleted
+// workspaces (still returned by List) are dropped first, except the caller's own, which Visible always
+// contains even mid-delete.
 func visibleFrom(caller domain.Workspace, all []domain.Workspace) []domain.Workspace {
 	live := filter(all, func(w domain.Workspace) bool {
 		return w.ID == caller.ID || w.Status != domain.WorkspaceStatusDeleted
@@ -268,10 +190,8 @@ func visibleFrom(caller domain.Workspace, all []domain.Workspace) []domain.Works
 	}
 }
 
-// descendants walks the ParentID tree downward from caller, breadth-first.
-// The seen set guards against a cycle in the parent chain — which a bug
-// elsewhere could produce — so the walk always terminates instead of spinning
-// forever.
+// descendants walks the ParentID tree downward from caller, breadth-first; the seen set makes it
+// terminate even on a cyclic parent chain.
 func descendants(caller domain.Workspace, all []domain.Workspace) []domain.Workspace {
 	byParent := map[string][]domain.Workspace{}
 	for _, w := range all {

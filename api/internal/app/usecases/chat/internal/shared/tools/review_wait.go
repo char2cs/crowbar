@@ -52,13 +52,9 @@ func waitTimeout(seconds int) time.Duration {
 	return time.Duration(min(max(seconds, minWaitSeconds), maxWaitSeconds)) * time.Second
 }
 
-// waitForReviewComments returns the caller's threads that need attention, waiting
-// for one if none do. Needs-attention is derived from the threads themselves —
-// unresolved with a human message last — so there is no acknowledged-state to keep.
-//
-// It subscribes BEFORE the first look, or a comment landing between the two would
-// be missed. The read model is projected independently of the notification, so on
-// a wake the notified aggregates override what the listing says.
+// waitForReviewComments returns the caller's threads needing attention (unresolved, human message last),
+// waiting for one if none do. It subscribes before the first look so no comment is missed, and on a wake
+// the notified aggregates override the independently projected listing.
 func waitForReviewComments(
 	ctx context.Context,
 	deps Deps,

@@ -7,10 +7,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// MaxPayloadBytes caps the raw provider payload a prompt may carry into the desk.
-// The payload is held in memory for as long as a person is thinking, and it is
-// handed straight back to the provider to render the answer against, so a prompt
-// bigger than this is left to the provider's own UI instead.
+// MaxPayloadBytes caps the raw provider payload a prompt may carry. It is held in memory while a person
+// decides and handed back to the provider to render the answer, so a bigger prompt is left to the
+// provider's own UI.
 const MaxPayloadBytes = 128 << 10
 
 // HookAnswer is what a relay prints. An empty Stdout means nobody answered in
@@ -35,11 +34,8 @@ type Prompt struct {
 	Keys engineagents.AnswerCapability
 }
 
-// Slot is one relay currently BLOCKED on a human decision.
-//
-// It is in memory and can never be otherwise: a slot describes a live hook
-// process holding a live provider gate open, so a slot that survived a restart
-// would be a promise to a process that no longer exists.
+// Slot is one relay currently blocked on a human decision. It is in memory only: it describes a live
+// hook process holding a provider gate open, which cannot outlive a restart.
 type Slot struct {
 	Prompt
 

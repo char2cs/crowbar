@@ -1,24 +1,11 @@
-// Package snapshot is the ONE owner of what a client is told a chat is: its
-// row, the runner live on it, its phase, and a version that orders every
-// answer the daemon gives about it (spec §7-A target 1, invariant A6).
+// Package snapshot is the one owner of what a client is told a chat is: its row, live runner, phase,
+// and a version that orders every answer the daemon gives about it.
 //
-// Every chat frame and every chat GET is built here, from the same in-memory
-// state, under the same lock that assigns the version. So a snapshot with a
-// higher version was read LATER, and describes a state at least as new — which
-// is the only property a client needs to apply "newer version wins" and never
-// guess again. The client-side read-ordering registry, list sequencing and
-// reseed loops existed because reads were answered from projections that lag
-// the events a frame had already announced; nothing read here lags an event,
-// because the state is fed by the events themselves:
-//
-//   - the chat row comes from the chat aggregate carried ON its event (the
-//     command-side fold, Working included), falling back to the read model only
-//     for a chat no event has touched since boot;
-//   - the live runner is read from the supervisor's table, and how the last
-//     one ended from the chat's ledger.
-//
-// Memory is bounded by chats something has asked about; a deleted chat's
-// entry goes with it (invariant A7).
+// Every chat frame and GET is built from the same in-memory state under the lock that assigns the
+// version, so a higher version always describes a state at least as new and clients apply "newer
+// version wins". The state is fed by the events themselves (the chat aggregate carried on its event,
+// the supervisor's runner table, the chat's ledger), so it never lags a frame; the read model is only
+// a fallback for chats no event has touched since boot. Memory is bounded by chats asked about.
 package snapshot
 
 import (
@@ -118,10 +105,8 @@ type Snapshots struct {
 	reader       Reader
 	runtime      Runtime
 	publish      Publish
-	// correct overlays what the chat row does not own — its tree placement,
-	// which lives on the Node — onto the rows it is given, in order. It reads a
-	// store, so a read applies it to all its rows at once and outside the lock.
-	// Nil passes rows through.
+	// correct overlays the tree placement (owned by the Node, not the chat row) onto rows, in order.
+	// It reads a store, so it runs once per read, outside the lock. Nil passes rows through.
 	correct func(ctx context.Context, chats []domain.Chat) []domain.Chat
 }
 
