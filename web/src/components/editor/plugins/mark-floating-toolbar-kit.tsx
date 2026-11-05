@@ -15,11 +15,12 @@ import { LinkToolbarButton } from '@/components/ui/link-toolbar-button'
 import { MarkToolbarButton } from '@/components/ui/mark-toolbar-button'
 import { ToolbarGroup } from '@/components/ui/toolbar'
 
-/** No equation button: `chatComposerPlugins` has no `MathKit`, so the serializer
- *  would have nowhere to put the node. */
-export const ChatFloatingToolbarKit = [
+/** The selection toolbar minus the inline-equation button, for an editor with no `MathKit`
+ *  (the chat composer, a review comment): there the node has nowhere to go, and @platejs/math
+ *  would pull in katex. */
+export const MarkFloatingToolbarKit = [
   createPlatePlugin({
-    key: 'chat-floating-toolbar',
+    key: 'mark-floating-toolbar',
     render: {
       afterEditable: () => (
         <FloatingToolbar>

@@ -9,25 +9,13 @@ import {
   TablePlugin,
   TableRowPlugin,
 } from '@platejs/table/react'
-import {
-  CodeIcon,
-  TextBIcon,
-  TextItalicIcon,
-  TextStrikethroughIcon,
-  TextUnderlineIcon,
-} from '@phosphor-icons/react'
-import { KEYS } from 'platejs'
-import { createPlatePlugin } from 'platejs/react'
 import remarkGfm from 'remark-gfm'
 
 import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
 import { CalloutKit } from '@/components/editor/plugins/callout-kit'
 import { LinkKit } from '@/components/editor/plugins/link-kit'
 import { ListKit } from '@/components/editor/plugins/list-kit'
-import { FloatingToolbar } from '@/components/ui/floating-toolbar'
-import { LinkToolbarButton } from '@/components/ui/link-toolbar-button'
-import { MarkToolbarButton } from '@/components/ui/mark-toolbar-button'
-import { ToolbarGroup } from '@/components/ui/toolbar'
+import { MarkFloatingToolbarKit } from '@/components/editor/plugins/mark-floating-toolbar-kit'
 
 import { calloutMarkdownRules } from '../markdown-callout-rules'
 import { htmlMarkdownRules } from '../markdown-html-rules'
@@ -41,39 +29,6 @@ import {
   CommentTableElement,
   CommentTableRowElement,
 } from './comment-nodes'
-
-// The selection toolbar minus the full editor's inline-equation button, which imports
-// @platejs/math and so katex (~280 KB) for a node this editor cannot hold. The positioning
-// shell and button primitives are reused.
-const CommentFloatingToolbarKit = [
-  createPlatePlugin({
-    key: 'comment-floating-toolbar',
-    render: {
-      afterEditable: () => (
-        <FloatingToolbar>
-          <ToolbarGroup>
-            <MarkToolbarButton nodeType={KEYS.bold} tooltip="Bold (⌘+B)">
-              <TextBIcon />
-            </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.italic} tooltip="Italic (⌘+I)">
-              <TextItalicIcon />
-            </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.underline} tooltip="Underline (⌘+U)">
-              <TextUnderlineIcon />
-            </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.strikethrough} tooltip="Strikethrough (⌘+⇧+M)">
-              <TextStrikethroughIcon />
-            </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.code} tooltip="Code (⌘+E)">
-              <CodeIcon />
-            </MarkToolbarButton>
-            <LinkToolbarButton />
-          </ToolbarGroup>
-        </FloatingToolbar>
-      ),
-    },
-  }),
-]
 
 // The review comment editor's plugins. Register everything a comment can contain (a missing plugin
 // drops that node on edit; HtmlKit carries any raw HTML), but no page-editor furniture: no MathKit
@@ -95,7 +50,7 @@ export const commentPlugins = [
     shortcuts: { toggle: { keys: 'mod+alt+8' } },
   }),
   CodeLinePlugin.withComponent(CommentCodeLineElement),
-  ...CommentFloatingToolbarKit,
+  ...MarkFloatingToolbarKit,
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],

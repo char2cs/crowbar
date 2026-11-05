@@ -1,6 +1,6 @@
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import { Check, SlidersHorizontal } from '@phosphor-icons/react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -318,60 +318,29 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           className="w-[220px] overflow-hidden rounded-lg p-1.5"
         >
           <div className="space-y-0.5">
-            {displayOptions.slice(0, 2).map((option) => (
-              <Button
-                key={option.id}
-                type="button"
-                onClick={() => !option.disabled && void option.onToggle()}
-                variant="ghost"
-                compact
-                className={cn(menuItemClass, option.disabled && menuItemDisabledClass)}
-                disabled={option.disabled}
-              >
-                <span>{option.label}</span>
-                <span className="flex items-center gap-2">
-                  {option.shortcut ? (
-                    <Keybinding binding={option.shortcut} className="shrink-0" />
-                  ) : null}
-                  <span className="flex size-4 items-center justify-center">
-                    {option.checked ? <Check className="text-secondary" /> : null}
+            {displayOptions.map((option, index) => (
+              <Fragment key={option.id}>
+                {/* The chrome toggles, then the editing aids. */}
+                {index === 2 ? <div className="my-1 border-t border-border/70" /> : null}
+                <Button
+                  type="button"
+                  onClick={() => !option.disabled && void option.onToggle()}
+                  variant="ghost"
+                  compact
+                  className={cn(menuItemClass, option.disabled && menuItemDisabledClass)}
+                  disabled={option.disabled}
+                >
+                  <span>{option.label}</span>
+                  <span className="flex items-center gap-2">
+                    {option.shortcut ? (
+                      <Keybinding binding={option.shortcut} className="shrink-0" />
+                    ) : null}
+                    <span className="flex size-4 items-center justify-center">
+                      {option.checked ? <Check className="text-secondary" /> : null}
+                    </span>
                   </span>
-                </span>
-              </Button>
-            ))}
-            <div className="my-1 border-t border-border/70" />
-            {displayOptions.slice(2, 6).map((option) => (
-              <Button
-                key={option.id}
-                type="button"
-                onClick={() => !option.disabled && void option.onToggle()}
-                variant="ghost"
-                compact
-                className={cn(menuItemClass, option.disabled && menuItemDisabledClass)}
-                disabled={option.disabled}
-              >
-                <span>{option.label}</span>
-                <span className="flex size-4 items-center justify-center">
-                  {option.checked ? <Check className="text-secondary" /> : null}
-                </span>
-              </Button>
-            ))}
-            <div className="my-1 border-t border-border/70" />
-            {displayOptions.slice(6).map((option) => (
-              <Button
-                key={option.id}
-                type="button"
-                onClick={() => !option.disabled && void option.onToggle()}
-                variant="ghost"
-                compact
-                className={cn(menuItemClass, option.disabled && menuItemDisabledClass)}
-                disabled={option.disabled}
-              >
-                <span>{option.label}</span>
-                <span className="flex size-4 items-center justify-center">
-                  {option.checked ? <Check className="text-secondary" /> : null}
-                </span>
-              </Button>
+                </Button>
+              </Fragment>
             ))}
           </div>
         </Dropdown>

@@ -22,7 +22,7 @@ import {
   TablePlugin,
   TableRowPlugin,
 } from '@platejs/table/react'
-import { ChatFloatingToolbarKit } from '@/features/agent/composer/plate/chat-floating-toolbar-kit'
+import { MarkFloatingToolbarKit } from '@/components/editor/plugins/mark-floating-toolbar-kit'
 import { HtmlKit } from '@/features/editor/markdown/plate/html-node'
 import { MarkdownImageKit } from '@/features/editor/markdown/plate/markdown-image-node'
 import { calloutMarkdownRules } from '@/features/editor/markdown/plate/markdown-callout-rules'
@@ -95,7 +95,7 @@ export const chatComposerPlugins = [
   // After BasicNodesKit so it replaces its paragraph (a later entry with the same key
   // wins), making every paragraph a drop target.
   ParagraphPlugin.withComponent(ChatParagraphElement),
-  ...ChatFloatingToolbarKit,
+  ...MarkFloatingToolbarKit,
   // Inert outside streaming: only streaming-value-patch.ts sets its mark.
   ChatFreshTextPlugin,
   MarkdownPlugin.configure({
@@ -121,7 +121,7 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
 
 // `PlateStatic` still renders `afterEditable`, and FloatingToolbar's
 // `useEditorId()` crashes without an interactive Plate.
-const STATIC_EXCLUDED_KEYS = new Set(ChatFloatingToolbarKit.map((plugin) => plugin.key))
+const STATIC_EXCLUDED_KEYS = new Set(MarkFloatingToolbarKit.map((plugin) => plugin.key))
 
 /** Derived, not hand-duplicated, so a plugin added above flows through. */
 export const chatComposerPluginsStatic = chatComposerPlugins.reduce<typeof chatComposerPlugins>(

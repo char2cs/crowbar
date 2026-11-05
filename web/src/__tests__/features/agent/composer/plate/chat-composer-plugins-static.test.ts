@@ -6,7 +6,7 @@ import {
 } from '@/features/agent/composer/plate/chat-composer-plugins'
 
 // See chat-composer-plugins.ts's `STATIC_EXCLUDED_KEYS`.
-const DROPPED_KEYS = new Set(['chat-floating-toolbar'])
+const DROPPED_KEYS = new Set(['mark-floating-toolbar'])
 
 describe('chatComposerPluginsStatic', () => {
   it('has the same plugin keys as chatComposerPlugins, minus the floating toolbar, in order', () => {
