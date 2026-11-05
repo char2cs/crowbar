@@ -7,13 +7,7 @@ import type { PaneActions } from '@/features/panes/stores/slices/pane-slice'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import { showingLayout } from '@/features/panes/lib/view-state'
 
-/**
- * Task 26: panes are window-level now (`windowPaneStore`, created once, never
- * destroyed on workspace switch) — every one of these used to read off the
- * ambient PER-WORKSPACE `useWorkspaceStoreContext()`. Callers of these hooks
- * needed no changes: the selector shapes are unchanged, only what they read
- * from is.
- */
+// Panes are window-level: one `windowPaneStore`, never destroyed on a workspace switch.
 function usePaneStore<T>(selector: (state: WindowPaneState) => T): T {
   return useStore(windowPaneStore, selector)
 }
@@ -29,13 +23,8 @@ export const useFullscreenPaneId = (): string | null => usePaneStore((s) => s.fu
 
 export const useActivePaneId = (): string => usePaneStore((s) => s.activePaneId)
 
-/**
- * Is THIS pane the active one? A boolean, deliberately — a component that only
- * needs its own answer must not subscribe to `useActivePaneId`, whose value
- * changes for everybody every time focus moves anywhere, re-rendering every
- * pane in the window (and, with nothing memoized between a pane and its chat
- * surface, every chat on screen) instead of just the two that swapped.
- */
+// A boolean, deliberately: subscribing to `useActivePaneId` would re-render every pane (and its
+// chat) on each focus move instead of just the two that swapped.
 export const useIsActivePane = (paneId: string): boolean =>
   usePaneStore((s) => s.activePaneId === paneId)
 
@@ -44,16 +33,8 @@ export const usePaneActions = (): PaneActions => usePaneStore((s) => s.paneActio
 export const usePaneById = (paneId: string): PaneGroup | null =>
   usePaneStore((s) => s.panes[paneId] ?? null)
 
-/**
- * How many panes the user can actually see and switch between right now.
- *
- * Counts the leaves of BOTH layouts — the bottom panel is a pane you can focus, so when
- * it is open there really are two — but only while it is visible, and never while a pane
- * is fullscreened, since then exactly one is on screen.
- *
- * Returns a number rather than a layout object so the selector stays referentially
- * stable and does not re-render every consumer on unrelated store writes.
- */
+// Panes the user can see and switch between: both layouts' leaves (the bottom panel counts only
+// while visible), or 1 when fullscreened. A number, so selectors stay referentially stable.
 export const useVisiblePaneCount = (): number => {
   const rootLeaves = usePaneStore((s) => getAllLeafIds(showingLayout(s)).length)
   const bottomLeaves = usePaneStore((s) => getAllLeafIds(s.bottomLayout).length)

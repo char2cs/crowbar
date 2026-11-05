@@ -1,9 +1,6 @@
 import type { Repo, Workspace } from '@/core/entities/repo-types'
 
-/**
- * Collect the workspace ids that deleting `wsId` removes: the target plus all
- * descendants, skipping locked subtrees.
- */
+/** The ids deleting `wsId` removes: it and its descendants, skipping locked subtrees. */
 function collectDeletedIds(allWorkspaces: Workspace[], wsId: string): Set<string> {
   // Index once so the BFS below is O(n) instead of an array.find()/filter()
   // per queued id (this list is every workspace across every repo).
@@ -31,15 +28,9 @@ function collectDeletedIds(allWorkspaces: Workspace[], wsId: string): Set<string
   return toDelete
 }
 
-/**
- * Whether `wsId` is a locked (protected-branch) workspace. Locked worktrees
- * refuse every daemon write (409 "workspace locked"), so mutation UI gates on
- * this. Checks BOTH id spaces a workspace can live in: the repo's tree rows
- * (`repo.workspaces`) AND the default (main-worktree) workspace, which is never
- * a tree row — it exists only as `repo.defaultWorkspaceId`, with its status
- * lifted onto `repo.defaultWorkspaceStatus` (adopted protected branches are
- * locked + default, so missing this branch un-gated every repo home).
- */
+// Locked worktrees refuse every daemon write (409), so mutation UI gates on this. Checks the tree
+// rows and the default workspace, which is no row (`repo.defaultWorkspaceId`/`Status`) and is
+// locked whenever an adopted protected branch is.
 export function isWorkspaceLockedInSidebar(repos: Repo[], wsId: string | null): boolean {
   if (!wsId) return false
   for (const repo of repos) {
@@ -55,12 +46,8 @@ export function holdsWorkspace(repo: Repo, wsId: string): boolean {
   return repo.defaultWorkspaceId === wsId || repo.workspaces.some((w) => w.id === wsId)
 }
 
-/**
- * Where to navigate after deleting `wsId` while it (or one of its
- * descendants) is the active workspace: its parent if it survives, else the
- * repo's base (locked) workspace, else any surviving workspace in the repo,
- * else null (→ caller falls back to the projects page).
- */
+/** After deleting the active `wsId` (or an ancestor of it): its surviving parent, else the repo's
+ *  locked base, else any survivor, else null (the caller goes to the projects page). */
 export function getPostDeleteNavigationTarget(repos: Repo[], wsId: string): string | null {
   const repo = repos.find((r) => r.workspaces.some((w) => w.id === wsId))
   if (!repo) return null

@@ -87,9 +87,7 @@ describe('TerminalTab — the phone key bar', () => {
   })
 })
 
-// I8 (Task 26 fix round 1): handleActivate called paneActions.addBufferToPane/
-// .activatePaneBuffer, neither of which has existed on PaneActions since Task
-// 1's editorTabIds rename — every click into a pane terminal threw.
+// Clicking into a pane terminal activates its already-open tab in place.
 describe('TerminalTab — activating a pane terminal (I8)', () => {
   it('activates the tab and the pane it belongs to, without throwing, when paneId is known', () => {
     seedTerminalBuffer(BOTTOM_PANE_ID, 'buf-term-1')

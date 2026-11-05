@@ -344,9 +344,8 @@ describe('a project home', () => {
     expect(rows.map((r) => r.id)).toEqual(['c-plan'])
   })
 
-  // Task 9: the owning chat is minted chat-first, atomically, at creation — there is no boot
-  // backfill left to race, so a caller catching this window (its own creation landed, its
-  // chat/folder tree's first seed has not) degrades gracefully instead of throwing: no rows, not a
+  // The owning chat is minted atomically at creation, so a caller between its creation and the
+  // tree's first seed gets no rows rather than a throw.
   it('degrades to no rows, never throws, while the owning chat has not seeded yet', () => {
     expect(() => homeRows(HOME_WS_ID, [])).not.toThrow()
     expect(homeRows(HOME_WS_ID, [])).toEqual([])
@@ -401,9 +400,8 @@ describe('a project home', () => {
     expect(rows).toHaveLength(0)
   })
 
-  // Task 3 put a repo's `order`/`folderId` on its own `Node` row, computed server-side against
-  // these SAME real chat/folder siblings — so a chat's rendered `order` now has to carry its REAL
-  // wire value through, not a 0..n-1 index compacted from whichever chats/folders happened to reach
+  // `order` is computed server-side against the real siblings, so the wire value must pass through
+  // rather than an index compacted from whichever rows reached the client.
   it("a chat's rendered order is its real wire value, not a index compacted from array position", () => {
     const chatA = homeChat({ id: 'c-a', title: 'a', workspaceId: HOME_WS_ID, order: 0 })
     const chatB = homeChat({ id: 'c-b', title: 'b', workspaceId: HOME_WS_ID, order: 5 })
@@ -412,9 +410,8 @@ describe('a project home', () => {
     expect(rows.find((r) => r.id === 'c-b')?.order).toBe(5)
   })
 
-  // Task 9: `owningChatOf` files a NEW chat/folder directly under its parent workspace's own id —
-  // no owning-chat lookup — the instant that parent's `Node{Kind:workspace}` row exists, which
-  // project home always has.
+  // The daemon files a new chat/folder directly under its parent workspace's id, a row project
+  // home always has.
   it('a chat parented onto the raw home-workspace id still renders top-level', () => {
     const child = homeChat({ id: 'c-1', title: 'New-style child', parentId: HOME_WS_ID })
     const rows = homeRows(HOME_WS_ID, [homeOwningChat(), child])

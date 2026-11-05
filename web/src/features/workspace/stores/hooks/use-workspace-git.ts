@@ -13,22 +13,15 @@ import { useWorkspaceStore } from '../workspace-context'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
 
-// The stream repeats identical git_status signals far faster than the
-// reload debounce, so only a frame that actually differs from the previous
-// one should retrigger a reload. `prev` is `null` before the first frame of
-// a session arrives — null must never compare equal to an incoming frame, or
-// that first frame would silently fail to trigger a reload.
+// The stream repeats identical git_status frames faster than the debounce, so only a changed
+// frame reloads. `prev` is null before a session's first frame and never equal, so that one does.
 function framesEqual(prev: unknown, next: unknown): boolean {
   return prev !== null && deepEqual(prev, next)
 }
 
-/**
- * Keeps `wsId`'s own git slice loaded and live. Loaded the first time the
- * workspace is shown, then kept current by its git: scope while the
- * workspace is retained — so a switch never reloads it. Not for the home
- * workspace (no git surface). `owningChatId` is null until the sidebar records
- * it; the git routes are chat-scoped and throw without one, or without a known host.
- */
+/** Keeps `wsId`'s git slice live: loaded when first shown, then kept current by its git: scope
+ *  while retained. Not for home. Git routes are chat-scoped, so it waits on `owningChatId` (null
+ *  until the sidebar records it) and a known host. */
 export function useWorkspaceGit(
   wsId: string,
   active: boolean,

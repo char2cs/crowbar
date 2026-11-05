@@ -1,35 +1,20 @@
 @import '@fontsource-variable/geist-mono';
-/* Italic must be imported explicitly — without it WebKit synthesizes an
-   oblique by shearing the upright glyphs (SGR 3 text in the terminal looked
-   fake-slanted). The variable cut is the one bundled Geist Mono, default for
-   both the editor and the terminal (see typography-defaults.ts). */
+/* Imported explicitly, or WebKit fakes italic (SGR 3 in the terminal) by shearing the upright
+   glyphs. */
 @import '@fontsource-variable/geist-mono/wght-italic.css';
 
 :root {
   --editor-font-family: ui-monospace, 'Geist Mono Variable', monospace;
 
-  /* `@pierre/diffs` (the branch-review diff renderer) reads its type from these
-     two custom properties on its host element rather than from any React prop —
-     unset, it silently falls back to its own hardcoded stacks ("SF Mono" for
-     code, system-ui for headers), ignoring whatever font is configured in
-     Settings. Aliasing them to the same variables the editor uses keeps Monaco
-     and branch review on one resolution path: a font-setting change updates
-     both. Custom properties inherit across the shadow boundary the diff
-     renderer draws into, so no per-component wiring is needed. */
+  /* `@pierre/diffs` reads its fonts only from these (unset, it ignores Settings), so they alias
+     the editor's and inherit across its shadow boundary. */
   --diffs-font-family: var(--editor-font-family);
-  /* A file-path/stat header label, not prose or a headline — stays on the UI
-     font (tracks --app-font-family same as --font-sans), never the serif
-     display face. Fallback name only: unreachable in practice since
-     --app-font-family is always set, but kept current so it isn't a stale
-     name if that ever changes. */
+  /* A path/stat label, so the UI font, never the serif display face. */
   --diffs-header-font-family: var(--app-font-family, 'CalSansUI', sans-serif);
 }
 
-/* The renderer's theme stylesheet sets --diffs-bg/--diffs-fg on its :host from a
-   fixed palette (#0a0a0a / #ffffff), so the diff read as a different surface from
-   the pane around it. Declared from the document side these win over :host, and
-   every other tone the renderer draws (separators, gutters, annotations, buffers)
-   is mixed from --diffs-bg, so they follow. */
+/* Document-side declarations beat the renderer's fixed :host palette, and every tone it draws is
+   mixed from --diffs-bg, so the diff matches the pane around it. */
 diffs-container {
   --diffs-bg: var(--background);
   --diffs-fg: var(--foreground);
@@ -44,27 +29,9 @@ diffs-container {
   overflow: clip;
 }
 
-/*
- * Pane-resize GPU layer pre-promotion.
- *
- * `will-change: transform` is applied to the `.monaco-editor-shell` wrapper
- * (NOT `.monaco-editor` directly) to keep each editor in its own Core Animation
- * layer. This eliminates the ~47ms first-drag-frame rasterization spike.
- *
- * IMPORTANT: WKWebView (Tauri) treats `will-change: transform` as establishing
- * a new containing block for `position:fixed` descendants — same as a computed
- * `transform`. Applying it directly to `.monaco-editor` breaks `fixedOverflowWidgets`
- * (suggest, hover, signature help): Monaco positions them relative to the viewport
- * but they end up offset relative to the editor instead.
- *
- * Promoting the shell wrapper preserves GPU layering while leaving `.monaco-editor`
- * free of containing-block side-effects.
- *
- * During the actual drag, `transform: translateZ(0)` on `.monaco-editor` activates
- * the layer as a proper compositor clip target (~9ms/frame vs ~55-66ms/frame).
- * `transform` does create a containing block, but no overflow widgets are open
- * mid-drag and editor.layout() is suppressed for the drag duration.
- */
+/* Pre-promote each editor's layer on the shell, not `.monaco-editor`: in WKWebView will-change
+   makes a containing block that misplaces Monaco's fixed overflow widgets. The drag-time
+   translateZ(0) below is safe: no widget is open mid-drag. */
 .monaco-editor-shell {
   will-change: transform;
 }
@@ -73,22 +40,14 @@ html[data-pane-resizing] .monaco-editor {
   transform: translateZ(0);
 }
 
-/*
- * Non-sash pane layout changes (new pane open/close, terminal split, etc.).
- * The ResizeObserver in editor-surface sets this attribute for two frames while
- * editor.layout() runs, so WKWebView rasterizes the resized editor surface on
- * the GPU compositor instead of blocking the main thread.
- */
+/* Set by editor-surface for two frames around a non-drag layout, so WKWebView rasterizes the
+   resized editor on the GPU instead of blocking the main thread. */
 html[data-editor-layout] .monaco-editor {
   transform: translateZ(0);
 }
 
-/*
- * Monaco drag-to-select. Pointer-down in the editor sets this attribute;
- * pointer-up on window clears it. Keeps Monaco in a composited CALayer so
- * per-frame selection-overlay updates are GPU-composited rather than triggering
- * WKWebView CPU tile re-rasterization across every selected line.
- */
+/* During drag-to-select, keep Monaco composited so selection updates don't make WKWebView
+   re-rasterize every selected line on the CPU. */
 html[data-editor-selecting] .monaco-editor {
   transform: translateZ(0);
 }

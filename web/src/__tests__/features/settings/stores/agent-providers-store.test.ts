@@ -1,14 +1,5 @@
-/**
- * The GLOBAL agent-provider list.
- *
- * Providers are machine-level — the daemon's own comment on ListProviders says
- * the workspaceID "is only used to resolve crowbar home" — but the frontend kept
- * its only copy inside the per-workspace store. The Settings dialog is global, so
- * opening it with no active workspace (Project Home, the projects screen, mid
- * switch) read an empty list and rendered "No providers available." over a daemon
- * that had them, enabled. This store is the copy that does not depend on a
- * workspace being in view.
- */
+// The global agent-provider list: providers are machine-level and Settings is global, so the list
+// must not depend on a workspace being in view.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { listProvidersFn, listGlobalProvidersFn } = vi.hoisted(() => ({
@@ -93,9 +84,7 @@ describe('agent providers store', () => {
     expect(state().providers.map((p) => p.id)).toEqual(['claude'])
   })
 
-  // The three states the tab used to collapse into one sentence. "No providers
-  // available." is a claim about the DAEMON; it must never be what a failed
-  // fetch looks like.
+  // "No providers available." is a claim about the daemon; a failed fetch must never look like it.
   it('reports FAILED when the fetch rejects and nothing was ever loaded', async () => {
     listProvidersFn.mockRejectedValueOnce(new Error('daemon is down'))
 

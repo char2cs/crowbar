@@ -45,13 +45,8 @@ const baseDark = declarations(themeCss, /^\.dark\s*\{/m)
 const zenLight = declarations(zenCss, /^\[data-theme='zen'\]:not\(\.dark\)\s*\{/m)
 const zenDark = declarations(zenCss, /^\[data-theme='zen'\]\.dark\s*\{/m)
 
-/**
- * Zen is imported AFTER theme.css and its selectors out-specify `:root`/`.dark`,
- * so anything it declares wins. The only reason it exists is to restyle the
- * WINDOW SURFACES in isolation; every other token is meant to be the shared
- * palette. Overriding one is how the WCAG-measured --muted-foreground values got
- * stranded at their pre-fix numbers in Zen while theme.css moved on.
- */
+// Zen out-specifies `:root`/`.dark`, so anything it declares wins. It restyles only the window
+// surfaces; any other override would drift from the shared, WCAG-measured palette.
 const SURFACE_TOKENS = new Set(['--background', '--pane-background', '--chrome-bg'])
 
 describe('zen.css palette', () => {

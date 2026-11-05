@@ -27,11 +27,8 @@ export interface XtermInstance {
   addons: TerminalAddons | null
 }
 
-/**
- * Builds this view's xterm once its container has a box, keeps its options in
- * step with the settings, and disposes it on unmount. It knows nothing about the
- * PTY: output and input are wired by useTerminalConnection, size by usePtySizeSync.
- */
+/** Builds the xterm once its container has a box and tracks settings. Knows nothing of the PTY:
+ *  I/O is useTerminalConnection's, size usePtySizeSync's. */
 export function useXtermInstance({
   sessionId,
   workspaceId,

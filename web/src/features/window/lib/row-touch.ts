@@ -1,8 +1,5 @@
-/**
- * Who owns a touch on a phone sidebar row. The hold arms at 250ms; from there the finger either
- * moves past CLAIM_PX (a reorder) or rests until the dwell (the row's menu). The page owns the
- * whole gesture; the shell only presents the menu it is asked for.
- */
+/** A phone row touch: armed at 250ms, then past CLAIM_PX it is a reorder, or after the dwell the
+ *  row's menu. The page owns the gesture; the shell only presents the menu asked for. */
 export type RowTouch = 'idle' | 'armed' | 'drag' | 'menu'
 
 export type RowTouchEvent =

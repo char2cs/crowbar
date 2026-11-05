@@ -4,12 +4,8 @@ import {
 } from '@/features/settings/config/default-settings'
 import type { Settings } from '@/features/settings/types/settings'
 
-/**
- * The one persistence path for settings: one localStorage key per setting,
- * namespaced under "crowbar:settings:". Keys absent from storage take their
- * default; object-valued settings merge stored fields over the defaults so a
- * newly added field gets its default.
- */
+// One localStorage key per setting. Absent keys take their default; object values merge stored
+// fields over the defaults so a newly added field gets its default.
 const STORAGE_PREFIX = 'crowbar:settings:'
 
 function readKey(key: string): unknown {

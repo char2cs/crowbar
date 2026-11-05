@@ -27,11 +27,8 @@ function useHostStatusVersion(hostIds: readonly string[]): number {
   return version
 }
 
-/**
- * Feeds the phone's Hosts settings tab (a webview with no IPC) while the native settings sheet is
- * up: every paired host, pushed whole on each change. Revoke runs here, where the IPC is, with
- * the desktop's own flow (its questions are asked natively over the sheet).
- */
+/** Feeds the phone's Hosts settings tab (a webview with no IPC) while the native sheet is up:
+ *  every paired host, pushed whole on change. Revoke runs here, where the IPC is. */
 export function NativeHostsSettingsFeed() {
   const navigate = useNavigate()
   const hosts = useHostConfigStore((s) => s.hosts)

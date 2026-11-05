@@ -34,9 +34,7 @@ describe('buildTerminalTheme', () => {
     const theme = buildTerminalTheme(ANSI, UI)
     expect(theme.red).toBe('#d97757')
     expect(theme.brightWhite).toBe('#f5f5f5')
-    // Background is intentionally transparent so the CSS --pane-background
-    // shows through the xterm canvas (commit beea46e); the ui.background
-    // token is no longer consumed.
+    // Transparent, so the CSS --pane-background shows through the xterm canvas.
     expect(theme.background).toBe('#00000000')
     expect(theme.foreground).toBe('#f5f5f5')
   })

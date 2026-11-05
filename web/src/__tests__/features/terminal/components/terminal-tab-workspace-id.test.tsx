@@ -4,15 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-// WorkspaceHost keeps every retained WorkspaceView mounted at once (keep-alive),
-// each wrapped in its OWN ambient WorkspaceStoreContext. TerminalTab used to read
-// its workspace off that ambient context instead of its OWN buffer's
-// TerminalContent.workspaceId — so a shell tab belonging to workspace A, rendered
-// inside a HIDDEN copy of workspace B (kept alive underneath the active workspace),
-// resolved its connection against B. On a genuine transport drop that spawns a
-// fresh PTY in B's worktree and clobbers A's session record — the Pattern 2 shape
-// from agent-chat-pane.tsx's `known` gate, applied to plain shell tabs. This test
-// asserts TerminalTab threads its OWN prop through, ignoring the ambient context.
+// TerminalTab passes its own buffer's workspaceId through, ignoring the ambient context: under
+// another workspace's context, a reconnect would otherwise spawn its PTY in the wrong worktree.
 const { receivedProps } = vi.hoisted(() => ({
   receivedProps: [] as Array<{ workspaceId?: string; sessionId?: string }>,
 }))

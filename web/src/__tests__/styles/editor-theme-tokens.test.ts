@@ -22,13 +22,8 @@ describe('editor-theme.css font tokens', () => {
   })
 
   it('aliases the branch-review diff font to the editor font', () => {
-    // Regression: @pierre/diffs (the branch-review diff renderer) reads its
-    // code font from `--diffs-font-family` on its host element, which the app
-    // never set — so the diff view silently fell back to the library's own
-    // hardcoded "SF Mono" stack instead of the user's configured font, no
-    // matter what Settings said. Aliasing it to `--editor-font-family` (the
-    // same variable Monaco consumes) is what makes a font-setting change
-    // affect both surfaces.
+    // @pierre/diffs reads its code font only from `--diffs-font-family`; aliasing it to Monaco's
+    // variable makes a font-setting change reach both surfaces.
     expect(rootValue('--diffs-font-family')).toBe('var(--editor-font-family)')
   })
 

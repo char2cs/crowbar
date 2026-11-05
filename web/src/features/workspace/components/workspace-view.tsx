@@ -11,28 +11,16 @@ import { useZoomKeyboard } from '@/features/keymaps/hooks/use-zoom-keyboard'
 
 interface WorkspaceViewProps {
   wsId: string
-  /** Mounted by `WorkspaceHost` before this renders (C6) — never minted here. */
+  /** Mounted by `WorkspaceHost` before this renders; never minted here. */
   store: WorkspaceStore
-  /**
-   * Whether this workspace is the one currently in view. WorkspaceHost keeps
-   * recently-visited workspaces mounted (hidden via `display:none`) so switching
-   * back is instant; only the active one owns the keyboard handlers and the
-   * file/git watchers. (The active-workspace id is the host's to write.)
-   */
+  /** Hidden retained workspaces stay mounted; only the active one owns the keyboard handlers
+   *  and the file/git watchers. */
   active: boolean
 }
 
-/**
- * A workspace's LIFECYCLE — its store, its streams and its
- * active-only watchers. It renders no surface of its own: the pane tree it used
- * to host is window-level (Task 26) and now lives once, in `WorkspaceHost`.
- *
- * MEMOIZED because `WorkspaceHost`'s parent (`IDEShell`) re-renders on plenty
- * that has nothing to do with any workspace, and both props here are primitives
- * — `wsId` is fixed for the life of the instance, so this bails out on exactly
- * the renders that change nothing and still runs the two slots whose `active`
- * actually flips on a workspace switch.
- */
+// A workspace's lifecycle (store, streams, active-only watchers); it renders no surface, since
+// the pane tree is window-level in `WorkspaceHost`. Memoized: `IDEShell` re-renders often and
+// only the two slots whose `active` flips on a switch need to run.
 export const WorkspaceView = memo(function WorkspaceView({
   wsId,
   store,

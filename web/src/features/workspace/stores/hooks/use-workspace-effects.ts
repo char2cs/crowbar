@@ -6,12 +6,9 @@ import { useOwningChatId } from '@/lib/workspace-scope'
 import { useWorkspaceFileTree } from './use-workspace-file-tree'
 import { useWorkspaceGit } from './use-workspace-git'
 
-/**
- * A workspace's data feeds: its file tree and git status, written to the
- * workspace's own store, and its ws: scope (review threads into the entity
- * store). Runs for every retained workspace so a switch only
- * changes which store the UI reads; `active` only gates the first tree/git load.
- */
+/** A workspace's data feeds (file tree, git status, ws: scope review threads). Runs for every
+ *  retained workspace so a switch only changes which store the UI reads; `active` gates the
+ *  first tree/git load. */
 export function useWorkspaceEffects(wsId: string, active: boolean) {
   const owningChatId = useOwningChatId(wsId)
   const homeWorkspace = isHomeWorkspace(wsId)

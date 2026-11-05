@@ -75,9 +75,8 @@ describe('isWorkspaceLockedInSidebar', () => {
   })
 })
 
-// BUG-007: after drag-to-delete of the ACTIVE workspace the app must navigate
-// to the parent, else the repo's base (locked) workspace, else null (caller
-// falls back to /projects).
+// Deleting the active workspace navigates to its parent, else the repo's locked base, else null
+// (the caller falls back to /projects).
 
 function repoWith(workspaces: Repo['workspaces']): Repo[] {
   return [

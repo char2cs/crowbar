@@ -26,10 +26,8 @@ export async function resolveInitialSettings(): Promise<Settings> {
 
   const loadedSettings = loadPersistedSettings()
 
-  // When system-sync is on, derive the active theme from the OS preference
-  // using the user's chosen light/dark theme pair. This also covers the very
-  // first launch (before any theme has been stored) so the app matches the
-  // system out of the box.
+  // System sync picks from the user's light/dark pair; first launch (no stored theme) does too,
+  // so the app matches the OS out of the box.
   if (loadedSettings.syncSystemTheme || !loadedSettings.theme) {
     const systemPref = getSystemThemePreference()
     loadedSettings.theme =

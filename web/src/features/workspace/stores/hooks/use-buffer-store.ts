@@ -5,7 +5,7 @@ import type { WindowPaneState } from '@/features/panes/stores/window-pane-store.
 import type { BufferActions } from '@/features/panes/stores/slices/buffer-slice'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
-/** Task 26: buffers are window-level now — see use-pane-store.ts's own note. */
+// Buffers are window-level, like panes (use-pane-store.ts).
 function useBufferStore<T>(selector: (state: WindowPaneState) => T): T {
   return useStore(windowPaneStore, selector)
 }

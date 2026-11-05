@@ -3,12 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { colorfulMaterialIconTheme } from '@/extensions/icon-themes/builtin/colorful-material-theme'
 import { loadMaterialIcons } from '@/extensions/icon-themes/builtin/material-icons'
 
-// Folders used to render as plain `text-muted-foreground` grey under this
-// theme even though its file icons keep their original colors — the theme
-// only ever returned `{ component: <Folder /> }` with no color of its own,
-// so there was nothing for a caller's className override to lose. Folders
-// should be colored like Athas's, independent of whatever className the
-// caller (FileExplorerIcon) applies.
+// The theme's folders carry their own colour, like its file icons, independent of the caller's
+// (FileExplorerIcon's) className.
 describe('colorfulMaterialIconTheme folder color', () => {
   it('colors a closed folder gold via the color prop, not className', () => {
     const { svg: _svg, component } = colorfulMaterialIconTheme.getFileIcon('src', true, false)

@@ -2,10 +2,7 @@ import { useCallback, type RefObject } from 'react'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
 
-/**
- * Files dropped on the terminal from the OS (Tauri only: a browser drop carries
- * no host path) are typed into it as shell-quoted paths, and the terminal takes focus.
- */
+/** OS file drops are typed in as shell-quoted paths (Tauri only: a browser drop has no path). */
 export function useTerminalFileDrop(
   containerRef: RefObject<HTMLDivElement | null>,
   write: (data: string, origin: string) => void,

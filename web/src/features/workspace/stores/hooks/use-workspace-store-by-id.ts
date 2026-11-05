@@ -8,12 +8,8 @@ import {
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 
-/**
- * `wsId`'s store if `WorkspaceHost` has it mounted, else an empty detached
- * one — re-read when the registry changes. Rendering never creates a store
- * (C6): a surface that merely shows a workspace's data must not bring its
- * whole store into existence.
- */
+/** `wsId`'s mounted store, else an empty detached one, re-read on registry changes. Rendering
+ *  never mints: merely showing a workspace's data must not bring its whole store into being. */
 export function useRegisteredWorkspaceStore(wsId: string): WorkspaceStore {
   return useSyncExternalStore(
     subscribeWorkspaceRegistry,

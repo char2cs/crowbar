@@ -35,11 +35,8 @@ interface UseTerminalConnectionOptions {
   updateSession: (sessionId: string, updates: { title?: string }) => void
 }
 
-/**
- * The terminal's I/O: PTY frames into xterm, xterm's input to the PTY, and the
- * host theme to the daemon. Bound to ONE connection object at a time — a
- * re-attach hands in a new one, and everything re-binds to it.
- */
+/** PTY frames into xterm, input to the PTY, host theme to the daemon. Bound to one connection at a
+ *  time; a re-attach hands in a new one and everything re-binds. */
 export function useTerminalConnection({
   connection,
   created,

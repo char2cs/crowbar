@@ -30,18 +30,11 @@ export interface TerminalFocusHandle {
 
 interface XtermTerminalProps {
   sessionId: string
-  /**
-   * The workspace this terminal BELONGS to. Attaching must target it, never the
-   * currently-active one: workspace keep-alive keeps hidden workspaces'
-   * terminals mounted, so a transport drop can land while a DIFFERENT workspace
-   * is active.
-   */
+  /** The workspace this terminal belongs to, never the active one: hidden workspaces keep their
+   *  terminals mounted, so a transport drop can land while another is active. */
   workspaceId: string
-  /**
-   * The chat that OWNS this PTY, when the caller knows it directly — an agent
-   * chat pane, whose terminal is that chat's own vendor-CLI session. Unset for a
-   * shell tab, whose owner is the chat that owns the workspace's worktree.
-   */
+  /** The chat owning this PTY when known directly (an agent pane's CLI session). Unset for a
+   *  shell tab, owned by the chat that owns the workspace's worktree. */
   chatId?: string
   /** The pane this terminal is shown in; a link opened from it lands there. */
   paneId?: string
@@ -49,30 +42,18 @@ interface XtermTerminalProps {
   isVisible?: boolean
   /** Focus handle for an owner that moves the keyboard here (the agent pane). */
   ref?: Ref<TerminalFocusHandle>
-  /**
-   * Fires when this shell tab's session has ENDED: the daemon sent its exit
-   * frame, or the session it was bound to is no longer on the daemon. A shell
-   * tab never spawns a replacement for an ended session (invariant B7).
-   */
+  /** The shell tab's session ended (exit frame, or gone from the daemon); a tab never spawns a
+   *  replacement for it. */
   onTerminalExit?: (sessionId: string) => void
   initialCommand?: string
   workingDirectory?: string
-  /**
-   * Attach-only: this terminal is a view onto ONE specific pre-existing PTY and
-   * must NEVER spawn a shell. Used by the agent chat pane, whose PTY is a vendor
-   * CLI. Changing sessionId re-points the SAME xterm at another PTY.
-   */
+  /** A view onto one existing PTY (the agent pane's CLI) that never spawns a shell. Changing
+   *  sessionId re-points the same xterm at another PTY. */
   attachOnly?: boolean
-  /**
-   * The attach-only counterpart of onTerminalExit: fires when the viewed session
-   * exits, or is found gone. Carries the sessionId it is FOR, so an owner can
-   * tell an outgoing PTY's death from the incoming one's.
-   */
+  /** Attach-only onTerminalExit. Carries the sessionId it is for, so an owner can tell an
+   *  outgoing PTY's death from the incoming one's. */
   onSessionGone?: (goneSessionId: string) => void
-  /**
-   * Render from the container's very edge, dropping the 16px left inset that
-   * shell tabs use — the agent pane's own frame supplies the surface.
-   */
+  /** Drop the shell tabs' 16px left inset; the agent pane's frame supplies the surface. */
   flush?: boolean
 }
 

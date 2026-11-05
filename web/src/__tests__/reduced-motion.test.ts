@@ -65,11 +65,8 @@ describe('spinner exemption hooks in the exempted components', () => {
     const toast = read('components/ui/toast.tsx')
     const overlay = read('components/layout/sidebar-toast-overlay.tsx')
 
-    // toast.tsx's anchored icon render and the sidebar overlay's one — each
-    // wrapper carries the opt-out attribute because their spin class
-    // `in-data-[type=loading]:animate-spin` generates an escaped class name
-    // the `.animate-spin` exemption cannot match. (The stacked global viewport
-    // was removed — SidebarToastOverlay is the sole viewport for toastManager.)
+    // Each wrapper carries the opt-out: the variant class `in-data-[type=loading]:animate-spin`
+    // escapes to a name the `.animate-spin` exemption cannot match.
     expect(toast.match(/data-essential-motion/g)?.length).toBe(1)
     expect(overlay.match(/data-essential-motion/g)?.length).toBe(1)
     expect(toast).toContain('in-data-[type=loading]:animate-spin')
@@ -77,12 +74,8 @@ describe('spinner exemption hooks in the exempted components', () => {
   })
 
   it('the flip-dot FlickerSpinner carries data-essential-motion', () => {
-    // A REGRESSION HAZARD, not a nicety. These spinners used to animate with
-    // SMIL, which the kill-switch cannot touch — `animation-duration` says
-    // nothing about `<animate>`. Playback is now a CSS animation on a sprite
-    // strip, so without this opt-out every flip-dot spinner in the app freezes
-    // on frame 0 under prefers-reduced-motion, and the workspace rows, chat
-    // glyphs and context pill all report "hung" while work is in flight.
+    // Playback is a CSS animation, so without the opt-out every flip-dot spinner freezes on frame 0
+    // under reduced motion and reads as "hung" while work is in flight.
     const spinner = read('components/ui/flicker-spinner.tsx')
     expect(spinner).toContain('data-essential-motion')
     expect(spinner).toContain('flicker-strip ${')

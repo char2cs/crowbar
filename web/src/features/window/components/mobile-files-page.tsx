@@ -34,11 +34,8 @@ function useVisibleRows(snapshot: NativeFiles, query: string) {
   }, [snapshot, query])
 }
 
-/**
- * The IDE's file drawer: the workspace's tree from the main webview's snapshot, drawn with the
- * sidebar's file rows at the chat list's touch scale. Only the search box is its own; a fold or
- * a pick goes back as an intent.
- */
+/** The phone file drawer, drawn from the main webview's snapshot with the sidebar's file rows.
+ *  Only the search box is its own state; a fold or a pick goes back as an intent. */
 export function MobileFilesPage() {
   useSurfaceThemeColor()
   const [snapshot, setSnapshot] = useState<NativeFiles | null>(null)

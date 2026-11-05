@@ -272,17 +272,8 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['parameter', 'hints', 'intellisense', 'function'],
   },
 
-  // Agents Settings
-  //
-  // Every control the Agents tab exposes. Without them the tab was invisible to
-  // this search: typing "provider" scored nothing, the rail filtered down to
-  // "No matching settings", and the search HID the one tab that matched. The
-  // records share a keyword set because a user hunting for any of them says the
-  // same words — the CLI's name as often as the concept's.
-  //
-  // The tab reads "Agents" now (spec §11) and the labels follow it, but every
-  // `provider` keyword stays: the word is still what the rest of the product,
-  // the docs and half the muscle memory say, and a keyword is never shown.
+  // Agents Settings: shared keywords, since a user hunting for any control uses the same words.
+  // `provider` stays a keyword though the tab says "Agents": the docs and product still say it.
   {
     id: 'providers-priority-order',
     tab: 'providers',

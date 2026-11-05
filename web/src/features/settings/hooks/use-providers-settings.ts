@@ -55,12 +55,9 @@ function useHostProviders(hostId: string): {
   return { providers, status: local ? localStatus : remoteStatus, retry }
 }
 
-/**
- * The Agents tab's state and its one write path, for the daemon of `hostId`. Every change —
- * a reorder, an enable toggle, a tools toggle — is the same pair (the new order, the complete
- * flags table): the PUT replaces whole rows, so a write that knew only one flag would zero
- * the other.
- */
+/** The Agents tab's state and its one write path for `hostId`'s daemon. Every change sends the new
+ *  order and the complete flags table: the PUT replaces whole rows, so one flag alone would zero
+ *  the other. */
 export function useProvidersSettings(hostId: string = LOCAL_HOST.id) {
   const { providers, status, retry } = useHostProviders(hostId)
 
