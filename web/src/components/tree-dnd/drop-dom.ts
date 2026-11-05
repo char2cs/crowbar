@@ -8,63 +8,30 @@ import {
   type RowRect,
 } from './drop-core'
 
-/**
- * The DOM half of drag and drop, driven by a table each tree publishes.
- *
- * Every fact a matrix needs rides on the row element itself rather than being
- * looked up in a store at pointer rate. A hit test is then one
- * `elementsFromPoint`, one `getAttribute` sweep and one rect — no tree walk, no
- * store read, nothing that scales with how many rows you have.
- *
- * Which attributes those are is the one thing that differs per tree, so it is
- * the one thing supplied: a {@link DropRowSpec} names the attribute for each
- * row kind and for each extra fact, and {@link createDropRowDom} returns the
- * read/write pair bound to it. Two trees on one page therefore cannot see each
- * other's rows — a chat row carries none of the sidebar's attributes, so the
- * sidebar's `readRow` returns null for it and its hit test walks straight past.
- * That mutual invisibility is the reason this is a registry and not a union
- * that grew two more members.
- */
+// The DOM half of drag and drop. Every fact a hit test needs rides on the row element (one
+// `elementsFromPoint`, one attribute sweep, one rect). Each tree supplies its own attribute table,
+// so two trees on one page cannot see each other's rows — why this is a registry, not a union.
 
-/**
- * What a tree's rows publish about themselves.
- *
- * Written and read back through one table so the two halves cannot disagree,
- * which is the failure mode a hand-rolled second tree would hit first: a row
- * that writes `data-chat-parent` and reads `data-drop-parent` is a row that is
- * always at the root and nobody notices until a drop lands in the wrong place.
- */
+/** What a tree's rows publish about themselves, written and read through ONE table so the halves
+ *  cannot disagree (a row writing one attribute and reading another silently lands at root). */
 export interface DropRowSpec {
-  /**
-   * Row kind → the attribute carrying that row's id. An element is one of this
-   * tree's rows exactly when it carries one of these, so the attributes must be
-   * unique to the tree.
-   */
+  /** Row kind → the attribute carrying its id; carrying one is what makes an element this tree's
+   *  row, so the attributes must be unique to the tree. */
   kinds: Readonly<Record<string, string>>
-  /**
-   * The container attribute. Always written, '' meaning the tree's own root, so
-   * a row read back always has a container to reason about rather than an
-   * `undefined` every caller has to remember to ground.
-   */
+  /** The container attribute, always written ('' = root) so a read-back row never has an
+   *  `undefined` container to ground. */
   parentAttr: string
   /** Field → attribute. Written only when set; read back as `string | undefined`. */
   strings?: Readonly<Record<string, string>>
-  /**
-   * Field → attribute, published as PRESENCE rather than as "true"/"false", so
-   * a row that is neither locked nor expanded carries no attribute at all.
-   */
+  /** Field → attribute, published as PRESENCE, not "true"/"false". */
   flags?: Readonly<Record<string, string>>
 }
 
 /** A row plus the decision the pointer's position in it resolves to. */
 export type Resolved<Row> = Row & { mode: DropMode }
 
-/**
- * A row hit, carrying the rect the decision was made from. The hit test has
- * already measured it, so the indicator positions itself off this rather than
- * measuring the row a second time — and it is the only reason a drag needs no
- * DOM read of its own per pointermove.
- */
+/** A row hit with the rect the decision was made from, so the indicator reuses it and a drag
+ *  needs no DOM read of its own per pointermove. */
 export interface RowHit<Row> {
   kind: 'row'
   row: Resolved<Row>
@@ -138,44 +105,18 @@ export function createDropRowDom<Row extends DragSubjectBase>(spec: DropRowSpec)
   }
 }
 
-/**
- * A whole-region drop target that is not a row — the editor pane, standing for
- * removal.
- *
- * It carries no mode and no rect: it is one flag, read by the same hit test
- * every row goes through, and it answers with whatever the tree wants a drop
- * there to mean. Returning null is a refusal, and a refusal here stops the hit
- * test rather than falling through to the rows behind the region.
- */
+// A whole-region drop target that is not a row (the editor pane), read by the same hit test.
+// Null is a refusal, and it stops the hit test rather than falling through to rows behind it.
 export interface DropZone<S extends DragSubjectBase, Hit> {
   attr: string
-  /**
-   * `el`/`point` are the zone's own element and the pointer's viewport
-   * position — extra facts a binary zone (the old dwell-to-remove pane) never
-   * needed but a geometry-aware one does (Task 21's pane center/edge zones,
-   * `getPaneDropZoneFromRect`). Additive: an existing `hit(subjects)` that
-   * ignores them still satisfies this signature.
-   */
+  /** `el`/`point` (the zone element and pointer) serve geometry-aware zones such as the pane's
+   *  center/edge split; a `hit(subjects)` that ignores them still fits. */
   hit(subjects: readonly S[], el: Element, point: { x: number; y: number }): Hit | null
 }
 
-/**
- * Bind a row table and a policy into the pointer→decision function a drag runs
- * on every move.
- *
- * The topmost row under the pointer is the answer whether or not it accepts the
- * drag: a refusal returns null rather than falling through to whatever sits
- * behind it, because "this row says no" is the honest reading and drawing an
- * indicator on some ancestor would be the indicator lying.
- *
- * `zone` takes either one `DropZone` (every caller before this) or several —
- * an array, checked in the order given, first match wins — so two whole-region
- * targets (the pane, the file explorer card's trash surface) can coexist
- * without either owning the other's slot. Checked PER ELEMENT, interleaved
- * with the row read below, same as a single zone always was: a zone only wins
- * when it is the TOPMOST thing painted at the point, never merely present
- * somewhere in `elementsFromPoint`'s list.
- */
+// Binds a row table and a policy into the per-move pointer→decision function. The topmost row is
+// the answer even when it refuses (null, never an ancestor's indicator). Zones are checked per
+// element in order, so a zone wins only when it is the TOPMOST thing painted at the point.
 export function createDropHitTest<
   S extends DragSubjectBase,
   Row extends DropTargetBase,
@@ -189,17 +130,8 @@ export function createDropHitTest<
     zone === undefined ? [] : Array.isArray(zone) ? zone : [zone]
   return (x, y, subjects) => {
     for (const el of document.elementsFromPoint(x, y)) {
-      // The drag ghost (`drag-ghost.tsx`'s `DragGhost`, `data-drag-ghost`) is
-      // a DEEP CLONE of the row(s) actually being dragged — cloneGhostRows
-      // (drag-ghost.tsx) copies the whole element, drop attributes and all,
-      // onto a floating overlay that tracks the cursor and therefore sits
-      // exactly where a drop is being aimed. `pointer-events: none` on that
-      // overlay is supposed to keep `elementsFromPoint` from ever reporting
-      // it as a hit, but a clone carrying a REAL row's own kind+id attribute
-      // is exactly the shape of thing that turns a hit-testing quirk into a
-      // silently wrong target — this is a maybe-redundant, zero-cost second
-      // line of defence: something this hit test may never legitimately
-      // resolve to, ghost clone or not.
+      // The ghost is a deep clone carrying real drop attributes under the cursor. `pointer-events:
+      // none` should hide it from `elementsFromPoint`; this zero-cost check makes sure it is never a hit.
       if (el.closest('[data-drag-ghost]')) continue
       for (const z of zones) {
         if (el.hasAttribute(z.attr)) return z.hit(subjects, el, { x, y })

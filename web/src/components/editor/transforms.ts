@@ -1,18 +1,6 @@
-// Adapted from the Plate registry (`https://platejs.org/r/transforms.json`),
-// shared by the slash menu and the "Turn into" affordance.
-//
-// TRIMMED HARD: upstream's `insertBlockMap`/`insertInlineMap` cover every
-// Plate block kind across the whole ecosystem — code-drawing, date,
-// excalidraw, footnote, columns/layout, media (image/video/audio/file),
-// suggestion-aware deletes, table-of-contents. None of those plugins are
-// registered in `markdownPlugins` (see that file), so importing their
-// packages here would be dead weight at best and a runtime "plugin not
-// found" at worst. This keeps only the block kinds this editor actually
-// supports: paragraph, headings, blockquote, code block, lists (bulleted /
-// numbered / to-do), table, callout, and (block + inline) equations — i.e.
-// exactly BasicNodesKit + ListKit + TableKit + CodeBlockKit + CalloutKit +
-// MathKit + LinkKit. `withoutSuggestions`-wrapped deletes are plain
-// `removeNodes` calls here since SuggestionPlugin isn't registered either.
+// Adapted from the Plate registry (transforms.json) for the slash menu and "Turn into", trimmed to
+// the registered kits' block kinds: importing unregistered plugins would fail with "plugin not
+// found". Deletes are plain `removeNodes` since SuggestionPlugin isn't registered either.
 'use client'
 
 import type { PlateEditor } from 'platejs/react'
