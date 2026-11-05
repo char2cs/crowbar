@@ -1,14 +1,9 @@
 import UIKit
 import WebKit
 
-/// Presents the phone's screens: the one pan, the cards it moves, and each screen's header.
-/// All state is the `NavigationMachine`'s; this renders its `frames` on every change and feeds
-/// it the user's drags, the web's reports and the display link's ticks.
-///
-/// Layers, bottom to top: the chat list and the files page (parked off screen unless one is
-/// being uncovered, so neither stops rendering), the scrim and shadow, the live webview, the IDE's
-/// header, the frozen chat, the chat's header. The webview is the chat card until the web swaps
-/// it for the IDE; the frozen chat is the chat card from then on.
+/// Presents the phone's screens by rendering the `NavigationMachine`'s `frames`, feeding
+/// it drags, web reports and display-link ticks. Bottom to top: parked chat list and files
+/// page, scrim, live webview, IDE header, frozen chat, chat header.
 @available(iOS 26.0, *)
 final class NavigationController: NSObject {
   static let strip: CGFloat = 72

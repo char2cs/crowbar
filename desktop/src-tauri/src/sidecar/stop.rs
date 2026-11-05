@@ -13,14 +13,9 @@ use super::SidecarHandle;
 /// → Terminal.Shutdown → flush + persist) before resorting to SIGKILL.
 const SIGTERM_GRACE: Duration = Duration::from_secs(3);
 
-/// Stops the daemon for good — the app is ending (last window closed, or Cmd+Q):
-/// SIGTERM, so it flushes and persists its terminals for the next launch, then
-/// SIGKILL only if it is still running when the grace runs out. Blocks for at most
-/// the grace; idempotent (the second ending finds no child).
-///
-/// Called from BOTH ways the app can end, because they are genuinely different code
-/// paths in tao: the last window being destroyed, and `RunEvent::Exit` — which is
-/// what Cmd+Q produces without closing windows individually.
+/// Stops the daemon for good: SIGTERM so it persists its terminals, SIGKILL after the
+/// grace. Called from both ways the app ends (last window destroyed, `RunEvent::Exit`
+/// for Cmd+Q); idempotent, since the second finds no child.
 fn shutdown(state: &SidecarHandle, reason: &str) {
     // Tell the supervisor this exit is intentional so neither the output pump nor
     // the watchdog respawns the daemon.

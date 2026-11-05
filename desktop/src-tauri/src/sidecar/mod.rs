@@ -41,13 +41,9 @@ pub struct SidecarHandle {
     /// Set by the window-close kill path so the supervisor never respawns a
     /// daemon the user is intentionally shutting down.
     pub shutting_down: AtomicBool,
-    /// The pid of the daemon process WE spawned; 0 = none (not spawned, or exited).
-    ///
-    /// Recorded from the child handle the instant `spawn` returns — never from
-    /// /v0/health, which answers for whatever process holds the socket (a stale
-    /// daemon from a previous run, say), and so could name a process we must not
-    /// signal. Every kill path signals THIS pid via libc rather than calling into
-    /// the `CommandChild`, whose kill()/pid() take the shared_child lock.
+    /// The pid of the daemon WE spawned, 0 for none. From the child handle, never /v0/health
+    /// (which may answer for a stale daemon); kill paths signal it via libc because
+    /// `CommandChild`'s kill()/pid() take the shared_child lock.
     daemon_pid: AtomicI32,
     restart_budget: Mutex<supervisor::RestartBudget>,
 }
@@ -101,10 +97,8 @@ pub async fn spawn<R: Runtime>(
     app: &AppHandle<R>,
     socket: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Ensure the socket's parent dir exists; the daemon binds the socket
-    // inside it. We deliberately do NOT pre-remove the socket file: the
-    // daemon's own stale-socket handling reclaims a dead socket and refuses to
-    // clobber one with a live daemon still behind it.
+    // The daemon binds its socket inside this dir. No pre-removal of the socket: the daemon
+    // reclaims a dead one itself and refuses to clobber one a live daemon still holds.
     if let Some(dir) = socket.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -119,10 +113,8 @@ pub async fn spawn<R: Runtime>(
     );
 
     let (rx, child) = sidecar.spawn()?;
-    // Read once, here: the plugin's wait thread only holds the shared_child lock
-    // momentarily (shared_child >= 1.1 releases it before blocking in waitid), so
-    // this does not contend with it. From here on the pid is known, so a stop that
-    // lands while the daemon is still booting is a SIGTERM too, not a bare kill.
+    // Read once, here: the wait thread holds the shared_child lock only momentarily, so
+    // this does not contend. With the pid known, a stop during boot is a SIGTERM too.
     let spawned_pid = i32::try_from(child.pid()).unwrap_or(0);
 
     // Store child + socket path in managed state so it can be killed on window
@@ -216,10 +208,8 @@ async fn pump_output<R: Runtime>(
     }
 }
 
-/// Decides what happens after the daemon exits: nothing during an intentional
-/// shutdown, a budgeted respawn otherwise. Runs the respawn as a boxed task —
-/// spawn() owns the pump future, so re-entering it from the pump must cross a
-/// type-erased boundary.
+/// After the daemon exits: nothing during an intentional shutdown, else a budgeted
+/// respawn — boxed, because spawn() owns the pump future that calls this.
 fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<SidecarHandle>();
     state.child.lock().unwrap().take();

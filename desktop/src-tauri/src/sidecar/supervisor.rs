@@ -4,12 +4,8 @@
 
 use std::time::{Duration, Instant};
 
-/// What a readiness probe learned.
-///
-/// A probe dials the daemon over a unix socket from *this* process, so it can come
-/// back unhappy for two entirely different reasons, and the watchdog must never
-/// confuse them: the daemon is not serving, or this process has no descriptors left
-/// to dial it with.
+/// What a readiness probe learned. A failure has two causes the watchdog must never
+/// confuse: the daemon is not serving, or this process has no descriptors left to dial.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Probe {
     /// The daemon answered.
@@ -24,13 +20,8 @@ pub enum Probe {
     Held,
 }
 
-/// Whether a probe outcome is evidence *about the daemon*.
-///
-/// Running this process out of descriptors is evidence about this process. The
-/// daemon may be serving perfectly and merely be unreachable, so such a failure
-/// must never count toward the kill threshold: restarting the daemon cannot hand a
-/// descriptor back, the next probe fails identically, and the only thing achieved
-/// is destroying a healthy backend — and the user's session with it.
+/// Whether a probe outcome is evidence about the daemon. Descriptor exhaustion is ours:
+/// restarting the daemon cannot hand one back, so it must never count toward a kill.
 pub fn probe_indicts_daemon(outcome: Probe) -> bool {
     matches!(outcome, Probe::Unserved)
 }
@@ -80,40 +71,26 @@ impl FailureTracker {
     }
 }
 
-/// Extra wall-clock time beyond a nominal probe cycle still attributable to a
-/// merely-busy machine rather than an OS suspension. A watchdog cycle is
-/// nominally `WATCHDOG_INTERVAL + PROBE_TIMEOUT`; load can stretch it a little,
-/// but App Nap or a system sleep overshoots it by far more.
+/// Slack beyond a nominal cycle (`WATCHDOG_INTERVAL + PROBE_TIMEOUT`) still blamed on a
+/// busy machine; App Nap or sleep overshoots it by far more.
 const SUSPENSION_MARGIN: Duration = Duration::from_secs(15);
 
-/// Reports whether a watchdog cycle that spanned `elapsed` wall-clock time was
-/// interrupted by an OS suspension (App Nap / system sleep) rather than merely
-/// running slowly. A suspended daemon is frozen, not wedged: its probe failed
-/// only because it was not executing, and it answers again the instant it
-/// resumes — so a failure observed across such a gap is not evidence of a wedge
-/// and must not count toward the kill threshold. The caller measures `elapsed`
-/// with the wall clock (SystemTime), which — unlike a monotonic Instant —
-/// keeps advancing through a system sleep, so the overshoot is visible on resume.
+/// Whether a cycle spanning wall-clock `elapsed` was interrupted by App Nap or sleep. A
+/// suspended daemon is frozen, not wedged, so its failure must not count; `elapsed` is
+/// SystemTime because, unlike Instant, it advances through a system sleep.
 pub fn cycle_was_suspended(elapsed: Duration, interval: Duration, probe_timeout: Duration) -> bool {
     elapsed > interval + probe_timeout + SUSPENSION_MARGIN
 }
 
-/// Final gate before the watchdog's irreversible SIGQUIT+SIGKILL restart, given
-/// whether the daemon process is currently OS-suspended and whether it answered
-/// a longer grace probe. macOS task-suspends an idle, backgrounded helper: while
-/// suspended it fails every probe because it is not executing, yet answers the
-/// instant it resumes — so a suspended daemon must never be killed (that is the
-/// "backend closed itself while idle" false positive). A daemon that answers the
-/// grace probe merely resumed or was transiently slow. Only a daemon that is
-/// running (not suspended) AND still unresponsive is genuinely wedged.
+/// Final gate before the irreversible SIGQUIT+SIGKILL. A suspended daemon fails every
+/// probe yet answers on resume, and one that answers the grace probe merely resumed:
+/// only a running daemon that stays unresponsive is wedged.
 pub fn should_kill_wedged(daemon_suspended: bool, grace_probe_healthy: bool) -> bool {
     !daemon_suspended && !grace_probe_healthy
 }
 
-/// Allows at most `max` restarts inside a sliding `window`. A daemon that
-/// dies instantly on every boot (bad build, corrupt state) must not be
-/// respawned in a tight loop forever; once the budget is exhausted the
-/// supervisor gives up until the next app launch.
+/// At most `max` restarts per sliding `window`, so a daemon that dies on every boot is
+/// not respawned forever; once spent, the supervisor gives up until the next launch.
 pub struct RestartBudget {
     window: Duration,
     max: usize,

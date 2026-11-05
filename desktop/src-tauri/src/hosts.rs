@@ -1,9 +1,6 @@
-//! In-memory registry of where each remote host this session knows is
-//! reachable. This is a RUNTIME cache the web layer populates at startup and
-//! on every host add/remove/edit (its own persistence — likely
-//! tauri-plugin-store — owns the durable copy; this registry only ever answers
-//! "where do I dial host X right now"). Which certificate that dial trusts is
-//! NOT here: pairing binds it to the host's token — see host_tokens.rs.
+//! Runtime cache of where each known remote host is reachable, fed by the web layer
+//! (which owns the durable copy). Which certificate a dial trusts is not here: pairing
+//! binds it to the host's token (host_tokens.rs).
 
 use std::collections::HashMap;
 use std::sync::Mutex;

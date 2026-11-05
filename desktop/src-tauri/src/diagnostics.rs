@@ -1,10 +1,6 @@
-//! Diagnostics-bundle export: everything a bug report needs, in one zip.
-//!
-//! Offline-first means there is no telemetry backend — the user is the
-//! transport. This command gathers the daemon log (where panics and watchdog
-//! goroutine dumps land), the app log, fresh goroutine/heap dumps from the
-//! live daemon, and version metadata into a single zip in the user's
-//! Downloads folder, and returns its path for the UI to show.
+//! Diagnostics-bundle export. There is no telemetry backend, so the user is the transport:
+//! daemon and app logs, fresh goroutine/heap dumps and version metadata go into one zip
+//! in Downloads, whose path is returned for the UI to show.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

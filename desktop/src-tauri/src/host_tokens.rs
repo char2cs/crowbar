@@ -1,7 +1,5 @@
-//! Bearer tokens for remote hosts, in the OS keychain — never in the
-//! tauri-plugin-store config JSON alongside a host's name/endpoint/
-//! fingerprint (that store is client-visible app config; a bearer token is a
-//! secret).
+//! Bearer tokens for remote hosts, in the OS keychain — never in the client-visible
+//! store config beside a host's name, endpoint and fingerprint.
 
 use std::sync::Arc;
 
@@ -45,11 +43,8 @@ fn parse_digest(text: &str) -> Option<CertificateDigest> {
     Some(digest)
 }
 
-/// The seam host_tokens' Tauri commands (and api_proxy's remote path) go
-/// through: production talks to the OS keychain; tests use an
-/// in-memory fake, since exercising the real keychain in CI is unreliable
-/// (prompts, platform differences) and unnecessary to prove this module's
-/// own logic. Entries are [`Credential::encode`]d.
+/// The keychain seam for host_tokens' commands and api_proxy's remote path. Tests use
+/// an in-memory fake: the real keychain prompts in CI. Entries are [`Credential::encode`]d.
 pub trait TokenStore: Send + Sync {
     fn get(&self, host_id: &str) -> Result<Option<String>, String>;
     fn set(&self, host_id: &str, token: &str) -> Result<(), String>;

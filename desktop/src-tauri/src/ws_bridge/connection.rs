@@ -1,30 +1,6 @@
-//! # Connection lifetime
-//!
-//! A connection's unix socket stays open while *either* split half is alive, so both
-//! the reader and the writer task must finish before its descriptor comes back. The
-//! app is not rich in descriptors — macOS starts a GUI app at launchd's 256, and Go
-//! raises its own limit while Rust does not — so a connection left half-alive burns
-//! one for the life of the process.
-//!
-//! A connection can end three ways, and all three must converge on that teardown:
-//!
-//!   1. the daemon closes it (every watcher release, every workspace switch), or the
-//!      socket dies under it — a failed write, or (for a connection opened with a
-//!      read-idle timeout) a half-open socket that delivers nothing at all,
-//!   2. the frontend closes it (`ws_close`),
-//!   3. the page it belongs to goes away (a reload orphans every connection on it).
-//!
-//! So a [`Connection`] owns everything the connection needs to die: dropping it drops
-//! the sender, which ends the writer task, and drops the cancel channel, which ends
-//! the reader task. **Removing a connection from the map is therefore the one and only
-//! teardown primitive** — the reader retires itself on (1), and `ws_close` and
-//! [`WsBridgeManager::close_for_window`] do the removing for (2) and (3).
-//!
-//! Note what this deliberately does *not* rely on: a dead `Channel`. `Channel::send`
-//! bottoms out in `webview.eval()`, which succeeds for as long as the *webview* is
-//! alive — a reloaded page is the same webview. It therefore cannot detect a reload,
-//! only app shutdown, and a reader waiting to be told its page is gone would wait
-//! forever. Cancellation has to be explicit; case (3) is why.
+//! A connection's socket stays open while either split half lives, and descriptors are
+//! scarce here (macOS starts a GUI app at 256), so removing a [`Connection`] from the map
+//! is the one teardown: a daemon close, `ws_close` and a page load all converge on it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,14 +55,8 @@ impl WsBridgeManager {
             .map(|c| c.tx.clone())
     }
 
-    /// Retires every connection belonging to `label`. Called when a page load orphans
-    /// that window's connections: the JS that owned these ids is gone and will never
-    /// call `ws_close` for them, and the new page opens fresh ids of its own.
-    ///
-    /// Scoped to one window, never app-wide: with two windows open, an app-wide clear
-    /// means window B merely reloading strands every socket window A owns. Connection
-    /// ids are globally unique (`crypto.randomUUID` on the JS side), so the id-keyed
-    /// map needs no re-keying — only teardown is window-aware.
+    /// Retires `label`'s connections when its page loads: the old JS will never `ws_close`
+    /// them. Scoped to one window, or one window reloading would strand another's sockets.
     pub fn close_for_window(&self, label: &str) {
         self.connections
             .lock()
@@ -121,13 +91,9 @@ where
 {
     let (mut write, mut read) = ws.split();
 
-    // Writer task: drain the mpsc and push frames at the socket one at a time. It
-    // ends when every sender is dropped — which is what retiring the connection does.
-    //
-    // A send FAILURE is not a retirement: it is the socket's write direction going
-    // dead, and a keystroke that vanished with neither error nor reconnect is exactly
-    // the half-open bug. Signal it on `writer_dead` so the reader — which owns the one
-    // retire + announce path — wakes and surfaces it.
+    // The writer ends when every sender drops (retirement). A send failure is the write
+    // direction dying, not a retirement: signal `writer_dead` so the reader, which owns
+    // the one retire + announce path, surfaces it instead of losing keystrokes silently.
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
     let (writer_dead_tx, mut writer_dead) = oneshot::channel::<()>();
     let writer = tokio::spawn(async move {
@@ -143,10 +109,8 @@ where
     let generation = manager.next_generation.fetch_add(1, Ordering::Relaxed);
     let (cancel, mut cancelled) = oneshot::channel();
 
-    // Register before the reader can retire itself, so a connection the daemon closes
-    // instantly still finds its own entry to remove. A re-used id would otherwise
-    // strand the previous connection, so the displaced one is dropped — which retires
-    // it in full, by the same one primitive.
+    // Registered before the reader can retire itself, so an instant daemon close finds its
+    // entry. A re-used id drops the displaced connection, retiring it by the same primitive.
     manager.connections.lock().unwrap().insert(
         conn_id.clone(),
         Connection {
@@ -174,15 +138,9 @@ where
                 }
             };
             tokio::select! {
-                // The connection was removed from the map: `ws_close`, a page load, or a
-                // re-used id. Whoever removed it has already retired it; just let go of
-                // the read half so the socket can close.
-                //
-                // Ending the writer half-closes the socket, and a healthy daemon answers
-                // that by closing its end — which would wake this reader anyway. But a
-                // daemon that has stopped reading (the wedge the watchdog exists for)
-                // never will, and then the reader parks here for the life of the app,
-                // holding the descriptor. Teardown must not depend on the peer.
+                // Removed from the map (`ws_close`, page load, re-used id): drop the read
+                // half. A daemon that stopped reading never answers the writer's half-close,
+                // so without this the reader parks on the descriptor forever.
                 _ = &mut cancelled => break,
                 // The writer hit a socket error (`Ok`): the transport is lost. `Err` is
                 // the writer's queue closing on a normal retirement, which the cancel
@@ -208,11 +166,8 @@ where
         }
         drop(read);
 
-        // The daemon ended it, so nobody else will retire it: remove the entry, which
-        // drops the sender and lets the writer finish. Guard on the generation — if the
-        // id has since been re-used, the entry belongs to a live connection and is not
-        // ours to remove. When we were cancelled instead, whoever cancelled us already
-        // removed it, so there is nothing to do here.
+        // The daemon ended it, so nobody else will retire it. The generation guard leaves a
+        // re-used id's live entry alone; a cancelled reader's entry is already gone.
         if daemon_closed {
             let mut conns = connections.lock().unwrap();
             if conns
@@ -228,10 +183,8 @@ where
         // reader's completion the connection's single, observable teardown point.
         let _ = writer.await;
 
-        // Only tell the shim to reconnect if the daemon is what ended this. A cancelled
-        // connection was closed, superseded, or orphaned by a page load, and in each case
-        // whoever did it already knows. Announcing after the writer means a reconnect can
-        // never race ahead of the descriptor it is about to need.
+        // Announce only a daemon-side end (a cancelled one's closer already knows), and only
+        // after the writer finished, so a reconnect never races the descriptor it needs.
         if daemon_closed {
             on_message.send(Frame::Text(WS_CLOSE_SENTINEL.to_string()));
         }

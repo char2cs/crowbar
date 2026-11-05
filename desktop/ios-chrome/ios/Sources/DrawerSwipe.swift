@@ -1,10 +1,9 @@
 import UIKit
 import WebKit
 
-/// The one horizontal pan of the app's navigation. It moves cards from anywhere in a zone, not
-/// just the screen edge, while the page keeps its own gestures: vertical scrolls, a touch held
-/// to select text, and sideways scrollers (unless the touch starts at the very edge or its
-/// claim overrides them).
+/// The one horizontal navigation pan, from anywhere in a zone, while the page keeps its
+/// own gestures (vertical scrolls, text-selection holds, sideways scrollers unless the
+/// touch starts at the very edge or its claim overrides them).
 final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
   enum Motion { case rightward, leftward, either }
 

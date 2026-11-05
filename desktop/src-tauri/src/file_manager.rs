@@ -1,9 +1,6 @@
-/// Reveals a file or directory in the OS file manager, selected. An app command
-/// rather than the opener plugin's, which would need a path scope covering every
-/// workspace root. If a `permissions/` dir is ever added, this needs an explicit allow.
-///
-/// `async` + `spawn_blocking`: the macOS path is a blocking XPC round trip to Finder,
-/// and a sync command runs on the main thread, freezing the whole webview meanwhile.
+/// Reveals a path in the OS file manager. An app command, so no opener-plugin path scope
+/// is needed (a future `permissions/` dir must allow it). `spawn_blocking`: Finder's XPC
+/// round trip would otherwise block the main thread, and with it the whole webview.
 #[tauri::command]
 pub async fn reveal_in_finder(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {

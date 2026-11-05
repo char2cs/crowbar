@@ -1,25 +1,10 @@
-//! The desktop process's open-file limit.
-//!
-//! macOS starts a GUI app at launchd's soft limit of 256 open files. Go raises its
-//! own soft limit to the hard limit at startup — which is why the daemon runs at
-//! thousands of descriptors without complaint — but Rust does no such thing, so
-//! the app is left at 256 unless it asks for more.
-//!
-//! That is a real ceiling here, not a theoretical one. Every frontend HTTP request
-//! (`api_proxy`) and every WebSocket (`ws_bridge`, `terminal`) is dialled to the
-//! daemon as a unix socket owned by *this* process, so the app's descriptor use
-//! tracks the frontend's traffic, not its own modest needs. Once the ceiling is
-//! reached, `connect()` fails with `EMFILE` — and a health watchdog that dials the
-//! daemon through the same syscall cannot tell that apart from a dead backend. It
-//! then kills a daemon that was never unhealthy.
+//! The app's open-file limit. macOS starts a GUI app at 256 and Rust, unlike Go, never
+//! raises it — yet every frontend request and WebSocket is a unix socket of this process,
+//! and at the ceiling the health watchdog mistakes `EMFILE` for a dead daemon.
 
-/// The soft limit to move to, or `None` when the current one is already at least
-/// as generous.
-///
-/// A kernel refuses a soft limit above its per-process ceiling, and macOS reports
-/// the hard limit for `RLIMIT_NOFILE` as "unlimited" — so on macOS that ceiling,
-/// not the hard limit, is what can actually be claimed. Where a kernel imposes no
-/// such ceiling, `max_per_proc` is `u64::MAX` and the hard limit binds.
+/// The soft limit to move to, or `None` if the current one is as generous. macOS reports
+/// an unlimited hard limit but refuses more than its per-process ceiling, so that binds
+/// there; elsewhere `max_per_proc` is `u64::MAX` and the hard limit binds.
 pub fn target_soft_limit(soft: u64, hard: u64, max_per_proc: u64) -> Option<u64> {
     let target = hard.min(max_per_proc);
     (target > soft).then_some(target)
@@ -58,10 +43,8 @@ fn max_files_per_proc() -> u64 {
     u64::MAX
 }
 
-/// What [`raise`] did, so it can be reported once a logger exists. The raise has
-/// to happen before anything opens a descriptor — which is before Tauri installs
-/// its log plugin — so the outcome is carried out rather than logged in place.
-/// Leaving it unreported would hide the one number that explains an `EMFILE`.
+/// What [`raise`] did, carried out to be reported once a logger exists: the raise
+/// precedes the log plugin, and the number is the one that explains an `EMFILE`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Raised { from: u64, to: u64 },
@@ -81,10 +64,8 @@ impl std::fmt::Display for Outcome {
     }
 }
 
-/// Raises this process's open-file soft limit as far as the kernel allows, so the
-/// app's descriptor budget reflects the traffic it proxies rather than launchd's
-/// 256. Best-effort: a failure is reported, never fatal — the app still runs, it
-/// is just back on the old ceiling.
+/// Raises the soft open-file limit as far as the kernel allows. Best-effort: a failure
+/// is reported, never fatal — the app just stays on the old ceiling.
 #[cfg(unix)]
 pub fn raise() -> Outcome {
     let mut lim = libc::rlimit {

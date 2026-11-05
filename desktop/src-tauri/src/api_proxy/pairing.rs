@@ -1,7 +1,5 @@
-//! Pairing a remote host: a one-time code from `crowbar pair` is redeemed for a
-//! bearer token over the pinned channel, and the token goes straight into the
-//! keychain, bound to the certificate that channel verified — it never crosses
-//! into the webview.
+//! Pairing: a one-time `crowbar pair` code is redeemed over the pinned channel for a
+//! bearer token, which goes straight into the keychain and never reaches the webview.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,11 +18,9 @@ use crate::tls_pin::{certificate_digest, CertificateDigest, Pin};
 /// Bound on the whole redeem: dial, request and answer.
 const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Redeems `code` with the daemon at `endpoint`, trusting only the certificate
-/// matching `fingerprint`. Only a stored credential registers the host; on any
-/// failure the registry and keychain are left as they were. Resolves to the
-/// daemon's id for this client — not a secret, and what a server-side revoke
-/// (`DELETE /v0/clients/:id`) names.
+/// Redeems `code` at `endpoint`, trusting only `fingerprint`'s certificate; any failure
+/// leaves registry and keychain untouched. Resolves to the daemon's id for this client,
+/// which a server-side revoke (`DELETE /v0/clients/:id`) names.
 #[tauri::command]
 pub async fn pair_remote_host(
     host_id: String,

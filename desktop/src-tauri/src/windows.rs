@@ -16,10 +16,9 @@ fn seed_hash_script(route: &str) -> Result<String, String> {
     ))
 }
 
-/// Opens another window at `route` (a hash-router path, `/` for the picker).
-/// Built `from_config` off `app.windows[0]` so it matches `main` exactly (a hand-made
-/// builder misplaced the traffic lights); `async` because building a window from a
-/// sync command deadlocks on Windows.
+/// Opens another window at `route` (a hash-router path, `/` for the picker), built
+/// `from_config` off `app.windows[0]` so it matches `main` exactly. `async` because
+/// building a window from a sync command deadlocks on Windows.
 #[tauri::command]
 pub async fn open_window(app: tauri::AppHandle, route: String) -> Result<(), String> {
     use std::sync::atomic::{AtomicU64, Ordering};

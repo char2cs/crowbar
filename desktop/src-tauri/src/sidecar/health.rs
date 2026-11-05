@@ -93,21 +93,16 @@ pub async fn check_health(
     Ok(parse_health(&body))
 }
 
-/// Polls until the daemon serves, returning its self-reported pid (None for a
-/// daemon predating the pid field), or until it halts. A migrating daemon is
-/// alive and busy, so it is waited for without spending `attempts`; only a
-/// daemon that cannot be reached, or answers wrongly, does.
+/// Polls until the daemon serves (returning its self-reported pid) or halts. A migrating
+/// daemon is waited for without spending `attempts`; only unreachable or wrong answers do.
 pub async fn wait_for_health(socket: &PathBuf, attempts: u32) -> Result<Option<i32>, Unready> {
     let mut failed = 0;
     loop {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // Budget every attempt. A daemon that accepts the connection but never
-        // serves /v0/health would otherwise park this loop forever — and with it
-        // `spawn`, which is what records `daemon_pid`. The watchdog would then trip,
-        // find no pid, and fall back to `CommandChild::kill()`: the one call that
-        // deadlocks on a live daemon (see `SidecarHandle`). The supervisor would
-        // never run again, so the leak is not the descriptor, it is the recovery.
+        // Budget every attempt: a daemon that accepts but never serves would park `spawn`
+        // before it records `daemon_pid`, and the watchdog's pid-less fallback,
+        // `CommandChild::kill()`, deadlocks on a live daemon.
         match tokio::time::timeout(HEALTH_PROBE_TIMEOUT, check_health(socket)).await {
             Ok(Ok(Health::Ready { pid })) => return Ok(pid),
             Ok(Ok(Health::Halted { message })) => return Err(Unready::Halted(message)),
@@ -120,15 +115,9 @@ pub async fn wait_for_health(socket: &PathBuf, attempts: u32) -> Result<Option<i
     }
 }
 
-/// Deep readiness probe. Unlike /v0/health — which answers from a static
-/// handler and stays green while the daemon is wedged — /v0/projects goes
-/// through the global view store, the exact resource every observed
-/// production wedge pinned. A daemon that cannot answer this is not serving
-/// users, whatever its liveness endpoint says.
-///
-/// Dialling costs a descriptor of *this* process, so the probe reports whether it
-/// could dial at all: an exhausted app cannot reach even a perfectly healthy
-/// daemon, and the watchdog must not read that as the daemon's fault.
+/// Deep readiness probe: /v0/projects goes through the view store every observed wedge
+/// pinned, unlike the static /v0/health. Reports whether it could dial at all, since an
+/// app out of descriptors cannot reach even a healthy daemon.
 pub async fn probe_ready(socket: &PathBuf) -> supervisor::Probe {
     // A daemon preparing its home or halted refuses every route but /v0/health on
     // purpose; the deep probe would read that refusal as a wedge.

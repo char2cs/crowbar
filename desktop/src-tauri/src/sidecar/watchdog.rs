@@ -39,14 +39,9 @@ async fn capture_goroutine_dump(socket: &PathBuf) -> Option<String> {
     Some(String::from_utf8_lossy(&body).into_owned())
 }
 
-/// Watches the daemon and recovers it from wedges: after
-/// PROBE_FAILURE_THRESHOLD consecutive failed deep probes it appends a
-/// goroutine dump to the daemon log, SIGQUITs the daemon (the Go runtime
-/// prints all stacks to the captured stderr and exits), and escalates to
-/// SIGKILL; the output pump's Terminated handler then respawns within budget.
-///
-/// Spawned once per app run — respawned daemons are picked up automatically
-/// because the probe reads the socket path from managed state on every tick.
+/// Recovers the daemon from wedges: after PROBE_FAILURE_THRESHOLD failed deep probes it
+/// dumps goroutines to the daemon log, SIGQUITs, then SIGKILLs; the pump respawns within
+/// budget. Spawned once: each tick re-reads the socket path, so respawns are picked up.
 pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut tracker = supervisor::FailureTracker::new(PROBE_FAILURE_THRESHOLD);
@@ -54,10 +49,8 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
         loop {
             tokio::time::sleep(WATCHDOG_INTERVAL).await;
 
-            // Wall-clock elapsed since the previous cycle. SystemTime — unlike a
-            // monotonic Instant — keeps advancing through a system sleep, so an
-            // OS suspension (App Nap / sleep) that froze this whole app surfaces
-            // here as a gap far larger than the nominal cycle.
+            // SystemTime, unlike a monotonic Instant, advances through a system sleep, so an App
+            // Nap or sleep that froze the app shows up as a gap far larger than the nominal cycle.
             let now = std::time::SystemTime::now();
             let cycle = now.duration_since(prev_cycle).unwrap_or(Duration::ZERO);
             prev_cycle = now;
@@ -76,11 +69,8 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 continue;
             };
 
-            // The app was suspended across this cycle (App Nap / system sleep):
-            // the daemon was frozen alongside us, not wedged, and answers again
-            // the instant it resumes. Counting this cycle's probe failure would
-            // SIGQUIT a healthy daemon on wake — the exact false positive behind
-            // the "backend closed itself while idle" reports. Discard the cycle.
+            // Suspended across this cycle: the daemon was frozen with us, not wedged, and counting
+            // this failure would SIGQUIT a healthy daemon on wake. Discard the cycle.
             if supervisor::cycle_was_suspended(cycle, WATCHDOG_INTERVAL, PROBE_TIMEOUT) {
                 tracker.reset();
                 continue;
@@ -90,11 +80,8 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 .await
                 .unwrap_or(supervisor::Probe::Unserved);
 
-            // We could not dial the daemon because *we* have no descriptors left.
-            // That is our bug, not the daemon's, and no restart of it can hand one
-            // back — the next probe would fail identically until the app is
-            // restarted. Killing a backend on this evidence is how a healthy daemon
-            // gets destroyed mid-session, so refuse to, and say so loudly.
+            // We are out of descriptors: our fault, and no restart of the daemon can fix it. Refuse
+            // to kill a backend on this evidence, and say so loudly.
             if outcome == supervisor::Probe::LocalDescriptorExhaustion {
                 log::error!(
                     "the app is out of file descriptors and cannot dial the daemon. \
@@ -107,22 +94,15 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 continue;
             }
 
-            // Three consecutive failed probes. Before the irreversible
-            // SIGQUIT+SIGKILL, rule out the false positive that dominates in
-            // practice: an OS-suspended daemon. macOS task-suspends an idle,
-            // backgrounded helper; while suspended it fails every probe because
-            // it is not executing, then answers the instant it resumes. Killing
-            // it is the "backend closed itself while idle" bug. A genuinely
-            // wedged daemon is running (state R/S) yet stuck, and answers
-            // neither the probe nor a longer grace probe.
+            // Before the irreversible SIGQUIT+SIGKILL, rule out the common false positive: macOS
+            // task-suspends an idle background helper, which then fails every probe until it
+            // resumes. A wedged daemon is running (R/S) and answers neither probe.
             let daemon_suspended = match state.daemon_pid() {
                 Some(pid) => process_is_suspended(pid).await,
                 None => false,
             };
-            // A last, more generous probe. It exonerates the daemon two ways: it
-            // answered after all (it had merely resumed, or was transiently slow),
-            // or we could not even dial it because we are out of descriptors — in
-            // which case the silence was never the daemon's to explain.
+            // A last, more generous probe exonerates the daemon if it answers, or if we could not
+            // dial it at all for want of descriptors.
             let exonerated = if daemon_suspended {
                 false
             } else {
@@ -173,11 +153,8 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
     });
 }
 
-/// Reports whether the process `pid` is OS-suspended (macOS task_suspend or a
-/// job-control SIGSTOP) rather than running. `ps -o stat` reports a leading 'T'
-/// for a stopped/suspended process and 'S'/'R' for a running one. On any error
-/// we report false: better to let a genuine wedge be killed than to suppress a
-/// restart because the process state could not be read.
+/// Whether `pid` is OS-suspended (`ps -o stat` leads with 'T'). Any error reads as
+/// running: better to kill a genuine wedge than suppress a restart on a failed read.
 async fn process_is_suspended(pid: i32) -> bool {
     let output = tokio::process::Command::new("ps")
         .args(["-o", "stat=", "-p", &pid.to_string()])
@@ -191,15 +168,9 @@ async fn process_is_suspended(pid: i32) -> bool {
     }
 }
 
-/// SIGQUIT then SIGKILL for a daemon that stopped answering. SIGQUIT is not
-/// caught by the daemon (it handles only SIGINT/SIGTERM), so the Go runtime's
-/// default handler prints every goroutine stack to stderr — captured by the
-/// output pump — and exits; SIGKILL covers a runtime too wedged even for that.
-///
-/// Signals go to the health-reported pid via libc; the CommandChild is taken
-/// and dropped without calling into it — pid()/kill() lock the shared_child
-/// mutex the shell plugin's wait thread holds for the child's lifetime, which
-/// deadlocked this exact path in the 2026-07-04 live wedge drill.
+/// SIGQUIT (uncaught by the daemon, so Go dumps every goroutine to the captured stderr)
+/// then SIGKILL. Signals the recorded pid via libc and never calls into the CommandChild:
+/// its pid()/kill() lock the mutex the shell plugin's wait thread holds, and deadlock.
 async fn kill_wedged<R: Runtime>(app: &AppHandle<R>) {
     let Some((child, pid)) = take_child(app.state::<SidecarHandle>().inner()) else {
         return;

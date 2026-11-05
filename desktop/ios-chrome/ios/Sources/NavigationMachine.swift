@@ -35,14 +35,9 @@ struct Frames: Equatable {
   var ideHeaderAlpha: Double
 }
 
-/// The one owner of what is on screen and in motion: a position along the screens, the drag or
-/// spring moving it, and how the web's word relates to ours. Pure: views render `frames`, and
-/// every user action goes through here, so a swipe, a reversal or a late report from the web
-/// cannot leave two screens, or two headers, in front.
-///
-/// The web owns which screen is current; this owns the motion. Each intent we send carries a
-/// `seq`, and the web echoes the newest one it applied (`ack`). Until that catches up, what the
-/// web reports is older than our last word and is not allowed to move us.
+/// The one owner of on-screen position and motion, pure so no swipe or late report can
+/// put two screens in front. The web owns which screen is current: each intent carries a
+/// `seq`, and until the web's `ack` catches up, its older reports cannot move us.
 struct NavigationMachine {
   enum Phase: Equatable {
     case rest
