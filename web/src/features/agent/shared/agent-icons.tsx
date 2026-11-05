@@ -1,20 +1,9 @@
 import type { SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 
-/**
- * The chat surface's icon set, drawn from the design canvas.
- *
- * These are NOT interchangeable with lucide or phosphor. The canvas draws every
- * glyph on a 24-unit grid at `stroke-width: 1.6` with round caps and joins, and
- * a general-purpose set at its own weight (lucide ships 2, phosphor's regular is
- * heavier still) reads as a different family the moment it sits beside one of
- * these — thicker, with squarer terminals, on a different optical size. Mixing
- * them is what made the surface switcher look hand-drawn.
- *
- * Size is the only thing a caller chooses, and it chooses from the canvas's three
- * steps: 12 for a chip's affordance, 14 for the default, 16 for a control the
- * hand aims at.
- */
+// The chat surface's own icons (24-unit grid, stroke 1.6, round caps): phosphor's heavier weight
+// reads as another family beside them, so do not mix. Sizes are the canvas's three steps:
+// 12 for a chip's affordance, 14 default, 16 for a control the hand aims at.
 export type AgentIconSize = 12 | 14 | 16
 
 interface AgentIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
