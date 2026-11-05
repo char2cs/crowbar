@@ -3,11 +3,8 @@ import type { IDBPDatabase } from 'idb'
 import type { CrowbarDB } from './schemas'
 
 let _db: IDBPDatabase<CrowbarDB> | null = null
-// The IN-FLIGHT open, not just the settled one. Callers arrive together at
-// startup, and memoizing only the resolved handle lets every one of them start
-// its own `openDB` — which deadlocks the moment an open has to change the
-// version, because a second connection at the old version blocks the upgrade
-// and the upgrade holds the second open. One open, awaited by everyone.
+// Memoize the in-flight open, not the settled handle: startup callers arrive together, and a
+// second `openDB` at the old version blocks a version upgrade that holds it — a deadlock.
 let _opening: Promise<IDBPDatabase<CrowbarDB>> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
@@ -21,17 +18,9 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   }
 }
 
-/**
- * Open at the declared version, or as-is when the database is already NEWER.
- *
- * Asking for a version below the one on disk is not a no-op — it throws
- * `VersionError`, and since every cache call is best-effort the app does not
- * crash, it just quietly loses its whole local cache. A newer database is
- * ordinary here: this origin is shared by every build carrying the same bundle
- * id, so running an older checkout after a newer one is a normal Tuesday, and
- * so is a user rolling a release back. The stores are additive, so an older
- * build reading a newer database finds everything it knows about.
- */
+// Open at the declared version, or as-is when the database is newer: asking below the on-disk
+// version throws VersionError and silently loses the cache. Every build with this bundle id shares
+// the origin (older checkouts, rollbacks), and stores are additive, so older builds read fine.
 async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
   try {
     return await openDeclared()
@@ -96,17 +85,13 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         }
       }
       if (oldVersion < 8) {
-        // Sidebar grouping folders. This needs its own version: an object store
-        // is only created inside an upgrade, so an existing install opened at
-        // v7 would simply not have it — and every entity-cache write is
-        // best-effort, so the miss would be silent at runtime rather than loud
-        // at compile time (an empty folder list forever).
+        // Sidebar grouping folders get their own version: a store is only created in an upgrade,
+        // and best-effort cache writes would otherwise fail silently (empty folder list forever).
         db.createObjectStore('crowbar_folders', { keyPath: 'id' })
       }
       if (oldVersion < 9) {
-        // Sidebar chat rows, for exactly the reason above: an object store is
-        // only created inside an upgrade, so this needs its own version rather
-        // than riding v8's branch (an install already at v8 would never run it).
+        // Sidebar chat rows: their own version for the same reason (an install already at v8
+        // would never run a branch riding on v8's).
         db.createObjectStore('crowbar_chats', { keyPath: 'id' })
       }
       if (oldVersion < 10) {

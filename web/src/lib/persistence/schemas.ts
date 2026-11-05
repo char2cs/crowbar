@@ -11,22 +11,11 @@ export interface BranchReviewPersistedState {
 }
 
 export interface WorkspaceLayout {
-  /**
-   * Task 26: the object store's `keyPath` is still literally `workspaceId`
-   * (unchanged, so no `idb.ts` version bump is needed), but the VALUE written
-   * here is now `WINDOW_SESSION_ID` — a fixed constant, not a real workspace
-   * id. Pane/buffer layout is window-level (one flat store for every
-   * workspace, see `window-pane-store.ts`), so there is exactly one row in
-   * this object store now, not one per workspace. Each individual buffer
-   * still carries its OWN `workspaceId` (`EditorTabBase.workspaceId`) — that
-   * is the real per-buffer scoping now.
-   */
+  /** The store's keyPath is still `workspaceId`, but the value is the fixed WINDOW_SESSION_ID:
+   *  layout is window-level, one row per window. Each buffer carries its own workspaceId. */
   workspaceId: string
-  /**
-   * The shape version (`WINDOW_LAYOUT_VERSION`). Absent on a layout written
-   * before view members carried their workspace; `hydrate.ts` upgrades it
-   * once at load.
-   */
+  /** The shape version (WINDOW_LAYOUT_VERSION); absent on an older layout, which hydrate.ts
+   *  upgrades once at load. */
   version?: number
   panes: Record<string, PaneGroup>
   /** The Recents rows. A record without them hydrates to an empty band. */
@@ -43,26 +32,14 @@ export interface WorkspaceLayout {
 }
 
 export interface SidebarUI {
-  /**
-   * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
-   * project-row fold; the restyled tree folds through `collapsedChatRows` only
-   * (no project fold exists). A record still carrying any of them
-   * never gates visibility — no migration.
-   */
+  /** Retired keys from the pre-restyle tree's chevrons and project fold. The tree folds through
+   *  `collapsedChatRows` only; a record still carrying these never gates visibility. */
   collapsedRepos?: string[]
   collapsedWorkspaces?: string[]
   collapsedProjects?: string[]
-  /**
-   * Chats-panel rows the user has folded — folder ids and chat ids in ONE list,
-   * because both kinds hold children and both collapse the same way.
-   *
-   * Not keyed by workspace: every id here is a uuid minted by the daemon, so a
-   * flat set is already workspace-unique and an id that outlives its row simply
-   * matches nothing.
-   *
-   * Absent on a record written before the Chats panel was collapsible — replays
-   * as "nothing folded", which is the product default.
-   */
+  /** Folded Chats-panel rows, folder and chat ids in one list (both collapse alike). Daemon uuids
+   *  are workspace-unique, so the set is flat; a stale id matches nothing. Absent on older
+   *  records: "nothing folded", the product default. */
   collapsedChatRows?: string[]
   /** The sidebar's last mode. Untyped on disk: an older build wrote modes that
    *  no longer exist, so hydrate parses it (`parseSidebarTab`). */
@@ -104,12 +81,9 @@ export interface CrowbarDB extends DBSchema {
   crowbar_repos: { key: string; value: RepoDTO }
   crowbar_workspaces: { key: string; value: WorkspaceDTO }
   crowbar_threads: { key: string; value: ThreadDTO }
-  // Sidebar grouping folders (v8). A new object store only exists if the DB is
-  // opened at a version that ran its upgrade, so adding one is a version bump —
-  // see idb.ts.
+  // Sidebar grouping folders (v8): a new store needs a version bump to exist (see idb.ts).
   crowbar_folders: { key: string; value: FolderDTO }
-  // Sidebar chat rows (v9). Same rule as crowbar_folders above — its own
-  // version bump, because a store that never ran its upgrade branch is not an
-  // error at runtime, it is an empty list forever.
+  // Sidebar chat rows (v9): its own version bump too; a store whose upgrade never ran is not a
+  // runtime error but an empty list forever.
   crowbar_chats: { key: string; value: ChatDTO }
 }
