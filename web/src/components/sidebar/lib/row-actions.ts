@@ -15,6 +15,8 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
 import { report } from '@/lib/errors/report'
+import { ApiError } from '@/lib/errors/api-error'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { hostIdForProject } from '@/lib/host-resolve'
 
 // Every worktree verb is addressed through the workspace's owning chat, which the daemon mints
@@ -189,6 +191,19 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
   return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(wsId, name)
 }
 
+// The daemon's one 422 on a lock change is a workspace with no worktree (a placeholder or a
+// home); its validation text means nothing to the user.
+function lockRefusal(err: unknown, branch: string | undefined): unknown {
+  if (!(err instanceof ApiError) || err.problem.code !== 'unprocessable') return err
+  const name = branch ? `\`${branch}\`` : 'This branch'
+  return new UserFacingError(
+    `${name} has no worktree of its own, so it can’t be locked or unlocked.`,
+    {
+      cause: err,
+    },
+  )
+}
+
 // Set or clear a workspace's lock; `locked: null` drops the user's override (see
 // setWorkspaceLock). Takes a row id and translates it: a locked branch row is id'd by its owning
 // chat, and without the translation a locked workspace could be neither unlocked nor deleted.
@@ -201,15 +216,15 @@ export async function performSetWorkspaceLock(
   const repo = repos.find((r) => r.workspaces.some((w) => w.id === wsId))
   const projectId = repo?.projectId
   if (!repo || !projectId) return
+  const branch = repo.workspaces.find((w) => w.id === wsId)?.branch
   try {
     await setWorkspaceLock(wsId, locked)
   } catch (err) {
     if (err instanceof OwningChatNotRecordedError) {
-      const branch = repo.workspaces.find((w) => w.id === wsId)?.branch
       toast.error(chatNotLoadedYet(locked === false ? 'unlock' : 'lock', branch))
       return
     }
-    report(err, { action: 'Failed to update lock' })
+    report(lockRefusal(err, branch), { action: 'Failed to update lock' })
   }
 }
 

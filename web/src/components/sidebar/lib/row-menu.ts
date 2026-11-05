@@ -137,8 +137,8 @@ export function rowIsLocked(rowId: string): boolean {
 }
 
 // A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock only for a real
-// workspace branch, never the project-home checkout; "New thread in Terminal" is left out when
-// the provider a new chat would start under has no terminal.
+// workspace branch with a worktree (the daemon refuses a placeholder's), never the project-home
+// checkout; "New thread in Terminal" is left out when the provider a new chat would start under has no terminal.
 export function rowMenuActions(
   row: SidebarRow,
   { locked, canStartOnTerminal }: { locked: boolean; canStartOnTerminal: boolean },
@@ -146,7 +146,9 @@ export function rowMenuActions(
   const isProjectHome = row.repoIcon !== undefined
   const ids: RowMenuActionId[] = []
   if (!(row.kind === 'branch' && locked)) ids.push('rename')
-  if (row.kind === 'branch' && !isProjectHome) ids.push(locked ? 'unlock' : 'lock')
+  if (row.kind === 'branch' && !isProjectHome && !row.isPlaceholder) {
+    ids.push(locked ? 'unlock' : 'lock')
+  }
   if (isProjectHome) ids.push('import')
   if (row.kind === 'branch' || row.kind === 'folder' || row.kind === 'chat') {
     ids.push('new-folder')

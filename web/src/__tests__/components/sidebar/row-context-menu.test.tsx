@@ -316,6 +316,34 @@ describe('SidebarRowContextMenu', () => {
     })
   })
 
+  // The daemon refuses a lock change on a workspace with no worktree (422), so a
+  // placeholder - the locked `main` the repo's own checkout holds - offers neither.
+  it('right-clicking a LOCKED placeholder branch offers neither Lock nor Unlock', () => {
+    const main = { id: 'ws-main', branch: 'main', age: '', provisioning: 'placeholder' as const }
+    const repo: Repo = {
+      ...REPO,
+      workspaces: [...REPO.workspaces, { ...main, status: 'locked', owningChatId: 'main-row' }],
+      chats: [
+        ...(REPO.chats ?? []),
+        {
+          id: 'main-row',
+          repoId: 'repo-1',
+          ownsWorktree: true,
+          workspaceId: 'ws-main',
+          title: '',
+          order: 3,
+        },
+      ],
+    }
+    seedRepos([repo])
+    rows = repoRows(repo)
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, 'main-row')
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+    expect(screen.queryByText('Unlock')).not.toBeInTheDocument()
+    expect(screen.queryByText('Lock')).not.toBeInTheDocument()
+  })
+
   it('clicking New folder on the repo-home row roots it at the repo', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
