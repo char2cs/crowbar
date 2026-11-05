@@ -10,28 +10,14 @@ import (
 
 const defaultAllowHeaders = "Content-Type"
 
-// exposeHeaders names the RESPONSE headers a cross-origin caller may read.
-//
-// CORS hides every response header from JavaScript except a safelisted handful
-// (Content-Type, Content-Length, and four others), and the webview reaches the
-// daemon cross-origin — a page on tauri://localhost fetching crowbar://localhost.
-// So a header that carries meaning has to be named here or the one client this
-// API has reads it back as null.
-//
-// X-Crowbar-Diff-Truncated is GET /review/patch's report that a capped patch was
-// cut short. Unexposed, it fails silently in the worst possible direction: every
-// truncated patch reads as a complete one, and the file whose patch was cut
-// entirely renders as an empty diff instead of offering to load the rest.
+// exposeHeaders names the response headers the webview may read: it fetches the
+// daemon cross-origin, and CORS hides every non-safelisted header from JavaScript.
+// Without X-Crowbar-Diff-Truncated a truncated review patch would read as complete.
 const exposeHeaders = "X-Crowbar-Diff-Truncated"
 
-// CORS grants cross-origin access only to allow-listed origins (the in-app Tauri
-// webview, loopback dev servers, and any CROWBAR_ALLOWED_ORIGINS entry) — see
-// origin.Allowed. It echoes the specific Origin (not "*") so credentialed requests
-// are permitted, marks the response Vary: Origin, and short-circuits preflight
-// OPTIONS. A request carrying a disallowed Origin — "null" included — is refused
-// 403 whatever its method, before any handler: a simple request (a text/plain
-// POST) needs no preflight, so withholding the response alone still lets a page
-// fire blind writes. A request with no Origin (CLI, hooks) is not a browser's.
+// CORS echoes allow-listed origins (origin.Allowed) so credentialed requests work,
+// and refuses a disallowed Origin ("null" included) 403 before any handler: a simple
+// POST needs no preflight, so withholding only the response would still allow blind writes.
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if answerCORS(c.Writer, c.Request) {

@@ -1,12 +1,7 @@
-// Package libs provides the uniform HTTP response envelope shared by every v0
-// route handler. The envelope mirrors quiver.core's shape —
-// { success: bool, error: string|null, data: any? } — but drops quiver's
-// namespace field, because Crowbar addresses entities by UUID path params
-// rather than by namespace.
-//
-// Query responses carry their payload in data. Mutation responses carry the
-// affected entity id under a fixed shape: data: { "id": "<uuid>" }. Error
-// responses set success:false and a non-null error string, with data omitted.
+// Package libs provides the uniform response envelope every v0 handler returns:
+// { success, error, data }, quiver.core's shape minus its namespace field, since
+// Crowbar addresses entities by UUID path params. Queries carry their payload in
+// data, mutations carry data: { "id": "<uuid>" }, errors set success:false and omit data.
 package libs
 
 import (
@@ -27,12 +22,9 @@ import (
 // IdempotencyKeyHeader carries the client-minted id of the operation a request starts.
 const IdempotencyKeyHeader = "Idempotency-Key"
 
-// Envelope is the uniform response body returned by every v0 handler.
-//
-// Success is true for query and mutation responses and false for errors. Error
-// holds a non-null human-readable message on failures and is omitted on
-// success. Data carries the query payload or the mutation id shape and is
-// omitted when empty (for example on errors).
+// Envelope is the uniform response body returned by every v0 handler. Error is set
+// only on failure; Data carries the query payload or the mutation id and is omitted
+// when empty.
 type Envelope struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`

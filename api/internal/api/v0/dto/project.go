@@ -25,10 +25,8 @@ type ProjectDTO struct {
 	LastActivity time.Time `json:"lastActivity"`
 	// Order is the project's dense index in the sidebar.
 	Order int `json:"order"`
-	// AvatarURL is the icon proxy "/v0/projects/<id>/icon", set only when the
-	// project has an on-disk icon (AvatarHasIcon). Empty otherwise — a project
-	// without one falls back to the sidebar's Library glyph rather than to a
-	// generated letter tile, which is why there is no label/colour pair here.
+	// AvatarURL is the icon proxy "/v0/projects/<id>/icon", set only for an on-disk
+	// icon; otherwise the sidebar shows its Library glyph, so there is no label/colour pair.
 	AvatarURL string `json:"avatarUrl,omitempty"`
 	// AvatarEmoji passes the emoji icon through to the client, which renders it
 	// directly. Empty when the project uses an on-disk image or the default.
@@ -41,10 +39,8 @@ func ProjectDTOFrom(
 ) ProjectDTO {
 	avatarURL := ""
 	if p.AvatarHasIcon {
-		// The ?v=<AvatarVersion> query param cache-busts the otherwise-stable
-		// icon URL: uploads replace the bytes in place, and without a changing
-		// URL the webview's image cache keeps serving the old icon. Same rule,
-		// same reason, as RepoDTOFrom.
+		// ?v=<AvatarVersion> cache-busts the stable icon URL: uploads replace the bytes
+		// in place, and the webview's image cache would keep serving the old icon.
 		avatarURL = "/v0/projects/" + p.ID + "/icon?v=" + strconv.FormatInt(p.AvatarVersion, 10)
 	}
 	return ProjectDTO{
@@ -58,14 +54,9 @@ func ProjectDTOFrom(
 	}
 }
 
-// ProjectDTOList converts a slice of domain Projects into wire DTOs in sidebar
-// order, returning a non-nil empty slice when the input is empty so the envelope
-// carries [].
-//
-// The sort lives HERE, in the converter both the REST list handler and the WS
-// snapshot go through, because those are the two answers to the same question
-// and a client that got different orders from them would watch its sidebar
-// reshuffle on every reconnect.
+// ProjectDTOList converts projects into a non-nil DTO slice in sidebar order. The sort
+// lives here because REST and the WS snapshot both use it, and differing orders would
+// reshuffle the sidebar on every reconnect.
 func ProjectDTOList(
 	projects []domain.Project,
 ) []ProjectDTO {
@@ -77,10 +68,8 @@ func ProjectDTOList(
 	return dtos
 }
 
-// compareProjectDTOs orders projects by their dense index, then by id. The id
-// tiebreak keeps a list whose rows all still carry the migration default of 0
-// from reshuffling between two identical requests; there is no created-at on a
-// project, and lastActivity moves on its own.
+// compareProjectDTOs orders projects by dense index, then id, so rows all still at
+// the migration default of 0 stay stable (projects have no created-at to break ties).
 func compareProjectDTOs(
 	a ProjectDTO,
 	b ProjectDTO,

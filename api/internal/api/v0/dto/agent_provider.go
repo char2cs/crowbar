@@ -19,15 +19,9 @@ type SlashCatalogItemDTO struct {
 	Source      string `json:"source"`
 }
 
-// AgentProviderDTO is the wire shape of domain.AgentProvider (00 agentic-engine
-// spec §7.2) — see there for what connected, enabled and mcpEnabled each mean,
-// what orders the list, and why efforts arrives already resolved. The catalog is
-// workspace-independent but served on the workspace-scoped route for surface
-// consistency.
-//
-// models and efforts are OMITTED rather than sent empty for a provider that
-// declares no catalogue: an absent field says the picker does not exist, which an
-// empty array would not.
+// AgentProviderDTO is the wire shape of domain.AgentProvider (see there for the field
+// semantics). Models and Efforts are omitted rather than empty for a provider with no
+// catalogue: absence says the picker does not exist.
 type AgentProviderDTO struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
@@ -41,19 +35,15 @@ type AgentProviderDTO struct {
 	// turn, so the composer need not hold it until the turn ends.
 	PromptSteer bool `json:"promptSteer"`
 	HasTerminal bool `json:"hasTerminal"`
-	// TerminalStartHere is domain.AgentProvider.TerminalStartHere — whether a
-	// brand-new chat may be launched DIRECTLY onto this provider's terminal
-	// surface (design spec 2.5). False whenever HasTerminal is false, and may
-	// be false even when it is true.
+	// TerminalStartHere says a new chat may launch directly onto this provider's
+	// terminal surface; it implies HasTerminal but not the reverse.
 	TerminalStartHere bool     `json:"terminalStartHere"`
 	ModelSelect       bool     `json:"modelSelect"`
 	EffortSelect      bool     `json:"effortSelect"`
 	ActivityEvents    []string `json:"activityEvents,omitempty"`
 	Models            []string `json:"models,omitempty"`
-	// DefaultModel is domain.AgentProvider.DefaultModel: the provider's OWN
-	// stated default, omitted (never sent as "") when unknown — an absent
-	// field says "the provider didn't say", where "" could misread as "no
-	// default model" as a fact rather than as missing information.
+	// DefaultModel is the provider's own stated default, omitted when unknown so a
+	// client can't misread "" as a fact.
 	DefaultModel string              `json:"defaultModel,omitempty"`
 	Efforts      map[string][]string `json:"efforts,omitempty"`
 

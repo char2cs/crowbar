@@ -17,18 +17,9 @@ type repoScopeReader interface {
 	FindByKey(ctx context.Context, id string) (*domain.Repository, error)
 }
 
-// scopeRepoToPath enforces that a request's :repoId belongs to the :projectId in
-// the SAME URL — the project-level analogue of scopeWorkspaceToPath. The repo
-// handlers (Detail/Delete/Icon*/Branches) load a repo by :repoId alone and act on
-// the URL :projectId (DeleteRepo even os.RemoveAll's repoDir(home, projectId,
-// repoId)), so without this a caller could delete, re-icon, or read ANY repo by id
-// from an unrelated project path — cross-project destruction. We load the repo
-// once and 404 on a project mismatch (the same response a missing id gets). Routes
-// with no :repoId (the repo collection list/create) pass through.
-//
-// Workspace-scoped requests carry :repoId too and are validated here as well as by
-// scopeWorkspaceToPath downstream; the extra read is a cheap read-model lookup and
-// keeps the guard independent of the workspace↔repo data invariant.
+// scopeRepoToPath 404s a :repoId that doesn't belong to the URL's :projectId, as for a
+// missing id. Repo handlers load by :repoId alone but act on :projectId, so without it a
+// caller could delete or read any repo from an unrelated project path.
 func scopeRepoToPath(reader repoScopeReader) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		repoID := c.Param("repoId")
@@ -51,26 +42,14 @@ func scopeRepoToPath(reader repoScopeReader) gin.HandlerFunc {
 	}
 }
 
-// workspaceScopeReader loads a workspace row by id for the scope guard. It is
-// the narrow surface scopeWorkspaceToPath needs; the concrete workspace repo
-// satisfies it.
+// workspaceScopeReader loads a workspace row by id for the scope guard.
 type workspaceScopeReader interface {
 	Get(ctx context.Context, id string) (domain.Workspace, error)
 }
 
-// scopeWorkspaceToPath enforces that a request's :wsId actually belongs to the
-// :projectId/:repoId in the SAME URL.
-//
-// Every entity-scoped route lives under
-// /projects/:projectId/repos/:repoId/workspaces/:wsId/... but the handlers below
-// load a workspace by :wsId alone (reader.Get(wsId)). Without this guard the
-// :projectId/:repoId segments are decorative: a caller could read or mutate ANY
-// workspace by id from an unrelated project/repo path — a wrong-scope confusion
-// that turns a stale or malformed URL into a silent wrong-workspace mutation
-// (delete/merge/reparent) or cross-scope read. We load the workspace once and
-// 404 on any project/repo mismatch — the same response a genuinely missing id
-// gets, so scope is never probed by id. Routes with no :wsId (collection
-// list/create, repo-level reads) pass straight through.
+// scopeWorkspaceToPath 404s a :wsId that doesn't belong to the URL's :projectId/:repoId,
+// as for a missing id. Handlers load by :wsId alone, so without it a stale URL could
+// silently mutate the wrong workspace.
 func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		wsID := c.Param("wsId")
@@ -93,37 +72,15 @@ func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 	}
 }
 
-// chatWorktreeResolver resolves a chat id to the workspace whose worktree it
-// reads and writes through (internal/app/usecases/worktree, spec
-// docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3). Declared
-// here rather than imported from usecases/worktree directly (law 4) — it is
-// the narrow Resolve(ctx, chatID) shape resolveChatWorktree needs; the
-// container's Worktree resolver (usecases.WorktreeResolver) satisfies it
-// structurally.
+// chatWorktreeResolver resolves a chat id to the workspace whose worktree it reads and
+// writes through; usecases.WorktreeResolver satisfies it.
 type chatWorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
 }
 
-// resolveChatWorktree scopes every route mounted under
-// rg.Group("/chats/:chatId") (router.go, spec §7.1's flat chat prefix) to the
-// workspace behind the chat's worktree, and stashes it on the gin context
-// (chatWorktreeContextKey) so every handler below reads it back without a
-// second resolve call per request.
-//
-// Unlike scopeWorkspaceToPath, which loads a workspace named directly by the
-// URL and only validates it against sibling :projectId/:repoId segments, a
-// chat is never itself a workspace: the workspace has to be resolved from the
-// chat's ancestry (spec §3) before any handler below can run. A chat with no
-// worktree anywhere in its ancestry (worktree.ErrNoWorktreeInAncestry) and
-// any other resolve failure both write the same 404-shaped envelope
-// scopeWorkspaceToPath uses for an unscoped id — from the caller's
-// perspective a chat whose worktree cannot be resolved is indistinguishable
-// from one that doesn't exist.
-//
-// The resolved workspace is stashed via reqscope, a leaf package the endpoint
-// handlers can import; this package cannot host the accessor itself, because
-// router.go imports every endpoint group and the handlers reading it back
-// would close an import cycle.
+// resolveChatWorktree resolves the workspace behind a /chats/:chatId route's chat
+// ancestry once and stashes it in reqscope (a leaf package, to avoid an import cycle).
+// Any resolve failure is a 404: an unresolvable chat is indistinguishable from a missing one.
 func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		chatID := c.Param("chatId")
@@ -138,14 +95,8 @@ func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
 	}
 }
 
-// rejectEmptyPathParams guards every v0 route against empty path parameters.
-//
-// gin's radix tree happily matches a request like GET /v0/workspaces//chats
-// against /v0/workspaces/:wsId/chats with wsId == "" — the empty segment
-// between the two slashes binds the param. Handlers would then pass "" to
-// repositories and usecases as if it were a real id (list queries return data
-// scoped to a nonexistent workspace, lookups 404 confusingly, etc.). Reject
-// such requests up front with a 400 error envelope.
+// rejectEmptyPathParams 400s any empty path parameter: gin binds the empty segment in
+// "//" to a param, and handlers would otherwise treat "" as a real id.
 func rejectEmptyPathParams() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		for _, p := range c.Params {

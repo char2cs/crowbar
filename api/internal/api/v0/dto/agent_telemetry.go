@@ -7,10 +7,8 @@ import (
 )
 
 // AgentTelemetryDTO is what the provider itself reported about cost and capacity.
-//
-// Every field is a POINTER because "not reported" and "zero" are different facts
-// and a gauge rendering 0% for an unreported value is a lie. A provider that
-// reports nothing yields an absent section, and the client draws no gauge.
+// Fields are pointers because "not reported" differs from zero: an unreported value
+// must draw no gauge, not 0%.
 type AgentTelemetryDTO struct {
 	ObservedAt time.Time              `json:"observedAt"`
 	Source     string                 `json:"source"`

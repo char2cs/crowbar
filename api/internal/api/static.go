@@ -10,14 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterStatic serves the embedded web bundle, falling back to index.html for
-// SPA routes.
-//
-// Precompressed siblings: when the bundle carries `<file>.gz` next to a file
-// (api/Makefile's embed-web writes them at build time) and the client accepts
-// gzip, the sibling is served with Content-Encoding: gzip — no compression work
-// at request time. Vite's content-hashed `/assets/*` never change under a name,
-// so they are cached as immutable.
+// RegisterStatic serves the embedded web bundle, falling back to index.html for SPA
+// routes. A build-time `<file>.gz` sibling is served to gzip clients so nothing is
+// compressed per request; content-hashed /assets/* are cached as immutable.
 func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 	fileServer := http.FileServer(http.FS(staticFS))
 

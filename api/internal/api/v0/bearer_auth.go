@@ -21,10 +21,9 @@ type clientAuthStore interface {
 	FindWhere(ctx context.Context, match domain.Client) ([]domain.Client, error)
 }
 
-// requireBearerAuth authenticates a request by its Authorization: Bearer
-// header. A request with no TLS state (the unix socket, or a loopback dev TCP
-// bind) passes through unauthenticated — filesystem permission on the socket
-// is that path's trust boundary, not this middleware.
+// requireBearerAuth authenticates a request by its Authorization: Bearer header.
+// A request with no TLS state (unix socket, loopback dev bind) passes through:
+// filesystem permission on the socket is that path's trust boundary.
 func requireBearerAuth(
 	clients clientAuthStore,
 	conns *clientConns,

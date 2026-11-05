@@ -4,15 +4,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ReviewMessageDTO is the wire shape of one append-only message inside a review
-// thread (09 §3): its id, optional author, agent flag, optional agent
-// attribution, body, and creation time rendered in RFC 3339.
-//
-// ProviderID and ChatID are omitempty and absent far more often than present:
-// every human message has neither, and so does every agent message written
-// before attribution existed. A client must render exactly as it did before this
-// field pair when they are missing, resolving them against the providers and
-// chats it already holds when they are not — never branching on a particular id.
+// ReviewMessageDTO is the wire shape of one append-only message in a review thread.
+// ProviderID and ChatID are the optional agent attribution, absent on human and
+// unattributed agent messages; clients resolve them, never branch on a specific id.
 type ReviewMessageDTO struct {
 	ID         string `json:"id"`
 	Author     string `json:"author,omitempty"`
@@ -23,10 +17,8 @@ type ReviewMessageDTO struct {
 	CreatedAt  string `json:"createdAt"`
 }
 
-// ReviewThreadDTO is the wire shape of a branch-review comment thread (09 §3):
-// its anchor (file, line, side), resolution status, ordered messages, and
-// creation time. The messages slice is always non-nil so it serialises as []
-// rather than null when the thread carries no messages.
+// ReviewThreadDTO is the wire shape of a branch-review comment thread: its anchor,
+// resolution status and ordered messages (always non-nil, so it serialises as []).
 type ReviewThreadDTO struct {
 	ID         string                    `json:"id"`
 	WsID       string                    `json:"wsId"`
@@ -39,11 +31,8 @@ type ReviewThreadDTO struct {
 	CreatedAt  string                    `json:"createdAt"`
 }
 
-// BranchReviewDTO is the wire shape of the composite branch-review read model
-// returned by GET /v0/workspaces/:wsId/review (09 §2): the description, the
-// merge strategy, the range diff, and the comment threads. The diff is
-// normalised so its nested slices are non-nil, and the threads slice is always
-// non-nil.
+// BranchReviewDTO is the composite branch-review read model: description, merge
+// strategy, range diff and threads, with every nested slice normalised to non-nil.
 type BranchReviewDTO struct {
 	Description   string            `json:"description"`
 	MergeStrategy string            `json:"mergeStrategy"`

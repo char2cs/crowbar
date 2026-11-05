@@ -28,11 +28,9 @@ type Container struct {
 	router *gin.Engine
 }
 
-// New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
-// registered as a hub subscriber), and optional embedded static assets.
-// serverFingerprint is the daemon's TLS identity fingerprint, passed through
-// to the pairing routes (see v0.New); preAuthReadTimeout bounds a TLS
-// request's reads until its bearer is verified (middleware.PreAuthReadDeadline).
+// New builds the HTTP layer: middleware, the v0 surface at /v0, and optional static
+// assets. serverFingerprint (the TLS identity) feeds the pairing routes; preAuthReadTimeout
+// bounds a TLS request's reads until its bearer is verified.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
