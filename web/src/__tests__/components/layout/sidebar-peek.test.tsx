@@ -143,10 +143,8 @@ describe('SidebarPeek', () => {
     expect(card().className).toContain('right-2')
   })
 
-  // The regression this whole component is shaped around: the sidebar subtree
-  // must survive dock -> hide -> peek untouched. Rendering it into a separate
-  // overlay container when hidden would rebuild the workspace tree, the
-  // carousel scroll offset, the file explorer and the agent chat list.
+  // The invariant the component is shaped around: the sidebar subtree survives dock -> hide ->
+  // peek untouched, never re-rendered into a separate overlay container.
   it('never rebuilds its children across docked, hidden and peeking', () => {
     const { rerender } = render(
       <SidebarPeek hidden={false} side="left" width={WIDTH}>
@@ -174,9 +172,7 @@ describe('SidebarPeek', () => {
     expect(screen.getByTestId('sidebar-body')).toBe(original)
   })
 
-  // Pinning the sidebar open while peeking used to strand `hovered` true, so the
-  // next hide re-summoned the card under a pointer nowhere near it — and nothing
-  // on screen could dismiss it.
+  // Pinning open mid-peek must clear `hovered`, or the next hide re-summons an undismissable card.
   it('does not re-summon the card after being pinned open mid-peek', () => {
     const { rerender } = renderPeek()
     movePointer(2)

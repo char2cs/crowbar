@@ -17,28 +17,9 @@ import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-/**
- * THE EIGHT-SECOND WINDOW, END TO END.
- *
- * Deleting a row in Crowbar is not a delete for the first eight seconds: the
- * rows are HIDDEN and the removal sits in a tray, cancellable. Every one of the
- * three surfaces that window touches is exercised here in the order the app
- * runs them, because the bug this file exists for lived BETWEEN them and no
- * unit test of any one of them could see it:
- *
- *     handleTrash            -> resolve the clicked row, plan what goes
- *     treeUiStore    -> hold it, hiding those ids
- *     applyPendingRemovals   -> the repo as the sidebar now reads it
- *     deriveRows           -> the rows actually drawn during the countdown
- *
- * What went wrong: a workspace row IS its owning chat (they render as one row),
- * but the hold hid only the `Workspace` half. The chat survived, `deriveRows`
- * found it with no workspace to fold onto, and drew it as a `kind: 'chat'`
- * BUBBLE. So the row the user had just deleted did not disappear — it visibly
- * turned into a conversation and sat there for eight seconds. Testing
- * `legacyTreeIndex` alone would have passed the whole time: its inputs were
- * fine, and the skew was introduced one layer up.
- */
+// The eight-second removal window end to end (handleTrash -> hold -> applyPendingRemovals ->
+// deriveRows), because the invariant lives BETWEEN them: a held workspace row stays the branch
+// row (both halves hidden) and never resurfaces as a chat bubble.
 
 const PROJECT = {
   id: 'p1',
@@ -140,10 +121,7 @@ describe('a held workspace row during its countdown', () => {
 
     const rows = rowsOnScreen()
     const row = rows.find((r) => r.id === 'chat-fork')
-    // The row itself stays, transformed in place (explicit product request)
-    // — but the regression this file is named for, stated the way the user
-    // reported it, is "the branch row transformed into a conversation one":
-    // it must stay the BRANCH row it always was, never a chat bubble.
+    // The row stays, transformed in place, as the BRANCH row it was, never a chat bubble.
     expect(row).toMatchObject({ kind: 'branch', workspaceId: 'ws-fork' })
     expect(row?.removal?.deadlineAt).not.toBeNull()
     expect(rows.some((r) => r.kind === 'chat' && r.label === 'One')).toBe(false)

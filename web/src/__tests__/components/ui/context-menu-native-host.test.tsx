@@ -139,12 +139,8 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  // Regression: a real right-click under React.StrictMode (this app wraps its
-  // whole tree in it — src/main.tsx) double-invokes this effect synchronously
-  // (setup → cleanup → setup again) before Menu.new()'s promise can resolve.
-  // Without the cancellation check, BOTH invocations popped up a real native
-  // menu — two live, stacked NSMenu tracking sessions from one right-click —
-  // which read as "the menu reopens" after dismissing the top one.
+  // StrictMode (src/main.tsx) double-invokes the effect before Menu.new() resolves; only the
+  // surviving invocation may pop a native menu, or two stacked menus read as "it reopens".
   it('under StrictMode, only the surviving effect invocation pops up a menu', async () => {
     const onClose = vi.fn()
     render(

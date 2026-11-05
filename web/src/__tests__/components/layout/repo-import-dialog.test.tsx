@@ -1,9 +1,4 @@
-/**
- * Task 6: per-branch lock choice at import time. `RepoImportDialog` already
- * lists remote branches with a checkbox per row (multi-select — Import posts
- * the whole batch in one call, see the component's own doc comment); this
- * covers the lock toggle added alongside it and what `onImport` receives.
- */
+/** The per-branch lock toggle at import time, and what `onImport` receives for the batch. */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'

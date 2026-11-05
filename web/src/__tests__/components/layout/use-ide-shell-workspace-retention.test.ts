@@ -34,17 +34,9 @@ afterEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-/**
- * The exact live-reported bug: opening a project-home-scoped chat shows the
- * empty "No folder open" file explorer until the user sends a message — at
- * which point it "automatically resolves the correct workspace". The active
- * pane's own chat resolution (`activePaneWorkspaceId`) is null until some
- * workspace store has been seeded with the chat, which — for a project-home
- * chat, which rides no repo (`Repo.chats` never carries it) — only happens
- * once something mounts the home workspace's own store. This hook must not
- * wait for that: the home workspace's id/path are already known the instant
- * `GET /home` answers (home-workspace-resolver.ts), independent of any chat.
- */
+// A project-home chat (in no repo) has no pane-resolved workspace until a store is seeded, yet the
+// file explorer must show the home workspace at once: its id and path are known when `GET /home`
+// answers, independent of any chat.
 describe('useIdeShellWorkspaceRetention — project-home chat, before it resolves via a pane', () => {
   it("resolves sidebarWorkspacePath to the home workspace's REAL path, not the empty state", () => {
     seedRepos([repoWithOwnPath])
@@ -67,9 +59,7 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
     )
 
     expect(result.current.sidebarWorkspacePath).toBe('/Users/mateo/projects/rabbyte-labs')
-    // Not the empty state, and not some unrelated repo's own checkout —
-    // borrowing repoWithOwnPath's directory as a stand-in for "the project's
-    // root" is exactly the wrong-but-non-empty answer the old fallback gave.
+    // Neither empty nor another repo's checkout standing in for "the project's root".
     expect(result.current.sidebarWorkspacePath).not.toBe('')
     expect(result.current.sidebarWorkspacePath).not.toBe(repoWithOwnPath.localPath)
   })
@@ -83,8 +73,7 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
       useIdeShellWorkspaceRetention(undefined, 'ws-home-1', 'p1', undefined, true, null),
     )
 
-    // Graceful degradation, unchanged from before this fix: some real
-    // directory under the project beats an empty file explorer.
+    // Graceful degradation: some real directory under the project beats an empty file explorer.
     expect(result.current.sidebarWorkspacePath).toBe(repoWithOwnPath.localPath)
   })
 
@@ -107,18 +96,9 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
   })
 })
 
-/**
- * The other half of the same live bug, in its CURRENT form (views-as-tabs):
- * a view can split a project-home chat's pane alongside a branch-workspace
- * chat's pane. Focusing the branch pane must flip the file explorer to the
- * branch worktree even though the route stays on `/ide/<project>/home` — a
- * pane never navigates. The old fallback here ("home always wins on the
- * home route") was written for a DIFFERENT, now-impossible case — a stale
- * pane left over from a previously-visited repo, back when nothing cleared
- * `windowPaneStore`'s pane/chatId state on navigating to home. The pane
- * store's integrity invariant now guarantees `activePaneId` is a pane of the
- * showing view, so a focused pane's workspace is never stale; it must win.
- */
+// A view can split a home chat's pane with a branch chat's pane; focusing the branch pane flips
+// the explorer to its worktree though the route stays on home. The pane store guarantees the
+// focused pane belongs to the showing view, so its workspace is never stale and must win.
 describe('useIdeShellWorkspaceRetention — home route with a split pane focused on a branch workspace', () => {
   it('resolves to the focused pane workspace, not home, when the active pane holds a branch-workspace chat', () => {
     seedRepos([
@@ -180,23 +160,9 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
   })
 })
 
-/**
- * The mixed-split live bug (see ide-shell.test.tsx's "mixed split" describe
- * for the wiring half of this fix): a project-home chat's pane active while
- * the ROUTE sits on a repo workspace of the same project — `isHomeRoute` is
- * FALSE here, unlike every block above.
- *
- * This hook's own `sidebarWorkspaceId === homeWorkspaceId` branch
- * (use-ide-shell-workspace-retention.ts) never checked `isHomeRoute` — so it
- * already resolves correctly whenever `homeWorkspaceId`/`homeWorkspacePath`
- * are the REAL, matching ones. The bug was never in this hook: it was
- * `ide-shell.tsx` handing it `undefined`/`null` for both off the home route
- * (`homeProjectId = homeRouteMatch ? activeProjectIdFromRoute : undefined`).
- * This test locks in the hook's own half of the contract — that a correctly
- * resolved `homeWorkspaceId` is honored regardless of `isHomeRoute` — so a
- * future regression in the OTHER direction (re-adding an `isHomeRoute` check
- * to that branch) fails here too.
- */
+// A home chat's pane is active while the ROUTE is a repo workspace (`isHomeRoute` false): a
+// correctly resolved `homeWorkspaceId` is honoured regardless of route. The shell's half of the
+// wiring is ide-shell.test.tsx's "mixed split".
 describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFERENT (repo) workspace of the same project', () => {
   afterEach(() => {
     destroyWorkspaceStore('ws-home-1')
@@ -205,12 +171,8 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
   it("resolves sidebarWorkspacePath to the home workspace's own path even though isHomeRoute is false", () => {
     seedRepos([repoWithOwnPath])
     const { paneActions } = windowPaneStore.getState()
-    // The active pane's chat resolving to the home workspace via the
-    // REGISTRY (not the sidebar hint, which can't name a home chat — see the
-    // project-home-chat block above): a registered store is what the real
-    // app has once the pane's own chat has streamed at least once, which is
-    // exactly the "file explorer stuck empty, but the chat itself renders
-    // fine" shape of the live bug.
+    // The pane's chat resolves to home via the REGISTRY (the sidebar hint can't name a home chat),
+    // as in the real app once the chat has streamed.
     writeChat({
       id: 'home-chat-1',
       workspaceId: 'ws-home-1',

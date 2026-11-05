@@ -344,13 +344,8 @@ describe('starting a thread on a real workspace', () => {
   })
 })
 
-// Regression: `Chat.workspaceId` already names the GROUND workspace a bubble
-// borrows from its ancestor (the same field `openableWorkspaceOf` uses to
-// open it) — so once a bubble names one, its Fork/Thread resolve through
-// THAT workspace instead of silently doing nothing. Before this, Thread on
-// any grounded bubble was a dead button, and Fork was offered on every
-// bubble with no real target at all — reported live: "why is it letting me
-// create a branch from this where there isn't a git workspace associated?"
+// A bubble's `Chat.workspaceId` names the GROUND workspace it borrows from its ancestor, so its
+// Fork/Thread resolve through that workspace; with none, neither has a target.
 describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', () => {
   const forkRepo = () =>
     repo({
@@ -387,11 +382,8 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'c1', undefined)
   })
 
-  // THE BUG: the Thread button named no surface at all, so with "native chats"
-  // off (default landing surface Terminal) the daemon forked the provider's own
-  // default face — for codex an api transport with NO PTY — and the pane then
-  // asked for a terminal view that had never been created. The user's default
-  // now reaches the CREATE, not just the display.
+  // With no surface named, Thread must create on the user's default landing surface: otherwise
+  // the provider's own default (codex: no PTY) leaves the pane's terminal view uncreated.
   it("Thread derives Terminal from the user's default when the caller names no surface", async () => {
     useSettingsStore.setState((state) => ({
       settings: { ...state.settings, chatIsDefaultPresentation: false },
