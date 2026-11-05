@@ -18,10 +18,8 @@ const GlobalCronInterval = 5 * time.Minute
 // workspace while a client holds its forge: scope (D10/§11).
 const PerConnectionInterval = 1 * time.Minute
 
-// perTargetTimeout bounds a single target's pollFn (which runs network
-// subprocesses: gh/glab/git). Without it one hung remote would stall the whole
-// serial sweep — every other workspace's PR status would stop updating until the
-// hang resolved. The sweep ctx still cancels every target on shutdown.
+// perTargetTimeout bounds one target's pollFn (network subprocesses), so one hung remote
+// cannot stall the serial sweep. The sweep ctx still cancels every target on shutdown.
 const perTargetTimeout = 30 * time.Second
 
 // SweepTarget is the minimal info the sweep needs per workspace.
@@ -146,12 +144,8 @@ func (s *sweeper) sweepOnce(
 	s.pruneLastState(targets)
 }
 
-// pruneLastState drops lastState entries whose workspace is no longer among the
-// sweep targets. targets is recomputed from the live workspace list each tick, so
-// a workspace absent from it has been deleted (or its repo/project removed);
-// without this prune the map keeps one stale snapshot per deleted PR-bearing
-// workspace for the daemon's whole lifetime. Self-correcting: a workspace gone
-// for one tick is reaped on that tick.
+// pruneLastState drops lastState entries whose workspace left the sweep targets, which
+// are recomputed each tick, so deleted workspaces do not leak a snapshot forever.
 func (s *sweeper) pruneLastState(targets []SweepTarget) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

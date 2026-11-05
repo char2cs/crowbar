@@ -25,10 +25,8 @@ var (
 	ErrNonFastForward         = problem.New(problem.Conflict, "git: non_fast_forward")
 )
 
-// ErrStaleHunk re-exports the diff subpackage's stale-hunk sentinel so callers
-// outside the git engine (which cannot import the internal diff package) can
-// match it with errors.Is. A hunk stage/unstage raises it when hunkID no longer
-// matches any current diff hunk (04 §4); the API maps it to HTTP 409.
+// ErrStaleHunk re-exports the diff package's stale-hunk sentinel for errors.Is outside the
+// engine: a hunk stage/unstage whose hunkID matches no current hunk. The API maps it to 409.
 var ErrStaleHunk = diff.ErrStaleHunk
 
 // ErrFileTooLarge re-exports the diff subpackage's size-ceiling sentinel so the

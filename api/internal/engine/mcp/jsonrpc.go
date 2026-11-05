@@ -1,12 +1,6 @@
-// Package mcp implements the Model Context Protocol revision 2025-11-25 —
-// the revision the vendor CLIs Crowbar drives actually speak (they all pin it).
-// The 2026-07-28 revision is deliberately NOT implemented here: it removes the
-// initialize handshake, replaces server-initiated requests with Multi
-// Round-Trip Requests and requires server/discover, none of which any client
-// Crowbar targets can use yet.
-//
-// This package knows nothing about Crowbar. It speaks protocol and delegates
-// every tool decision to a ToolSet.
+// Package mcp implements the Model Context Protocol revision 2025-11-25, the one every
+// vendor CLI Crowbar drives pins; 2026-07-28 drops the initialize handshake and none of
+// them speak it yet. It knows nothing about Crowbar and delegates tools to a ToolSet.
 package mcp
 
 import (
@@ -23,10 +17,8 @@ const (
 	CodeInternalError  = -32603
 )
 
-// Request is one inbound JSON-RPC message. ID is kept as RawMessage because
-// JSON-RPC permits a string, a number or null, and a response MUST echo the id
-// back with the same type it arrived as — decoding into any Go scalar would
-// silently rewrite it.
+// Request is one inbound JSON-RPC message. ID stays a RawMessage because a response must
+// echo a string, number or null id with its original type.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -47,10 +39,8 @@ type RPCError struct {
 
 type Response struct {
 	JSONRPC string `json:"jsonrpc"`
-	// No omitempty: JSON-RPC 2.0 requires id to be PRESENT and null when the
-	// request's id could not be determined (a parse error). With omitempty a nil
-	// RawMessage drops the member entirely, which is a protocol violation. A nil
-	// RawMessage marshals to `null` on its own, so dropping the tag is the fix.
+	// No omitempty: JSON-RPC 2.0 requires id present and null when it could not be
+	// determined; a nil RawMessage marshals to null.
 	ID     json.RawMessage `json:"id"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *RPCError       `json:"error,omitempty"`

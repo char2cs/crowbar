@@ -46,12 +46,9 @@ type event struct {
 // burst, which NoDefer delivers at once; the watcher debounces on top of it.
 const streamLatency = 0.05
 
-// fseventsBackend is one recursive FSEvents stream over the tree and the git
-// dirs. It opens no descriptor per file or directory and walks nothing on
-// start; it filters events down to what a per-directory watch would see.
-//
-// The stream's callback writes each event to a pipe that one goroutine reads,
-// so no Go code runs on the dispatch thread.
+// fseventsBackend is one recursive FSEvents stream over the tree and git dirs, filtered
+// to what a per-directory watch would see, with no per-file descriptors or start walk.
+// Its callback writes events to a pipe one goroutine reads, so no Go runs on dispatch.
 type fseventsBackend struct {
 	spec   watchSpec
 	roots  []streamRoot
@@ -237,10 +234,9 @@ func (b *fseventsBackend) spelled(
 	return b.roots[best].spelled + path[len(b.roots[best].real):]
 }
 
-// wanted reports whether a per-directory watch over the spec would see path:
-// anything in a ref tree, a git dir's direct entries, and working-tree entries
-// whose every ancestor directory survives spec.skip. A stream rooted at one
-// file reports that file alone, whatever case it reports it in.
+// wanted reports whether a per-directory watch over spec would see path: anything in a
+// ref tree, a git dir's direct entries, and working-tree entries whose every ancestor
+// survives spec.skip. A stream rooted at one file reports that file alone, in any case.
 func (b *fseventsBackend) wanted(
 	path string,
 ) bool {
@@ -293,11 +289,9 @@ func (b *fseventsBackend) skipDir(
 	return skip
 }
 
-// opFor maps a stream's flags onto the fsnotify vocabulary. FSEvents reports a
-// path's recent history, not the edge: a file created minutes ago still says
-// Created on every write. So a gone path is a removal or a move away, and an
-// existing one is created only when this stream first sees that inode there,
-// born after the stream started or moved into place.
+// opFor maps a stream's flags onto fsnotify ops. FSEvents reports a path's history,
+// not the edge, so a gone path is a removal or move away, and an existing one counts as
+// created only when this stream first sees that inode there.
 func (b *fseventsBackend) opFor(
 	name string,
 	flags uint32,

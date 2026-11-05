@@ -6,12 +6,9 @@ import (
 	"log/slog"
 )
 
-// ClientCodeActions shapes a textDocument/codeAction result for the editor:
-// every workspace edit names workspace-relative files, and only commands the
-// server itself runs (canRun) survive — a bare command it cannot run is
-// dropped, and an action's unrunnable command is stripped, keeping its edit.
-// A result that does not decode is passed through unchanged; an entry whose
-// command does not decode is dropped and logged, the rest are kept.
+// ClientCodeActions shapes a codeAction result for the editor: edits name
+// workspace-relative files and only commands the server runs (canRun) survive. Undecodable
+// results pass through; an undecodable entry is dropped and logged.
 func ClientCodeActions(
 	worktreePath string,
 	raw json.RawMessage,
@@ -74,12 +71,9 @@ func dropUnrunnable(
 	return nil
 }
 
-// ClientLenses shapes a textDocument/codeLens result (an array) or a
-// codeLens/resolve result (one lens) for the editor: a lens whose command the
-// server cannot run keeps its title but loses the command, so the editor
-// shows it as a label rather than a button that fails. A result that does not
-// decode is passed through unchanged; a lens whose command does not decode is
-// dropped and logged, the rest are kept (a resolved lens becomes null).
+// ClientLenses shapes a codeLens or codeLens/resolve result for the editor: a lens whose
+// command the server cannot run keeps its title only. Undecodable results pass through;
+// an undecodable lens command is dropped and logged (a resolved lens becomes null).
 func ClientLenses(
 	raw json.RawMessage,
 	canRun func(string) bool,

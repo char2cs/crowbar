@@ -15,11 +15,8 @@ import (
 // ErrLocked is returned when a replace is attempted on a locked workspace.
 var ErrLocked = errors.New("workspace is locked")
 
-// ApplyToFile replaces all matches of re in the file at absPath with
-// replacement. The write is atomic: content is written to a temp file and then
-// renamed into place. Binary files are silently skipped.
-//
-// Returns ErrLocked if locked is true.
+// ApplyToFile atomically replaces all matches of re in absPath with replacement (temp
+// file then rename), skipping binary files. Returns ErrLocked if locked is true.
 func ApplyToFile(
 	absPath string,
 	re *regexp.Regexp,

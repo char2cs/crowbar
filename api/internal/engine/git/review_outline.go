@@ -7,12 +7,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
-// ReviewOutline returns the hunk geometry of ReviewFiles' file set: per file,
-// the `@@` shapes of its diff against ref and nothing else. It streams the diff
-// and keeps only the headers, so the daemon's memory is O(hunks) — a
-// million-line diff is described in about a megabyte — where DiffAgainstRef
-// would hold the whole of it. Runs under the shared read lock like every other
-// inspection.
+// ReviewOutline returns the `@@` hunk shapes of ReviewFiles' set, under the read lock.
+// It streams the diff and keeps only headers, so memory is O(hunks), not O(diff).
 func (e *engine) ReviewOutline(
 	ctx context.Context,
 	repoPath string,

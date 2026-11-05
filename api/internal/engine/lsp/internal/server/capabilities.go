@@ -8,11 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
-// clientCapabilities declares what the editor (Monaco, via the daemon's /lsp
-// routes) can consume. Servers shape their answers by it: without
-// codeActionLiteralSupport a server returns bare commands instead of edits,
-// without hierarchicalDocumentSymbolSupport a flat symbol list, without a
-// markdown contentFormat plain-text hovers.
+// clientCapabilities declares what the Monaco editor can consume. Servers shape answers
+// by it: without codeActionLiteralSupport they send bare commands, without hierarchical
+// symbols a flat list, without markdown plain-text hovers.
 func clientCapabilities() map[string]any {
 	markup := []string{"markdown", "plaintext"}
 	return map[string]any{

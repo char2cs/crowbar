@@ -19,10 +19,8 @@ const racyWindow = 2 * time.Second
 // tipMemoryCap bounds how many clones' tips are remembered.
 const tipMemoryCap = 64
 
-// tipMemory remembers each clone's branch tips under a stamp of its ref store,
-// so a read is served from memory exactly while the ref store is unchanged. The
-// ref store itself is the owner: the stamp is compared on every read, nothing
-// expires and nothing has to be told that a branch moved.
+// tipMemory remembers each clone's branch tips under a stamp of its ref store, compared
+// on every read, so the ref store stays the owner: nothing expires or needs invalidating.
 type tipMemory struct {
 	mu sync.Mutex
 	m  map[string]stampedTips

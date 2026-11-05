@@ -7,17 +7,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
-// ReviewFiles returns the files-only diff summary of the working tree against
-// ref: the same file set as DiffAgainstRef (committed changes since ref plus
-// uncommitted tracked modifications) but with NO line-level content — just the
-// per-file status and +/- counts (review §5, Task 27). It runs under the shared
-// read lock like every other inspection.
-//
-// dirty is the set of paths the caller's git status reports as differing from
-// HEAD. It keeps the +/- counts off the O(diff size) path: the committed half
-// is cached against (repo, ref, HEAD) and only these paths are re-diffed
-// against the working tree. Pass nil when no status is available and every
-// count is recomputed instead.
+// ReviewFiles returns DiffAgainstRef's file set with status and +/- counts but no hunks,
+// under the read lock. dirty (paths git status reports changed) keeps it off the O(diff)
+// path: the committed half is cached per (repo, ref, HEAD); nil recomputes every count.
 func (e *engine) ReviewFiles(
 	ctx context.Context,
 	repoPath string,

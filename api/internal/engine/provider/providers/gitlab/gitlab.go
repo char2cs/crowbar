@@ -57,12 +57,8 @@ type mrJSON struct {
 	SHA          string `json:"sha"`
 }
 
-// PullRequestForBranch returns the most relevant MR for branch, or nil if none.
-//
-// The lookup deliberately does NOT check whether branch still exists on the
-// remote first: the source ref is commonly deleted when an MR merges, so that
-// check goes false at exactly the moment the answer changes, and the merge would
-// never be observed. glab reports a merged MR for a deleted source ref just fine.
+// PullRequestForBranch returns the most relevant MR for branch, or nil. It does not check
+// the remote branch first: the source ref is often deleted on merge, which would hide it.
 func (g *glabProvider) PullRequestForBranch(
 	ctx context.Context,
 	repoPath string,
@@ -137,17 +133,9 @@ func (g *glabProvider) OpenPullRequests(
 	return links, nil
 }
 
-// ownsMR reports whether mr is really this branch's MR.
-//
-// glab matches MRs by source branch NAME alone, and a merged MR outlives the ref
-// it was opened from. So reusing a merged branch's name for fresh work matches
-// that stale MR — the workspace would show pr-merged, linked to someone else's
-// history, and pr-merged is terminal: the sweep drops the workspace and never
-// revisits it.
-//
-// An open MR still owns its source ref, so a name match is authoritative. A
-// merged/closed MR belongs to this branch only if the branch still contains the
-// commit the MR was built from.
+// ownsMR reports whether mr is really this branch's MR. glab matches by source name alone
+// and a merged MR outlives its ref, so a reused name would match a stale, terminal MR. An
+// open MR is authoritative; a merged/closed one counts only if branch contains its commit.
 func (g *glabProvider) ownsMR(
 	ctx context.Context,
 	repoPath string,
@@ -163,12 +151,9 @@ func (g *glabProvider) ownsMR(
 	return g.branchContains(ctx, repoPath, branch, mr.SHA)
 }
 
-// branchContains reports whether sha is an ancestor of (or equal to) branch.
-//
-// A non-zero exit means "not an ancestor" and an unknown object means git cannot
-// answer; both resolve to false. That direction is deliberate: a false negative
-// leaves the status stale, which is merely the old behaviour, while a false
-// positive brands the workspace with a foreign MR and retires it from the sweep.
+// branchContains reports whether sha is an ancestor of (or equal to) branch; a non-zero
+// exit or unknown object is false. A false negative only leaves the status stale, while a
+// false positive would brand the workspace with a foreign MR and retire it.
 func (g *glabProvider) branchContains(
 	ctx context.Context,
 	repoPath string,

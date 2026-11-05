@@ -20,12 +20,9 @@ const (
 	errInvalidParams = -32602
 )
 
-// answer replies to a request the server sent to the client. A server blocks on
-// these (gopls waits on workspace/applyEdit before answering the command that
-// caused it), so every one gets a reply. Any state is recorded here, on the
-// read loop, before the reply exists; the write itself runs off the read loop,
-// which must keep draining the server's stdout or both sides stall on full
-// pipes.
+// answer replies to a server-to-client request; servers block on these, so each gets a
+// reply. State is recorded on the read loop, but the write runs off it, since the loop
+// must keep draining stdout or both sides stall on full pipes.
 func (s *server) answer(
 	id json.RawMessage,
 	method string,

@@ -9,11 +9,8 @@ import (
 // why it is not 2026-07-28.
 const ProtocolVersion = "2025-11-25"
 
-// Tool is one advertised tool. InputSchema is a raw JSON Schema object.
-//
-// There is deliberately no OutputSchema field: under 2025-11-25 a tool that
-// declares one must return structuredContent AND should also serialize the same
-// data into content, which sends the whole payload twice. Results here are text.
+// Tool is one advertised tool; InputSchema is a raw JSON Schema object. There is no
+// OutputSchema: declaring one requires structuredContent duplicated into content.
 type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`

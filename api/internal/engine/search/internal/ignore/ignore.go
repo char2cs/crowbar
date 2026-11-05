@@ -12,11 +12,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// Stack accumulates .gitignore layers as a directory tree is traversed.
-// Patterns from parent directories shadow child directories in the standard
-// git precedence order (root first, most-specific last).
-//
-// The .git/ directory is always ignored regardless of any loaded patterns.
+// Stack accumulates .gitignore layers during traversal in git precedence order (root
+// first, most specific last). .git/ is always ignored.
 type Stack struct {
 	layers []layer
 }

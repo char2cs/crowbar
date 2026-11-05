@@ -12,17 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// processTransport adapts a child process's stdin/stdout pipes to an
-// io.ReadWriteCloser: reads come from stdout, writes go to stdin, and Close
-// shuts the pipes and kills the process.
-//
-// A single reaper goroutine owns the one and only cmd.Wait(): it blocks until
-// the process exits — whether on its own (crash/OOM) or because Close killed it
-// — reaps the zombie, and signals completion. On a NATURAL exit (Close did not
-// initiate the teardown) it also fires onExit so the manager can evict the dead
-// pool entry, which is what stops a corpse from being handed back to the next
-// request (R10). Close does not call cmd.Wait() itself — that would double-Wait
-// the reaper — it kills the process and waits for the reaper to finish.
+// processTransport adapts a child's stdout/stdin to an io.ReadWriteCloser. One reaper
+// goroutine owns cmd.Wait and fires onExit on a natural exit so the manager evicts the
+// corpse; Close kills the process and waits for the reaper rather than double-Waiting.
 type processTransport struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser

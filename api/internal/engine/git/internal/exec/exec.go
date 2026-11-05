@@ -1,13 +1,9 @@
 // Package exec runs git commands in a working directory and captures output.
 //
-// Every invocation runs with GIT_OPTIONAL_LOCKS=0 so read-only commands
-// (status, diff, log, ...) never take .git/index.lock opportunistically; the
-// fs watcher recomputes status on every shared-.git ref event, and an
-// opportunistic index refresh there races user mutations (git restore et al.)
-// for the same lock. Mutations that still hit a held index.lock — user
-// terminals and shell prompts legitimately take it for short windows — are
-// retried with a bounded backoff, and a lock left behind by a crashed git
-// process is removed once it is provably stale (see lock_retry.go).
+// Every invocation sets GIT_OPTIONAL_LOCKS=0 so read-only commands never take
+// .git/index.lock, which would race user mutations on every watcher recompute.
+// Mutations that hit a held lock are retried with bounded backoff, and a provably
+// stale lock is removed (see lock_retry.go).
 package exec
 
 import (
@@ -102,10 +98,8 @@ func GitWithStdin(
 	})
 }
 
-// subcommandName returns the git subcommand to bucket a timing sample under,
-// skipping the leading global flags (`-c key=value`, `--git-dir=…`) some call
-// sites pass. Without the skip, one hot subcommand would split across as many
-// sample names as there are flag prefixes in front of it.
+// subcommandName returns the git subcommand to bucket a timing sample under, skipping
+// leading global flags so one subcommand does not split across sample names.
 func subcommandName(
 	args []string,
 ) string {
@@ -123,10 +117,8 @@ func subcommandName(
 	return "unknown"
 }
 
-// run wraps every git invocation in the package — Git and GitWithStdin
-// both funnel through it — so a single measurement point covers the
-// whole subprocess surface. While the perf ring is disarmed this costs one
-// atomic load and delegates untouched.
+// run is the single funnel for every git invocation, so one measurement point covers the
+// whole subprocess surface; while the perf ring is disarmed it costs one atomic load.
 func run(
 	ctx context.Context,
 	dir string,
@@ -143,11 +135,8 @@ func run(
 	return r
 }
 
-// runInner runs the invocation once and, only when the subprocess never
-// started, gives the resolver a chance to notice its cached binary has gone and
-// runs it again. The retry is safe precisely because the first attempt never
-// started: no bytes were produced, nothing was mutated, and the command cannot
-// have been half-applied.
+// runInner runs the invocation once and, only if the subprocess never started, lets the
+// resolver notice a vanished binary and runs it again: nothing can have been applied.
 func runInner(
 	ctx context.Context,
 	dir string,
@@ -230,11 +219,8 @@ func terminate(
 	return proc.Kill()
 }
 
-// boundedContext applies GitOpTimeout to an invocation the caller left
-// unbounded. A caller that already set a deadline keeps it: execNet runs the
-// network commands through this same path under its own, far longer bounds
-// (three minutes for a transfer), and silently shortening those to the
-// non-network timeout would abort legitimate fetches of large repos.
+// boundedContext applies GitOpTimeout to an unbounded invocation. A caller deadline is
+// kept, since execNet runs network commands here under far longer bounds.
 func boundedContext(
 	ctx context.Context,
 ) (context.Context, context.CancelFunc) {

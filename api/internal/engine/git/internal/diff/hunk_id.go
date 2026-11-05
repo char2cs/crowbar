@@ -6,11 +6,8 @@ import (
 	"fmt"
 )
 
-// HunkID computes a stable body-only hash for a diff hunk.
-// Input is the filePath and hunkBody (the +/-/space lines, NOT the @@ header).
-// Returns the first 12 hex chars of sha256(filePath + "\n" + hunkBody).
-// The hash deliberately excludes the @@ header so IDs remain stable when
-// sibling hunks in the same file are staged independently.
+// HunkID returns the first 12 hex chars of sha256(filePath + "\n" + hunkBody). It hashes
+// the body only, not the @@ header, so IDs stay stable as sibling hunks are staged.
 func HunkID(
 	filePath string,
 	hunkBody string,

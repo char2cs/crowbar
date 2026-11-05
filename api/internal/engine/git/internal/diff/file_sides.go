@@ -27,12 +27,9 @@ var ErrNonLocalPath = errors.New("diff: path leaves the repository")
 // ErrEmptyFilePath rejects a read that names no file.
 var ErrEmptyFilePath = errors.New("diff: file sides: path is required")
 
-// FileSides reads the old and new text of one file for the diff `git diff <ref>`
-// would produce. The old side is the file at the base of ref; the new side is
-// the working tree for a single revision, or the right-hand commit for an
-// `<a>..<b>` range.
-//
-// oldPath names the file on the old side (a rename source) and defaults to path.
+// FileSides reads one file's old and new text for `git diff <ref>`: old is the file at
+// ref's base, new is the working tree, or the right-hand commit of an `<a>..<b>` range.
+// oldPath names the old side (a rename source) and defaults to path.
 func FileSides(
 	ctx context.Context,
 	repoPath string,

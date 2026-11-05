@@ -54,17 +54,9 @@ func (c *mergeVerdicts) put(k commitPair, conflict bool) {
 	c.m[k] = conflict
 }
 
-// mergeTreeConflicts is the merge-tree dry-run: ours and theirs merged with
-// `git merge-tree --write-tree`, touching no worktree, index or ref — only loose
-// objects are written. The caller holds the repo's read lock.
-//
-// Exit-code handling matters: a CLEAN merge exits 0; a genuine CONFLICT exits 1
-// AND still writes the merged tree OID to stdout. But a FAILURE to run — a
-// missing worktree dir, an unresolvable ref — also surfaces as a non-zero exit
-// (1 or 128) with EMPTY stdout. So a bare "exit==1 means conflict" check would
-// fail CLOSED (wrongly block a clean merge) on those error paths. We only treat
-// exit 1 as a conflict when git actually produced a tree; everything else
-// non-zero is an error the caller fails OPEN on.
+// mergeTreeConflicts dry-runs `git merge-tree --write-tree`, touching no worktree, index
+// or ref; the caller holds the read lock. Exit 1 is a conflict only when git printed a
+// tree: a failure to run also exits non-zero with no stdout, and is an error instead.
 func (e *engine) mergeTreeConflicts(
 	ctx context.Context,
 	repoPath string,
@@ -83,10 +75,9 @@ func (e *engine) mergeTreeConflicts(
 	)
 }
 
-// WouldMergeConflicts answers every pair against ONE read of the repo's branch
-// tips. A pair whose two commits were already dry-run is answered from memory,
-// so a repeated list pays one git process, not one per branch; the rest run
-// concurrently, bounded. A branch that is not among the tips is dry-run by name.
+// WouldMergeConflicts answers every pair against one read of the branch tips. Pairs
+// already dry-run come from memory, the rest run concurrently and bounded; a branch not
+// among the tips is dry-run by name.
 func (e *engine) WouldMergeConflicts(
 	ctx context.Context,
 	repoPath string,

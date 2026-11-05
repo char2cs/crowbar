@@ -9,11 +9,9 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// MergeSquash runs `git merge --squash branch` followed by
-// `git commit -m subject` inside the repo lock (07 §3.1). It classifies
-// ErrConflict if the squash merge produces conflicts. A no-op squash (the child
-// has no net change over the parent) stages nothing, so the commit step reports
-// ErrNothingToCommit; that case is treated as success.
+// MergeSquash runs `git merge --squash branch` then `git commit -m subject` under the
+// repo lock, classifying conflicts as ErrConflict. A no-op squash reports
+// ErrNothingToCommit, which counts as success.
 func (e *engine) MergeSquash(ctx context.Context, repoPath, branch, subject string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	if err := e.refuseUnsettledParent(ctx, repoPath); err != nil {

@@ -10,10 +10,9 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// Rebases, merges and pulls can stop midway. Paths this command left unmerged
-// are a conflict for the user; any other operation it started is aborted, and
-// what was already in progress, staged or dirty is never touched. Operands
-// follow `--` so a value is never read as an option such as --exec=<cmd>.
+// Rebases, merges and pulls can stop midway. Paths this command left unmerged are a
+// conflict for the user; any other operation it started is aborted, and prior state is
+// never touched. Operands follow `--` so a value is never read as an option.
 
 func (e *engine) Merge(ctx context.Context, repoPath, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()

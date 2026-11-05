@@ -12,16 +12,9 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// CurrentIdentity resolves the current human's identity for worktreePath.
-//
-// Resolution order:
-//  1. `gh api user` — returns Login, DisplayName (name), and AvatarURL.
-//  2. `git config user.name` — populates DisplayName only; Login and AvatarURL
-//     are left empty.
-//
-// Neither step is allowed to fail the request: any subprocess error is silently
-// swallowed and the next fallback is tried. The caller always receives a 200
-// response with a best-effort identity (all fields may be empty).
+// CurrentIdentity resolves the current human's identity for worktreePath: `gh api user`
+// for login, name and avatar, else `git config user.name` for the name alone. Errors are
+// swallowed, so the result is best-effort and may be empty.
 func CurrentIdentity(
 	ctx context.Context,
 	worktreePath string,

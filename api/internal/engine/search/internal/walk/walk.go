@@ -27,16 +27,9 @@ type Ignorer interface {
 // ErrBadGlob is an include or exclude glob that is not a valid pattern.
 var ErrBadGlob = errors.New("walk: bad glob")
 
-// Walk returns a channel that receives absolute file paths from repoPath.
-//
-// Paths are filtered by:
-//  1. The ignoreStack (gitignore hierarchy + .git skipping).
-//  2. includeGlobs — if non-empty, only paths matching at least one glob pass.
-//  3. excludeGlobs — paths matching any glob are dropped.
-//
-// Globs are matched against the path relative to repoPath using doublestar
-// semantics. The channel is closed when the walk completes or ctx is cancelled.
-// An error is returned immediately if repoPath is inaccessible.
+// Walk streams absolute file paths under repoPath that pass the ignore stack, match an
+// includeGlob (if any) and no excludeGlob, globs being doublestar against the relative
+// path. The channel closes on completion or cancel; an inaccessible repoPath errors.
 func Walk(
 	ctx context.Context,
 	repoPath string,

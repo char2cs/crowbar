@@ -1,8 +1,6 @@
-// Package search is the global search/replace engine (wave 2).
-//
-// It exposes a SearchEngine that concurrently walks a repository, applies
-// gitignore filtering, and returns per-line match results with UTF-16 column
-// offsets suitable for Monaco/LSP clients.
+// Package search is the global search/replace engine: it walks a repository
+// concurrently with gitignore filtering and returns per-line matches with UTF-16 column
+// offsets for Monaco/LSP clients.
 package search
 
 import (

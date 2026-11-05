@@ -125,12 +125,8 @@ func (e *engine) WorktreeAdd(
 	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	if rawErr := gitexec.RequireSuccess("worktree add", r); rawErr != nil && isStaleWorktreeConflict(rawErr) {
-		// A worktree whose directory was removed out from under git still holds
-		// its branch "checked out", which blocks re-adding that branch with
-		// "already used by worktree" — so importing that branch fails forever.
-		// Prune dead registrations and retry once. `git worktree prune` only
-		// removes worktrees whose directory is gone, so a genuine conflict with a
-		// live worktree still fails on the retry (correctly).
+		// A worktree whose directory vanished still holds its branch, blocking re-adding it.
+		// Prune dead registrations and retry once; a live conflict still fails the retry.
 		e.pruneBeforeRetry(ctx, repoPath)
 		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	}
@@ -164,16 +160,9 @@ func (e *engine) WorktreeRemove(
 	return gitexec.RequireSuccess("worktree remove", r)
 }
 
-// WorktreeRepair repoints the repo's administrative files at a worktree that
-// has already been relocated on disk (`git worktree repair`), fixing both the
-// registration's gitdir and the worktree's own .git link.
-//
-// Branch rename moves a workspace by renaming its whole ROOT directory in one
-// os.Rename — because the root holds the git worktree and the agent `chats`
-// tree as siblings, and those must travel together or the chat history is
-// orphaned at the old branch's path. `git worktree move` cannot express that:
-// it relocates only the worktree leaf. So the move is done by the caller and
-// git is told to catch up here.
+// WorktreeRepair runs `git worktree repair` after the caller relocated a worktree.
+// Branch rename moves the whole root (worktree plus its `chats` sibling) in one
+// os.Rename, which `git worktree move` cannot express, so git catches up here.
 func (e *engine) WorktreeRepair(
 	ctx context.Context,
 	repoPath string,
@@ -226,11 +215,8 @@ func (e *engine) WorktreeList(
 	return parseWorktreeList(r.Stdout), nil
 }
 
-// DetachWorktree puts the worktree at worktreePath on a detached HEAD at its
-// current commit, freeing whatever branch it had checked out so that branch can
-// be added to a NEW worktree. Working-tree files are left untouched (this only
-// moves HEAD). Used to free the repo's unmanaged main folder from a branch the
-// user wants to open as a real managed worktree.
+// DetachWorktree puts the worktree at worktreePath on a detached HEAD at its current
+// commit, leaving files untouched, so its branch can be added to a new managed worktree.
 func (e *engine) DetachWorktree(
 	ctx context.Context,
 	worktreePath string,
@@ -240,10 +226,9 @@ func (e *engine) DetachWorktree(
 	return gitexec.RequireSuccess("switch --detach", r)
 }
 
-// CheckoutBranch switches the worktree at worktreePath onto branch, re-attaching
-// a detached HEAD. Used to roll back a failed detach+add, and to restore the
-// main folder once the managed worktree that held its branch is removed. Fails
-// if the branch is currently checked out in another worktree.
+// CheckoutBranch switches the worktree at worktreePath onto branch, re-attaching a
+// detached HEAD (rolling back a failed detach+add, or restoring the main folder). It
+// fails if the branch is checked out in another worktree.
 func (e *engine) CheckoutBranch(
 	ctx context.Context,
 	worktreePath string,

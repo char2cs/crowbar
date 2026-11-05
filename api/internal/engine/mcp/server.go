@@ -18,10 +18,8 @@ func NewServer(name, version string, tools ToolSet) *Server {
 	return &Server{name: name, version: version, tools: tools}
 }
 
-// Handle processes one inbound message. The bool reports whether anything should
-// be sent back: a JSON-RPC notification is answered with silence, never with an
-// error, so a client that sends notifications/initialized is not confused by a
-// stray reply.
+// Handle processes one inbound message; the bool reports whether to reply. A JSON-RPC
+// notification gets silence, never an error.
 func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 	var req Request
 	if err := json.Unmarshal(raw, &req); err != nil {

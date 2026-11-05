@@ -9,14 +9,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ErrStaleHunk is returned when hunkID no longer matches any current diff hunk.
-// The frontend re-fetches the diff and retries (04 §4).
+// ErrStaleHunk is returned when hunkID matches no current diff hunk; the frontend
+// re-fetches the diff and retries.
 var ErrStaleHunk = problem.New(problem.Conflict, "diff: stale_hunk: hunk not found in current diff")
 
-// HunkPatch returns a minimal patch containing only the hunk identified by
-// hunkID, suitable for piping to `git apply --cached` (04 §4).
-// staged=true re-diffs the staged area (for unstaging); false diffs the working tree (for staging).
-// It re-diffs to account for any edits since the diff was fetched.
+// HunkPatch returns a minimal patch holding only hunkID's hunk, for `git apply --cached`.
+// It re-diffs (the staged area when staged, else the working tree) to account for edits
+// since the diff was fetched.
 func HunkPatch(
 	ctx context.Context,
 	repoPath string,
