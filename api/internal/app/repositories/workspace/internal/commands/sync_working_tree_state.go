@@ -9,10 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SyncWorkingTreeState recomputes the diff/conflict summary from git (00 §5.3,
-// §6.1). A local conflict surfaces as Status=pr-conflicts; the base status
-// otherwise stays unchanged. HasConflicts and HasCommits are transient inputs
-// that drive the status, not stored fields.
+// SyncWorkingTreeState recomputes the diff/conflict summary from git; a local
+// conflict surfaces as Status=pr-conflicts. HasConflicts and HasCommits drive
+// the status and are not stored.
 type SyncWorkingTreeState struct {
 	ID           string
 	Added        int

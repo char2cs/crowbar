@@ -10,11 +10,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// WatchFunc and ChatEvent are aliases for the store-layer watch seam, exposed so
-// callers wire it without importing the internal store package directly.
-//
-// The repository ANNOUNCES what happened; it does not decide what the frontend is
-// told. That decision lives in usecases/chat/internal/fanout.
+// WatchFunc and ChatEvent alias the store-layer watch seam so callers need not
+// import the internal store package. The repository announces what happened; the
+// usecase decides what the frontend is told.
 type (
 	WatchFunc = store.WatchFunc
 	ChatEvent = store.ChatEvent

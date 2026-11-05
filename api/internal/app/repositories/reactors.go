@@ -24,12 +24,9 @@ type ReactorDrain struct {
 	Cancel context.CancelFunc
 }
 
-// QuiesceReactors is WaitQuiescent for a mutation whose effect lands OUTSIDE the
-// aggregate (a delete cascade, a pull's child resync): every projection drained
-// AND every reactor the drained events admitted run, round after round until a
-// round admits none. WaitPublish waits only for what was queued when called, so
-// the door is held (drain.Gate.Hold): a reactor admitted mid-round parks and runs
-// between rounds. ctx is the caller's escape hatch, not a synchronisation device.
+// QuiesceReactors is WaitQuiescent extended to the reactors the drained events admit,
+// round after round until a round admits none. The gate is held so a reactor admitted
+// mid-round parks until the round ends; ctx is only an escape hatch.
 func (c *Container) QuiesceReactors(
 	ctx context.Context,
 ) {

@@ -19,11 +19,9 @@ import (
 // repositories container can wire it without importing the internal store package.
 type BroadcastFunc = store.BroadcastFunc
 
-// OpenInput carries the anchor + first message for a new thread (09 §3).
-//
-// ProviderID and ChatID attribute the first message to the agent that wrote it
-// and to the chat it came out of. The human/UI path leaves both empty: a person
-// has neither a provider nor an originating conversation.
+// OpenInput carries the anchor + first message for a new thread. ProviderID and
+// ChatID attribute the message to the agent and chat that wrote it; a human
+// leaves both empty.
 type OpenInput struct {
 	ID         string
 	WsID       string
@@ -40,16 +38,9 @@ type OpenInput struct {
 	Body       string
 }
 
-// ReplyInput carries the message appended to an existing thread (09 §3).
-//
-// It is a struct rather than the positional argument list it replaces because
-// agent attribution took the parameter count past what a call site can be read
-// at: seven anonymous strings and bools in a row, two of them newly added and
-// both optional, is a signature where a transposed pair compiles and silently
-// files a finding under the wrong chat.
-//
-// ProviderID and ChatID carry the same meaning they do on OpenInput, and are
-// empty for the same human/UI path.
+// ReplyInput carries the message appended to an existing thread; a struct so two
+// transposed optional strings cannot compile and file a finding under the wrong
+// chat. ProviderID and ChatID mean what they do on OpenInput.
 type ReplyInput struct {
 	ID         string
 	MessageID  string
@@ -234,10 +225,8 @@ func (r *reviewThread) DeleteMessage(
 	return evt.Aggregate, nil
 }
 
-// DeleteThread purges the thread aggregate via Forget: its synchronous OnForget
-// deletes the read-model row (a cheap, bounded row-delete — spec §3.6). A review
-// thread has no worktree/cascade, so unlike Workspace it needs no tombstone
-// command or async delete reactor.
+// DeleteThread purges the thread aggregate via Forget, whose synchronous OnForget
+// deletes the read-model row. A thread has no cascade, so it needs no tombstone.
 func (r *reviewThread) DeleteThread(
 	ctx context.Context,
 	id string,

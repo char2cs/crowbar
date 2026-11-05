@@ -35,21 +35,9 @@ func (s *service) healedRows(ctx context.Context) ([]domain.Chat, error) {
 	return rows, err
 }
 
-// rebuild enumerates every aggregate id in the event log and Replays each into
-// the read model. It is a no-op when the event store cannot enumerate its ids or
-// when the log is empty (nothing to Replay), so an empty model over an empty log
-// stays empty.
-//
-// asynx.Replay rebuilds a SINGLE aggregate id, so a lost read model cannot be
-// healed by one call: rebuild enumerates every id the event log holds via the
-// event store's serialize.AggregateLister capability, then Replays each id back
-// into state/store/agent_chat.db.
-//
-// A single aggregate that fails to Replay — a pre-cutover payload the current
-// reducer cannot fold, or any other corrupt entry in the shared event log — is
-// logged and SKIPPED, not propagated: every other aggregate must still heal.
-// Before this, one bad id emptied the whole read model, because the caller
-// (ListChats/GetChat) has nothing to show while rebuild is erroring.
+// rebuild Replays every aggregate id the event log lists into the read model
+// (asynx.Replay heals one id at a time); without an AggregateLister it is a no-op.
+// An id that fails to Replay is logged and skipped so one bad entry cannot empty the model.
 func (s *service) rebuild(
 	ctx context.Context,
 ) error {

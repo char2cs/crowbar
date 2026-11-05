@@ -8,15 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// BackfillProvisioning records the Provisioning of a workspace written before
-// the field existed. It is the one place the old encoding is still read — a
-// home or default row is a shared checkout, an empty path a placeholder — and
-// it runs once per such row at boot; every later reader sees the field. It is
-// refused on a row that already has one, so re-running it changes nothing.
-//
-// A pre-leaf path (<slug>/<branch>) is a checkout Crowbar made, so it is
-// provisioned; what keeps its shared parent safe is purge.WorktreeRemover's
-// own-root proof, not this classification.
+// BackfillProvisioning records the Provisioning of a workspace written before the
+// field existed, the one place the legacy encoding is read; it is refused once set.
+// Purge safety for a shared parent comes from WorktreeRemover's own-root proof.
 type BackfillProvisioning struct {
 	ID string
 }

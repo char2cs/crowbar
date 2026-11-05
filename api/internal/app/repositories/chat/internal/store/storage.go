@@ -12,12 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// agentChatRow is the durable read-model row for one AgentChat, persisted to
-// agent_chats_read. WorkspaceID is carried as its own indexed column even
-// though ListByWorkspace currently filters in Go over the full read model
-// (chats-per-workspace are few, mirroring reviewthread) — the index positions
-// the table for a WHERE workspace_id = ? query if that assumption ever stops
-// holding.
+// agentChatRow is the durable read-model row for one AgentChat in
+// agent_chats_read. WorkspaceID is indexed for a WHERE workspace_id = ? query,
+// though ListByWorkspace filters in Go while chats-per-workspace stay few.
 type agentChatRow struct {
 	ID          string `gorm:"primaryKey;column:id"`
 	WorkspaceID string `gorm:"column:workspace_id;index"`

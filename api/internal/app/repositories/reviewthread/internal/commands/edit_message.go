@@ -8,10 +8,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// EditReviewMessage rewrites the body of an existing message in a thread. It
-// targets any message by id, including the root comment (Messages[0]), so the
-// same command serves editing the root and editing a reply (09 §3). Edits are
-// not timestamped — the read model has no edited-at provenance.
+// EditReviewMessage rewrites the body of any message in a thread by id, the root
+// comment (Messages[0]) included. Edits are not timestamped.
 type EditReviewMessage struct {
 	ID        string
 	MessageID string

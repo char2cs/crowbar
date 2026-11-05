@@ -1,6 +1,3 @@
-// This file holds the asynx-backed AgentChat repository (EventStore) — the sole
-// AgentChat repository since the Task 10 cutover retired the bespoke gorm-backed
-// Store/gormStore/New. The agent usecase sends every mutation through it.
 package chat
 
 import (
@@ -17,11 +14,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
-// two durable CHOICES a chat is born with — its landing view and its vendor. It
-// still carries no segment and no terminal, because the chat does not own the
-// CLI talking to it — that is the runner (runner.Start), a separate aggregate,
-// and ProviderID no more starts one than Surface does.
+// CreateInput seeds a new AgentChat: identity, kind, workspace, clock, landing
+// view and vendor. It carries no process state: the CLI talking to the chat is
+// the runner aggregate's, and ProviderID does not start one.
 type CreateInput struct {
 	ID          string
 	WorkspaceID string
@@ -36,16 +31,12 @@ type CreateInput struct {
 	Now        time.Time
 }
 
-// EventStore is the asynx-backed AgentChat aggregate repository: mutations
-// dispatch the command layer (asynx serializes each aggregate's commands),
-// reads delegate to the store package's read-model projection. It is the sole
-// AgentChat repository — the agent usecase sends every mutation through it. The
-// chat holds no process fact: the CLI talking to it is the runner aggregate's.
+// EventStore is the asynx-backed AgentChat repository: mutations dispatch the
+// command layer (asynx serializes each aggregate's commands) and reads use the
+// read-model projection. The chat holds no process fact; that is the runner's.
 type EventStore interface {
-	// Create mints a chat. It alone blocks until its projections fold (SendWait):
-	// the first hook of the CLI spawned onto it reads the chat from the read model,
-	// which a Send could leave lagging. Every other write validates against the
-	// synchronous event log.
+	// Create mints a chat and blocks until its projections fold (SendWait): the
+	// first hook of the CLI spawned onto it reads the chat from the read model.
 	Create(
 		ctx context.Context,
 		in CreateInput,
@@ -56,67 +47,42 @@ type EventStore interface {
 		title string,
 		source string,
 	) (domain.Chat, error)
-	// SetSelection writes the chat's sticky model and reasoning-effort choice —
-	// durable config beside the title, and the answer to "what should the next
-	// message run as", never a claim about what any live process is running.
-	//
-	// It is on the ordinary async Send path, and it can be: the prompt path that
-	// decides whether the selection changed reads it through LoadChat, which folds
-	// the EVENT LOG. A user who picks a model and immediately sends a message
-	// therefore cannot race the projection into delivering that message under the
-	// model they just changed away from — the read that decides never consults the
-	// read model at all.
+	// SetSelection writes the sticky model and effort the next message runs as,
+	// never a claim about a live process. Async Send is safe: the prompt path reads
+	// the selection via LoadChat (the event log), so it cannot race the projection.
 	SetSelection(
 		ctx context.Context,
 		chatID string,
 		model string,
 		effort string,
 	) (domain.Chat, error)
-	// SetPermissionLevel writes an EXPLICIT per-chat guarded/trusted/full-auto
-	// pick — the same durable, next-spawn-reads-it fact SetSelection writes
-	// for Model/Effort, on the same ordinary async Send path for the same
-	// reason: the prompt path's restart decision reads it through LoadChat,
-	// never the read model. Marks the chat PermissionLevelExplicit, so it
-	// keeps winning over the global default from here on — see
-	// SeedPermissionLevel for the non-explicit counterpart.
+	// SetPermissionLevel writes an explicit per-chat permission level and marks
+	// PermissionLevelExplicit, so the pick wins over the global default;
+	// SeedPermissionLevel is the inherited counterpart.
 	SetPermissionLevel(
 		ctx context.Context,
 		chatID string,
 		level string,
 	) (domain.Chat, error)
-	// SetSurface moves the chat to the VIEW the user is on now. Create seeds
-	// the same field, so this is what makes domain.Chat.Surface a CURRENT
-	// fact rather than a birth record — its only callers are the two moments
-	// Crowbar is actually told the user moved (SwitchToTerminal and
-	// SwitchToNative).
-	//
-	// On the SendWait path, like SetWorkspace: a move that relaunches the CLI
-	// spawns it next, reading the surface from the READ MODEL.
+	// SetSurface moves the chat to the view the user is on now, keeping
+	// domain.Chat.Surface current. It uses SendWait: a move that relaunches the CLI
+	// spawns it next, reading the surface from the read model.
 	SetSurface(
 		ctx context.Context,
 		chatID string,
 		surface string,
 	) (domain.Chat, error)
-	// SetProvider restates the VENDOR the chat runs as. Create seeds the same
-	// field, so this is what keeps domain.Chat.ProviderID a CURRENT fact
-	// rather than a birth record — its caller is the moment a CLI is
-	// actually placed on the chat (recordRunner).
-	//
-	// It may be called UNCONDITIONALLY: "the provider did not change" is
-	// decided by the command against the authoritative fold, never out here
-	// against the read model the projection lags. ErrValidation from this
-	// call is therefore the ordinary no-op answer — every ordinary respawn
-	// produces one — not a failure.
+	// SetProvider restates the vendor the chat runs as, keeping ProviderID current.
+	// Call it unconditionally: the command decides "unchanged" against the event-log
+	// fold, so ErrValidation is the ordinary no-op answer, not a failure.
 	SetProvider(
 		ctx context.Context,
 		chatID string,
 		providerID string,
 	) (domain.Chat, error)
-	// SeedPermissionLevel writes the level a chat merely INHERITS from the
-	// global default — at mint, or re-seeding a legacy chat that predates
-	// this field entirely. It leaves PermissionLevelExplicit false, so
-	// ChatSelection keeps re-resolving the CURRENT global default for this
-	// chat on every future spawn rather than freezing at this value.
+	// SeedPermissionLevel writes the level a chat inherits from the global default.
+	// It leaves PermissionLevelExplicit false, so every spawn re-resolves the
+	// current default rather than freezing at this value.
 	SeedPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -146,45 +112,23 @@ type EventStore interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
-	// SetWorkspace fills a chat's WorkspaceID slot — a bubble gaining worktree
-	// ownership, or a thread being promoted (Promote, usecases/chat).
-	//
-	// It is on the SAME SendWait path as Create, not the ordinary async Send
-	// path every other setter above uses: Promote's very next act after this
-	// write is a provider switch that resolves the respawn cwd from GetChat's
-	// READ MODEL, and a Send here would leave a live window where that read
-	// still serves the OLD (empty) WorkspaceID — spawning the incoming CLI into
-	// the wrong directory. See Create's own doc for the same reasoning.
+	// SetWorkspace fills a chat's WorkspaceID. It uses SendWait: Promote next
+	// resolves the respawn cwd from the read model, and a lagging row would
+	// spawn the CLI in the wrong directory.
 	SetWorkspace(
 		ctx context.Context,
 		chatID string,
 		workspaceID string,
 	) (domain.Chat, error)
-	// SetType rewrites which KIND of row a chat is, leaving its id, placement,
-	// workspace and conversation untouched. It is how a row survives its
-	// workspace changing character — an ordinary worktree becoming a locked
-	// branch — without a second row being minted to claim the same workspace.
-	// See commands.SetType, which refuses a retype across the folder boundary.
-	//
-	// It is on the SendWait path, like Create above and for the same reason: a
-	// retype happens because the workspace JUST became locked, and the client
-	// that locked it re-reads the chat list off the READ MODEL as soon as the
-	// call returns — expecting the branch row the lock entitles it to. On the
-	// ordinary async Send path that read can still serve the pre-retype row, so
-	// the guarantee "a locked workspace has a branch row" would hold in the
-	// event log and not on the wire. Retypes are rare (a lock, not a keystroke),
-	// so the barrier costs nothing worth saving.
+	// SetType rewrites a chat's kind in place (chat or workflow), leaving its id,
+	// workspace and conversation untouched; it backfills rows minted untyped.
 	SetType(
 		ctx context.Context,
 		chatID string,
 		chatType domain.ChatType,
 	) (domain.Chat, error)
-	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
-	// OnForget drops the read-model row AND the underlying event log is
-	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
-	// found. Its one caller is the hard delete (agent.ChatUsecase.PurgeChat),
-	// reached both on user request and from the workspace-delete cascade.
-	// Mirrors reviewthread's DeleteThread.
+	// Forget purges the chat aggregate: OnForget drops the read-model row
+	// synchronously and the event log is erased, so later reads report not found.
 	Forget(
 		ctx context.Context,
 		id string,
@@ -242,7 +186,7 @@ func NewEventSourced(
 	return r, nil
 }
 
-// Create is the only command on the SendWait path; see the EventStore interface doc.
+// Create is on the SendWait path; see the EventStore interface doc.
 func (r *eventSourced) Create(
 	ctx context.Context,
 	in CreateInput,
@@ -363,7 +307,6 @@ func (r *eventSourced) SetWorkspace(
 	return r.placed(ctx, evt.Aggregate)
 }
 
-// SetType is deliberately on the SendWait path — see the interface doc.
 func (r *eventSourced) SetType(
 	ctx context.Context,
 	chatID string,
@@ -430,11 +373,8 @@ func (r *eventSourced) ListByWorkspace(
 	return r.placedAll(ctx, rows)
 }
 
-// mapNotFound bridges the store package's local ErrNotFound sentinel (kept
-// local there to avoid an import cycle back into this package) AND the log-fold
-// sentinel asynx raises for an unknown aggregate to this package's own
-// ErrNotFound, so every EventStore caller sees one sentinel regardless of which
-// of the two read paths served the miss.
+// mapNotFound maps the read model's and the event-log fold's not-found sentinels
+// to ErrNotFound, so callers see one sentinel whichever path served the miss.
 func mapNotFound(
 	err error,
 ) error {

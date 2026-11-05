@@ -8,12 +8,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetSurface moves a chat to the VIEW the user is on now — see
-// domain.Chat.Surface, which is the single source of truth for that.
-//
-// Create seeds the same field; this is what makes it a CURRENT fact rather
-// than a birth record, and the reason SwitchToTerminal/SwitchToNative are the
-// only callers: they are the two moments Crowbar is actually told.
+// SetSurface moves a chat to the view the user is on now, keeping
+// domain.Chat.Surface a current fact rather than a birth record.
 type SetSurface struct {
 	ChatID  string
 	Surface string

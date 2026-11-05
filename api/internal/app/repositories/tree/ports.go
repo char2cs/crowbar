@@ -12,11 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Ports serves today's id-keyed placement reads and writes (the position rows,
-// the folder identities, each chat's own placement) over the per-project Trees.
-// It keeps which tree holds each id: filled from every tree on open, kept on
-// every write. A row whose project cannot be named yet sits in tree.Unplaced
-// until a later write names it.
+// Ports serves id-keyed placement reads and writes over the per-project Trees,
+// indexing which tree holds each id (filled on open, kept on every write). A row
+// whose project is not yet known sits in tree.Unplaced until a write names it.
 type Ports struct {
 	repo   *Repository
 	locate Locator

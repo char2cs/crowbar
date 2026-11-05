@@ -8,10 +8,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetWorkspace writes the workspace a chat belongs to, filling the slot after
-// creation (chats start with WorkspaceID optional). A bubble gaining worktree
-// ownership and a promoted thread both use this command to establish workspace
-// membership.
+// SetWorkspace writes the workspace a chat belongs to after creation: a bubble
+// gaining worktree ownership, or a promoted thread.
 type SetWorkspace struct {
 	ID          string
 	WorkspaceID string

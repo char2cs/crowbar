@@ -1,19 +1,10 @@
-// Package store owns the agentchat read model: the durable, queryable
-// projection of the domain.Chat aggregate at state/store/agent_chat.db. Two
-// projections derive from the same stream: the save-only Projection here,
-// axAgentChat's durable subscriber, and the live hub projection (hub.go).
+// Package store owns the agentchat read model at state/store/agent_chat.db. Two
+// projections derive from the same stream: the save-only durable subscriber
+// here and the live hub projection (hub.go).
 //
-// Like reviewthread it does NO eager reconcile on open — a normal boot re-opens
-// the durable read model with zero replay. Read-model repair is lazy: every read
-// heals a lost model on first access via whole-model asynx.Replay, enumerating
-// every id the event log holds. Unlike reviewthread's per-id Get (which bypasses
-// the read model via the repo's direct ax.Get fold), the agentchat repo routes
-// ALL reads — including per-id ones — through this store, so GetChat heals the
-// model exactly like the list reads.
-//
-// There is no session→chat lookup here any more (the retired GetByProviderSession
-// scanned the chat's segments): the chat ledger's session index answers it, long
-// after the process that opened the conversation is gone.
+// Boot does no eager reconcile; repair is lazy. Every read, per-id ones
+// included, goes through this store and heals a lost model on first access by
+// replaying from the event log.
 package store
 
 import (
@@ -31,27 +22,21 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventKeyPrefix is the namespace asynx prepends to an aggregate id when it
-// stores that aggregate's events (its snapshots use "snapshots:"). The crowbar
-// event store's AggregateLister returns the RAW store keys — both "events:<id>"
-// and "snapshots:<id>" — so rebuild must keep only the events keys and strip
-// this prefix to recover the real aggregate id, which asynx.Replay re-prepends
-// itself.
+// eventKeyPrefix is the namespace asynx prepends to an aggregate's event key.
+// AggregateLister returns raw keys (events: and snapshots:), so rebuild keeps
+// only events keys and strips this prefix; asynx.Replay re-prepends it.
 const eventKeyPrefix = "events:"
 
-// ErrNotFound is returned when no read-model row exists for a requested chat or
-// provider session, even after a whole-model rebuild attempt. Defined locally
-// (rather than importing the parent agentchat package's sentinel) because that
-// package imports this store package — importing back would cycle. The parent's
-// event_store.go bridges this sentinel to agentchat.ErrNotFound (mapNotFound).
+// ErrNotFound is returned when no read-model row exists for a chat even after a
+// heal. It is local because the parent package imports this one; the parent
+// maps it to its own ErrNotFound.
 var ErrNotFound = errors.New("agentchat store: not found")
 
 // Store is the AgentChat read model: a projected, queryable view of the
-// aggregate. Every read heals a lost durable model via whole-model lazy Replay
-// (see rebuild) before concluding a chat or session genuinely doesn't exist.
+// aggregate. Every read heals a lost durable model by lazy Replay before
+// concluding a chat does not exist.
 type Store interface {
-	// GetChat returns the chat for id, healing the read model first if it is
-	// empty (spec §3.7).
+	// GetChat returns the chat for id, replaying that id from the event log on a miss.
 	GetChat(
 		ctx context.Context,
 		id string,
@@ -114,19 +99,15 @@ func New(
 	return &service{storage: p.storage, es: es, ax: ax}, nil
 }
 
-// GetChat returns the chat for id via an O(1) keyed lookup — T10 puts this on
-// the per-hook hot path, so it must not scan and unmarshal every row. A miss
-// triggers one whole-model Replay rebuild and a re-lookup, preserving the lazy
-// self-heal after a read-DB loss; only a miss that survives the rebuild is a
-// genuine ErrNotFound.
+// GetChat returns the chat for id via a keyed lookup, since it is on the per-hook
+// hot path. A miss replays that one id and looks again; only a miss that survives
+// the heal is ErrNotFound.
 func (s *service) GetChat(
 	ctx context.Context,
 	id string,
 ) (domain.Chat, error) {
-	// An empty id is NOWHERE, never a chat — and it must not reach the miss path below,
-	// which heals the read model by REPLAYING THE ENTIRE EVENT LOG. A runner Crowbar has
-	// taken off its chat carries an empty chat id, so an unguarded lookup would replay the
-	// whole log on every hook of every dying CLI.
+	// An empty id is never a chat and must not reach the heal path: a runner taken
+	// off its chat carries an empty id, and every hook of a dying CLI would replay.
 	if id == "" {
 		return domain.Chat{}, fmt.Errorf("agentchat store: get %q: %w", id, ErrNotFound)
 	}
@@ -145,15 +126,9 @@ func (s *service) GetChat(
 	return *chat, nil
 }
 
-// healOne rebuilds a SINGLE chat's read-model row from the event log and returns
-// it, or nil when the id is unknown.
-//
-// One id, not the whole model: asynx.Replay takes a single aggregate, and that is
-// all a keyed GetChat needs. It folds NOTHING when the id is unknown or already
-// Forgotten, so a miss for a deleted chat (or a stale FE request) costs one empty
-// replay instead of folding every OTHER chat's entire history back through the
-// read model on a hook hot path. A genuine whole-model loss still heals lazily,
-// one row per GetChat, plus ListChats rebuilds the lot when the model is empty.
+// healOne rebuilds one chat's read-model row from the event log and returns it,
+// or nil when the id is unknown. One id, not the whole model, so a miss for a
+// deleted chat on the hook hot path costs one empty replay.
 func (s *service) healOne(ctx context.Context, id string) (*domain.Chat, error) {
 	if err := errors.Join(s.replay(ctx, id)); err != nil {
 		return nil, fmt.Errorf("agentchat store: heal %q: %w", id, err)
@@ -190,11 +165,8 @@ func (s *service) ListByWorkspace(
 	return result, nil
 }
 
-// allHealed returns every row in the durable read model, first healing it via
-// whole-model lazy Replay when the model is empty but the event log still holds
-// aggregates (mirrors reviewthread's List/ListOrRebuild). Every exported read
-// funnels through this so a read-DB loss is repaired regardless of which method
-// observes it first.
+// allHealed returns every read-model row, first rebuilding the whole model when
+// it is empty but the event log still holds aggregates.
 func (s *service) allHealed(
 	ctx context.Context,
 ) ([]domain.Chat, error) {

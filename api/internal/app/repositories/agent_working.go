@@ -8,10 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetAgentWorking records whether chatID, in wsID, is busy as its ledger
-// folds it, and rebroadcasts the workspace when that flips its overlay. The
-// caller is the chat's ledger writer, so the rebroadcast, which runs git,
-// happens on a worker of its own.
+// SetAgentWorking records whether chatID in wsID is busy and rebroadcasts the
+// workspace when that flips its overlay. The rebroadcast runs git, so it happens
+// on its own worker rather than the caller's ledger writer.
 func (c *Container) SetAgentWorking(ctx context.Context, wsID, chatID string, working bool) {
 	if wsID == "" || !c.setAgentTurn(wsID, chatID, working) {
 		return

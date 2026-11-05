@@ -50,8 +50,8 @@ func (c *Container) ownerMoved(ctx context.Context, evt asynxModels.Event[domain
 	}
 }
 
-// placedChat is chat at its Tree placement: the aggregate no longer carries it,
-// and a fork's workspace row is drawn where its owning chat is.
+// placedChat is chat at its Tree placement, which the aggregate does not carry;
+// a fork's workspace row is drawn where its owning chat is.
 func (c *Container) placedChat(ctx context.Context, chat domain.Chat) domain.Chat {
 	if c.Placement == nil {
 		return chat

@@ -10,12 +10,8 @@ import (
 )
 
 // OpenReviewThread creates a ReviewThread anchored to a diff line (or, with no anchor, a
-// general comment), with its first message (09 §3).
-//
-// ProviderID and ChatID attribute the first message to the agent that wrote it;
-// a human open leaves both empty. They are not validated: attribution is
-// decoration on a message, never authority, so a write that carries none is a
-// perfectly valid thread.
+// general comment), with its first message. ProviderID and ChatID attribute it to an
+// agent; they are unvalidated because attribution is decoration, never authority.
 type OpenReviewThread struct {
 	ID         string
 	WsID       string

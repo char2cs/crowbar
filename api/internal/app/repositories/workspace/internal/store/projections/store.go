@@ -1,9 +1,7 @@
-// Package projections holds the workspace read-side projections that the
-// singleton axWorkspace fans events into. store.go is the SAVE-ONLY durable
-// projection (spec §3.5 delivery, decision 5): it folds evt.Aggregate into the
-// durable read model at state/store/workspace.db and, on Forget, deletes the
-// row. Once a hub is registered (hub.go) it announces each event after saving
-// it, so no frame ever reaches a client before the read model holds it.
+// Package projections holds the workspace read-side projections. store.go is the
+// save-only durable projection into state/store/workspace.db (Forget deletes the
+// row); once a hub is registered it announces each event after saving it, so no
+// frame reaches a client before the read model holds it.
 package projections
 
 import (
@@ -32,10 +30,8 @@ func (workspaceRow) TableName() string {
 	return "read_workspaces"
 }
 
-// Store is the durable workspace read model (spec §3.7): a projected, queryable
-// view of the aggregate persisted to state/store/workspace.db. Each row carries
-// project_id/repo_id off the folded aggregate, so the read model doubles as the
-// location index — no separate location table is needed.
+// Store is the durable workspace read model at state/store/workspace.db. Each row
+// carries project_id/repo_id, so it doubles as the location index.
 type Store struct {
 	inner interface {
 		Save(ctx context.Context, row workspaceRow) error
@@ -48,11 +44,9 @@ type Store struct {
 	// are expected, by the hub frame that announces it.
 	mu               sync.Mutex
 	tombstoneWaiters map[string][]chan struct{}
-	// expectAnnouncements is set once a hub projection is registered: from then
-	// on a tombstone is ready for its purge only once it is both persisted and
-	// ANNOUNCED — its frame broadcast. The frame is addressed through the
-	// workspace's owning chat, which the purge deletes; a purge that ran first
-	// left the client holding a ghost row it was never told had gone.
+	// expectAnnouncements is set once a hub is registered: a tombstone is then ready
+	// for purge only once persisted and announced, because the frame is addressed
+	// through the owning chat the purge deletes.
 	expectAnnouncements bool
 	announced           map[string]struct{}
 	// announce broadcasts a saved event's frame; nil until RegisterHub.
@@ -114,11 +108,9 @@ func (s *Store) takeAnnouncement(
 	return true
 }
 
-// AwaitTombstone blocks until the read model holds id's persisted "deleted" row
-// — and, with a hub registered, until that tombstone's frame is broadcast — and
-// returns it, or until ctx ends. It is woken by the save and the broadcast —
-// no polling: the waiter registers BEFORE it reads, so a wake that lands
-// between the read and the wait is not lost.
+// AwaitTombstone blocks until id's "deleted" row is persisted (and, with a hub,
+// broadcast) and returns it, or until ctx ends. The waiter registers before it
+// reads, so a wake between the read and the wait is not lost.
 func (s *Store) AwaitTombstone(
 	ctx context.Context,
 	id string,
@@ -217,11 +209,8 @@ func (s *Store) Get(
 	return unmarshalWorkspace(row.Data)
 }
 
-// Fold persists ws into the durable read model — the write half of this
-// save-only projection, exported so the lazy Replay repair (store.ListOrRebuild,
-// spec §3.7) can fold each replayed aggregate back into state/store/workspace.db.
-// Live events reach the model through the registered onEvent subscription instead;
-// this seam exists only for the on-demand whole-model rebuild.
+// Fold persists ws into the durable read model. It exists for the lazy rebuild
+// (store.ListOrRebuild); live events arrive through the subscription instead.
 func (s *Store) Fold(
 	ctx context.Context,
 	ws domain.Workspace,

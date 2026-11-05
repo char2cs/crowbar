@@ -17,25 +17,20 @@ type ChatEvent struct {
 	ChatID      string
 	WorkspaceID string
 	Forgotten   bool
-	// Chat is the reduced aggregate AS OF this event — the command-side fold,
-	// never the lagging read model — and Version its aggregate version. They
-	// are what the chat snapshot owner (usecases/chat/internal/snapshot) is fed
-	// from, so a frame never describes a chat older than the event it announces.
+	// Chat is the aggregate as of this event (the command-side fold, never the
+	// lagging read model) and Version its version, so a frame never describes a
+	// chat older than the event it announces.
 	Chat    domain.Chat
 	Version int64
 }
 
-// WatchFunc receives every projected agentchat event. It replaces the former
-// BroadcastFunc: the repository announces WHAT HAPPENED, and the usecase decides what
-// the frontend is told (usecases/chat/internal/fanout). Registering the subscription
-// is the repository's job only because asynx subscription is; shaping a wire frame is
-// not.
+// WatchFunc receives every projected agentchat event. The repository announces
+// what happened; the usecase decides what the frontend is told.
 type WatchFunc func(ChatEvent)
 
-// registerHubProjection hands every agentchat event on the singleton
-// axAgentChat, and every Forget, to watch with the aggregate as of it. It does
-// NOT touch the durable read model, so it and the store projection derive
-// independently from the same event stream. Designed to register ONCE.
+// registerHubProjection hands every agentchat event and every Forget to watch.
+// It never touches the read model, so it and the store projection derive
+// independently from the same stream. Register it once.
 func registerHubProjection(
 	ax asynx.Asynx[domain.Chat],
 	watch WatchFunc,
@@ -44,13 +39,9 @@ func registerHubProjection(
 	if _, err := ax.Subscribe(asynx.Topic("agentchat.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentchat hub projection: subscribe: %w", err)
 	}
-	// ax.Forget (the hard-delete path, Task 5) fires ONLY the
-	// "asynx.aggregate.forget" topic via OnForget — it is not one of the
-	// commands Subscribe's "agentchat.*" pattern matches — so a Forget would
-	// otherwise never reach the hub and no live client would ever learn the
-	// chat is gone. evt.Aggregate carries the aggregate's last-known state
-	// (including WorkspaceID) at the moment it was forgotten, exactly like
-	// every other projected event.
+	// ax.Forget fires only OnForget, not the "agentchat.*" topic, so without
+	// this no live client would learn the chat is gone. evt.Aggregate carries
+	// the last-known state, WorkspaceID included.
 	if _, err := ax.OnForget(func(_ context.Context, evt asynxModels.Event[domain.Chat]) {
 		p.onForget(evt)
 	}); err != nil {

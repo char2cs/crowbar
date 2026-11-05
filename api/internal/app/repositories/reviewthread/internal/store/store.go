@@ -1,12 +1,7 @@
-// Package store owns the reviewthread read model: the durable, queryable
-// projection of the aggregate at state/store/review_thread.db. Two projections
-// derive from the same stream: the save-only Projection here, axReviewThread's
-// durable subscriber, and the live hub projection (hub.go).
-//
-// Unlike the retired half-aligned store it does NO eager reconcile on open — a
-// normal boot re-opens the durable read model with zero replay. Read-model repair
-// is lazy: List heals a lost model on first access via whole-model asynx.Replay
-// (spec §3.7), enumerating every id the event log holds.
+// Package store owns the reviewthread read model at state/store/review_thread.db.
+// Two projections derive from the same stream: the save-only durable subscriber
+// here and the live hub projection (hub.go). Boot does no eager reconcile; List
+// heals a lost model on first access by replaying every id in the event log.
 package store
 
 import (
@@ -23,20 +18,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventKeyPrefix is the namespace asynx prepends to an aggregate id when it stores
-// that aggregate's events (its snapshots use "snapshots:"). The crowbar event
-// store's AggregateLister returns the RAW store keys — both "events:<id>" and
-// "snapshots:<id>" — so rebuild must keep only the events keys and strip this
-// prefix to recover the real aggregate id, which asynx.Replay re-prepends itself.
+// eventKeyPrefix is the namespace asynx prepends to an aggregate's event key.
+// AggregateLister returns raw keys (events: and snapshots:), so rebuild keeps
+// only events keys and strips this prefix; asynx.Replay re-prepends it.
 const eventKeyPrefix = "events:"
 
 // Store is the ReviewThread read model: a projected, queryable view of the
 // aggregate. Per-id aggregate reads fold from the event log via axReviewThread.Get
 // in the repo; this surface serves the projected List/Get.
 type Store interface {
-	// List returns every thread in the durable read model, first healing it via
-	// whole-model lazy Replay when the model is empty but the event log still holds
-	// aggregates (spec §3.7).
+	// List returns every thread in the read model, first rebuilding it when it is
+	// empty but the event log still holds aggregates.
 	List(
 		ctx context.Context,
 	) ([]domain.ReviewThread, error)
@@ -134,15 +126,8 @@ func (s *service) Get(
 	return s.storage.FindByKey(ctx, id)
 }
 
-// rebuild enumerates every aggregate id in the event log and Replays each into the
-// read model. It is a no-op when the event store cannot enumerate its ids or when
-// the log is empty (nothing to Replay), so an empty model over an empty log stays
-// empty.
-//
-// asynx.Replay rebuilds a SINGLE aggregate id, so a lost List read model cannot be
-// healed by one call: rebuild enumerates every id the event log holds via the
-// event store's serialize.AggregateLister capability, then Replays each id back
-// into state/store/review_thread.db.
+// rebuild Replays every aggregate id the event log lists into the read model
+// (asynx.Replay heals one id at a time); without an AggregateLister it is a no-op.
 func (s *service) rebuild(
 	ctx context.Context,
 ) error {

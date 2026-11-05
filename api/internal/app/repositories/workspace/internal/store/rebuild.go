@@ -12,25 +12,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventKeyPrefix is the namespace asynx prepends to an aggregate id when it stores
-// that aggregate's events (its snapshots use "snapshots:"). The crowbar event
-// store's AggregateLister returns the RAW store keys — both "events:<id>" and
-// "snapshots:<id>" — so rebuild must keep only the events keys and strip this
-// prefix to recover the real aggregate id, which asynx.Replay re-prepends itself.
+// eventKeyPrefix is the namespace asynx prepends to an aggregate's event key.
+// AggregateLister returns raw keys (events: and snapshots:), so rebuild keeps
+// only events keys and strips this prefix; asynx.Replay re-prepends it.
 const eventKeyPrefix = "events:"
 
-// ListOrRebuild returns the durable read model, first healing it via a whole-model
-// lazy Replay repair when the model is empty but the event log still holds
-// aggregates (spec §3.7, decision 7). This is the per-request List path; the boot
-// orphan-sweep deliberately uses the raw List (no replay) instead, so startup
-// never pays the replay cost.
-//
-// asynx.Replay rebuilds a SINGLE aggregate id, so a lost List read model cannot be
-// healed by one call: rebuild enumerates every id the event log holds via the
-// event store's serialize.AggregateLister capability, then Replays each id back
-// into state/store/workspace.db. An event store without that capability (or an
-// enumeration error) skips the rebuild. A per-id Get never lands here — it folds
-// the aggregate directly from the event log.
+// ListOrRebuild returns the read model, first rebuilding it when it is empty but
+// the event log still holds aggregates. It is the per-request path; the boot sweep
+// uses the raw List so startup never pays a replay.
 func (s *service) ListOrRebuild(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
@@ -64,10 +53,8 @@ func (s *service) fromLog(
 	return &ws, nil
 }
 
-// rebuild enumerates every aggregate id in the event log and Replays each into the
-// read model. It is a no-op when the event store cannot enumerate its ids or when
-// the log is empty (nothing to Replay), so an empty model over an empty log stays
-// empty.
+// rebuild Replays every aggregate id the event log lists into the read model
+// (asynx.Replay heals one id at a time); without an AggregateLister it is a no-op.
 func (s *service) rebuild(
 	ctx context.Context,
 ) error {

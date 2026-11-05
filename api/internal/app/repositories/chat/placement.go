@@ -13,9 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Placements is where each chat's own placement lives (the Tree aggregate);
-// the chat aggregate no longer stores it, and this repository reads it back
-// onto every chat it returns.
+// Placements is where each chat's placement lives (the Tree aggregate); the chat
+// aggregate does not store it, so this repository reads it onto every chat it returns.
 type Placements interface {
 	ChatPlacement(ctx context.Context, chatID string) (tree.Placement, error)
 	ChatPlacements(ctx context.Context, chatIDs []string) (map[string]tree.Placement, error)

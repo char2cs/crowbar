@@ -7,37 +7,26 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SweepListFunc reads the durable workspace read model DIRECTLY — never through
-// the lazy-Replay-wrapped List (§3.7). Reading directly keeps boot cheap and, per
-// the §3.8 accepted consequence, lets a crash that also lost store/workspace.db
-// leave the sweep reading an empty model (it reaps nothing) rather than paying a
-// replay to rebuild it; that repair is deferred to the first on-demand access. In
-// production this is the workspace repository's raw read-model List.
+// SweepListFunc reads the workspace read model directly, never through the
+// lazy-Replay List, so boot stays cheap; a lost read model just reaps nothing
+// until the first on-demand read rebuilds it.
 type SweepListFunc func(ctx context.Context) ([]domain.Workspace, error)
 
-// SweepPurgeFunc re-drives the idempotent teardown for one lingering tombstone —
-// the SAME reactors.Purger.Purge the delete reactor runs (spec §3.6/§3.8, §7-D),
-// handed the tombstone row itself so it purges from the row's own WorktreePath.
-// It is injected so this package holds no git/fs/asynx dependency. It must be
-// idempotent: a re-drive over an already-purged workspace is a no-op.
+// SweepPurgeFunc re-drives the delete reactor's own idempotent teardown for one
+// lingering tombstone, purging from the row's WorktreePath. It is injected so this
+// package holds no git/fs/asynx dependency.
 type SweepPurgeFunc func(ctx context.Context, tomb domain.Workspace) error
 
-// Sweeper is the cheap, proactive boot orphan-sweep (spec §3.8). A delete reactor
-// that crashed mid-cascade leaves a workspace stuck in Status="deleted" with its
-// worktree still on disk and its tombstone row still present; the Sweeper reaps
-// exactly those, converging to the delete invariant (no row, no worktree). It
-// reads the read model directly (no lazy Replay) and re-drives the same
-// idempotent purge the reactor would have, so whichever teardown step the crash
-// interrupted, the end state is the same. It holds no IO of its own — both the
-// direct read and the purge are injected.
+// Sweeper is the boot orphan sweep: it reaps workspaces a crashed delete reactor
+// left in Status="deleted", re-driving the same idempotent purge so any interrupted
+// step converges to no row and no worktree. Its read and purge are injected.
 type Sweeper struct {
 	list  SweepListFunc
 	purge SweepPurgeFunc
 }
 
-// NewSweeper builds the boot orphan-sweep over the direct read-model list and the
-// idempotent purge. Both are supplied by the wiring layer (which owns the git/fs/
-// asynx concretes), keeping this package dependency-free.
+// NewSweeper builds the boot orphan sweep over the direct read-model list and the
+// idempotent purge.
 func NewSweeper(
 	list SweepListFunc,
 	purge SweepPurgeFunc,
@@ -45,13 +34,9 @@ func NewSweeper(
 	return &Sweeper{list: list, purge: purge}
 }
 
-// Sweep reads the read model directly and re-drives the purge for every residual
-// Status="deleted" row. Live (non-deleted) rows are left untouched. It is
-// best-effort throughout so boot is never failed by recovery work: a List failure
-// is logged and aborts the sweep (there is nothing to iterate), and a per-id
-// purge failure is logged and skipped so one stuck row never blocks the rest. It
-// triggers NO lazy Replay — an empty model simply yields nothing to reap (§3.8).
-// onPurged hears each tombstone it finished, so a reported give-up can clear.
+// Sweep re-drives the purge for every Status="deleted" row, best-effort so recovery
+// never fails boot: failures are logged and skipped. onPurged hears each tombstone
+// it finished, so a reported give-up can clear.
 func (s *Sweeper) Sweep(
 	ctx context.Context,
 	onPurged func(ctx context.Context, wsID string),

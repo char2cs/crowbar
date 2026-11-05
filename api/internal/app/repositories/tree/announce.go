@@ -22,10 +22,9 @@ type NodeMoved func(ctx context.Context, n tree.Node)
 // deleted, at the event's version.
 type FolderChanged func(ctx context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64)
 
-// Announce tells live clients what each Tree write moved, as the chat
-// aggregate's own events did before placement left it: chatMoved hears every
-// chat whose placement changed, nodeMoved every chat, workspace or repo row
-// whose position Node moved, folderChanged every folder that changed.
+// Announce tells live clients what each Tree write moved: chatMoved hears every
+// chat whose placement changed, nodeMoved every row whose position Node moved,
+// folderChanged every folder that changed.
 func Announce(
 	ax asynx.Asynx[tree.Tree],
 	chatMoved ChatMoved,

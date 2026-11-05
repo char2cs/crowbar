@@ -29,9 +29,8 @@ type Container struct {
 	// ReviewThreadChanges wakes in-process waiters when a review thread changes;
 	// it is what the hub projection's broadcast feeds.
 	ReviewThreadChanges *reviewthread.Changes
-	// AgentChat is the asynx-backed EventStore: its store/hub projections are
-	// live on axAgentChat and the agent usecase sends every AgentChat mutation
-	// through it (the gorm-backed store was retired in the Task 10 cutover).
+	// AgentChat is the asynx-backed EventStore: its store/hub projections run
+	// on axAgentChat and every AgentChat mutation goes through it.
 	AgentChat agentchat.EventStore
 	// Placement serves every sidebar row's position, each folder's identity and
 	// each chat's own placement, by id, over the per-project Tree aggregates.
@@ -46,16 +45,9 @@ type Container struct {
 	// revs is the last rev a workspace row was read at.
 	revs atomic.Int64
 	git  wsusecase.MergeConflictBatchChecker
-	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
-	// CLIs on it, its conversation record and telemetry, its conversation history
-	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
-	// path a user's chat delete takes, so the workspace-delete cascade cannot
-	// drift from it again (spec §7-D, invariant D5): it used to keep its own copy
-	// that skipped the conversation record, the telemetry and the ledger.
-	//
-	// Assigned after construction because the chat usecase is built from this
-	// container. The cascade REFUSES to run without it rather than purging
-	// half a chat.
+	// PurgeChat hard-deletes one chat and everything it owns via the chat usecase's
+	// own path, so the workspace-delete cascade cannot drift from a user's delete.
+	// Assigned after construction; the cascade refuses to run without it.
 	PurgeChat func(ctx context.Context, chatID string) error
 	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx
 	// instances WaitQuiescent drains: the read-your-writes barrier for tests.
@@ -69,27 +61,17 @@ type Container struct {
 	agentWorking    map[string]map[string]struct{}
 	agentBroadcasts map[string]bool
 
-	// drainWG tracks every post-commit reactor goroutine wireCallbacks registered
-	// (the async delete reactor, and — once wired — the reconcile-on-open tasks) so
-	// the app layer's ordered graceful shutdown (Task 15) can wait them out before
-	// closing the DBs; drainCancel closes the shared drain gate to stop reactors
-	// starting new work, derived from drainCtx (decisions 9 + 11). They are created
-	// and stored by wireCallbacks and reached from app.Container via Drain().
+	// drainGate tracks the post-commit reactors wireCallbacks starts so graceful
+	// shutdown can wait them out before closing the DBs; drainCancel cancels
+	// drainCtx to stop reactors starting new work.
 	drainGate   *drain.Gate
 	drainCtx    context.Context
 	drainCancel context.CancelFunc
 }
 
-// New builds all aggregate repositories, wiring the workspace projection into
-// publishWorkspace. The workspace aggregate is backed by the singleton axWorkspace (one
-// instance per type, routing every id by shard hash) built by the app layer; its
-// read model lives in state/store/workspace.db.
-// The reviewthread aggregate owns its central per-type read model at
-// state/store/review_thread.db. The agentchat aggregate owns its central
-// per-type read model at state/store/agent_chat.db. The workspace-delete
-// cascade's chat purge, Container.PurgeChat, is assigned by the app layer once
-// the chat usecase exists; see the field's doc comment. rm holds the read
-// models the asynx instances were built to deliver to (OpenReadModels).
+// New builds all aggregate repositories over the per-type asynx singletons, wiring
+// the workspace projection into publishWorkspace. rm holds the read models those
+// instances deliver to; PurgeChat is assigned later by the app layer.
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -121,10 +103,6 @@ func New(
 	}); err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
-	// reviewthread owns its own central per-type read model at
-	// state/store/review_thread.db (Task 12), no longer the shared view.db: pass
-	// ReviewThreadView() as the read-model DB while keeping ReviewThreadES() for the
-	// lazy AggregateLister Replay (§3.7).
 	threadChanges := reviewthread.NewChanges()
 	rt, err := reviewthread.New(axReviewThread, adapters.ReviewThreadES(), rm.ReviewThread, threadChanges.Notify)
 	if err != nil {
@@ -133,13 +111,8 @@ func New(
 	c.ReviewThread = rt
 	c.ReviewThreadChanges = threadChanges
 
-	// agentchat: build the asynx-backed EventStore over the singleton
-	// axAgentChat, registering its store + hub projections (store.New, invoked by
-	// NewEventSourced) exactly once. chatWatch is the SOLE source of
-	// agent-chat lifecycle frames: every agentchat.* event the agent usecase's
-	// commands emit is fanned out here by the hub projection. The usecase no
-	// longer broadcasts manually (that double-broadcast was retired at cutover),
-	// so this projection is the one and only WS feed for agent chats.
+	// The hub projection registered here is the only WS feed for agent-chat
+	// lifecycle frames: chatWatch receives every agentchat.* event.
 	agentChat, err := agentchat.NewEventSourced(ctx, axAgentChat, adapters.AgentChatES(), rm.AgentChat, chatWatch, placement)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
@@ -160,24 +133,17 @@ func New(
 		return nil, fmt.Errorf("repositories: chat payloads: %w", err)
 	}
 
-	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
-	// delete reactor + its review-thread AND agent-chat forget cascades, all
-	// joined to the shared drain WaitGroup so graceful shutdown can quiesce them
-	// (Task 15). Every cascaded repo must already be built — forgetDependents
-	// calls into c.ReviewThread and c.AgentChat.
+	// Post-commit cross-aggregate reactions go last: the delete cascade calls
+	// into c.ReviewThread and c.AgentChat, which must already be built.
 	if err := c.wireCallbacks(ctx, adapters.Home().Root(), onGiveUp); err != nil {
 		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
 	}
 	return c, nil
 }
 
-// WaitQuiescent blocks until every per-type asynx instance has drained its
-// dispatch queue and run all projection handlers (WaitPublish = dispatcher
-// WaitIdle + bus WaitForHandlers). It is the deterministic read-your-writes
-// barrier: production uses the async Send path, so the store/list read model and
-// the hub broadcast are INDEPENDENT projections that settle out of band; a test
-// calls WaitQuiescent after a mutation so a subsequent read of ANY projection is
-// guaranteed consistent — with no polling and no timeouts.
+// WaitQuiescent blocks until every per-type asynx instance has drained its queue
+// and run all projection handlers: the read-your-writes barrier, since the read
+// model and hub broadcast are independent projections that settle asynchronously.
 func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
@@ -256,11 +222,8 @@ func (r nodePlacementReader) Placement(
 	return n.ParentID, n.Order
 }
 
-// resolveOwningChat resolves ws's real owning chat ROW (not just its id),
-// reusing domain.ResolveOwningChat over this container's own AgentChat read —
-// never a second, independently derived answer. An unwired AgentChat (a test
-// Container built with only the fields its own assertion needs) or an
-// unresolvable read degrades to no owner.
+// resolveOwningChat resolves ws's owning chat row via domain.ResolveOwningChat,
+// never a second derivation. A nil AgentChat or a failed read means no owner.
 func (c *Container) resolveOwningChat(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -295,12 +258,9 @@ func (c *Container) Republish(
 	c.republishHearing(ctx, wsID, nil)
 }
 
-// eligibilityFor resolves the merge-eligibility overlay (incl. the predicted
-// merge-conflict flag) for ws by reading its siblings and delegating to the
-// shared wsusecase.ResolveMergeEligibilities — the SAME resolver the snapshot read
-// path uses, so the live broadcast and the snapshot always agree. The sibling
-// read is best effort — a failed List degrades to no eligibility rather than
-// dropping the broadcast.
+// eligibilityFor resolves ws's merge-eligibility overlay with the same resolver
+// the snapshot path uses, so broadcast and snapshot agree. A failed sibling read
+// degrades to no eligibility rather than dropping the broadcast.
 func (c *Container) eligibilityFor(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -331,13 +291,9 @@ func (c *Container) ListWorkspaces(
 	return rows, nil
 }
 
-// ListWorkspacesInRepo returns every workspace row scoped to one project+repo,
-// with the derived Working overlay applied, read from MY central store read
-// model (state/store/workspace.db) filtered by project_id/repo_id via the
-// workspace repo's ListInRepo — a single central-store read, not the
-// whole-install per-entity scan the retired workspace_directory projection was
-// built to avoid. It backs the repo-scoped snapshot-on-subscribe builders and
-// the merge-eligibility overlay.
+// ListWorkspacesInRepo returns every workspace row in one project+repo with the
+// Working overlay applied. It backs the repo-scoped snapshots and the
+// merge-eligibility overlay.
 func (c *Container) ListWorkspacesInRepo(
 	ctx context.Context,
 	projectID string,

@@ -84,10 +84,9 @@ type Workspace interface {
 		id string,
 		strategy gitdomain.MergeStrategy,
 	) (domain.Workspace, error)
-	// SetLock records the user's own lock decision, which outranks the
-	// provider's protected flag from here on. A nil `locked` hands the question
-	// back to the provider. `protected` is the provider's current answer, used
-	// only to resolve the status when `locked` is nil.
+	// SetLock records the user's lock decision, which outranks the provider's
+	// protected flag. A nil `locked` hands it back to the provider, whose current
+	// answer `protected` then resolves the status.
 	SetLock(
 		ctx context.Context,
 		id string,
@@ -146,10 +145,8 @@ type Workspace interface {
 		id string,
 		parentID string,
 	) (domain.Workspace, error)
-	// Delete tombstones the workspace: it fires the pure Delete command (folds
-	// Status=deleted) via Send. The physical teardown (cascade Forgets + rm -rf +
-	// axWorkspace.Forget) runs off the write path in the async delete reactor
-	// (spec §3.6/§3.8, Task 8).
+	// Delete tombstones the workspace (Status=deleted); the physical teardown runs
+	// off the write path in the async delete reactor.
 	Delete(
 		ctx context.Context,
 		id string,
@@ -157,12 +154,9 @@ type Workspace interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
-	// ListInRepo returns every workspace row scoped to one project+repo. It reads
-	// the same central durable read model as List (state/store/workspace.db) and
-	// filters by projectID+repoID, so it has identical read-after-write
-	// consistency to List — the merge-eligibility broadcast overlay uses it so a
-	// broadcast of a parented workspace resolves its siblings without materializing
-	// the whole install.
+	// ListInRepo returns every workspace row in one project+repo from the same read
+	// model as List, with the same consistency, so a broadcast resolves siblings
+	// without materializing the whole install.
 	ListInRepo(
 		ctx context.Context,
 		projectID string,
@@ -176,11 +170,9 @@ type Workspace interface {
 	) (domain.Workspace, error)
 }
 
-// ReconcileOnOpener triggers a lazy, deduplicated, one-shot background reconcile
-// for a single workspace id off the per-id read path (spec §3.8). Get/detail
-// calls OnOpen; List never does. It is injected via WithReconciler so the
-// git+provider re-derivation stays owned by a higher layer and this repository
-// keeps no git/provider dependency.
+// ReconcileOnOpener triggers a deduplicated background reconcile when one workspace
+// is read by id (List never does). It is injected so this repository keeps no
+// git/provider dependency.
 type ReconcileOnOpener interface {
 	OnOpen(
 		ctx context.Context,
@@ -188,11 +180,9 @@ type ReconcileOnOpener interface {
 	)
 }
 
-// BootSweeper is the boot orphan-sweep seam (spec §3.8). The app-layer
-// composition root runs it once at boot; it re-drives the SAME Purger the delete
-// reactor runs for every tombstone a crash left behind (spec §7-D). Kept OFF the
-// main Workspace interface so a boot-recovery concern does not leak into the
-// per-request repository surface; the concrete *workspace satisfies it.
+// BootSweeper is the boot orphan-sweep seam: run once at boot, it re-drives the
+// delete reactor's Purger for every tombstone a crash left. It is kept off
+// Workspace so boot recovery does not leak into the per-request surface.
 type BootSweeper interface {
 	// BackfillProvisioning gives every row written before
 	// domain.Workspace.Provisioning existed its explicit value. It runs before
@@ -206,13 +196,9 @@ type BootSweeper interface {
 	) error
 }
 
-// DeleteReactorRegistrar wires this aggregate's physical purge (Task 8) onto its
-// singleton axWorkspace. The composition root injects the cross-aggregate forget
-// cascade, the hardened worktree remover, the shared drain gate and who hears a
-// purge that gives up (tomb nil when it was never observed); this
-// repository builds the one Purger from them and hands it to both the async
-// delete reactor and the boot Sweep. Kept OFF the main Workspace interface (like
-// BootSweeper); the concrete *workspace satisfies it.
+// DeleteReactorRegistrar wires the physical purge onto axWorkspace from injected
+// cascade, remover, drain gate and give-up hook (tomb nil if never observed); one
+// Purger serves both the async delete reactor and the boot Sweep.
 type DeleteReactorRegistrar interface {
 	RegisterDeleteReactor(
 		root context.Context,
