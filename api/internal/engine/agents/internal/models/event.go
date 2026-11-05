@@ -214,12 +214,8 @@ type ChoiceOption struct {
 	Description string
 }
 
-// PlanStep is one entry of an agent's running plan.
-//
-// Status is CROWBAR'S word, not the provider's: a descriptor translates its own
-// vocabulary with `steps.status_map` (the same mechanism permission's
-// suggestion_label.* uses), so Go never learns any provider's spelling of
-// "in progress".
+// PlanStep is one entry of an agent's running plan. Status is Crowbar's word: the
+// descriptor maps its own vocabulary via `steps.status_map`, so Go never learns it.
 type PlanStep struct {
 	Text   string
 	Status string

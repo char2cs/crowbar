@@ -1,11 +1,6 @@
-// Package dispatch resolves an inbound API-transport wire frame — a method name
-// plus its decoded params — back to the canonical event name the hooks transport
-// already names explicitly (the forwarder CLI is invoked with the canonical name
-// as an argument; the API transport carries only the provider's own method name).
-//
-// Sum types (one wire method serving several canonical events, selected by a
-// discriminator field) are resolved via the same `when:` mechanism the
-// descriptor already declares for exactly this purpose.
+// Package dispatch resolves an inbound API-transport frame (method plus params) to
+// its canonical event name, which the hooks transport receives explicitly but the API
+// carries only as a provider method. One method serving several events is split by `when:`.
 package dispatch
 
 import (
@@ -16,10 +11,8 @@ import (
 )
 
 // Resolve finds the canonical event whose in: or ask: names wireMethod and whose
-// when: (if any) matches params. Deterministic when more than one candidate's
-// when: matches (should not happen for a well-formed descriptor, but iteration
-// order over a map must not make a bug non-reproducible): candidates are tried in
-// sorted-name order and the first match wins.
+// when: (if any) matches params. Candidates are tried in sorted-name order so an
+// ambiguous descriptor still resolves reproducibly.
 func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (string, bool) {
 	names := make([]string, 0, len(d.Events))
 	for name := range d.Events {
@@ -32,10 +25,7 @@ func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (stri
 		if !ev.HasChannelBlocks() && d.TransportFor(name) == string(spec.ChannelHooks) {
 			continue // a flat event declared on the hook relay never arrives here
 		}
-		// The api transport is the only channel this package ever resolves a
-		// wire frame FOR — WireEventFor/WhenFor(ChannelAPI) reads a
-		// channel-scoped event's own api: block, and falls back to a legacy
-		// event's flat in:/when: unchanged.
+		// Only api frames are resolved here: the api: block, or a legacy flat event.
 		wire, direction := ev.WireEventFor(spec.ChannelAPI)
 		if direction == "out" || !wire.Has(wireMethod) {
 			continue

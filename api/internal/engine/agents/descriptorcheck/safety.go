@@ -32,10 +32,9 @@ var (
 	shellSyntaxRE = regexp.MustCompile("\\$\\(|`|\\$\\{")
 )
 
-// safetyRules refuse what would let a descriptor — possibly one a user
-// uploaded — run something other than its CLI: a shell as the command, shell
-// syntax in an argv, a user-controlled value inside a hook command, an env
-// name that is not one, or a version range nothing can compare against.
+// safetyRules refuse what would let a (possibly user-uploaded) descriptor run
+// something other than its CLI: a shell command, shell syntax in argv, user values
+// in a hook command, invalid env names, or an uncomparable version range.
 func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	out = append(out, iconRules(doc, d)...)

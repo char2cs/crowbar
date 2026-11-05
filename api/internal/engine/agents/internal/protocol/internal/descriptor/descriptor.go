@@ -22,17 +22,13 @@ import (
 var embedded embed.FS
 
 const (
-	// The shipped descriptors are v3 (event-centric). The v2 tree is retained only
-	// so the migration-completeness test can compare against it, and is deleted with
-	// the v2 code paths.
+	// The shipped descriptors are v3 (event-centric).
 	embeddedDir = "descriptors-v3"
 	overrideDir = "descriptors"
 	yamlSuffix  = ".yaml"
 
-	// modelManifestFile is the one bundled model.manifest: fallback, shared by
-	// every provider that declares that source — not provider-scoped, since
-	// the descriptor's own items_path is what picks a provider's rows out of
-	// it.
+	// modelManifestFile is the one bundled model.manifest: fallback shared by every
+	// provider; each descriptor's items_path picks its own rows out of it.
 	modelManifestFile = embeddedDir + "/model-manifest.json"
 )
 
@@ -59,10 +55,9 @@ func Load(data []byte) (*spec.Descriptor, error) {
 	return d, nil
 }
 
-// Resolve loads id's descriptor: its on-disk override when accept admits it
-// (a nil accept admits every override), else the shipped default. An override
-// accept refuses — one copied from an older shipped descriptor, say — never
-// takes the provider down with it while a default exists.
+// Resolve loads id's descriptor: its on-disk override when accept admits it (nil
+// admits all), else the shipped default, so a refused override never takes the
+// provider down while a default exists.
 func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bool) (*spec.Descriptor, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -83,14 +78,8 @@ func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bo
 	return Load(data)
 }
 
-// OverridePath is where a per-daemon on-disk override for id would live under
-// homeDir, the same path Resolve itself checks before falling back to the
-// embedded default. Exposed so a caller that resolves the SAME id repeatedly
-// on a hot path (agents.service.Get, called once per ingested hook — see its
-// own doc comment) can cheaply Stat this path to know whether Resolve's full
-// read-parse-validate is worth repeating, instead of paying it unconditionally
-// on every call. Empty for a homeDir-less caller, exactly like Resolve's own
-// "no override possible" case.
+// OverridePath is where Resolve looks for id's on-disk override under homeDir ("" when
+// homeDir is). Exposed so a hot-path caller can Stat it instead of re-resolving.
 func OverridePath(homeDir, id string) string {
 	if homeDir == "" {
 		return ""
@@ -141,11 +130,8 @@ func hasEmbedded(id string) bool {
 	return err == nil
 }
 
-// EmbeddedModelManifest is the bundled model.manifest: fallback — read fresh
-// on every call (it never changes at runtime) rather than cached, so a
-// missing/corrupt embed degrades to nil bytes rather than panicking or
-// blocking boot; ProbeManifest's own ErrMalformedOutput carries that
-// forward.
+// EmbeddedModelManifest is the bundled model.manifest: fallback, or nil when the
+// embed is missing, so a bad bundle degrades instead of failing boot.
 func EmbeddedModelManifest() []byte {
 	data, err := embedded.ReadFile(modelManifestFile)
 	if err != nil {

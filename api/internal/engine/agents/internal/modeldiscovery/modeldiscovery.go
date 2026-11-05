@@ -31,10 +31,8 @@ var (
 	ErrMalformedOutput = errors.New("agents: model discovery output is malformed")
 )
 
-// Model is one discovered, already filtered/mapped catalogue entry. Default
-// is whether the source itself flagged this row as the provider's default
-// model (model.discover.default_when) — false for EVERY row when the
-// source states no such thing, never inferred from list position.
+// Model is one discovered, filtered/mapped catalogue entry. Default is whether the
+// source flagged this row as default (default_when), never inferred from position.
 type Model struct {
 	ID            string
 	Label         string
@@ -118,10 +116,7 @@ func validWorkdir(dir string) (string, error) {
 }
 
 // itemMapping is the filter/order/render vocabulary model.discover: and
-// model.manifest: share — factored out so modeldiscovery's mapping logic is
-// written once and both sources read a *spec.ModelDiscoverSpec /
-// *spec.ModelManifestSpec into this common shape rather than duplicating
-// mapModels/renderModel per source.
+// model.manifest: share, so mapModels/renderModel serve both sources.
 type itemMapping struct {
 	KeepWhen    *spec.ModelFieldMatch
 	OrderBy     string

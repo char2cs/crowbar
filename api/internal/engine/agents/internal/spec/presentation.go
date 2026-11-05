@@ -44,23 +44,18 @@ type PromptSubmitSpec struct {
 	Steer         *SteerSpec         `yaml:"steer"`
 }
 
-// SteerSpec declares that a message sent while a turn is running can ride the
-// CLI's own turn-end hook instead of restarting it. Frame wraps the text
-// ({message} once); Reply is the hook stdout carrying it ({message_json} once,
-// replaced by the framed text as a JSON string). A message opening with one of
-// SkipPrefixes is a command, not text, and is never steered.
+// SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a
+// restart: Frame wraps {message}, Reply is the hook stdout with {message_json}.
+// A message opening with a SkipPrefixes entry is a command and is never steered.
 type SteerSpec struct {
 	SkipPrefixes []string `yaml:"skip_prefixes"`
 	Frame        string   `yaml:"frame"`
 	Reply        string   `yaml:"reply"`
 }
 
-// LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture
-// rather than as text when one of them is the message's FIRST character, and
-// what to put in front of one to make it text again. Crowbar's own attachment
-// encoding can put such a character there with nobody typing it — see the
-// promptsigil package, the only consumer, which never touches a sigil a person
-// typed.
+// LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture when
+// first in a message, and the escape that makes one text. promptsigil applies it
+// only where Crowbar's attachment encoding, not a person, put the sigil.
 type LeadingSigilsSpec struct {
 	Chars  []string `yaml:"chars"`
 	Escape string   `yaml:"escape"`

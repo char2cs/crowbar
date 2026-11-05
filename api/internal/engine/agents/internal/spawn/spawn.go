@@ -41,15 +41,9 @@ func Plan(
 	return plan, nil
 }
 
-// PrependArgs puts d.Spawn.Args at the front of plan.Argv — the flags any
-// interactive invocation of the provider's own executable needs (e.g.
-// a hook-trust bypass flag), regardless of which entry point
-// is building the plan. Plan uses this for the primary spawn; the api
-// package's attach path (an interactive TUI in every way that matters here)
-// must use it too, or an attached CLI never gets flags the primary spawn
-// always carries. The api package's serve path deliberately does NOT call
-// this — it invokes a genuinely different, non-interactive subcommand that
-// these flags don't apply to.
+// PrependArgs puts d.Spawn.Args, the flags every INTERACTIVE invocation needs, at
+// the front of plan.Argv. The primary spawn and api attach both use it; api serve
+// does not, as it runs a non-interactive subcommand the flags don't apply to.
 func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnPlan) {
 	args := make([]string, len(d.Spawn.Args))
 	for i, a := range d.Spawn.Args {

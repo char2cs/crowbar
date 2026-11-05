@@ -19,25 +19,18 @@ var (
 
 	ErrForeignConversation = errors.New("agents: hook does not describe this CLI's own conversation")
 
-	// ErrRequiredFieldMissing is design spec 2.3's own rule: a field an event
-	// declares required: resolved to nothing against the delivered payload.
-	// This is the highest-value rule the descriptor channel-split migration
-	// adds — a mapping that silently resolves to empty used to be
-	// indistinguishable from one that never had anything to resolve.
+	// ErrRequiredFieldMissing is a required: field that resolved to nothing against
+	// the delivered payload, so a broken mapping fails loudly instead of reading empty.
 	ErrRequiredFieldMissing = errors.New("agents: required field resolved to nothing")
 
-	// ErrVariantMismatch is a delivery that named a canonical event whose own
-	// when: discriminator its payload does not satisfy: the same wire event,
-	// a different variant. Not a failure of anything — the sibling event that
-	// DOES match is delivered separately and handles it — so every caller
-	// drops it quietly.
+	// ErrVariantMismatch is a payload that fails the event's when: discriminator: a
+	// different variant of the same wire event, which the matching sibling handles,
+	// so callers drop it quietly.
 	ErrVariantMismatch = errors.New("agents: payload is a different variant of this wire event")
 )
 
-// VariantMismatchError names which descriptor, event and channel rejected the
-// delivery, and the discriminator it was judged against — the same four facts
-// RequiredFieldError carries, for the same reason: a silent drop is
-// indistinguishable from a mapping that never ran.
+// VariantMismatchError names the descriptor, event, channel and discriminator that
+// rejected the delivery, so a quiet drop is still diagnosable.
 type VariantMismatchError struct {
 	Descriptor string
 	Event      string
@@ -62,9 +55,8 @@ func (e *ForeignConversationError) Error() string {
 
 func (e *ForeignConversationError) Unwrap() error { return ErrForeignConversation }
 
-// RequiredFieldError names exactly which descriptor, event, channel and
-// field failed to resolve — the four facts design spec 2.3 asks the error to
-// carry.
+// RequiredFieldError names the descriptor, event, channel and field that failed
+// to resolve.
 type RequiredFieldError struct {
 	Descriptor string
 	Event      string
@@ -79,11 +71,9 @@ func (e *RequiredFieldError) Error() string {
 
 func (e *RequiredFieldError) Unwrap() error { return ErrRequiredFieldMissing }
 
-// Parse turns one raw provider payload into a canonical event, reading the
-// field map channel selects — the block the delivery ACTUALLY arrived on,
-// never the event's static declared transport. See spec.EventSpec.
-// WireEventFor's own doc comment for why: a dual-shape event's shape arrives
-// per message, not per event declaration.
+// Parse turns one raw provider payload into a canonical event, reading the field
+// map of the channel the delivery ACTUALLY arrived on: a dual-shape event's shape
+// is per message, not per declaration.
 func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
 	decoded, err := decode(d, raw)
 	if err != nil {
@@ -113,11 +103,8 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			Descriptor: d.ID, Event: canonical, Channel: string(channel), When: when,
 		}
 	}
-	// required: (design spec 2.3) — a field the event declares required that
-	// resolves to nothing against THIS payload is a hard, named error, not a
-	// CanonicalEvent silently missing it. Checked against the same fields/
-	// decoded pair build() is about to read, so this can never disagree with
-	// what actually gets constructed.
+	// A required: field resolving to nothing is a named error. It reads the same
+	// fields/decoded pair build() uses, so the check cannot disagree with it.
 	for _, req := range d.EventRequired(canonical) {
 		if mapping.String(decoded, fields[req]) == "" {
 			return models.CanonicalEvent{}, &RequiredFieldError{
@@ -170,10 +157,8 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.RequiredPayloadFields() {
-		// Absent, not merely empty: a payload whose shape never carries this
-		// field at all (a genuine api-transport delivery of a dual-shape
-		// event) is not evidence of anything and must not be rejected — see
-		// Parse's own doc on why this replaced a transport-wide skip.
+		// Only a present-but-empty field is foreign: a payload shape that never
+		// carries it (an api delivery of a dual-shape event) proves nothing.
 		if !mapping.Present(decoded, mapping.Paths(field)) {
 			continue
 		}
@@ -302,13 +287,9 @@ func buildDelta(fields spec.FieldMap, decoded map[string]any) *models.MessageDel
 	}
 }
 
-// buildPlan reads the whole plan array, WHOLESALE: the newest list is the entire
-// truth, so there is nothing to merge and nothing that can drift.
-//
-// A step with no text is skipped (a plan entry with nothing to say is not a step),
-// but an unknown status passes through UNCHANGED rather than being dropped: a
-// status the descriptor's map does not name is still a step worth showing, and
-// silently shortening the plan would be worse than an unstyled row.
+// buildPlan reads the whole plan array: the newest list is the entire truth, so
+// nothing merges or drifts. Text-less steps are skipped; an unmapped status passes
+// through unchanged, since an unstyled row beats silently shortening the plan.
 func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep {
 	if steps == nil || steps.Items == "" {
 		return nil

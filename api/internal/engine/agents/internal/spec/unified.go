@@ -1,9 +1,7 @@
 package spec
 
-// Accessors over the descriptor's event table.
-//
-// Every consumer goes through these rather than reaching into Events directly, so the
-// rules about capability (key-presence) and answerability live in one place.
+// Accessors over the descriptor's event table. Consumers use these rather than
+// Events directly, so capability (key-presence) and answerability live in one place.
 
 // EventFields returns the canonical-field map for an inbound or ask event, and whether
 // the provider declares it at all. Key-presence IS the capability check.
@@ -15,11 +13,9 @@ func (d *Descriptor) EventFields(canonical string) (FieldMap, bool) {
 	return e.Map, true
 }
 
-// EventFieldsFor is EventFields, selected by the ACTUAL delivery channel: a
-// channel-scoped event's own block, or a legacy event's flat map: on every
-// channel. ok is false when the provider declares canonical at all but not on
-// THIS channel — a channel a provider does not use is absent, never silently
-// satisfied by the other channel's shape (design spec 2.1).
+// EventFieldsFor is EventFields for the ACTUAL delivery channel: the event's block,
+// or a legacy flat map: on every channel. ok is false when canonical is declared but
+// not on this channel; the other channel's shape never stands in.
 func (d *Descriptor) EventFieldsFor(canonical string, channel Channel) (FieldMap, bool) {
 	e, ok := d.Events[canonical]
 	if !ok {
@@ -35,22 +31,9 @@ func (d *Descriptor) EventFieldsFor(canonical string, channel Channel) (FieldMap
 	return block.Map, true
 }
 
-// EventWhenFor is the when: discriminator canonical answers to on channel — the
-// channel block's own when: for a channel-scoped event, or the legacy flat
-// when: (identical on every channel) for one with no blocks, mirroring
-// EventFieldsFor's fallback exactly.
-//
-// It exists because `when:` used to be read only by dispatch.Resolve, whose
-// only caller is the API transport: a provider's method name has to be turned
-// back into a canonical event, and a sum-type method needs the discriminator to
-// say which. A hook relay already carries the canonical name, so the hooks
-// channel had nothing to resolve — and that quietly made one wire hook mean
-// exactly ONE canonical event. A provider whose single hook carries two
-// different facts (an idle report, or a permission
-// prompt) needs the same discriminator on the hooks channel, where it selects
-// which deliveries of that hook a canonical event ACCEPTS rather than which
-// event a method resolves to. Enforced at hook-parse time (translate/inbound/
-// hooks.go's Parse).
+// EventWhenFor is canonical's when: discriminator on channel, with EventFieldsFor's
+// fallback. On the hooks channel it selects which deliveries of one wire hook the
+// event ACCEPTS, since a single hook can carry several distinct facts.
 func (d *Descriptor) EventWhenFor(canonical string, channel Channel) WhenMap {
 	e, ok := d.Events[canonical]
 	if !ok {
@@ -59,20 +42,14 @@ func (d *Descriptor) EventWhenFor(canonical string, channel Channel) WhenMap {
 	return e.WhenFor(channel)
 }
 
-// EventRequired is the event's required: list — enforced at hook-parse time
-// (translate/inbound/hooks.go's Parse) as a hard, named error (design spec
-// 2.3, P5).
+// EventRequired is the event's required: list, enforced at parse time as a
+// hard, named error.
 func (d *Descriptor) EventRequired(canonical string) []string {
 	return d.Events[canonical].Required
 }
 
-// EventFixtures is the fixtures: list for canonical on channel — the
-// channel block's own list for a channel-scoped event, or the legacy flat
-// list (same on every channel) for one with no channel blocks, mirroring
-// EventFieldsFor's fallback. Parsed and exposed this phase, enforced
-// starting P5 (design spec 2.4). Nil for an undeclared event, a
-// channel-scoped event with no block for THIS channel, or a legacy event
-// that names no fixtures at all.
+// EventFixtures is the fixtures: list for canonical on channel, with
+// EventFieldsFor's block-else-legacy fallback; nil when none applies.
 func (d *Descriptor) EventFixtures(canonical string, channel Channel) []string {
 	e, ok := d.Events[canonical]
 	if !ok {
@@ -88,9 +65,8 @@ func (d *Descriptor) EventFixtures(canonical string, channel Channel) []string {
 	return block.Fixtures
 }
 
-// EventSurfaces is the event's surfaces: list (design spec P6b tag 2) — nil
-// (absent) means every surface. Distinct from the descriptor-level Surfaces
-// block (a provider capability); this is a per-event visibility gate.
+// EventSurfaces is the event's surfaces: visibility gate; nil means every surface.
+// Distinct from the descriptor-level Surfaces capability block.
 func (d *Descriptor) EventSurfaces(canonical string) []string {
 	return d.Events[canonical].Surfaces
 }
@@ -140,16 +116,9 @@ func (d *Descriptor) DeclaredEvents() []string {
 	return out
 }
 
-// AnswerFor returns the answer channel for an ask event: the decision templates, the
-// budget, and where a filled-in form is written.
-//
-// An event marked `answerable: false` reports false here: the prompt is visible but a
-// decision would reach nobody, e.g. when a provider cannot relay permission replies.
-//
-// AnyWireEvent's direction, not the flat e.Ask: a channel-split ask event (see
-// ChannelBlock) names its wire method inside api:/hooks:, not at the event's
-// own top level — Reply itself stays flat regardless, so this is the only
-// change channel-splitting an ask event needs here.
+// AnswerFor returns an ask event's answer channel (decision templates, budget, form
+// target); false for `answerable: false`. Direction comes from AnyWireEvent because a
+// channel-split ask names its wire method inside a block.
 func (d *Descriptor) AnswerFor(canonical string) (AnswerEventSpec, bool) {
 	e, ok := d.Events[canonical]
 	if !ok {

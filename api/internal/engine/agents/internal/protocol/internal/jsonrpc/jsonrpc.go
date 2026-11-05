@@ -1,12 +1,9 @@
-// Package jsonrpc is a JSON-RPC2 client over a child process's stdio, one
-// message per line (ndjson).
+// Package jsonrpc is a JSON-RPC2 client over a child process's stdio, one message
+// per line (ndjson). It knows nothing of descriptors or canonical events.
 //
-// It knows nothing about Crowbar's descriptors, canonical events, or any
-// provider's method names — that translation is protocol/internal/apidriver's job.
-//
-// Nothing here blocks the read loop (sessions spec §2.4): responses to our own
-// calls are routed inline, notifications go to a bounded mailbox (mailbox.go),
-// every write has a deadline and every call a timeout.
+// Nothing blocks the read loop: responses to our calls are routed inline,
+// notifications go to a bounded mailbox, every write has a deadline and every
+// call a timeout.
 package jsonrpc
 
 import (
@@ -51,10 +48,9 @@ func (s Stdio) Close() error {
 	return errors.Join(s.In.Close(), s.Out.Close())
 }
 
-// Frame is one inbound message that carries a method: either a plain
-// notification (ID nil) or a server-initiated request this connection's owner
-// must Reply to (ID non-nil). A bare id+result/error frame — the response to
-// OUR OWN Call — is never delivered here; Call consumes it directly.
+// Frame is one inbound message carrying a method: a notification (ID nil) or a
+// server request the owner must Reply to (ID non-nil). Responses to our own Calls
+// are consumed by Call and never delivered here.
 type Frame struct {
 	ID     json.RawMessage
 	Method string

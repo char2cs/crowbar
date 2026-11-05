@@ -38,14 +38,9 @@ type TemplateCtx struct {
 	RepoID      string
 	WorkspaceID string
 
-	// CrowbarHome is the crowbar home this spawn was resolved against
-	// (spawnPaths.crowbarHome in the runner package). Every in-PTY callback
-	// (hook, mcp, handoff) must operate against THIS home, not whatever
-	// CROWBAR_HOME the vendor CLI's own hook/subprocess mechanism happens to
-	// forward — which is not guaranteed, and silently defaults to the user's
-	// real ~/.crowbar when absent. Baking it into the command line here,
-	// exactly like project/repo/workspace already are, makes delivery correct
-	// regardless of what environment the callback inherits.
+	// CrowbarHome is the home this spawn resolved against. It is baked into callback
+	// command lines because a CLI need not forward CROWBAR_HOME, and a missing one
+	// silently falls back to the user's real ~/.crowbar.
 	CrowbarHome string
 
 	// DaemonHost is the address the daemon bound (unix:// or tcp://). Callbacks
@@ -53,20 +48,13 @@ type TemplateCtx struct {
 	// derived from --home can differ from the bound one, and TCP has none.
 	DaemonHost string
 
-	// Session is the session id an api-transport provider's live
-	// connection has established ({session_id} in a descriptor's
-	// runtime.api.attach) — set only AFTER EstablishSession has run, so
-	// attach's argv can point at the SAME conversation `prompt`'s turn call
-	// acts on rather than a disconnected one of its own.
+	// Session is the api connection's session id ({session_id}), set only after
+	// EstablishSession so attach's argv joins the SAME conversation prompts act on.
 	Session string
 
-	// PermissionVars is the current chat's permission level's own named
-	// values, exactly as its descriptor's permission_levels.<level>.vars
-	// declared them — opaque to Go. Referenced as {permission.<key>}, the
-	// same dotted-family shape as suggestion_label.* (see vocabulary.yaml's
-	// own permission.* entry), for a transport (a session-creating call) whose
-	// spawn-time behavior is a request field, not an argv flag Apply's
-	// pass_arg can reach.
+	// PermissionVars is the chat's permission_levels.<level>.vars, opaque to Go and
+	// referenced as {permission.<key>}, for transports that set permissions in a
+	// request field rather than an argv flag.
 	PermissionVars map[string]string
 }
 

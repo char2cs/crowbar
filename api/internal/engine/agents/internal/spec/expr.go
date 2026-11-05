@@ -10,20 +10,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 )
 
-// firstPresentOperator/anyOfOperator are the explicit, ONLY spellings of alternation:
-// first_present: for map:, any_of: for when:. The `||` glyph they replaced is not
-// merely deprecated — it is a hard parse error (AlternationGlyphError), everywhere an
-// expression can appear (docs/plans/2026-09-22-descriptor-channel-split.md 5.0).
+// firstPresentOperator/anyOfOperator are the ONLY spellings of alternation:
+// first_present: for map:, any_of: for when:. A `||` glyph anywhere is a hard
+// parse error (AlternationGlyphError).
 const (
 	firstPresentOperator = "first_present"
 	anyOfOperator        = "any_of"
 )
 
-// AlternationGlyphError is returned the moment a descriptor spells alternation with
-// `||` instead of first_present:/any_of:/a list — anywhere: a map: value, a when:
-// value, an in:/ask:/out: wire ref. Event is filled in by EventTable.UnmarshalYAML,
-// which is the first point in the decode that knows which event this field belongs
-// to; Field and Value are known immediately, at the point the glyph is found.
+// AlternationGlyphError is a descriptor spelling alternation with `||` in any map:,
+// when: or wire ref. Field and Value are set where the glyph is found; Event is
+// filled in later by EventTable.UnmarshalYAML, the first point that knows it.
 type AlternationGlyphError struct {
 	Event string
 	Field string
@@ -42,10 +39,8 @@ func (e *AlternationGlyphError) Error() string {
 	)
 }
 
-// EventTable is Descriptor.Events' concrete type. Its own UnmarshalYAML decodes
-// event by event, purely so a bad field's error can name which EVENT it came from —
-// the map key, invisible to a field's own UnmarshalYAML (FieldMap/WhenMap/WireRef),
-// which only ever sees the value node.
+// EventTable is Descriptor.Events' concrete type. It decodes event by event so a
+// bad field's error can name its EVENT, a map key field decoders never see.
 type EventTable map[string]EventSpec
 
 func (t *EventTable) UnmarshalYAML(node *yaml.Node) error {

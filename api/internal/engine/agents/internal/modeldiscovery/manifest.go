@@ -30,16 +30,9 @@ type manifestDoc struct {
 	root      any
 }
 
-// ProbeManifest resolves a model.manifest: catalogue as the freshest of the
-// embedded bundle, the last good on-disk cache, and (fetchEnabled) a live
-// HTTP GET — compared by each candidate's own "updatedAt", never positional
-// preference alone, so a fetch that regresses in time can never override a
-// newer cache. A successful, non-regressing fetch is persisted to disk so a
-// later offline run still has it. embedded is required (the one candidate
-// that must always exist); homeDir=="" skips the disk-cache half entirely;
-// fetchEnabled==false skips the network half entirely — either way this
-// degrades to whatever candidates remain, never an error and never an
-// emptied catalogue.
+// ProbeManifest resolves a model.manifest: catalogue as the newest "updatedAt" of the
+// embedded bundle, the on-disk cache (homeDir != "") and a live GET (fetchEnabled),
+// persisting a non-regressing fetch; missing candidates degrade, never empty the list.
 func ProbeManifest(
 	ctx context.Context,
 	man *spec.ModelManifestSpec,

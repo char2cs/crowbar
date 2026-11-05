@@ -30,38 +30,26 @@ type Capabilities struct {
 	ModelSelect  bool
 	EffortSelect bool
 
-	// ModelDiscovery is true when Models()/Efforts() are backed by a live
-	// probe (model.discover:) rather than a static available: list. The
-	// three selection-validation gates read it to tell "not yet resolved"
-	// (empty, discovery declared — allow) apart from "no catalogue at all"
-	// (empty, nothing declared — reject), which an empty list alone cannot.
+	// ModelDiscovery is true when Models()/Efforts() come from a live probe, so
+	// validation can tell "not yet resolved" (allow) from "no catalogue" (reject).
 	ModelDiscovery bool
 
 	TerminalPrompts bool
 
-	// Compaction reports whether Crowbar can ASK this provider to compact its
-	// context. Key-presence on the descriptor's compact_start event, whether it
-	// rides the prompt wire or an api method; a provider that declares neither
-	// gets no compact control in the UI.
+	// Compaction reports whether Crowbar can ASK this provider to compact: the
+	// descriptor declares compact_start. Without it the UI shows no compact control.
 	Compaction bool
 
 	// Hotswap is RuntimeSpec.Hotswap, carried through unchanged: whether both of
 	// this provider's faces can be live at once.
 	Hotswap bool
 
-	// HasTerminal is STRUCTURAL, never declared: true when this descriptor's spawn
-	// plan produces a real interactive PTY the user can look at. A hooks-transport
-	// provider's PTY IS the vendor CLI, so it always has one; an api-transport
-	// provider has one only if it declares `attach` (design spec §3.2 — existence
-	// must be derived from what Crowbar was told to run, not declared, because a
-	// separate boolean could contradict it).
+	// HasTerminal is derived, never declared, so it cannot contradict the spawn plan:
+	// hooks-transport always has a PTY, api-transport only when it declares `attach`.
 	HasTerminal bool
 
-	// TerminalStartHere is design spec 2.5's `surfaces.terminal.start_here`:
-	// whether a brand-new chat may be launched DIRECTLY onto the terminal
-	// surface, as opposed to reached only by switching to it after spawn.
-	// False whenever the descriptor declares no terminal surface at all,
-	// regardless of HasTerminal — absence, not a disabled control.
+	// TerminalStartHere is `surfaces.terminal.start_here`: a new chat may launch
+	// directly onto the terminal surface. False when no terminal surface is declared.
 	TerminalStartHere bool
 
 	Observes []string

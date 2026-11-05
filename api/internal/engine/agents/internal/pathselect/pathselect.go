@@ -1,7 +1,5 @@
-// Package pathselect is the one dotted-path/"[]"-expansion walk a decoded
-// JSON document is read with — factored out of catalog/internal/adapters so
-// model discovery can read the identical grammar without a second
-// implementation to drift from the first.
+// Package pathselect is the one dotted-path/"[]"-expansion walk over a decoded
+// JSON document, shared by the catalog adapters and model discovery.
 package pathselect
 
 import "strings"

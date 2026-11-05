@@ -9,16 +9,13 @@ import (
 
 type (
 	// Runner is one live vendor-CLI process and ChatConversation is a conversation it
-	// hosted. The engine owns both: they describe the PROCESS, not Crowbar's model of
-	// the chat (design spec 3.1).
+	// hosted. Both describe the PROCESS, not Crowbar's model of the chat.
 	Runner           = models.Runner
 	ChatConversation = models.ChatConversation
 
-	// Channel is which wire a delivery actually arrived on — the api
-	// connection or a hook relay POST — decided by the caller at receive
-	// time and threaded down to ParseHook so it can select the SAME
-	// canonical event's own channel-scoped field map, never infer it from
-	// the payload's shape. See spec.Channel's own doc comment.
+	// Channel is the wire a delivery arrived on (api connection or hook relay POST).
+	// The caller decides it at receive time so ParseHook picks the channel-scoped
+	// field map instead of guessing from the payload's shape.
 	Channel = spec.Channel
 
 	TemplateCtx    = models.TemplateCtx

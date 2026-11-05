@@ -28,12 +28,9 @@ func Efforts(
 	return append([]string(nil), d.Effort.Available[spec.EffortFallbackKey]...)
 }
 
-// PermissionLevels reports which of Crowbar's own level names this provider
-// can actually reach — the descriptor's own permission_levels.levels map
-// keys, and nothing clamped or inferred beyond them, in Crowbar's fixed
-// least-to-most-permissive order (a map's own iteration order is random,
-// which would jitter a rendered menu on every reload). A provider with no
-// permission_levels block at all offers none.
+// PermissionLevels reports the Crowbar level names this provider declares in
+// permission_levels.levels, nothing inferred, in Crowbar's fixed least-to-most
+// permissive order so a menu never jitters with map iteration.
 func PermissionLevels(
 	d *spec.Descriptor,
 ) []string {
@@ -85,12 +82,9 @@ func Steps(
 	return out
 }
 
-// APISteps is sel on the api channel's own `serve` argv — the carrier a spawn
-// that forks no process at all has instead of Steps.
-//
-// A permission level contributes nothing here on purpose, and is not missing:
-// its api carrier is vars:, which the establish call's send: tree renders
-// (PermissionVars), not an argv this could put a step on.
+// APISteps is sel on the api channel's `serve` argv, used instead of Steps when a
+// spawn forks no process. Permission levels deliberately add nothing: their api
+// carrier is vars:, rendered into the establish call's send: tree.
 func APISteps(
 	d *spec.Descriptor,
 	sel models.Selection,

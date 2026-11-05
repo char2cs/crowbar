@@ -37,15 +37,9 @@ func resolve(doc map[string]any, paths Expr) (any, bool) {
 	return firstPresent, found
 }
 
-// walk resolves ONE dotted path with no alternation.
-//
-// A whole-key match is tried first so a payload key that itself contains dots — or
-// brackets — stays addressable; only then does it descend segment by segment.
-//
-// A segment of the form `name[field=value]` SELECTS from a list: the first element
-// whose field equals value. Real provider payloads put the interesting value inside a
-// list (turn.items[type=message].text), and without selection those are
-// unmappable and the provider needs Go.
+// walk resolves ONE dotted path with no alternation. A whole-key match is tried
+// first so a key containing dots or brackets stays addressable; selector segments
+// (see parseSelector) let a descriptor reach values payloads keep inside lists or maps.
 func walk(doc map[string]any, path string) (any, bool) {
 	if path == "" {
 		return nil, false
@@ -94,20 +88,9 @@ func selectSegment(next any, sibling map[string]any, field, want string, dynamic
 // never collide with a real `name[field=value]` selector.
 const indexField = ""
 
-// parseSelector splits a selector segment into its parts. Three shapes:
-//
-//	name[field=value]  — the first LIST element whose field equals value
-//	name[N]            — the Nth LIST element, zero-based
-//	name[keypath]      — the MAP entry at the key keypath resolves to
-//
-// The index form addresses a list element no scalar field match can find, such
-// as changes whose `kind` is an object.
-//
-// The keypath form addresses a MAP keyed by a value the payload names in a
-// sibling field (item.states[childIds[0]]); keypath resolves against the object
-// name is a field of, not against the map being indexed.
-//
-// A segment matching none of the three shapes is a plain key.
+// parseSelector splits a selector segment: name[field=value] (first list element
+// whose field equals value), name[N] (Nth list element), or name[keypath] (map entry
+// at the key keypath resolves to, against the sibling object). Anything else is a plain key.
 func parseSelector(seg string) (name, field, want string, dynamic, ok bool) {
 	open := strings.IndexByte(seg, '[')
 	if open <= 0 || !strings.HasSuffix(seg, "]") {
@@ -152,11 +135,9 @@ func selectFrom(list any, field, want string) (any, bool) {
 	return nil, false
 }
 
-// selectByKey resolves keyPath against sibling — the object the map-valued
-// field was itself found on, NOT the map being indexed — to a scalar, then
-// looks that scalar up as a key in target. It is how a map keyed by a value
-// only the payload itself names (never a literal a descriptor could spell
-// out) gets read: see parseSelector's own doc for the motivating shape.
+// selectByKey resolves keyPath against sibling (the object holding the map, NOT the
+// map itself) to a scalar and looks it up in target, for maps keyed by a value only
+// the payload names.
 func selectByKey(target any, sibling map[string]any, keyPath string) (any, bool) {
 	obj, isObject := target.(map[string]any)
 	if !isObject {
@@ -187,13 +168,9 @@ func isEmpty(v any) bool {
 	}
 }
 
-// Present reports whether any of paths exists in doc at all — true even for a
-// JSON null, false only when every path's key (or an ancestor segment) is
-// entirely absent. It exists for callers that must tell "this payload's shape
-// never carries this concept" (an api-transport event, say) apart from "it
-// carries the concept and it is empty" (a hooks payload naming no
-// conversation) — String and the other scalar accessors collapse both into
-// the same zero value, which is exactly the distinction that check needs.
+// Present reports whether any of paths exists in doc, even as JSON null. It tells
+// "this payload never carries the concept" apart from "carries it empty", which the
+// scalar accessors collapse into the same zero value.
 func Present(doc map[string]any, paths Expr) bool {
 	_, ok := resolve(doc, paths)
 	return ok
@@ -371,13 +348,9 @@ func scalarOf(v any) (string, bool) {
 	}
 }
 
-// Match reports whether every when: clause holds. An empty when matches everything, so
-// an event that declares none applies unconditionally. Each clause's key is a SINGLE
-// discriminator path; its value is the SET of values that path may equal (an `any_of:`
-// list, or a one-element list for a plain equality clause).
-//
-// A clause whose path is missing does NOT match: a variant selector must not silently
-// apply to payloads that lack the discriminator.
+// Match reports whether every when: clause (one discriminator path -> the set of values
+// it may equal) holds; an empty when matches everything. A missing path does NOT match,
+// so a variant never silently applies to payloads lacking the discriminator.
 func Match(doc map[string]any, when map[string][]string) bool {
 	for path, want := range when {
 		got, ok := Scalar(doc, Paths(path))

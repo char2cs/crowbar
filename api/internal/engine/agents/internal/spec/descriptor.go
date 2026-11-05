@@ -18,11 +18,9 @@ type Descriptor struct {
 
 	ConfigInjection InjectSteps `yaml:"config_injection"`
 
-	// HooksInjection points the provider's hooks at the daemon's hook server.
-	// It is applied ONLY to a process whose delivery channel is hooks — a PTY
-	// — never to an api-transport `serve` process: a process reports over
-	// exactly one channel, so an event can never arrive twice (sessions spec
-	// §2.3).
+	// HooksInjection points the provider's hooks at the daemon's hook server. It is
+	// applied ONLY to a hooks-channel PTY, never an api `serve` process: each process
+	// reports over exactly one channel, so an event never arrives twice.
 	HooksInjection InjectSteps `yaml:"hooks_injection"`
 
 	MCPInject InjectSteps `yaml:"mcp_injection"`
@@ -49,19 +47,14 @@ type Descriptor struct {
 
 	InjectedPrompts []InjectedPromptSpec `yaml:"injected_prompts"`
 
-	// NotEmitted names canonical in/ask events this provider never fires, or
-	// fires only where mapping them would misread it — an absent event otherwise
-	// means both "the provider doesn't do this" and "we forgot", indistinguishably. Enforced (rules.notEmitted):
-	// every in/ask canonical event must be mapped in events: or listed here
-	// (design spec 2.6).
+	// NotEmitted names canonical in/ask events this provider never fires (or that
+	// mapping would misread). rules.notEmitted requires every in/ask event be mapped
+	// or listed here, so "doesn't do this" is distinguishable from "forgot".
 	NotEmitted []string `yaml:"not_emitted"`
 
-	// Surfaces declares which VIEWS this provider offers (chat, terminal) and
-	// which may be launched a brand-new chat directly onto (design spec 2.5).
-	// Keyed by surface name; validated by rules.surfaces against RuntimeSpec/
-	// Hotswap so it cannot silently contradict them. Nil for a descriptor
-	// that has not declared any — every surface then answers false to
-	// SurfaceStartHere, same as every other absent capability.
+	// Surfaces declares which views (chat, terminal) this provider offers and which a
+	// new chat may launch onto, keyed by surface name and validated by rules.surfaces
+	// against the runtime. Nil means every surface answers false to SurfaceStartHere.
 	Surfaces map[string]SurfaceSpec `yaml:"surfaces"`
 }
 

@@ -1,21 +1,16 @@
 package spec
 
-// PermissionSpec declares which of Crowbar's own permission-level names
-// (guarded, trusted, full-auto — never enumerated here; the map's own keys
-// ARE the declaration) this provider can actually reach, and what each one
-// means to it. A level this map has no key for is not offered for this
-// provider at all — never clamped to a neighboring one.
+// PermissionSpec declares, by its map keys, which Crowbar permission levels this
+// provider reaches and what each means to it. A level with no key is not offered,
+// never clamped to a neighbour.
 type PermissionSpec struct {
 	Strategy string                         `yaml:"strategy"`
 	Levels   map[string]PermissionLevelSpec `yaml:"levels"`
 }
 
-// PermissionLevelSpec is one level's own answer to "what do I actually do
-// to get there." Apply is spawn args, exactly like ModelSpec/EffortSpec's
-// own Apply. Vars is the same fact under names the descriptor itself picks
-// ({permission.<key>}), for a transport that renders a request tree instead
-// of an argv — a request that needs its sandbox and approval values as data,
-// not as a flag — and Go must not know what the provider calls them.
+// PermissionLevelSpec is how one level is reached: Apply as spawn args, or Vars
+// ({permission.<key>}, names the descriptor picks) for transports that send the
+// values as request data rather than flags.
 type PermissionLevelSpec struct {
 	Apply InjectSteps       `yaml:"apply"`
 	Vars  map[string]string `yaml:"vars"`

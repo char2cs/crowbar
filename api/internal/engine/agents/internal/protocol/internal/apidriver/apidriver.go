@@ -1,7 +1,5 @@
-// Package apidriver drives one provider's API transport connection: handshake,
-// receive loop, and reply — the pieces protocol/protocol.go exposes so the
-// runner usecase (which already holds the Turns/answerdesk references this
-// needs to feed) never has to know jsonrpc or dispatch exist.
+// Package apidriver drives one provider's API transport connection (handshake,
+// receive loop, reply, session steps) so callers never see jsonrpc or dispatch.
 package apidriver
 
 import (
@@ -86,11 +84,9 @@ func Start(
 	return drv, nil
 }
 
-// originate opens a claim that this connection is about to produce a session of
-// its own, and returns the func that closes it with whatever id came of the
-// attempt. Claims nest: a recovery holds one across both of its attempts, so
-// the handover from one to the other leaves no unclaimed instant for an
-// announcement to arrive in.
+// originate claims that this connection is about to produce a session and returns
+// the func closing the claim with the resulting id. Claims nest, so a recovery's two
+// attempts leave no unclaimed instant for an announcement to slip into.
 func (drv *Driver) originate() func(string) {
 	if drv.origin == nil {
 		return func(string) {}
@@ -110,11 +106,8 @@ func (drv *Driver) translateLoop() {
 			continue // this provider's descriptor does not map this wire method
 		}
 		raw := frame.Params
-		// by_wire: (design spec F1) — a literal field the matched wire method
-		// itself names, merged in BEFORE the event reaches map: resolution.
-		// This is the only place the wire method that actually matched is
-		// known at all; downstream (inbound.Parse) only ever sees the
-		// resulting bytes, no different from a field the provider sent itself.
+		// by_wire: literals are merged here because this is the only place the
+		// matched wire method is known; downstream sees them as provider fields.
 		if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
 			if merged, err := withOverlay(params, overlay); err == nil {
 				raw = merged
@@ -124,11 +117,8 @@ func (drv *Driver) translateLoop() {
 	}
 }
 
-// byWireOverlay is the literal synthetic fields this event's api: block
-// declares for wireMethod (spec.ChannelBlock.ByWire) — see that field's own
-// doc comment. Nil for a legacy event, or a channel-scoped one that declares
-// none for this wire method: the ordinary case, where map: reads the
-// provider's own payload unchanged.
+// byWireOverlay is the literal fields this event's api: block declares for
+// wireMethod (spec.ChannelBlock.ByWire); nil in the ordinary case of none.
 func byWireOverlay(d *spec.Descriptor, canonical, wireMethod string) map[string]string {
 	ev, ok := d.Events[canonical]
 	if !ok || ev.API == nil {
@@ -137,10 +127,8 @@ func byWireOverlay(d *spec.Descriptor, canonical, wireMethod string) map[string]
 	return ev.API.ByWire[wireMethod]
 }
 
-// withOverlay merges overlay's literal fields into decoded (already-parsed
-// params) and re-marshals. decoded is copied, never mutated in place — a
-// concurrent when: match against the original params map must keep seeing
-// only what the provider actually sent.
+// withOverlay merges overlay into a copy of decoded and re-marshals; decoded is
+// never mutated, so when: matching keeps seeing only what the provider sent.
 func withOverlay(decoded map[string]any, overlay map[string]string) (json.RawMessage, error) {
 	merged := make(map[string]any, len(decoded)+len(overlay))
 	for k, v := range decoded {
@@ -156,24 +144,15 @@ func withOverlay(decoded map[string]any, overlay map[string]string) (json.RawMes
 // order. Closed when the underlying connection closes.
 func (drv *Driver) Events() <-chan Event { return drv.out }
 
-// Reply answers an ask (an Event whose AskID is non-nil) with already-rendered
-// bytes — rendering is the caller's job via the existing, transport-agnostic
-// engineagents.Agent.RenderAnswer, so this package stays free of any per-event
-// rendering knowledge.
+// Reply answers an ask (an Event whose AskID is non-nil) with bytes the caller
+// already rendered, keeping per-event rendering out of this package.
 func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 	return drv.conn.Reply(askID, json.RawMessage(rendered))
 }
 
-// Send drives an outbound canonical event (interrupt, compact_start) by
-// resolving it through the SAME outbound.Resolve the hooks transport's
-// injection-based sends use, merged over every value this connection has ever
-// remembered (so interrupt's turn id is there without the caller supplying it),
-// then calling it over the connection and waiting for the reply — an
-// interrupt is a request needing a real response, not a fire-and-forget
-// notification: a malformed one comes back a JSON-RPC error, not silence.
-// For an event that must first establish a session before acting, see
-// Dispatch instead — Send's flat {field: "{value}"} template cannot express a
-// typed/nested payload or a response value feeding a later call.
+// Send calls an outbound canonical event (interrupt, compact_start) resolved via
+// outbound.Resolve over remembered values, and waits for the reply so a malformed call
+// surfaces as an error. Events needing a session or nested payload use Dispatch.
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
@@ -197,10 +176,9 @@ func (drv *Driver) Send(ctx context.Context, canonical string, values map[string
 	return nil
 }
 
-// EstablishSession runs canonical's Fresh steps (no session id yet) or Resume
-// steps, once per connection, and returns values merged with what each step
-// captured. It is apart from Dispatch so an attach argv can name the session
-// before anything is said on it.
+// EstablishSession runs canonical's Fresh (no session id) or Resume steps once per
+// connection and returns values merged with the captures. It is separate from
+// Dispatch so an attach argv can name the session before anything is said on it.
 func (drv *Driver) EstablishSession(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -294,9 +272,8 @@ func (drv *Driver) reopen(values map[string]string) map[string]string {
 	return out
 }
 
-// reestablish re-enters a session the provider says it no longer has through
-// the event's declared Resume steps: a provider pages an idle session out of
-// memory, which is what a resume is for.
+// reestablish re-enters, via the event's Resume steps, a session the provider
+// paged out of memory and now refuses.
 func (drv *Driver) reestablish(
 	ctx context.Context, ev spec.EventSpec, values map[string]string, sessionID string,
 ) (map[string]string, error) {
@@ -331,10 +308,8 @@ func (drv *Driver) recoverLostSession(
 	return out, drv.runSteps(ctx, ev.Action, out)
 }
 
-// fillBlanksFromRemembered overwrites every blank value in out with what this
-// connection actually remembers from its own establish — see
-// EstablishSession's already-established branch for why an empty caller
-// value must lose to it, not overwrite it.
+// fillBlanksFromRemembered fills every blank value in out from what this
+// connection remembered at establish; a blank caller value never overwrites it.
 func fillBlanksFromRemembered(out, remembered map[string]string) map[string]string {
 	for k, v := range out {
 		if v != "" {
@@ -440,12 +415,8 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 	return nil
 }
 
-// expandTree walks a Send tree (whatever shape the descriptor's YAML gave it)
-// and substitutes {placeholder} at every string leaf via the SAME
-// outbound.Substitute the flat Send/Notify path already uses — one
-// {placeholder} grammar, applied at every depth instead of only the top one,
-// which is the whole of what a typed/nested payload needed over the old flat
-// map[string]string.
+// expandTree substitutes {placeholder} at every string leaf of a Send tree via
+// outbound.Substitute, so nested payloads share the flat path's grammar.
 func expandTree(node any, values map[string]string) any {
 	switch v := node.(type) {
 	case string:

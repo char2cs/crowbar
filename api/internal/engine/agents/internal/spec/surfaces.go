@@ -1,21 +1,15 @@
 package spec
 
-// SurfaceSpec is one VIEW the user can be looking at — Crowbar's own chat, or
-// the provider's own terminal/CLI — declared per design spec 2.5 (docs/plans/
-// 2026-09-22-descriptor-channel-split.md). Distinct from `channel` (HOW a
-// payload arrives: api vs hooks, spec/channel.go — untouched by this) and
-// from a capability flag like Hotswap/HasTerminal (WHAT the provider can do):
-// a surface names WHERE the user is looking.
+// SurfaceSpec is one VIEW the user can be looking at (Crowbar's chat or the
+// provider's terminal): WHERE the user looks, distinct from Channel (how payloads
+// arrive) and capability flags (what the provider can do).
 type SurfaceSpec struct {
-	// Channel is which delivery channel drives this surface's own facts.
-	// Validated (rules.surfaces) against RuntimeSpec so a descriptor cannot
-	// name a channel it does not actually speak.
+	// Channel is which delivery channel drives this surface's facts, validated
+	// (rules.surfaces) against the channels the runtime actually speaks.
 	Channel Channel `yaml:"channel"`
 
-	// StartHere is whether a brand-new chat may be launched DIRECTLY onto
-	// this surface, rather than reached only by switching to it after spawn.
-	// Defaults false on absence — the same conservative direction as Hotswap/
-	// Compaction/every other capability key.
+	// StartHere is whether a new chat may launch DIRECTLY onto this surface
+	// rather than switch to it after spawn. False on absence, like every capability.
 	StartHere bool `yaml:"start_here"`
 }
 
@@ -37,13 +31,9 @@ func (d *Descriptor) SurfaceStartHere(name string) bool {
 	return ok && s.StartHere
 }
 
-// SurfaceChannel is which delivery channel drives `name`'s own facts — the
-// declared `surfaces.<name>.channel`, or "" for a surface this descriptor
-// does not declare. It is what decides, at spawn, whether a chat landing on
-// that surface needs an api connection opened for it at all: a hooks-channel
-// surface is fed by the CLI's own PTY, and opening an api connection beside
-// it would fork a second session, hide that PTY and drop its hooks as
-// redundant echoes of a transport the user is not looking at.
+// SurfaceChannel is `surfaces.<name>.channel`, or "" when undeclared. It decides at
+// spawn whether a chat needs an api connection: beside a hooks-channel PTY one would
+// fork a second session and drop the PTY's hooks as echoes.
 func (d *Descriptor) SurfaceChannel(name string) Channel {
 	return d.Surfaces[name].Channel
 }
