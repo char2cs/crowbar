@@ -111,6 +111,36 @@ func TestCreateFromImport_ParentsUnderExistingDefaultBranchWorkspace(t *testing.
 		"an imported branch with no PR nests under the existing default-branch workspace")
 }
 
+// An unprotected default branch has no managed workspace, only the repo home: the
+// import parents there, as a fork off the home does, so it can merge back.
+func TestCreateFromImport_ParentsUnderTheRepoHomeWhenTheDefaultBranchHasNoWorkspace(t *testing.T) {
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{
+					ID: "ws-home", RepoID: "r1", Branch: "trunk", IsDefault: true, WorktreePath: "/repo",
+					Provisioning: domain.WorkspaceShared,
+				},
+			}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := hierarchy.New(ws, &fakeGit{addStartSha: "sha"}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	withOwningChats(uc)
+
+	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
+		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "trunk",
+		Branches: branches("feat/x"),
+	}, &outcomes{})
+	require.NoError(t, err)
+	assert.Equal(t, "ws-home", created.ParentID)
+}
+
 // TestCreateFromImport_BranchCreatedConcurrently_SkipsWithoutStranding proves
 // createImportNode's dedup: when CreateChild itself reports ErrBranchWorkspaceExists
 // (the branch got a workspace between the parent-resolution read and this create —

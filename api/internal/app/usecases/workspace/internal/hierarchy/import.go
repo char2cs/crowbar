@@ -81,6 +81,11 @@ func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput,
 	// graph: it only decides parenting and where a chain walk stops, so a read
 	// failure imports flat, which the PR-poll reparent then corrects.
 	existing := u.existingBranchWorkspaces(ctx, in.RepoID)
+	// Best-effort too: with no home found a branch imports unparented, as before.
+	home, _, err := u.repoHomeWorkspaceID(ctx, in.RepoID)
+	if err != nil {
+		slog.WarnContext(ctx, "import: repo home unavailable; importing without a home parent", "err", err)
+	}
 
 	requested := map[string]ImportBranch{}
 	names := make([]string, 0, len(in.Branches))
@@ -96,7 +101,7 @@ func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput,
 	// node, resolving its parent from existing / just-created.
 	created := map[string]string{}
 	for _, branch := range creationOrder(names, in.DefaultBranch, base, existing) {
-		parentID, parentBranch := resolveImportParent(branch, in.DefaultBranch, base, existing, created)
+		parentID, parentBranch := resolveImportParent(branch, in.DefaultBranch, home, base, existing, created)
 		ask, isRequested := requested[branch]
 		outcome := u.createImportNode(ctx, in, importNode{
 			branch: branch, chatID: ask.ChatID, parentID: parentID, parentBranch: parentBranch,
@@ -183,11 +188,12 @@ func creationOrder(
 }
 
 // resolveImportParent picks the workspace of branch's PR base, else the default branch's workspace (so
-// PRs against main nest under main, not beside it). Only when that is missing does it return an empty
-// ParentID, parenting under the repo home.
+// PRs against main nest under main, not beside it). Only when that is missing does it parent under the
+// repo home workspace `home`, as a fork off the home does, so the branch can still merge back.
 func resolveImportParent(
 	branch string,
 	defaultBranch string,
+	home string,
 	base, existing, created map[string]string,
 ) (parentID, parentBranch string) {
 	parentBranch = base[branch]
@@ -207,7 +213,7 @@ func resolveImportParent(
 			return id, defaultBranch
 		}
 	}
-	return "", defaultBranch
+	return home, defaultBranch
 }
 
 // importNode is one branch of the batch's creation order: chatID is the
