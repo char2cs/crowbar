@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
@@ -213,7 +212,7 @@ func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 // fakeTreeChats is a minimal tree.Chats stand-in exposing only the two reads
 // NewHomeCorrectedTreeChats overrides (LoadChat, ListByWorkspace) — every
 // other method panics if ever called, proving the decorator delegates the
-// rest (Create/SetTitle/SetPlacement/SetOrder/SetType/Forget/Get/ListChats)
+// rest (SetPlacement/SetOrder/Get/ListChats)
 // untouched.
 type fakeTreeChats struct {
 	rows []domain.Chat
@@ -240,14 +239,6 @@ func (f *fakeTreeChats) ListByWorkspace(_ context.Context, workspaceID string) (
 
 func (f *fakeTreeChats) ListChats(context.Context) ([]domain.Chat, error) { panic("unused") }
 func (f *fakeTreeChats) Get(context.Context, string) (domain.Chat, error) { panic("unused") }
-func (f *fakeTreeChats) Create(context.Context, agentchat.CreateInput) (domain.Chat, error) {
-	panic("unused")
-}
-
-func (f *fakeTreeChats) SetTitle(context.Context, string, string, string) (domain.Chat, error) {
-	panic("unused")
-}
-
 func (f *fakeTreeChats) SetPlacement(context.Context, string, string, int) (domain.Chat, error) {
 	panic("unused")
 }
@@ -255,11 +246,6 @@ func (f *fakeTreeChats) SetPlacement(context.Context, string, string, int) (doma
 func (f *fakeTreeChats) SetOrder(context.Context, string, int) (domain.Chat, error) {
 	panic("unused")
 }
-
-func (f *fakeTreeChats) SetType(context.Context, string, domain.ChatType) (domain.Chat, error) {
-	panic("unused")
-}
-func (f *fakeTreeChats) Forget(context.Context, string) error { panic("unused") }
 
 // TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition is the
 // lineage-resolver half of this fix round: internal/lineage.Resolver.

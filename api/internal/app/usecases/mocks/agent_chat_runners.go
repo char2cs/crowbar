@@ -44,18 +44,6 @@ func (s *AgentChatPlacements) PurgeChat(
 	return nil
 }
 
-// HasTurns answers whether anything was said in a chat. A row no test named in
-// Spoken answers false — the state a row the backfill just minted is in.
-func (s *AgentChatPlacements) HasTurns(
-	ctx context.Context,
-	chatID string,
-) (bool, error) {
-	if s.TurnsErr != nil {
-		return false, s.TurnsErr
-	}
-	return s.Spoken[chatID], nil
-}
-
 func (s *AgentChatPlacements) NoteThreadLineage(
 	ctx context.Context,
 	chatID string,
@@ -66,20 +54,6 @@ func (s *AgentChatPlacements) NoteThreadLineage(
 	}
 	s.Noted = append(s.Noted, LineageNote{ChatID: chatID, Ancestors: ancestors})
 	return nil
-}
-
-func (s *AgentChatPlacements) SpawnChat(
-	ctx context.Context,
-	workspaceID string,
-	providerID string,
-) (string, string, error) {
-	if s.SpawnErr != nil {
-		return "", "", s.SpawnErr
-	}
-	s.Spawned = append(s.Spawned, providerID)
-	id := s.NextID
-	s.Rows = append(s.Rows, domain.Chat{ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
-	return id, "runner-" + id, nil
 }
 
 func (s *AgentChatPlacements) MintChat(

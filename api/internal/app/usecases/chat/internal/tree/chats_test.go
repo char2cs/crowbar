@@ -86,7 +86,6 @@ func TestCreateChat_AtTheRootIsPlacedAtTheNextSlot(t *testing.T) {
 	assert.Equal(t, []string{workspaceID}, chats.Minted, "minted in its workspace, then placed")
 	require.Len(t, chats.Started, 1)
 	assert.Equal(t, "", nodeRowFor(t, nodes, "c-new").ParentID)
-	assert.Empty(t, chats.Spawned, "the unplaced spawn is no longer a create path")
 }
 
 // The landing surface reaches the MINT, not the start: it has to be on the
@@ -261,7 +260,6 @@ func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
 	assert.Empty(t, chats.Started)
-	assert.Empty(t, chats.Spawned)
 }
 
 // A folder carries no workspace of its own, so it is always an acceptable
@@ -380,7 +378,6 @@ func TestCreateChat_OwnWorktree_AtTheRootSkipsPlacementBeforeFillingTheSlot(t *t
 	assert.Equal(t, "runner-c-new", runnerID)
 	assert.Equal(t, []string{""}, chats.Minted, "the row is minted as a plain bubble, not into the caller's workspaceID")
 	assert.Empty(t, chats.Placed, "there is nowhere to place a root-level chat")
-	assert.Empty(t, chats.Spawned, "the ordinary unplaced SpawnChat is not the path ownWorktree takes")
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, "c-new", chats.SpawnedOwnWorktree[0].ChatID)
 	assert.Equal(t, "claude", chats.SpawnedOwnWorktree[0].ProviderID)
@@ -426,7 +423,6 @@ func TestCreateChat_OwnWorktree_RefusesAnUnknownParentWithoutMintingAnything(t *
 	_, _, err := createChat(context.Background(), uc, "", "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
-	assert.Empty(t, chats.SpawnedOwnWorktree)
 }
 
 // A chat parent that already OWNS a worktree in a different workspace is an

@@ -3,7 +3,6 @@ package tree
 import (
 	"context"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
@@ -31,18 +30,6 @@ type Chats interface {
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
-	// Create mints a bare, unplaced row. Placing is a second write, so a row that fails to place never sits
-	// in a container it was not checked against.
-	Create(
-		ctx context.Context,
-		in agentchat.CreateInput,
-	) (domain.Chat, error)
-	SetTitle(
-		ctx context.Context,
-		chatID string,
-		title string,
-		source string,
-	) (domain.Chat, error)
 	SetPlacement(
 		ctx context.Context,
 		chatID string,
@@ -56,30 +43,11 @@ type Chats interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
-	// SetType rewrites which kind of row a chat is and nothing else, so a worktree locked after its owning
-	// row was minted retypes that row instead of acquiring a second one.
-	SetType(
-		ctx context.Context,
-		chatID string,
-		chatType domain.ChatType,
-	) (domain.Chat, error)
-	// Forget erases a row outright, unlike Agent.PurgeChat, which also tears down the CLI and conversation.
-	Forget(
-		ctx context.Context,
-		id string,
-	) error
 }
 
 // Agent is the agent usecase as this one sees it: everything a chat is besides a row (its conversation,
 // ledger and CLI). This usecase moves rows and decides which chats are created or erased; the agent does it.
 type Agent interface {
-	// SpawnChat mints a chat at the panel root and starts a CLI on it in one call: an unplaced chat has no
-	// edge to write first, so there is no reason to split it.
-	SpawnChat(
-		ctx context.Context,
-		workspaceID string,
-		providerID string,
-	) (chatID, runnerID string, err error)
 	// MintChat creates the chat aggregate and starts nothing, so the row is placed before any CLI exists
 	// and a thread's first session is told its lineage. providerID ("" for a row with no CLI) is recorded at mint;
 	// surface is the view the chat is born on, "" for the provider's default.
@@ -127,12 +95,6 @@ type Agent interface {
 		ctx context.Context,
 		chatID string,
 	) error
-	// HasTurns reports whether anything was ever said in a chat: the one fact that tells an owning row the
-	// boot backfill minted from an ordinary conversation started in the same workspace.
-	HasTurns(
-		ctx context.Context,
-		chatID string,
-	) (bool, error)
 	// NoteThreadLineage records in a chat's conversation that a move made it a thread of ancestors:
 	// re-parenting takes effect from the move on, so the change is marked at that point.
 	NoteThreadLineage(

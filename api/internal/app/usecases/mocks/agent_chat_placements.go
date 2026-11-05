@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
@@ -16,12 +15,10 @@ type AgentChatPlacements struct {
 	Rows []domain.Chat
 	// Nodes optionally cross-references the NodePlacements fake wired over the same
 	// tree.Usecase; nil means Chat rows only.
-	Nodes     *NodePlacements
-	Purged    []string
-	Forgotten []string
-	Noted     []LineageNote
-	Spawned   []string
-	Minted    []string
+	Nodes  *NodePlacements
+	Purged []string
+	Noted  []LineageNote
+	Minted []string
 	// MintedSurfaces is the landing surface each MintChat call asked for, in
 	// the same order as Minted — "" for the provider's own default.
 	MintedSurfaces []string
@@ -53,11 +50,7 @@ type AgentChatPlacements struct {
 	// PurgeNotFoundID makes PurgeChat answer problem.ErrNotFound for this id (still recorded),
 	// as for a tree chat with no conversation aggregate; PurgeErr fails every call instead.
 	PurgeNotFoundID string
-	ForgetErr       error
-	CreateErr       error
-	TitleErr        error
 	NoteErr         error
-	SpawnErr        error
 	MintErr         error
 	StartErr        error
 	// SpawnOwnWorktreeErr fails SpawnChatWithOwnWorktree, the same way StartErr
@@ -79,15 +72,6 @@ type AgentChatPlacements struct {
 	// must be unable to write a parent.
 	Placed  []PlacementWrite
 	Ordered []OrderWrite
-	// Retyped records each SetType call, so a test can tell a row ADOPTED into a
-	// new kind from a fresh row minted beside the old one — the two leave the
-	// same type behind on the workspace and only this says which happened.
-	Retyped []TypeWrite
-	TypeErr error
-	// Spoken names the rows something was actually SAID in, which is what tells
-	// an owning row the backfill minted apart from somebody's conversation.
-	Spoken   map[string]bool
-	TurnsErr error
 	// Stale is the PROJECTED placement answered while the read model lags the log: the
 	// ordinary state right after every placement write.
 	Stale map[string]domain.Chat
@@ -112,13 +96,6 @@ type PlacementWrite struct {
 type OrderWrite struct {
 	ChatID string
 	Order  int
-}
-
-// TypeWrite is one recorded call to SetType: the row whose kind was rewritten,
-// and what it became.
-type TypeWrite struct {
-	ChatID string
-	Type   domain.ChatType
 }
 
 // NewAgentChatPlacements returns an empty AgentChatPlacements.
@@ -254,75 +231,6 @@ func (s *AgentChatPlacements) SetOrder(
 		}
 	}
 	return domain.Chat{}, nil
-}
-
-// SetType rewrites a row's kind and touches nothing else, like the command it
-// stands in for. Retyped records the calls so a test can prove a workspace's
-// row was ADOPTED rather than replaced.
-func (s *AgentChatPlacements) SetType(
-	ctx context.Context,
-	chatID string,
-	chatType domain.ChatType,
-) (domain.Chat, error) {
-	if s.TypeErr != nil {
-		return domain.Chat{}, s.TypeErr
-	}
-	s.Retyped = append(s.Retyped, TypeWrite{ChatID: chatID, Type: chatType})
-	for i := range s.Rows {
-		if s.Rows[i].ID == chatID {
-			s.Rows[i].Type = chatType
-			return s.Rows[i], nil
-		}
-	}
-	return domain.Chat{}, problem.ErrNotFound
-}
-
-// Create mints a bare, unplaced row — the panel-root folder MintChat already
-// mints a bare, unplaced chat as.
-func (s *AgentChatPlacements) Create(
-	ctx context.Context,
-	in agentchat.CreateInput,
-) (domain.Chat, error) {
-	if s.CreateErr != nil {
-		return domain.Chat{}, s.CreateErr
-	}
-	row := domain.Chat{
-		ID: in.ID, Type: in.Type, WorkspaceID: in.WorkspaceID, RepoID: in.RepoID, CreatedAt: in.Now,
-	}
-	s.Rows = append(s.Rows, row)
-	return row, nil
-}
-
-func (s *AgentChatPlacements) SetTitle(
-	ctx context.Context,
-	chatID string,
-	title string,
-	source string,
-) (domain.Chat, error) {
-	if s.TitleErr != nil {
-		return domain.Chat{}, s.TitleErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == chatID {
-			s.Rows[i].Title = title
-			return s.Rows[i], nil
-		}
-	}
-	return domain.Chat{}, problem.ErrNotFound
-}
-
-// Forget erases a row outright — what a folder delete calls instead of
-// PurgeChat, since a folder never had a runner or a ledger to tear down.
-func (s *AgentChatPlacements) Forget(
-	ctx context.Context,
-	id string,
-) error {
-	if s.ForgetErr != nil {
-		return s.ForgetErr
-	}
-	s.Forgotten = append(s.Forgotten, id)
-	s.Rows = without(s.Rows, id, func(c domain.Chat) string { return c.ID })
-	return nil
 }
 
 // parentOf answers chatID's CURRENT parent for StartCall.ParentAtStart: Nodes

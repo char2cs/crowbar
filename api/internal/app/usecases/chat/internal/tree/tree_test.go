@@ -679,10 +679,7 @@ func TestDelete_SurfacesASnapshotFailure(t *testing.T) {
 	assert.ErrorContains(t, err, "chats down")
 }
 
-// A folder's identity row lives in Folders now (2026-09-08
-// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
-// repo-scoped too), so the failure this test injects is folders.DeleteErr,
-// not chats.ForgetErr.
+// A folder's identity row lives in Folders, so the failure injected is the folder store's.
 func TestDelete_SurfacesARemovalFailure(t *testing.T) {
 	_, folders, _, uc, _ := newUsecaseWithStores(t)
 	ctx := context.Background()

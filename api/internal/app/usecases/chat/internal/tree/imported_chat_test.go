@@ -98,36 +98,6 @@ func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	assert.Empty(t, chats.Started, "and the plain runner path is not taken either")
 }
 
-// A LOCKED import — every protected branch — no longer retypes its chat row
-// at all (2026-09-08 sidebar-placement-unification Task 9 deleted the
-// machinery that used to do it): a workspace's own Node{Kind:workspace} row
-// is what the sidebar draws as a branch now, not a Chat.Type. An unlocked
-// import already never retyped (the next test), so this pins that a LOCKED
-// one no longer does either.
-func TestImportBranchAsChat_NeverRetypesALockedImportsChatRow(t *testing.T) {
-	chats, uc := newUsecase(t)
-	chats.NextID = "c-new"
-	chats.ImportedWorkspace = domain.Workspace{
-		ID: "ws-locked", Status: domain.WorkspaceStatusLocked,
-	}
-
-	_, _, err := uc.ImportBranchAsChat(context.Background(), "", importSpec("main"))
-
-	require.NoError(t, err)
-	assert.Empty(t, chats.Retyped, "nothing retypes an imported row any more, locked or not")
-}
-
-func TestImportBranchAsChat_LeavesAnOrdinaryBranchAsAChatRow(t *testing.T) {
-	chats, uc := newUsecase(t)
-	chats.NextID = "c-new"
-	chats.ImportedWorkspace = domain.Workspace{ID: "ws-open"}
-
-	_, _, err := uc.ImportBranchAsChat(context.Background(), "", importSpec("feature/x"))
-
-	require.NoError(t, err)
-	assert.Empty(t, chats.Retyped, "an unlocked worktree owns an ordinary chat row")
-}
-
 // A batch keeps a failed branch's chat, placed, for its placeholder: purging it
 // and minting again would recreate an id a redelivered Forget then deletes.
 func TestImportBranchAsChat_AFailedAttachKeepsTheChatForThePlaceholder(t *testing.T) {
@@ -198,11 +168,8 @@ func TestMintOwningChat_GivesEachRowItsOwnSlotInTheLevel(t *testing.T) {
 		"two rows in one level must not hold the same index, or the next drop lands on top of one")
 }
 
-// AttachOwningWorkspace points the row at what the caller built. It no longer
-// retypes it (2026-09-08 sidebar-placement-unification Task 9): a locked
-// workspace's own Node{Kind:workspace} row is what the sidebar draws as a
-// branch now, not a Chat.Type this call would rewrite.
-func TestAttachOwningWorkspace_PointsTheRowAtItAndNeverRetypes(t *testing.T) {
+// AttachOwningWorkspace points the row at what the caller built, locked or not.
+func TestAttachOwningWorkspace_PointsTheRowAtIt(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 	chatID, err := uc.MintOwningChat(context.Background(), "", "")
@@ -213,7 +180,6 @@ func TestAttachOwningWorkspace_PointsTheRowAtItAndNeverRetypes(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "ws-1", chatRow(t, chats, chatID).WorkspaceID)
-	assert.Empty(t, chats.Retyped, "nothing retypes an attached row any more, locked or not")
 }
 
 // A failed attach is REPORTED, never swallowed: the caller is holding a

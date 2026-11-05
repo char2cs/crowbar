@@ -152,20 +152,6 @@ func (u *Usecase) ChatBusy(ctx context.Context, chatID string) (bool, error) {
 	return u.runners.ChatBusy(ctx, chatID)
 }
 
-// HasTurns reports whether anything was ever SAID in a chat. Its only caller is the
-// tree's boot backfill (tree.Agent.HasTurns); it reads the turn record alone rather
-// than rendering a log nobody reads.
-func (u *Usecase) HasTurns(
-	ctx context.Context,
-	chatID string,
-) (bool, error) {
-	turns, err := u.conversations.ChatTurns(ctx, chatID)
-	if err != nil {
-		return false, err
-	}
-	return len(turns) > 0, nil
-}
-
 // NewChatLineage builds the lineage reader over the chat repository. It is
 // built BEFORE the chat usecase and handed to it, because the tree usecase
 // that owns the same edges holds the chat usecase in turn.
