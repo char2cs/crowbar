@@ -12,25 +12,16 @@ import { IS_MOBILE } from '@/utils/platform'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 
-/** The handle's own position on an empty document: the doc's top padding plus
- *  one line, matching `.doc`'s 48px / 14px × 1.7. `headerClearancePx` is
- *  `.doc`'s OWN extra top padding (composer.css's `--agent-header-clearance`,
- *  the same value agent-chat-pane.tsx computes for its overlay header) —
- *  when the document is genuinely empty this fallback has no rendered first
- *  line to measure, so it has to add that same clearance itself or it would
- *  place the handle above where the (padded-down) caret actually sits. */
+// An empty doc has no line to measure, so the handle sits at `.doc`'s 48px padding plus one
+// 14px x 1.7 line, plus `--agent-header-clearance`, which the caret is padded down by too.
 function firstLineTop(headerClearancePx: number): number {
   return 48 + headerClearancePx + 23.8
 }
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
 
-/**
- * Where the handle belongs: right under the LAST line of whatever is
- * written, never wherever the caret happens to be. Clicking back into the
- * middle of a paragraph to fix a word does not walk the controls up the page
- * with it — they stay put, because the box under them is still what sends.
- */
+/** The handle rides under the LAST written line, not the caret: editing mid-paragraph must not
+ *  walk the send controls up the page. */
 export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
   const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
   const last = editable?.lastElementChild
@@ -39,11 +30,8 @@ export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
 }
 
 export interface AgentEmptyDocumentHandle {
-  /** The handle's own on-screen rect at this instant — read once, at the
-   *  moment of the first send, to anchor the composer's arrival animation to
-   *  wherever the eye already was. `null` before the first layout pass, or off
-   *  a stale/unmounted node — a caller that gets it treats that as "nothing to
-   *  arrive from" and skips the animation rather than guessing a position. */
+  /** The handle's rect, read at the first send to anchor the composer's arrival animation.
+   *  `null` before layout or once unmounted: the caller then skips the animation. */
   getHandleRect: () => DOMRect | null
 }
 
@@ -72,11 +60,8 @@ export interface AgentEmptyDocumentProps {
   ref?: Ref<AgentEmptyDocumentHandle>
 }
 
-/**
- * A chat with nothing in it yet: a DOCUMENT, not an empty transcript with a box
- * under it. The composer's one editor is written in it; this is the handle that
- * rides right under the LAST line, never the caret, with the controls and send.
- */
+/** A chat with nothing in it yet is a document the composer's editor writes in; this is the
+ *  handle carrying the controls and send under its last line. */
 export function AgentEmptyDocument({
   docRef,
   hasText,

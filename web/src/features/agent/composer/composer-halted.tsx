@@ -10,10 +10,8 @@ function resetLabel(resetsAt: string): string {
   return `Resets ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
 }
 
-/**
- * Relays the provider's own words, never paraphrased: Crowbar cannot stand behind
- * them. Footer selectors stay live — switching model can clear a limit.
- */
+/** Relays the provider's own words, never paraphrased: Crowbar cannot stand behind
+ *  them. Footer selectors stay live — switching model can clear a limit. */
 export function ComposerHalted({ message, resetsAt }: ComposerHaltedProps) {
   const when = resetsAt ? resetLabel(resetsAt) : ''
   return (

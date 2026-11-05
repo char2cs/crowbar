@@ -53,9 +53,7 @@ describe('agent-providers-api', () => {
   // unknown provider as disabled, and never silently strips Crowbar's tools from
   // a daemon whose payload predates the field. The backend stores the NEGATIVE
   // (mcpDisabled), so absent means on.
-  // REGRESSION: a mapper that rebuilt the provider field by field dropped a key
-  // it forgot to copy in silence — exactly how the Compact button went missing
-  // for every provider.
+  // A field-by-field mapper silently drops any key it forgets; compaction must survive it.
   it('listProviders carries compaction through', async () => {
     apiFetch.mockResolvedValueOnce([
       { id: 'claude', displayName: 'Claude', icon: '<svg/>', compaction: true },

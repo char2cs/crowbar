@@ -57,13 +57,8 @@ describe('AttachmentDragHandle', () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
   })
 
-  // REGRESSION, reported live: this rendered as an odd `h-6 w-4` pill (24×16,
-  // not square) with its own one-off sizing instead of the shared `Button`
-  // size scale every other icon button in the app uses. `size="icon-xs"`
-  // (button-variants.ts) is the established square small-icon token —
-  // `size-N` is a single Tailwind utility that sets width AND height
-  // together, so its presence IS the "actually square" guarantee, not just a
-  // visual approximation.
+  // `size="icon-xs"` is the shared square small-icon token: one `size-N` utility sets width and
+  // height together, so its presence is the squareness guarantee.
   it('uses the shared icon-xs button size token, not a one-off non-square size', () => {
     render(<Harness />)
     const handle = screen.getByRole('button', { name: /reorder/i })
@@ -72,30 +67,9 @@ describe('AttachmentDragHandle', () => {
     expect(handle.className).not.toContain('w-4')
   })
 
-  // REGRESSION, reported live, THREE TIMES over:
-  // 1. `variant="outline"` — translucent in dark mode (`dark:bg-input/32`,
-  //    button-variants.ts).
-  // 2. `variant="secondary"` — confirmed live via `getComputedStyle`,
-  //    `--secondary` in this theme is a saturated olive green
-  //    (`oklch(0.49 0.082 130)`), not a neutral surface at all.
-  // 3. `bg-sidebar-element-idle`/`hover:bg-sidebar-element-hover` — matched
-  //    the "Crowbar Seed" reference button's computed color EXACTLY
-  //    (confirmed live), but that token is ITSELF a `color-mix(..., 11%,
-  //    transparent)` blend (styles/theme.css) — invisible as translucency
-  //    only because that reference button sits on a uniform toolbar
-  //    background. An attachment's own content (a photo, a busy preview)
-  //    is never uniform, so the SAME blend reads as genuinely see-through
-  //    there — confirmed live, reported as "these things are still
-  //    transparent."
-  //
-  // A truly OPAQUE neutral surface in this theme is `--popover`/`--card`
-  // (`var(--background)` in dark mode, `var(--color-white)` in light — a
-  // real solid color reference, no alpha channel at all — confirmed by
-  // reading styles/theme.css directly, not assumed). `variant="outline"`
-  // already uses `bg-popover` as its LIGHT-mode base; only its DARK-mode
-  // override (`dark:bg-input/32`) and hover states are translucent, so
-  // those are what get overridden here — kept as the outline base (its
-  // border+shadow chrome) rather than switching variants again.
+  // The handle sits over arbitrary attachment content, so it needs a truly OPAQUE surface:
+  // `--popover` (solid in both themes). The outline variant's dark `bg-input/32` and the sidebar
+  // hover tokens are color-mix blends, so they are overridden here.
   it('is genuinely opaque in every state — no alpha-blended background utility survives, in either theme', () => {
     render(<Harness />)
     const handle = screen.getByRole('button', { name: /reorder/i })
@@ -109,9 +83,7 @@ describe('AttachmentDragHandle', () => {
   })
 })
 
-// REGRESSION, reported live: there was no way to select and remove an
-// attachment at all — dragging could reorder one but nothing could delete
-// one. Sits right under the drag handle (same left edge, stacked below it).
+// Sits right under the drag handle (same left edge), the way to remove an attachment.
 describe('AttachmentDeleteButton', () => {
   it('renders a delete affordance', () => {
     render(<AttachmentDeleteButton onDelete={vi.fn()} />)
@@ -152,14 +124,8 @@ describe('canDropAttachmentNode', () => {
   })
 })
 
-/**
- * Regression coverage for I1: two file-card attachments each deserialize as
- * `[N] p -> [N, 0] a` (a link nested one level inside its own wrapping
- * paragraph) — `canDropAttachmentNode` compares parents, so feeding it the
- * raw, nested link always compared two DIFFERENT paragraphs' paths and could
- * never match. `resolveDraggableBlockElement` walks each link up to its
- * wrapping paragraph BEFORE that comparison runs.
- */
+/** File-card links deserialize nested in their own paragraph (`[N] p -> [N, 0] a`), and
+ *  `canDropAttachmentNode` compares parents, so each link is walked up to its paragraph first. */
 describe('resolveDraggableBlockElement', () => {
   it('returns the element unchanged when it is already a top-level block (a fence-based attachment)', () => {
     const editor = createPlateEditor({

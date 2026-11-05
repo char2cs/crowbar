@@ -152,9 +152,8 @@ describe('useMacTrafficLightSync', () => {
   })
 
   it('retries once a pane-top-row mounts after cold boot, with no row present yet', async () => {
-    // Cold-boot regression: sidebarPosition can rehydrate to 'right' before
-    // the pane tree (its own async mount) has put a pane-top-row at the
-    // top-left corner.
+    // Cold boot: sidebarPosition can rehydrate to 'right' before the async pane tree has put a
+    // pane-top-row at the top-left corner.
     renderHook(() => useMacTrafficLightSync('right', 'crowbar:dark'))
     flushTwoFrames()
 
@@ -197,10 +196,8 @@ describe('useMacTrafficLightSync', () => {
   })
 
   it('re-applies the same position after a theme switch, undoing the native reset', async () => {
-    // Regression: switching Theme Mode pins the vibrancy view's NSAppearance
-    // (set_vibrancy_appearance), and AppKit resets the standard button frames
-    // as a side effect. Without themeKey in the dependency array, this effect
-    // never re-ran and the traffic lights stayed stuck at their OS default.
+    // Applying a theme pins the vibrancy view's NSAppearance, and AppKit resets the standard
+    // button frames as a side effect, so the position must be re-applied.
     const { rerender } = renderHook(({ themeKey }) => useMacTrafficLightSync('left', themeKey), {
       initialProps: { themeKey: 'crowbar:system' },
     })
@@ -214,13 +211,8 @@ describe('useMacTrafficLightSync', () => {
   })
 
   it('re-applies when the OS itself flips appearance while the app theme mode stays "system"', async () => {
-    // Regression: themeKey is derived only from useSettingsStore's own
-    // theme/themeMode fields. When themeMode is literally "system" it never
-    // changes string value across an OS-level flip (macOS auto dark/light, or
-    // the user flipping System Settings' own appearance directly) — so
-    // themeKey alone can never re-trigger this effect for that case, even
-    // though settings-effects.ts still re-applies the theme (and resets the
-    // native buttons) when the OS signal fires.
+    // themeKey stays "crowbar:system" across an OS appearance flip, yet settings-effects.ts
+    // re-applies the theme (resetting the buttons) on it, so the media query must re-run this.
     renderHook(() => useMacTrafficLightSync('left', 'crowbar:system'))
     await act(async () => {})
     invoke.mockClear()

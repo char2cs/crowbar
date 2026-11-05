@@ -147,12 +147,8 @@ describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
     expectReadyForInput(editor)
   })
 
-  // REGRESSION, found while fixing the above and worse than a dead box: with
-  // the trailing line restored by normalization but backspace still Slate's
-  // own, the caret landed INSIDE the attachment it was next to. A fence's
-  // code body is rendered `hidden` under its preview, not removed — so the
-  // next thing typed went into the attachment's payload, invisibly, and was
-  // sent that way.
+  // A fence's code body is hidden under its preview, not removed, so a caret landing inside it
+  // would type invisibly into the attachment's payload and send it that way.
   it('never types into an attachment fence after backspacing next to it', () => {
     const editor = composer()
     insertAttachmentMarkdownInto(editor, TEXT_ATTACHMENT)

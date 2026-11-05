@@ -10,10 +10,8 @@ function usedLabel(telemetry: AgentTelemetry | null): string {
   return `${context.usedTokens.toLocaleString('en-US')} of ${context.capacityTokens.toLocaleString('en-US')} tokens`
 }
 
-/**
- * Feeds the phone's native context meter from the visible chat, the one the composer gauge
- * reads on desktop, and runs its Compact. `onCompact` absent means compaction is not offered.
- */
+/** Feeds the phone's native context meter from the visible chat, the one the composer gauge
+ *  reads on desktop, and runs its Compact. `onCompact` absent means compaction is not offered. */
 export function useNativeContext({
   visible,
   telemetry,

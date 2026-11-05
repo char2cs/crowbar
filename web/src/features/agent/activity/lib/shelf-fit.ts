@@ -17,10 +17,8 @@ export const DENSE_THRESHOLD = 4
 /** Room reserved for the `+N` counter, in px. */
 export const OVERFLOW_RESERVE = 30
 
-/**
- * Sheds names first, then whole tokens into a `+N`, never wrapping. Count and
- * clocks never drop: they are the only things `AgentSubagent` carries.
- */
+/** Sheds names first, then whole tokens into a `+N`, never wrapping. Count and clocks never drop:
+ *  they are all `AgentSubagent` carries. */
 export function fitShelf(
   tokens: ShelfToken[],
   availableWidth: number,

@@ -42,11 +42,8 @@ describe('agent-chat-creates', () => {
     })
   })
 
-  // Regression: the repo-scoped mount (Task 17) binds no :wsId, so the ONLY
-  // way the backend's Create learns which workspace to anchor a top-level
-  // chat to is body.workspaceId. Omitting it minted the chat fine but left it
-  // anchored to "" — a chat with no ancestor to resolve a cwd workspace from —
-  // and its runner spawn 404'd (confirmed live: "agentchat: not found").
+  // The repo-scoped mount binds no :wsId, so body.workspaceId is the only anchor for a top-level
+  // chat; without it the chat anchors to "" and its runner spawn 404s.
   it('createChat sends workspaceId in the body, not just the URL', async () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     await api.createChat('c9', 'op1', 'w1', 'codex')
@@ -55,9 +52,7 @@ describe('agent-chat-creates', () => {
   })
 
   it('createChat carries the PARENT, so the edge exists before the runner starts', async () => {
-    // Placement rides on the create. It used to be a second call, which meant
-    // the thread's first CLI was spawned before its lineage existed — the very
-    // turn the user asked the thread for ran with the agent as a stranger.
+    // Placement rides on the create, so the thread's first CLI spawns with its lineage.
     apiFetch.mockResolvedValue({ id: 'c9' })
     await api.createChat('c9', 'op1', 'w1', 'codex', 'parent-chat')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
@@ -96,9 +91,7 @@ describe('agent-chat-creates', () => {
     expect('surface' in body).toBe(false)
   })
 
-  // Task 8: the sidebar's "create workspace" affordance — no workspace exists
-  // yet to derive a chatBase scope from, so this is built straight off
-  // project+repo instead.
+  // No workspace exists yet to derive a chatBase scope from, so this builds off project+repo.
   it('createChatWithOwnWorktree POSTs ownWorktree:true with no workspaceId, and returns the chat and its workspace', async () => {
     apiFetch.mockResolvedValue({ id: 'c9', workspaceId: 'ws9' })
     const created = await api.createChatWithOwnWorktree('c9', 'op1', 'p1', 'r1', 'codex', 'home-1')
@@ -121,10 +114,8 @@ describe('agent-chat-creates', () => {
     })
   })
 
-  // TestRegression: the sidebar's inline create input (2026-09-09) types a
-  // branch name before the fork happens — it has to reach the wire, not be
-  // silently dropped in favour of the server-generated name every caller
-  // before this got.
+  // The sidebar's inline create input names the branch before the fork; it must reach the wire
+  // rather than fall back to the server-generated name.
   it('createChatWithOwnWorktree sends the caller-supplied branch name', async () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     await api.createChatWithOwnWorktree(

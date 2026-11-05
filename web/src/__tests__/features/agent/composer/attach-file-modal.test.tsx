@@ -26,11 +26,8 @@ vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   ),
 }))
 
-// Task 29 stubbed this same hook the same way, for the same reason: under
-// jsdom `isTauri()` is false so the real effect never fires, and stubbing it
-// out here lets this suite invoke the `onDrop` callback the modal wires into
-// it directly — the hook's own subscribe/filter behaviour is covered in
-// tauri-file-drop.test.ts.
+// Under jsdom `isTauri()` is false so the real hook never fires; stubbing it lets this suite call
+// the modal's `onDrop` directly. Subscribe/filter behaviour is covered in tauri-file-drop.test.ts.
 vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
   useTauriFileDrop: vi.fn(),
 }))
@@ -247,10 +244,8 @@ describe('AttachFileModal', () => {
     })
   })
 
-  // The real Tauri desktop path (Task 27): a native OS drop never reaches the
-  // DOM as a `drop` event at all, only as this hook's own callback — see
-  // useTauriFileDrop's own note on why. Exercised via the stubbed hook above,
-  // same as agent-composer.test.tsx does for the pill's own drop handler.
+  // The desktop path: a native OS drop never reaches the DOM as a `drop` event, only as this
+  // hook's callback, exercised through the stub above.
   describe('the Tauri host-path drop channel', () => {
     it('uploads each Tauri-reported host path, clears the drag-over state, and closes', async () => {
       const onInsertMarkdown = vi.fn()

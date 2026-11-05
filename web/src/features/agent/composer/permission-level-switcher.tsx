@@ -18,10 +18,8 @@ import {
 // Not backend truth: there is no GET for a chat's level.
 const lastPickedLevel = new Map<string, PermissionLevel>()
 
-/**
- * Write-only: it never shows a level the backend cannot confirm, and offers only
- * levels the provider declares — the server rejects the rest.
- */
+/** Write-only: it never shows a level the backend cannot confirm, and offers only
+ *  levels the provider declares — the server rejects the rest. */
 export function PermissionLevelSwitcher({
   wsId,
   chatId,

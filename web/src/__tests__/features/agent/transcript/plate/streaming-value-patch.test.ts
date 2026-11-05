@@ -57,11 +57,8 @@ describe('staggerDelay', () => {
     expect(staggerDelay(9, 10)).toBe(270)
   })
 
-  // Regression: the first version of this CAPPED the delay per word, so
-  // every word past ~10 shared the exact same capped value — a long
-  // sentence visibly split into "a handful of words stagger, then the rest
-  // fade in as one abrupt batch". Scaling the STEP down instead means every
-  // word gets a distinct delay, however long the chunk.
+  // The per-word STEP scales down rather than the delay being capped, so a long chunk never
+  // fades in as one abrupt batch after the first few words.
   it('never gives two different words in the same chunk an identical delay, however long the chunk', () => {
     for (const total of [15, 40, 100]) {
       const delays = Array.from({ length: total }, (_, i) => staggerDelay(i, total))
@@ -81,13 +78,8 @@ describe('staggerDelay', () => {
 })
 
 describe('applyStreamedValue performance', () => {
-  // Regression: once a block is confirmed stable, applyStreamedValue used to
-  // re-canonicalize it on every subsequent token anyway (cost proportional to
-  // the whole message, not just the growing tail) — an O(n^2) blowup across a
-  // long streamed response that starved the main thread and made the fade
-  // and scroll-follow both appear to batch into rare, large jumps instead of
-  // many small ones. Prove the fix actually SKIPS re-examining a stable block
-  // by corrupting it directly and confirming a later call never notices.
+  // Re-canonicalizing a stable block on every token is O(n^2) over a long reply and starves the
+  // main thread; corrupting a stable block proves later calls never re-examine it.
   it('never re-examines a block once a later block has started streaming', () => {
     const editor = createPlateEditor({
       plugins: chatComposerPlugins,
@@ -113,15 +105,9 @@ describe('applyStreamedValue performance', () => {
   })
 })
 
-// Regression: the live bug this fixes. turn/message.go's closeAssistantTurn
-// can reconcile a streamed message's tail against the terminating hook's own
-// text when they disagree (provider-agnostic — Claude and Codex both go
-// through it). Before this fix, applyStreamedValue only recognized a PURE
-// append as cheap; anything else fell back to removing the whole block and
-// re-inserting it fully fresh-marked — re-fading content that had not
-// actually changed, and briefly holding both the old and new copy of the
-// UNCHANGED prefix on screen in the same paragraph. Reported live as "text
-// repeated on itself, and the smoothing animation is clearly not working".
+// closeAssistantTurn can reconcile a streamed tail against the hook's own text. A non-append
+// edit must patch only the diverging tail: replacing the block re-fades unchanged text and
+// briefly shows the old and new prefix together.
 function leaves(editor: ReturnType<typeof createPlateEditor>): { text: string; fresh: boolean }[] {
   const block = editor.children[0] as { children: { text: string }[] }
   const fresh = new Set<string>()
@@ -214,17 +200,9 @@ describe('applyStreamedValue: reconciliation replaces part of a paragraph', () =
   })
 })
 
-// Regression: the live bug reported as "we're losing markdown styling that
-// then reconciles". A markdown span (bold, italic, code, a link) renders as
-// plain literal text while it is still open — the closing syntax hasn't
-// arrived yet — and only gains its mark once it closes. That mark landing on
-// the leaf is a prop change trailingTextDivergence cannot express as a text
-// edit, so it fell back to tearing down and reinserting the WHOLE paragraph —
-// and the old fallback marked that entire reinserted block as one fresh run,
-// re-fading every word in the paragraph that had already faded in and
-// settled, not just the one word whose markup just resolved. Visually: a
-// long-since-visible sentence flashes and redraws itself the instant any
-// **bold** or `code` span anywhere in it completes.
+// An open markdown span renders as literal text until it closes and gains its mark, a prop
+// change no text edit expresses. The paragraph may be rebuilt, but only the word whose markup
+// resolved may fade again, never the already-settled rest.
 describe('applyStreamedValue: a completing mark does not re-fade the rest of the paragraph', () => {
   it('marks only the genuinely new text fresh when a bold span closes mid-paragraph', () => {
     const editor = createPlateEditor({
@@ -253,12 +231,8 @@ describe('applyStreamedValue: a completing mark does not re-fade the rest of the
     expect(fadeWords(editor).join('')).not.toContain('Run the ')
   })
 
-  // Regression: `commonPrefixLength` alone can only find a TRAILING
-  // divergence correctly. A mark resolving BEFORE the end of the block
-  // shrinks the flattened text at that earlier point, so a prefix-only
-  // comparison diverges there and misreads everything after it — including
-  // long stretches of text that were already fully visible and settled — as
-  // fresh, and it flashes/replays its fade-in animation for no reason.
+  // A mark resolving BEFORE the block's end shrinks the flattened text there, so a prefix-only
+  // comparison would misread all the settled text after it as fresh.
   it('does not re-fade already-visible text after a NON-trailing mark completes mid-paragraph', () => {
     const editor = createPlateEditor({
       plugins: chatComposerPlugins,
@@ -277,12 +251,8 @@ describe('applyStreamedValue: a completing mark does not re-fade the rest of the
   })
 })
 
-// Regression: `generation` used to be the ONLY thing `settleFreshGeneration`
-// keyed on, and every word split from one streamed chunk shared it — so the
-// FIRST word's own `animationend` (always the one with a zero stagger delay;
-// see `staggerDelay`) retired the whole chunk, and every other word — even
-// ones whose own delay hadn't elapsed yet — was rendered instantly inert on
-// the very next decoration pass instead of playing its own staggered fade.
+// Every word split from one chunk shares a `generation`, so settling must be per word: the
+// first word's `animationend` (zero stagger) must not retire words still waiting on their delay.
 describe('settleFreshWord: a per-word cascade does not retire on its first word alone', () => {
   it('keeps later words animating after only the fastest (zero-delay) word settles', () => {
     const editor = createPlateEditor({
@@ -375,22 +345,9 @@ function countOps(editor: ReturnType<typeof createPlateEditor>, run: () => void)
 //
 // These assert the COST, not just the output — a slow implementation produces
 // identical text. Both fail on the pre-decoration design.
-// Regression, root-caused live against a streaming Codex reply: one 16-item
-// numbered list produced 1918 `.chat-fresh-text` leaf mounts for 887 animation
-// starts, 61 of which never reached `animationend`.
-//
-// `.chat-fresh-text` animates from `opacity: 0` under `animation-fill-mode:
-// both`, and slate-react keys each rendered leaf by its positional index into
-// the decoration split this module rebuilds on every delta — so a span is
-// unmounted and remounted constantly while its block still streams, and each
-// remount used to start the fade AGAIN from invisible. Text was therefore
-// visible only if it won a race against the next delta, and retiring a run
-// depended entirely on hearing an `animationend` that a remount had already
-// cancelled: a run losing that race stayed live and restarted from zero for
-// the rest of the turn. That is the reported list whose bullets are on screen
-// with nothing underneath them until the turn ends.
-// The elapsed part is applied at MOUNT, by `resumedFadeDelay`, and never in
-// the decoration — see the second describe below for why.
+// slate-react keys leaves by position in a split rebuilt every delta, so fading spans remount
+// constantly; under `animation-fill-mode: both` each remount must resume the fade, not restart
+// it from invisible. The elapsed part is applied at MOUNT (`resumedFadeDelay`); see below.
 describe('resumedFadeDelay: a remount resumes the fade rather than restarting it', () => {
   afterEach(() => vi.restoreAllMocks())
 
@@ -451,14 +408,9 @@ describe('resumedFadeDelay: a remount resumes the fade rather than restarting it
   })
 })
 
-// Regression, caught by CI on `chat-fresh-text-plugin.test.tsx` and reported
-// live as "text renders again when the sentence finishes": the elapsed part of
-// the fade was briefly baked into the DECORATION. A decoration whose content
-// moves with the clock can never satisfy `isTextDecorationsEqual`, so every
-// block holding a fading word re-rendered on every delta — and a word already
-// on screen had the `animation-delay` of its RUNNING animation rewritten
-// underneath it, which jumps that animation's current time and repaints text
-// that had already settled.
+// A decoration carrying the clock can never satisfy `isTextDecorationsEqual`, so every fading
+// block would re-render per delta and rewriting a running `animation-delay` repaints settled
+// text. The elapsed part therefore never lives in the decoration.
 describe('freshDecorations: what a decoration carries does not move with the clock', () => {
   afterEach(() => vi.restoreAllMocks())
 
@@ -483,25 +435,9 @@ describe('freshDecorations: what a decoration carries does not move with the clo
   })
 })
 
-// Regression: `knownStablePrefix` used to latch every block that compared
-// equal on a call, INCLUDING the last one — the block the stream is still
-// writing into. A trailing block matching means only "unchanged so far", never
-// "finished", but latching it made the next call's `startAt` skip past it, so
-// it was never compared again and every later edit to it was dropped for the
-// life of the editor.
-//
-// Tables are where it bites: a table is ONE block for a great many deltas, and
-// a partially-arrived line often reparses to exactly what the delta before it
-// produced (landing mid-separator-row, `| --- | --- | -` parses to the same two
-// paragraphs as the tick before). One such tick was enough. Confirmed live
-// against a real Codex turn: the table froze on its header row for 6.7s while
-// every body row streamed in unseen, then all rows appeared at once the instant
-// the turn ended and the row swapped to `MarkdownMessageStatic` — which
-// reparses from scratch and so never saw the stale prefix.
-//
-// The invariant these pin down is the strong one, and it is what the whole
-// module is FOR: a patched editor must hold exactly what a fresh parse of the
-// same markdown holds, at every prefix — never merely at the end.
+// A matching TRAILING block is only "unchanged so far": `knownStablePrefix` must not latch it,
+// or later edits are dropped (tables are one block over many deltas). The invariant: a patched
+// editor holds exactly what a fresh parse holds, at every prefix.
 describe('applyStreamedValue: the patched document matches a fresh parse at every prefix', () => {
   /** Block types, and a table's row/cell counts — enough to catch a table that
    *  never materialised, a row that never landed, or a stale paragraph. */
@@ -571,19 +507,9 @@ describe('applyStreamedValue: the patched document matches a fresh parse at ever
   })
 })
 
-// Regression, reported live as "text renders once while streaming and then
-// AGAIN when the sentence finishes", and measured by sampling the rendered
-// per-character opacity of a real streamed Codex reply every frame: 773 of
-// 1631 characters went fully opaque and then back to `opacity: 0` at least
-// once. Zero after this.
-//
-// The batcher hands over one flush per frame, so a single delta routinely both
-// extends the open paragraph AND starts the next one. That makes `stable` land
-// BEFORE the open paragraph while the block count also grows — the one shape
-// that reaches the tail-rebuild path, which removes those blocks and reinserts
-// them. It recorded a fresh run over EVERYTHING it reinserted, so the finished
-// paragraph faded in a second time from invisible, at exactly the moment the
-// paragraph after it began.
+// One per-frame flush can extend the open paragraph AND start the next, the one shape that hits
+// the tail rebuild. Reinserted blocks must keep their settled state, or a finished paragraph
+// fades in again as the next one begins.
 describe('applyStreamedValue: a rebuild does not re-fade text already on screen', () => {
   /** Every generation currently fading, retired as a real `animationend`
    *  would — so what `fadeWords` reports afterwards is only what the NEXT
@@ -790,18 +716,9 @@ describe('applyStreamedValue: an ordered list streams as cheaply as prose', () =
   })
 })
 
-// Regression: a mark (bold, inline code) resolving mid-block used to fall
-// straight to the full block-replace fallback — removeNodes + insertNodes on
-// the WHOLE block, which reassigns its NodeIdPlugin `id`. A block whose
-// rendered identity is keyed by that id remounts on every such edit, which
-// resets its `.chat-fresh-text` fade (`animation-fill-mode: both`,
-// transcript.css) to its own zero-opacity start — and a block resolving
-// several marks in quick succession (a bold list-item title, then an inline
-// code span moments later) never gets an uninterrupted 260ms to finish
-// fading in. Confirmed live by instrumenting `applyStreamedValue` across a
-// realistic delta stream shaped like a real report (a numbered list with
-// bold item titles and inline code): the block's `id` changed exactly once
-// per item, at the exact token where its own `**`/`` ` `` closed.
+// A resolving mark (bold, inline code) must patch in place: a block replace reassigns the
+// NodeIdPlugin `id`, remounting the block and resetting its fade, so a block resolving several
+// marks in a row would never finish fading in.
 describe('applyStreamedValue: a resolving mark patches in place, not a block replace', () => {
   it('keeps the block id stable when a bold span closes mid-paragraph', () => {
     const editor = createPlateEditor({

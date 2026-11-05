@@ -80,10 +80,8 @@ const TabContextMenu = ({
                 placeholder: 'Terminal name',
                 confirmLabel: 'Rename',
               })
-              // Session `name` feeds the tab-label projection in
-              // useBufferDisplayName (fields joined with \x01), so a pasted
-              // control byte must be stripped before it reaches the store —
-              // same ingress policy as OSC7 cwd paths and OSC titles.
+              // The name feeds useBufferDisplayName's control-char-joined projection, so
+              // pasted control bytes are stripped (same ingress policy as OSC titles/cwds).
               const nextName = rawName ? stripControlChars(rawName).trim() : ''
 
               if (!nextName) return

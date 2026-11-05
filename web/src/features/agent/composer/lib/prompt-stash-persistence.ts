@@ -2,11 +2,8 @@ import { IS_MAC } from '@/utils/platform'
 import { nanoid } from 'nanoid'
 import { readLocal, removeLocal, writeLocal } from '@/lib/local-storage'
 
-/**
- * Durable, client-owned prompt stashes. The payload is the composer's own
- * markdown serialization, so rich document structure and settled attachment
- * references follow the same round trip as an ordinary send.
- */
+/** A durable, client-owned prompt stash. Its payload is the composer's own markdown, so structure
+ *  and settled attachments round-trip exactly as a send would. */
 export interface PromptStash {
   id: string
   markdown: string
@@ -86,15 +83,8 @@ function otherStashes(key: string): [string, string][] {
   return found
 }
 
-/**
- * A local blob URL is only an optimistic upload preview. It cannot survive a
- * reload and must never be made to look like a completed chat attachment.
- * Preserve its place in the document as an explicit note instead.
- *
- * Likewise, an attachment-looking `chats/...` reference that does not match
- * Crowbar's durable reference grammar is retained as an explicit invalid
- * reference, not upgraded into a working attachment.
- */
+// A blob URL is an upload preview that cannot survive a reload, and a `chats/...` ref outside the
+// durable grammar is not a real attachment: both are kept as explicit notes, never working links.
 function makePromptStashMarkdown(markdown: string): string {
   return markdown.replace(
     /(!?)\[([^\]]*)\]\(([^)]+)\)/g,

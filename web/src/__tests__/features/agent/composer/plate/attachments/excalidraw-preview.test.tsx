@@ -86,10 +86,8 @@ describe('ExcalidrawPreview', () => {
     expect(screen.getByText(/excalidraw diagram/i)).toBeInTheDocument()
   })
 
-  // REGRESSION: this is the actual fix — an agent-authored fence has no
-  // persisted PNG (nothing ever ran the editor to export one), so without a
-  // live render it only ever showed this placeholder text, never the
-  // diagram itself.
+  // An agent-authored fence has no persisted PNG (no editor ever exported one), so the diagram
+  // must render live rather than show the placeholder.
   it('renders the scene live via exportToSvg when there is no PNG ref', async () => {
     exportToSvgMock.mockResolvedValue(fakeSvg())
     render(<ExcalidrawPreview scene={scene} />)
@@ -103,14 +101,8 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  // REGRESSION, reported live: the previous approach mounted the exported
-  // svg via `hostRef.current.replaceChildren(svg)` — a DOM mutation outside
-  // React's own rendering — which, since this node sits inside a Slate VOID
-  // element, desynced slate-react's DOM<->node mapping ("Cannot resolve a
-  // DOM node from Slate node", logged live) and broke the composer's own
-  // height-tracking downstream. Rendering through `dangerouslySetInnerHTML`
-  // keeps this subtree inside React's reconciliation on every update,
-  // including a scene change swapping the rendered diagram.
+  // The svg renders through React (`dangerouslySetInnerHTML`), not a DOM mutation: this node sits
+  // in a Slate VOID element, and outside mutations desync slate-react's DOM<->node mapping.
   it('replaces the rendered svg when the scene changes, leaving exactly one in the DOM', async () => {
     exportToSvgMock.mockResolvedValueOnce(fakeSvg())
     const { rerender } = render(<ExcalidrawPreview scene={scene} />)
@@ -208,13 +200,8 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  // REGRESSION: exportToSvg renders whatever `scene.elements`/`appState` say
-  // — content an agent or another chat participant can fully control (it's
-  // just attachment JSON) — and the result went straight into
-  // `dangerouslySetInnerHTML` with no sanitization. A `<script>` survives
-  // `.outerHTML` serialization even though the SVG spec doesn't otherwise
-  // execute it there; DOMPurify strips it, matching every other
-  // dangerouslySetInnerHTML sink in this codebase.
+  // Scene JSON is attacker-controllable, and a `<script>` survives `.outerHTML`, so the live SVG
+  // goes through DOMPurify like every other dangerouslySetInnerHTML sink.
   it('sanitizes the live SVG render, stripping a script element the scene JSON could smuggle in', async () => {
     const svg = fakeSvg()
     const script = document.createElementNS('http://www.w3.org/2000/svg', 'script')
@@ -242,11 +229,8 @@ describe('ExcalidrawPreview', () => {
   // happened" would pass identically with the guard deleted.
 })
 
-// REGRESSION: neither the persisted PNG nor a live SVG render ever changed
-// color with the app's theme — both are `@excalidraw/excalidraw` exports,
-// and dark mode there is a CSS filter on its own <canvas>, never baked into
-// what exportToSvg/exportToBlob produce. Reproducing that same filter here
-// is what actually fixes it, for a PNG saved under either theme too.
+// Excalidraw's dark mode is a CSS filter on its own canvas, never baked into exportToSvg /
+// exportToBlob output, so the preview reapplies that filter (to a PNG saved in either theme too).
 describe('ExcalidrawPreview dark mode', () => {
   it('applies the excalidraw dark-mode filter to the persisted PNG when the app is in dark mode', async () => {
     document.documentElement.classList.add('dark')
@@ -296,10 +280,8 @@ describe('ExcalidrawPreview dark mode', () => {
   })
 })
 
-// REGRESSION, reported live: a prompted or agent-output diagram took as much
-// vertical space in the transcript as its own content demanded — unbounded,
-// unlike every other attachment kind. A max-height (with the aspect ratio
-// preserved, not cropped) caps it the same way for both render paths.
+// Diagrams are height-capped like every other attachment kind, aspect ratio preserved (not
+// cropped), on both render paths.
 describe('ExcalidrawPreview height cap', () => {
   it('caps the persisted PNG at a maximum height', async () => {
     const blob = new Blob(['x'], { type: 'image/png' })
@@ -330,10 +312,8 @@ describe('ExcalidrawPreview height cap', () => {
   })
 })
 
-// REGRESSION: reservedHeight used to read containerRef.current.clientWidth
-// exactly once, on mount — a resize BEFORE the async render below resolves
-// left the reservation computed from a stale width, reintroducing the exact
-// "scroll bugs out" height-jump this feature exists to prevent.
+// The reservation must follow a resize that lands before the async render resolves; a stale
+// width brings back the height jump the reservation exists to prevent.
 describe('ExcalidrawPreview reservation follows a resize while still loading', () => {
   const tallScene: ParsedExcalidrawScene = {
     elements: [{ type: 'rectangle', x: 0, y: 0, width: 400, height: 200 }],
@@ -403,9 +383,8 @@ describe('ExcalidrawPreview reservation follows a resize while still loading', (
   })
 })
 
-// REGRESSION: an agent's own diagram, or the user's past one, could only ever
-// be looked at in the transcript — this is what actually lets someone iterate
-// on a diagram that already exists rather than always starting a fresh one.
+// The edit button lets someone iterate on an existing diagram (an agent's or their own) instead
+// of always starting fresh.
 describe('ExcalidrawPreview edit button', () => {
   const requested = (chatId: string) => useExcalidrawEditRequests.getState().requests[chatId]
   beforeEach(() => useExcalidrawEditRequests.setState({ requests: {} }))
@@ -448,10 +427,8 @@ describe('ExcalidrawPreview edit button', () => {
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
   })
 
-  // REGRESSION, reported live: a bordered/backgrounded box around the whole
-  // preview, plus a worded "Edit" button, was more chrome than the image
-  // itself needed — an icon button floating directly over the diagram reads
-  // the same way the drag/delete controls do on every other attachment kind.
+  // An icon button floating over the diagram, no wrap box, matching the drag/delete controls on
+  // every other attachment kind.
   it('is an icon button with no "Edit" text, floating with no wrap box around the diagram', () => {
     renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
     const button = screen.getByRole('button', { name: /edit/i })

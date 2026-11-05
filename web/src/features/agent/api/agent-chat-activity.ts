@@ -20,11 +20,8 @@ export interface AgentChoiceQuestion {
   options: AgentChoiceOption[]
 }
 
-/**
- * The agent waiting on a person: a permission, a question, an elicitation.
- * `pending` says the CLI still asks; `answerable` says an answer from here
- * reaches it. Pending and unanswerable is still drawn, with no buttons.
- */
+/** The agent waiting on a person (permission, question, elicitation). `pending`: the CLI still
+ *  asks; `answerable`: an answer from here reaches it. Pending + unanswerable: no buttons. */
 export interface AgentChoice {
   id: string
   turnId: string

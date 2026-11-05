@@ -94,11 +94,8 @@ describe('AgentTerminalWaitBanner', () => {
     expect(screen.getByRole('button', { name: /Open Terminal/ })).toBeInTheDocument()
   })
 
-  // Regression: this message used to be free to WRAP as the pane narrowed,
-  // which is what let it grow into whatever sat below it (the crop bug
-  // reported live). `truncate` is the actual fix — a single, ellipsis-cut
-  // line has a fixed height the pane's own wrapper can reserve without
-  // measuring it.
+  // One ellipsis-cut line has a fixed height the pane can reserve without measuring; a wrapping
+  // message would grow into whatever sits below it.
   it('keeps its message to one truncated line rather than letting it wrap', () => {
     render(
       <AgentTerminalWaitBanner

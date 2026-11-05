@@ -7,11 +7,8 @@ const LENGTH_CAP = 2000
 
 let last = { draft: '', sent: '' }
 
-/**
- * The draft's markdown -> the text the agent is sent. The draft keeps every
- * escape remark adds; here an escape stays only if dropping it would change
- * what a re-parse gives back (the bubble, the queue and history re-parse it).
- */
+/** The draft's markdown as sent: a remark escape stays only if dropping it would change what a
+ *  re-parse gives back (the bubble, queue and history all re-parse it). */
 export function chatPromptToSend(draft: string): string {
   if (last.draft !== draft) last = { draft, sent: withoutNeedlessEscapes(draft) }
   return last.sent

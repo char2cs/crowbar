@@ -33,9 +33,8 @@ describe('chat attachment images', () => {
     expect(img).toBeInTheDocument()
   })
 
-  // REGRESSION, reported live: images had no max-height cap at all (unlike
-  // every other attachment kind — the excalidraw preview, the text-attachment
-  // pill), so a tall photo could take over the whole composer.
+  // Like every other attachment kind, an image is height-capped so a tall photo can't take over
+  // the composer.
   it('caps a settled image at a fixed max height', () => {
     render(
       <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
@@ -50,9 +49,7 @@ describe('chat attachment images', () => {
     expect(img.className).toContain('max-h-80')
   })
 
-  // REGRESSION, reported live: "Images ... cannot be rearranged or reordered
-  // once on the input box" — every other attachment kind got a drag handle;
-  // images never did.
+  // Images are reorderable in the input box like every other attachment kind.
   it('renders a drag handle for an interactive image, unlike a settled one', () => {
     const interactive = renderWithDnd(
       <MarkdownMessage>{'![a photo](https://example.com/photo.png)'}</MarkdownMessage>,

@@ -121,8 +121,7 @@ describe('insertAttachmentMarkdownInto', () => {
     )
   })
 
-  // REGRESSION, reported live: after attaching something, there was nowhere
-  // to keep typing except clicking below the block yourself.
+  // After an attachment there must be a line to keep typing on without clicking below it.
   it('lands the caret on a fresh empty line right after inserting a single attachment', () => {
     const editor = editorWith('', 'end')
 

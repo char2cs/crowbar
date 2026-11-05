@@ -46,10 +46,8 @@ function trimLineEdges(node: Node): Node {
   return { ...node, children: copied }
 }
 
-/**
- * Line edges are trimmed on the nodes, since remark-stringify encodes them as `&#x20;`.
- * U+200B is the codec's empty-paragraph placeholder, which `.trim()` won't strip.
- */
+/** Line edges are trimmed on the nodes, since remark-stringify encodes them as `&#x20;`.
+ *  U+200B is the codec's empty-paragraph placeholder, which `.trim()` won't strip. */
 const ZERO_WIDTH_SPACE = /\u200B/g
 
 export function chatValueToMarkdown(value: Value): string {

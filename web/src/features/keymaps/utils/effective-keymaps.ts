@@ -1,14 +1,5 @@
-/**
- * Effective keymap resolution.
- *
- * The effective binding for each command is computed by merging, in order of
- * increasing precedence:
- *   1. command default chord (from the registry)
- *   2. active preset overrides
- *   3. user overrides
- *
- * All chords are normalized so conflict detection compares canonical forms.
- */
+// A command's effective chord: registry default < active preset < user override. Every chord is
+// normalized so conflict detection compares canonical forms.
 import { COMMANDS } from '@/features/keymaps/registry'
 import { getPreset } from '@/features/keymaps/defaults/keybinding-presets'
 import { normalizeChord } from '@/features/keymaps/utils/chord'
@@ -53,10 +44,7 @@ export function getEffectiveChordMap(opts: ResolveOptions): Record<string, strin
   return map
 }
 
-/**
- * Command ids that would conflict if `chord` were assigned to `commandId`,
- * given the current options (excluding commandId itself).
- */
+/** Other commands already bound to `chord` under these options (excluding `commandId`). */
 export function findConflictingCommands(
   commandId: string,
   chord: string,

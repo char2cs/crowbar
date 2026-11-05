@@ -83,12 +83,8 @@ describe('useAttachmentUpload', () => {
   })
 })
 
-// REGRESSION, reported live: "photos attachments are not loaded instantly...
-// let's not wait for them." An image FILE, with both pending-image callbacks
-// supplied, now gets an instant local preview instead of waiting on the
-// network round trip — everything else (a non-image file, a Tauri `{path}`
-// with no client-side bytes to preview, or no callbacks supplied at all)
-// keeps the original insert-on-resolve behaviour, proven above.
+// An image File with both pending-image callbacks gets an instant local preview instead of
+// waiting on the upload; a non-image, a Tauri `{path}` or no callbacks insert on resolve (above).
 describe('useAttachmentUpload — optimistic image preview', () => {
   it('inserts a pending image immediately, before the upload resolves, for an image file', async () => {
     let resolveUpload!: (markdown: string) => void

@@ -63,11 +63,9 @@ export interface AgentChatPaneProps {
 const HEADER_ROW_HEIGHT_PX = CHROME_ROW_HEIGHT_PX
 const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
 
-/**
- * A flat pane showing a RUNNER, not a chat: it follows its runner when the CLI
- * moves to another chat (/clear, /resume), else adopts whoever is on its chat.
- * The terminal is keyed by the runner's PTY, so a move never remounts xterm.
- */
+/** A flat pane showing a RUNNER, not a chat: it follows its runner when the CLI
+ *  moves to another chat (/clear, /resume), else adopts whoever is on its chat.
+ *  The terminal is keyed by the runner's PTY, so a move never remounts xterm. */
 // react-doctor-disable-next-line no-giant-component -- one live PTY-backed chat whose resize, focus and surface state are coupled
 export function AgentChatPaneBody({
   chatId,

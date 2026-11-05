@@ -16,12 +16,9 @@ function reducedMotion(): boolean {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }
 
-/**
- * A diagram fence in a transcript reply: a skeleton while its fence is open and
- * streaming, the diagram once it closes, plain code when the reply settled with
- * it open. A mermaid diagram keeps the skeleton until it has rendered, so the
- * block changes once and grows from the reserved box instead of snapping.
- */
+// A reply's diagram fence: a skeleton while open and streaming, the diagram once closed, plain
+// code if the reply settled open. Mermaid keeps the skeleton until rendered, so the block changes
+// once and grows from the reserved box instead of snapping.
 export function DiagramBlock({
   kind,
   target,

@@ -22,10 +22,8 @@ interface ChatBranchHeaderViewProps {
   onDoubleClick?: () => void
 }
 
-/**
- * The chat header's drawing, from plain data: the pane's header and the phone's file drawer
- * both render it, so the two show one chat the same way.
- */
+/** The chat header's drawing from plain data, shared by the pane header and the phone's file
+ *  drawer so both show a chat the same way. */
 export function ChatBranchHeaderView({
   model,
   titleSlot,

@@ -29,12 +29,9 @@ export function isHotswap(providers: AgentProvider[], providerId: string) {
   return { provider, hotswap: provider ? provider.hotswap === true : true }
 }
 
-/**
- * Moving between the chat and its terminal, and escorting the user to the
- * terminal while the CLI waits there. 'sent' means Crowbar moved them and may
- * move them back; 'released' means they chose a surface since, so Crowbar only
- * offers the way back.
- */
+// Moves between the chat and its terminal, escorting the user there while the CLI waits. 'sent':
+// Crowbar moved them and may move them back; 'released': they chose a surface since, so Crowbar
+// only offers the way back.
 export function useTerminalEscort(options: EscortOptions) {
   const { wsId, chatId, providers, activeProviderId, presentation, setPresentation } = options
   const { setReturnOffered, setSplitFocus, terminalApiRef, splitting } = options

@@ -60,10 +60,8 @@ export function insertPendingImageInto(editor: PlateEditor, objectUrl: string, a
   ensureTrailingEditableLine(editor)
 }
 
-/**
- * Settles a pending image, found by its own object URL since the person may have
- * typed on: the real ref replaces it in place, `null` (a failed upload) removes it.
- * The object URL is revoked either way.
+/** Settles a pending image, found by its object URL since the person may have typed on: the
+ *  real ref replaces it in place, `null` (a failed upload) removes it. Revokes the URL either way.
  */
 export function settlePendingImageInto(
   editor: PlateEditor,

@@ -210,10 +210,9 @@ const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
   a.turnbar === b.turnbar &&
   a.precedingUserAt === b.precedingUserAt
 
-/** What each row's position says: the first turn and its reply keep the
- *  document hand, a reply is timed from its prompt, and only the reply that
- *  hands control back (no reply after it before the next prompt) gets a turnbar;
- *  the newest run hands it back only once nothing runs. */
+/** Each row's place: the first turn and reply keep the document hand, a reply is timed from its
+ *  prompt, and only the reply that hands control back (none after it before the next prompt) gets
+ *  a turnbar; the newest run hands it back only once nothing runs. */
 function placesOf(
   ids: string[],
   itemOf: (id: string) => TranscriptItem | undefined,
@@ -260,10 +259,8 @@ const asUser = (item: OutboxItem): UserItem => ({
   requestId: item.requestId,
 })
 
-/**
- * The conversation, bottom-anchored. Rows come from the chat's feed by id;
- * prompts with no row yet follow them, in the order they will be sent.
- */
+/** The conversation, bottom-anchored. Rows come from the chat's feed by id;
+ *  prompts with no row yet follow them, in the order they will be sent. */
 // react-doctor-disable-next-line no-giant-component -- the virtualizer, anchor and pin share the row offsets
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { chatId } = props

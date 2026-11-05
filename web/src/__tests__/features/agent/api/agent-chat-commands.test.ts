@@ -54,11 +54,8 @@ describe('agent-chat-commands', () => {
     )
   })
 
-  // THE REGRESSION this session fixed: a staged CROSS-provider pick used to
-  // call a separate, immediate switchProvider — killing the live CLI the
-  // instant a row was clicked, before the user ever sent anything. It now
-  // travels on this SAME call, exactly like model/effort, and the backend
-  // decides whether that actually means switching anything.
+  // A staged cross-provider pick travels on the prompt like model/effort, so clicking a row never
+  // kills the live CLI before anything is sent; the backend decides whether to switch.
   it('threads a staged provider onto the same prompt body, committed atomically', async () => {
     apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
     await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'codex', '', '')

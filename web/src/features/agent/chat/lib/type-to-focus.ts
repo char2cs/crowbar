@@ -26,10 +26,8 @@ export type TypeToFocusResult =
   | { action: 'buffer'; buffer: TypeBuffer }
   | { action: 'redirect'; buffer: TypeBuffer; text: string }
 
-/**
- * Only an unmodified single printable character qualifies. A disqualifying key
- * does not reset the buffer: a capital's bare "Shift" keydown would drop "a" from "aB".
- */
+/** Only an unmodified single printable character qualifies. A disqualifying key
+ *  does not reset the buffer: a capital's bare "Shift" keydown would drop "a" from "aB". */
 export function advanceTypeToFocus(
   buffer: TypeBuffer,
   event: TypeToFocusKeyEvent,

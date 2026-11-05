@@ -15,29 +15,16 @@ interface UseTabDragOptions {
   ) => string | undefined
 }
 
-/**
- * Encapsulates dnd-kit drag state and handlers for a tab bar.
- * Returns `draggedBufferId`, `draggedBuffer`, and the DndContext callbacks.
- *
- * A tab can only ever be reordered within ITS OWN pane's tab bar. Each
- * TabBar mounts its own `DndContext`/`SortableContext` (tab-bar.tsx), so
- * `event.over` here can never name a droppable from another pane's tab bar —
- * dnd-kit scopes collision detection to droppables registered under the same
- * `DndContext`. That isolation is the whole guarantee: this hook must never
- * reach past it (e.g. by hit-testing the DOM under the pointer to find
- * whatever pane happens to be there) to resolve a drop target itself, or the
- * isolation is void and a tab can cross into another pane's tab bar again.
- */
+/** dnd-kit drag state and handlers for one tab bar. Each TabBar mounts its own DndContext, so
+ *  `event.over` only ever names this pane's tabs; never resolve a drop target past that (e.g. by
+ *  DOM hit-testing), or tabs could cross into another pane. */
 export function useTabDrag({
   sortedBuffers,
   onTabSelect,
   onTabClick,
   onReorderBuffers,
-  // onSplitPane is still accepted (tab-bar.tsx keeps wiring it from
-  // paneActions.splitPane) but deliberately unused: spec §7.3 — "a pane
-  // group is a group of chats, never of tabs" (Law 3) — dropping a dragged
-  // tab must never create a new pane/split any more, so handleDragEnd below
-  // no longer calls it.
+  // onSplitPane is accepted but unused: a dropped tab never creates a split (spec §7.3: a
+  // pane group groups chats, never tabs).
 }: UseTabDragOptions) {
   const [draggedBufferId, setDraggedBufferId] = useState<string | null>(null)
 
@@ -64,10 +51,7 @@ export function useTabDrag({
       const activeId = String(event.active.id)
       const dragged = sortedBuffers.find((buffer) => buffer.id === activeId)
 
-      // `event.over` is dnd-kit's own collision result, resolved only among
-      // droppables registered in THIS pane's SortableContext — reordering
-      // within the pane's own tab bar is the only outcome this can ever
-      // produce.
+      // Resolved only among this pane's droppables, so the sole outcome is a reorder.
       if (event.over) {
         const oldIndex = sortedBuffers.findIndex((buffer) => buffer.id === activeId)
         const newIndex = sortedBuffers.findIndex((buffer) => buffer.id === String(event.over?.id))

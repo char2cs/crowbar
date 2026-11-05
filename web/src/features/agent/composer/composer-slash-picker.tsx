@@ -10,10 +10,8 @@ interface ComposerSlashPickerProps {
   onSelect: (item: SlashCatalogItem) => void
 }
 
-/**
- * No explanatory chrome: no probe reports a CLI's built-ins, so the catalogue is
- * always incomplete, and an empty result must not claim the provider has no skills.
- */
+/** No explanatory chrome: no probe reports a CLI's built-ins, so the catalogue is
+ *  always incomplete, and an empty result must not claim the provider has no skills. */
 export function ComposerSlashPicker({
   state,
   items,

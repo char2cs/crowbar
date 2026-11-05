@@ -37,10 +37,8 @@ function attachmentStart(editor: PlateEditor, index: number): number {
   return isPngSibling ? index - 1 : index
 }
 
-/**
- * Invariant: the last block is always a typeable line — Slate never normalizes an
- * empty root. Backspace against an attachment removes it. Composer editor only.
- */
+/** Invariant: the last block is always a typeable line — Slate never normalizes an
+ *  empty root. Backspace against an attachment removes it. Composer editor only. */
 export const chatComposerStructurePlugin = createPlatePlugin({
   key: 'agent-chat-structure',
   // Plate does not normalize a `value:` it is handed.

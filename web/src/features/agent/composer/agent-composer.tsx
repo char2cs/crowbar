@@ -86,30 +86,13 @@ interface AgentComposerProps {
   banner?: ReactNode
   headerClearancePx?: number
   documentRef?: Ref<AgentEmptyDocumentHandle>
-  /**
-   * Where the excalidraw takeover portals to, instead of rendering inline.
-   *
-   * The composer lives inside `.dock`, a small bottom-pinned bar —
-   * `position: absolute` itself, which makes it the CSS containing block for
-   * any `position: absolute` descendant regardless of `.dock`'s own size.
-   * Rendering the takeover inline there sized it to the dock, not the chat
-   * pane (reported live: "not just where the input box is at"). The caller
-   * (agent-chat-view.tsx) passes the `.agent-chat.chat` section itself, so
-   * `inset-0` covers the whole pane. Undefined (tests that render this
-   * component standalone) falls back to inline — harmless there since
-   * nothing constrains its size in a bare test host.
-   */
+  /** Where the Excalidraw takeover portals to, so `inset-0` covers the chat pane: inline, the
+   *  absolutely positioned `.dock` would be its containing block. Undefined renders inline. */
   takeoverContainer?: HTMLElement | null
 }
 
-/**
- * THE BAR.
- *
- * One 38px slot with exactly one occupant, resolved by `resolveComposerState`.
- * It is an input when you can talk, and it is the question, the permission, or
- * the reason you cannot, when you cannot — never an input rendered dead beneath
- * something else.
- */
+// The bar: one 38px slot with one occupant from `resolveComposerState`. An input when you can
+// talk; otherwise the question, the permission, or the reason you cannot, never a dead input.
 export function AgentComposer(props: AgentComposerProps) {
   const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
   const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<

@@ -60,10 +60,8 @@ describe('keymap registry — New Tab commands', () => {
     expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.category).toBe('Chats')
   })
 
-  // mod+/ used to belong to Cycle chat provider — it now ships unbound (rather
-  // than reassigned to a different default) so a user who wants it back can
-  // assign their own chord in Settings → Keybindings, instead of two commands
-  // silently fighting over one default.
+  // Unbound rather than given another default, so it never silently fights a second command
+  // for one chord; users assign their own in Settings → Keybindings.
   it('leaves Cycle chat provider unbound by default now that mod+/ toggles the view instead', () => {
     expect(getCommand(AGENT_CYCLE_PROVIDER)?.defaultChord).toBe('')
   })

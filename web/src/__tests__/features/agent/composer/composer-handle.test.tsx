@@ -61,12 +61,8 @@ describe('ComposerHandle', () => {
     expect(onSend).toHaveBeenCalled()
   })
 
-  // REGRESSION: the button used to hide the ONLY way to stop a running turn
-  // the instant there was a character in the box — a person who started
-  // typing a follow-up while a turn ran had no way left to interrupt it, not
-  // even Escape (agent-chat-view.tsx wires no such fallback). Enter still
-  // queues whatever is typed regardless of what this button shows, so nothing
-  // is lost by having it read Stop here instead of Send.
+  // Stop stays reachable while text is in the box: it is the only way to interrupt a running turn
+  // (no Escape fallback), and Enter still queues the typed text.
   it('stops a running turn even with text in the box', () => {
     const { onStop } = draw({ hasText: true, working: true, canStop: true })
 
