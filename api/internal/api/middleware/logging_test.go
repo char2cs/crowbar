@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -93,4 +94,22 @@ func TestLogger_LevelFollowsOutcome(t *testing.T) {
 	buf.Reset()
 	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/boom", nil))
 	assert.Contains(t, buf.String(), "level=ERROR")
+}
+
+// A pane closed mid-request cancels it, and the handler's "context canceled"
+// 500 is the client leaving, not a daemon failure.
+func TestLogger_AClientThatLeftIsNotAFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(Logger())
+	ctx, cancel := context.WithCancel(t.Context())
+	r.GET("/gone", func(c *gin.Context) {
+		cancel()
+		c.Status(http.StatusInternalServerError)
+	})
+
+	buf := captureSlog(t)
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodGet, "/gone", nil))
+	assert.NotContains(t, buf.String(), "level=ERROR")
+	assert.Contains(t, buf.String(), "client went away")
 }
