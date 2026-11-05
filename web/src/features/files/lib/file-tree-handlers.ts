@@ -26,10 +26,9 @@ function parentDir(path: string): string {
   return idx === -1 ? '' : path.slice(0, idx)
 }
 
-// Derive a non-colliding "<name> copy" destination for a duplicate, checking the
-// loaded siblings so a second duplicate becomes "<name> copy 2" instead of
-// clobbering the first. A dot in position 0 (dotfile) is treated as part of the
-// stem, not an extension, so ".env" duplicates to ".env copy".
+// A "<name> copy" destination that skips loaded siblings, so a second duplicate becomes
+// "<name> copy 2" rather than clobbering the first. A leading dot belongs to the stem:
+// ".env" duplicates to ".env copy".
 function duplicateDestPath(srcPath: string, files: AppFile[]): string {
   const dir = parentDir(srcPath)
   const name = dir ? srcPath.slice(dir.length + 1) : srcPath
@@ -78,10 +77,9 @@ export async function refreshDirectory(
   fileTreeActions.setFiles(!path ? reconciled : mergeChildren(files, path, reconciled))
 }
 
-// Reveal in Finder (explorer + tab context menus). The tab menu passes the
-// buffer's workspace-relative path; the explorer passes an absolute one.
-// Relative paths resolve against the on-disk workspace root; virtual buffers
-// (diff:// …) have no disk presence to reveal.
+// Reveal in Finder. The tab menu passes a workspace-relative path, resolved against the on-disk
+// workspace root; the explorer passes an absolute one. Virtual buffers (diff:// …) have no disk
+// presence to reveal.
 export function revealInFolder(wsId: string, path: string): void {
   if (path.includes('://')) return
   const root = path.startsWith('/') ? '' : workspaceRootPath(wsId)
@@ -92,11 +90,8 @@ export function revealInFolder(wsId: string, path: string): void {
   })
 }
 
-/**
- * The file explorer's mutations for one workspace. The daemon emits a
- * structural FileChangeEvent on success, which the files stream reconciles into
- * the tree — so these don't refetch (except the explicit Refresh action).
- */
+/** The file explorer's mutations for one workspace. None refetch (except Refresh): the daemon's
+ *  structural FileChangeEvent is reconciled into the tree by the files stream. */
 export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
   // Tree paths are workspace-relative (root === ''); a dirPath equal to the
   // absolute wsId is the root addressed by its full path (right-click empty space).

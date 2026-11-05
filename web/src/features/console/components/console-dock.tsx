@@ -9,10 +9,8 @@ import { ConsolePanel } from './console-panel'
 
 const toggleConsole = () => useConsoleStore.getState().toggle()
 
-/**
- * Wraps the whole app shell so the console can cover the sidebar too (overlay) or
- * share the window with it (push), and ties the log stream to it being open.
- */
+/** Wraps the whole shell so the console can cover the sidebar (overlay) or share the window
+ *  with it (push), and keeps the log stream open while the console is. */
 export function ConsoleDock({ children }: { children: ReactNode }) {
   const vertical = useConsoleStore((s) => s.dock === 'top' || s.dock === 'bottom')
   useConsoleKeyboard(toggleConsole)

@@ -4,11 +4,8 @@ import { browserApi } from '@/lib/browser-bridge'
 import { toast } from '@/features/window/stores/toast-store'
 import { cancelPick, formatPointer, pickPointer } from '@/features/browser/lib/pointer'
 
-/**
- * Pick mode for one tab. The page owns the overlay and the pending pick; this
- * only starts it, writes the result to the clipboard, and cancels it when the
- * tab goes off screen or unmounts.
- */
+/** Pick mode for one tab. The page owns the overlay and the pending pick; this only starts it,
+ *  writes the result to the clipboard, and cancels it when the tab hides or unmounts. */
 export function usePointerPick(bufferId: string, visible: boolean) {
   const [picking, setPicking] = useState(false)
   const inFlight = useRef(false)

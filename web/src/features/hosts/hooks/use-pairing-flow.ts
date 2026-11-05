@@ -58,10 +58,9 @@ function makeHostId(name: string): string {
   return `${slug || 'host'}-${crypto.randomUUID().slice(0, 8)}`
 }
 
-/** Pairing as stages: probe the certificate, have the user confirm the fingerprint, then redeem a
- *  code from the host's `crowbar pair`. The code stage is reached only by that confirm, and pins
- *  exactly the fingerprint shown, never a re-probed one. Its state lives as long as its caller:
- *  mount one per attempt, so a confirmed fingerprint never reaches the next. */
+/** Pairing as stages: probe the certificate, confirm its fingerprint, redeem a `crowbar pair`
+ *  code. The code stage pins exactly the fingerprint the user confirmed, never a re-probed one.
+ *  Mount one per attempt: state lives as long as the caller, so a confirm never carries over. */
 export function usePairingFlow({
   onPaired,
   pending,

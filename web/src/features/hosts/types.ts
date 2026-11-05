@@ -6,8 +6,8 @@ export interface Host {
    *  any Tauri command; the keychain-bound fingerprint is what actually
    *  gates dials (see this plan's Amendment). */
   pairedFingerprint: string
-  /** The daemon's client id, returned by `pairRemoteHost`. Needed to revoke
-   *  server-side (`DELETE /v0/clients/:id`) on removal — see Task 5. */
+  /** The daemon's client id, returned by `pairRemoteHost`; removing the host revokes it
+   *  server-side (`DELETE /v0/clients/:id`). */
   clientId: string
 }
 
