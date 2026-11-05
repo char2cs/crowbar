@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -24,17 +25,24 @@ var serveReplies = map[string][]string{
 // its launch, answers each request with the ids the recording carries, and
 // follows it with that request's recorded notifications, until stdin closes.
 func serveApp(args []string) int {
-	if len(args) < 3 {
+	if len(args) < 3 || record(args[0], launch{RunnerID: args[1], Argv: os.Args[1:], PID: os.Getpid()}) != nil {
 		return 2
 	}
-	dir, fixtures := args[0], args[2]
-	if record(dir, launch{RunnerID: args[1], Argv: os.Args[1:], PID: os.Getpid()}) != nil {
+	var started struct {
+		Params struct {
+			ThreadID string `json:"threadId"`
+			Turn     struct {
+				ID string `json:"id"`
+			} `json:"turn"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(frame(args[2], "turn_started.json"), &started) != nil {
 		return 2
 	}
-	thread, turn := recordedIDs(fixtures)
+	ids := map[string]any{"thread": map[string]any{"id": started.Params.ThreadID}, "turn": started.Params.Turn}
 	out := json.NewEncoder(os.Stdout)
 	lines := bufio.NewScanner(os.Stdin)
-	lines.Buffer(make([]byte, 0, 1<<16), 1<<24)
+	lines.Buffer(make([]byte, 0, 1<<16), 1<<24) // a turn/start carries the whole injected context
 	for lines.Scan() {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -43,12 +51,11 @@ func serveApp(args []string) int {
 		if json.Unmarshal(lines.Bytes(), &req) != nil || req.ID == nil {
 			continue // a notification (initialized) wants no answer
 		}
-		result := map[string]any{"thread": map[string]any{"id": thread}, "turn": map[string]any{"id": turn}}
-		if out.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result}) != nil {
+		if out.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": ids}) != nil {
 			return 0
 		}
 		for _, name := range serveReplies[req.Method] {
-			if replay(out, filepath.Join(fixtures, name)) != nil {
+			if _, err := os.Stdout.Write(frame(args[2], name)); err != nil {
 				return 0
 			}
 		}
@@ -56,32 +63,12 @@ func serveApp(args []string) int {
 	return 0
 }
 
-// recordedIDs are the thread and turn the recorded session ran as.
-func recordedIDs(fixtures string) (thread, turn string) {
-	var frame struct {
-		Params struct {
-			ThreadID string `json:"threadId"`
-			Turn     struct {
-				ID string `json:"id"`
-			} `json:"turn"`
-		} `json:"params"`
+// frame is one recorded frame as a single ndjson line, nil when unreadable.
+func frame(fixtures, name string) []byte {
+	raw, err := os.ReadFile(filepath.Join(fixtures, name)) //nolint:gosec // G304: the kit-named fixtures dir
+	var line bytes.Buffer
+	if err != nil || json.Compact(&line, raw) != nil {
+		return nil
 	}
-	raw, err := os.ReadFile(filepath.Join(fixtures, "turn_started.json")) //nolint:gosec // G304: the kit-named fixtures dir
-	if err == nil && json.Unmarshal(raw, &frame) == nil {
-		return frame.Params.ThreadID, frame.Params.Turn.ID
-	}
-	return "", ""
-}
-
-// replay writes one recorded frame as a single ndjson line.
-func replay(out *json.Encoder, path string) error {
-	raw, err := os.ReadFile(path) //nolint:gosec // G304: the kit-named fixtures dir
-	if err != nil {
-		return err
-	}
-	var frame json.RawMessage
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		return err
-	}
-	return out.Encode(frame)
+	return append(line.Bytes(), '\n')
 }

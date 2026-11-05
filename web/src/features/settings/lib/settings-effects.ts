@@ -21,11 +21,6 @@ function applyFallbackTheme(theme: Theme) {
 
 type SystemThemePreference = 'light' | 'dark'
 
-interface LegacyMediaQueryList extends MediaQueryList {
-  addListener(listener: (event: MediaQueryListEvent) => void): void
-  removeListener(listener: (event: MediaQueryListEvent) => void): void
-}
-
 let removeThemeSyncListener: (() => void) | null = null
 
 function applyWindowTransparency(enabled: boolean) {
@@ -83,14 +78,8 @@ function syncThemeWithSystem(themeMode: 'light' | 'dark' | 'system', onModeChang
     onModeChanged?.()
   }
 
-  if ('addEventListener' in mediaQuery) {
-    mediaQuery.addEventListener('change', handleChange)
-    removeThemeSyncListener = () => mediaQuery.removeEventListener('change', handleChange)
-  } else {
-    const legacyMediaQuery = mediaQuery as LegacyMediaQueryList
-    legacyMediaQuery.addListener(handleChange)
-    removeThemeSyncListener = () => legacyMediaQuery.removeListener(handleChange)
-  }
+  mediaQuery.addEventListener('change', handleChange)
+  removeThemeSyncListener = () => mediaQuery.removeEventListener('change', handleChange)
 }
 
 export async function applyTheme(theme: Theme) {
