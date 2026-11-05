@@ -376,11 +376,12 @@ func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t
 	argv := f.term.calls[2].argv
 	assert.Equal(t, "sid-codex-native", argAfter(t, argv, "resume"),
 		"the resume subcommand must name codex's own prior thread: %v", argv)
-	for _, tok := range argv {
-		assert.NotContains(t, tok, "[Crowbar]",
-			"codex declares no resume_context_inject: its gap never rides argv as a pointer it would answer "+
-				"as an unrelated second conversation: %v", argv)
-	}
+	// On the terminal surface no api connection carries the gap, so the TUI's own
+	// resume prompt must: the real gap, never a pointer to fetch it.
+	msg := argv[len(argv)-1]
+	assert.Contains(t, msg, "claude spoke while codex was away", "the gap rides the resume: %v", argv)
+	assert.NotContains(t, msg, "codex ledger content", "codex is not re-fed its own turns")
+	assert.NotContains(t, msg, "[Crowbar]", "the real gap, not a pointer: %v", argv)
 }
 
 // TestSwitchProvider_ForwardSwitch_CarriesWholeConversation is the other half of the
