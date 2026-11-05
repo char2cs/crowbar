@@ -7,10 +7,8 @@
   padding: 4px 0;
   font-size: 14px;
   color: var(--muted-foreground);
-  /* Glued to the tail of whatever line came before it — the sent user text, or
-     the agent's own streamed reply — rather than reading as a new block a full
-     `.stream` gap (18px) below it. Leaves ~4px before this element's own
-     padding, not flush against it. */
+  /* Glued to the line before it (sent text or streamed reply) instead of a full 18px `.stream`
+     gap below; leaves ~4px before this element's own padding. */
   margin-top: -14px;
 }
 .agent-chat .activity .hd {
@@ -259,17 +257,9 @@
   content: '●';
 }
 
-/* The running tools' own list used to live here. It is a transcript row now
-   (`.tools`, transcript.css) — the same rows the finished turn keeps — so a
-   call no longer disappears off screen the moment it stops running. */
-
-/* The subagent shelf, sitting on the top edge of the input box.
- *
- * It has to survive a wide fan-out, so it sheds detail in a fixed order rather
- * than wrapping or scrolling: names go first (over four in flight), then whole
- * tokens fall into a +N counter once the row is full. The count and the clocks
- * are the two things that NEVER drop, because they are the two things Crowbar
- * actually knows about a running subagent. */
+/* The subagent shelf on the input box's top edge. A wide fan-out sheds detail instead of wrapping:
+   names first (over four in flight), then whole tokens into +N. Count and clocks never drop: they
+   are all Crowbar knows about a running subagent. */
 .agent-chat .subbar {
   display: flex;
   align-items: center;
