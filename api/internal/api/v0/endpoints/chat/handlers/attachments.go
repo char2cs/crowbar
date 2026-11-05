@@ -132,7 +132,7 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 
 // Attachment serves one durable attachment's raw bytes, so a stored markdown
 // ref resolves to something fetchable; the Content-Type is sniffed because an
-// attachment is as likely an image or a PDF as text.
+// attachment is as likely an image or a PDF as text, and an HTML or SVG one must not run on open.
 func (h *Handlers) Attachment(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -144,5 +144,5 @@ func (h *Handlers) Attachment(ctx *gin.Context) {
 		return
 	}
 	ctx.Header("Cache-Control", "no-cache")
-	ctx.Data(http.StatusOK, contentType, data)
+	libs.WriteUntrustedFile(ctx, contentType, data)
 }

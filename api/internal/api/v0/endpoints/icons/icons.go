@@ -77,10 +77,8 @@ func Serve(
 	// primary cache-buster and no-cache is the backstop.
 	c.Header("Cache-Control", "no-cache")
 	// A stored SVG comes from an imported repo's files: opened directly, it must not run script
-	// in the daemon's origin. An <img> applies neither header.
-	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
-	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(http.StatusOK, ContentType(data), data)
+	// in the daemon's origin. An <img> applies none of these headers.
+	libs.WriteUntrustedFile(c, ContentType(data), data)
 }
 
 // ReadUpload extracts icon bytes from a JSON {"path"} body (desktop: the daemon

@@ -300,3 +300,40 @@ func TestAttachment_RefusesAChatOutsideTheRouteScope(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 	assert.Empty(t, uc.readAttachmentCalls)
 }
+
+// An attachment opened in a tab runs on the daemon's origin, so a scriptable type must download
+// into a sandbox while a type the web renders inline keeps rendering inline.
+func TestAttachment_ServesScriptableTypesAsSandboxedDownloads(t *testing.T) {
+	cases := []struct {
+		name, contentType string
+		inline            bool
+	}{
+		{"page.html", "text/html; charset=utf-8", false},
+		{"logo.svg", "image/svg+xml", false},
+		{"feed.xml", "text/xml; charset=utf-8", false},
+		{"blob.bin", "application/octet-stream", false},
+		{"shot.png", "image/png", true},
+		{"report.pdf", "application/pdf", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uc := inWorkspace(&fakeAgentUsecase{readAttachmentData: []byte("x"), readAttachmentType: tc.contentType})
+			ctx, rec := scoped(t, "/attachments/"+tc.name)
+			ctx.Params = append(ctx.Params, gin.Param{Key: "file", Value: tc.name})
+
+			newChatHandlers(uc).Attachment(ctx)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tc.contentType, rec.Header().Get("Content-Type"))
+			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+			if tc.inline {
+				assert.Equal(t, "inline", rec.Header().Get("Content-Disposition"))
+				assert.Empty(t, rec.Header().Get("Content-Security-Policy"))
+				return
+			}
+			assert.Equal(t, "attachment", rec.Header().Get("Content-Disposition"))
+			assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "sandbox")
+			assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "default-src 'none'")
+		})
+	}
+}

@@ -43,6 +43,9 @@ func (h *Handlers) GetPatch(
 	h.streamPatch(ctx, path, maxLines)
 }
 
+// patchContentType names a diff of repo files, which are as untrusted as any upload.
+const patchContentType = "text/plain; charset=utf-8"
+
 func (h *Handlers) streamPatch(
 	ctx *gin.Context,
 	path string,
@@ -52,7 +55,8 @@ func (h *Handlers) streamPatch(
 		h.bufferedPatch(ctx, path, maxLines)
 		return
 	}
-	ctx.Header("Content-Type", "text/plain; charset=utf-8")
+	ctx.Header("Content-Type", patchContentType)
+	libs.SetUntrustedFileHeaders(ctx, patchContentType)
 	ctx.Status(http.StatusOK)
 	_, _, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
@@ -87,7 +91,8 @@ func (h *Handlers) bufferedPatch(
 		failPatch(ctx, err)
 		return
 	}
-	ctx.Header("Content-Type", "text/plain; charset=utf-8")
+	ctx.Header("Content-Type", patchContentType)
+	libs.SetUntrustedFileHeaders(ctx, patchContentType)
 	if truncated {
 		ctx.Header(truncatedHeader, "true")
 	}

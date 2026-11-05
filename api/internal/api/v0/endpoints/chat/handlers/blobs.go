@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -27,5 +26,5 @@ func (h *Blobs) Handle(c *gin.Context) {
 		libs.Fail(c, err)
 		return
 	}
-	c.Data(http.StatusOK, "text/plain; charset=utf-8", data)
+	libs.WriteUntrustedFile(c, "text/plain; charset=utf-8", data)
 }
