@@ -601,12 +601,8 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
   }
 
   it('uploads and inserts a real pasted image through the actually-mounted composer', async () => {
-    // A manually-resolved promise, not `mockResolvedValue` — pins the ordering
-    // so the "optimistic preview" assertion below is checked while the upload
-    // is provably still in flight, the same reasoning
-    // `chat-paste-plugin.test.tsx`'s own isolated-handler regression test
-    // ("inserts a local preview immediately, before the upload resolves")
-    // uses.
+    // A manually-resolved promise pins the ordering, so the preview assertion runs while the upload
+    // is provably still in flight.
     let resolveUpload!: (value: {
       ref: string
       filename: string

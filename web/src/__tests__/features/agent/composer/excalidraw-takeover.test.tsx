@@ -152,9 +152,7 @@ describe('ExcalidrawTakeover', () => {
     expect(onInsertMarkdown).not.toHaveBeenCalled()
   })
 
-  // REGRESSION, reported live: a global Escape listener closed the takeover
-  // out from under Excalidraw's OWN use of the same key (deselecting a
-  // shape, leaving text-edit mode) — Escape now does nothing here at all.
+  // Escape belongs to Excalidraw (deselect, leave text edit), so the takeover ignores it.
   it('does nothing on Escape', async () => {
     const { onClose } = await renderOpenTakeover()
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -265,9 +263,7 @@ describe('ExcalidrawTakeover', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  // REGRESSION: this is the actual point of saving locally — the next time
-  // either entry point opens for this chat, it should resume this design
-  // instead of starting blank.
+  // Saving locally is what lets either entry point resume this design next time instead of blank.
   it('saves the scene to this chat’s local design slot on a successful attach', async () => {
     saveResult = {
       sceneJson: '{"elements":["a"],"appState":{}}',
@@ -292,9 +288,7 @@ describe('ExcalidrawTakeover', () => {
     expect(loadExcalidrawDesign('w1', 'c1')).toBeNull()
   })
 
-  // The header replaces a bottom toolbar the canvas used to own (removed —
-  // reported live as space the canvas should have had instead), so the
-  // in-flight guard that used to live there moves here with it.
+  // The in-flight guard lives on the header's Attach button.
   it('disables Attach while a save is in flight, so a fast second click cannot fire it twice', async () => {
     let resolveUpload!: (value: UploadedChatAttachment) => void
     vi.mocked(uploadChatAttachment).mockImplementationOnce(
@@ -320,11 +314,8 @@ describe('ExcalidrawTakeover', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
-  // REGRESSION, reported by review: the canvas's own async init (real,
-  // since it's lazy-loaded) can leave a window where its imperative save()
-  // silently no-ops (no api yet) — a click there looked like a hang, not a
-  // disabled control. Attach must stay disabled until the canvas actually
-  // signals it has something to export.
+  // The lazy-loaded canvas's save() silently no-ops before its api exists, so Attach stays disabled
+  // until the canvas signals it has something to export.
   it('disables Attach until the canvas signals it is ready, so a click cannot silently no-op', async () => {
     mockReady = false
     await renderOpenTakeover()

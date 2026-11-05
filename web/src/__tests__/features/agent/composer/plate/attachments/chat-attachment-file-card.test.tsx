@@ -105,10 +105,8 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported live: "Attachments that are text, or files should
-  // be a square... like Claude's attachments" — this was a thin, single-line
-  // row before. Shares `ATTACHMENT_BOX_CLASS` (attachment-box.ts) with the
-  // text-attachment pill so both kinds look identical.
+  // Shares `ATTACHMENT_BOX_CLASS` (attachment-box.ts) with the text-attachment pill, so both kinds
+  // render as the same boxed card.
   it('renders as the shared boxed-card footprint, not the old thin row', async () => {
     vi.stubGlobal(
       'fetch',
@@ -241,10 +239,7 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported live: a caret could be placed and moved inside the
-  // filename text, like any other link's own editable content — but this
-  // text is a reference to an uploaded file, not prose the person is meant
-  // to edit.
+  // The filename references an uploaded file, not prose to edit, so no caret may enter it.
   it('marks the filename non-editable, so a caret cannot enter it', () => {
     render(
       <DndScope>
@@ -257,9 +252,7 @@ describe('chat attachment file card', () => {
     expect(label.closest('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
   })
 
-  // REGRESSION, reported live: there was no way to select and remove an
-  // attachment at all — dragging could reorder one but nothing could delete
-  // one.
+  // Each attachment has a delete button beside its file card.
   it('renders a delete button alongside the file card, which removes the attachment on click', async () => {
     vi.stubGlobal(
       'fetch',
@@ -287,20 +280,9 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported live: dragging an attachment did nothing at all —
-  // root-caused via live DOM inspection to the handle sitting directly
-  // inside the Slate editor's own `contenteditable="true"` region with no
-  // non-editable island around it. WebKit (Tauri's WKWebView) arbitrates a
-  // real mousedown+move inside editable content as a text-selection gesture
-  // BEFORE the drag can start, regardless of the
-  // button's `draggable="true"`.
-  //
-  // `MarkdownMessage` (this file's harness) renders `readOnly`, so its own
-  // Slate root already carries `contenteditable="false"` regardless of this
-  // fix — asserting merely "some ancestor is non-editable" would pass
-  // trivially either way. The real contract is a wrapper CLOSER than the
-  // editor root, since the actual composer (which this stands in for) is
-  // genuinely editable and has no such root-level escape hatch.
+  // WKWebView treats mousedown+move inside editable content as text selection before a drag can
+  // start, so the handle needs its own contenteditable="false" island. The harness's Slate root is
+  // already read-only, hence asserting a wrapper CLOSER than the editor root.
   it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', async () => {
     vi.stubGlobal(
       'fetch',

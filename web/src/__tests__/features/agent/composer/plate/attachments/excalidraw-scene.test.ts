@@ -38,10 +38,8 @@ describe('parseExcalidrawScene', () => {
     expect(parseExcalidrawScene('null')).toBeNull()
   })
 
-  // REGRESSION: a real `.excalidraw` file — and an agent asked to write
-  // "valid Excalidraw JSON" reliably produces this exact shape — routinely
-  // omits appState entirely. It holds view/style state, never what's drawn,
-  // so a missing one defaults to `{}` rather than rejecting the whole scene.
+  // Real `.excalidraw` files (and agent-written JSON) often omit appState; it holds view state,
+  // never what's drawn, so it defaults to `{}` instead of rejecting the scene.
   it('accepts a scene with no appState at all, defaulting to {}', () => {
     expect(parseExcalidrawScene(JSON.stringify({ elements: [{ type: 'rectangle' }] }))).toEqual({
       elements: [{ type: 'rectangle' }],
@@ -148,16 +146,8 @@ describe('parseExcalidrawScene', () => {
   })
 })
 
-// Regression: the live bug reported as "the scroll bugs out" when an agent
-// authors an Excalidraw diagram. ExcalidrawPreview shows a short text-line
-// placeholder until @excalidraw/excalidraw's dynamic import resolves and the
-// real SVG renders — a real, physical height change on top of whatever the
-// message row's own settle already cost, and the transcript's spring-based
-// follow-scroll (follow-scroll.ts) now gives each such resize its own long,
-// visibly bouncy glide, so two landing close together read as the
-// transcript fighting itself. computeSceneAspectRatio lets the placeholder
-// reserve the real footprint up front from the scene's own element bounds,
-// so nothing changes height once the real render lands.
+// The placeholder reserves the diagram's real footprint from its element bounds, so nothing
+// changes height when the lazily imported SVG render lands (a jump follow-scroll would glide).
 describe('computeSceneAspectRatio', () => {
   it('is the bounding box of the scene’s elements, height over width', () => {
     // A 200x100 rectangle at the origin: exactly 0.5.
@@ -205,18 +195,9 @@ describe('computeSceneAspectRatio', () => {
   })
 })
 
-// REGRESSION: React error #185 ("Maximum update depth exceeded"), reported
-// live as a pane crash on submitting a message with an attachment.
-// `excalidrawSceneFromCodeBlock` (chat-code-block-node.tsx) calls this on
-// EVERY render of an interactive attachment block — which Slate re-renders
-// for reasons that have nothing to do with the fence's own text (an
-// unrelated edit elsewhere in the document, an id reassignment, the block
-// still streaming in) — and handing back a brand new object each time fed
-// straight into `ExcalidrawPreview`'s own `useEffect` deps array (`scene`),
-// tearing down and restarting its async export-to-svg pipeline on every one
-// of those unrelated re-renders. Caching by the exact source text is what
-// keeps the reference — not just the content — stable across renders that
-// ought to be no-ops.
+// excalidrawSceneFromCodeBlock calls this on every render of an attachment block, so it caches by
+// source text: a fresh object re-runs ExcalidrawPreview's export effect and loops into React error
+// #185 (maximum update depth).
 describe('parseExcalidrawScene identity stability', () => {
   it('returns the SAME object reference for the same source text across repeated calls', () => {
     const raw = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: { zoom: 1 } })
