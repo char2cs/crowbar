@@ -5,7 +5,7 @@ import { treeInputFor, useTreeInput } from '@/features/workspace/tree/input'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
-import type { Operation, OperationItem } from '@/core/entities/operations'
+import { putLocalOperation, type Operation, type OperationItem } from '@/core/entities/operations'
 import type { Chat, Folder } from '@/core/entities/repo-types'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { HOME_ROW_ID, homeRows } from '@/__tests__/__fixtures__/tree-rows'
@@ -190,10 +190,7 @@ describe('operation rows', () => {
         item('chat-b', 'good', { state: 'succeeded' }),
       ],
     })
-    expect(rows([failed])).toMatchObject([
-      { id: 'chat-a', label: 'bad/x', working: false },
-      { id: 'chat-b', working: true },
-    ])
+    expect(rows([failed])).toMatchObject([{ id: 'chat-a', label: 'bad/x', working: false }])
     expect(rows([failed])[0]?.operation).toEqual({
       opId: 'op-1',
       state: 'failed',
@@ -221,33 +218,39 @@ describe('operation rows', () => {
     ])
   })
 
-  it('a succeeded item disappears once its entity is present', () => {
-    const done = importOp({
-      state: 'succeeded',
-      items: [item('chat-b', 'good', { state: 'succeeded' })],
-    })
-    expect(rows([done])).toMatchObject([{ id: 'chat-b', working: true }])
+  it('a running item disappears once its entity is present', () => {
+    expect(rows([importOp()]).map((r) => r.id)).toEqual(['chat-a', 'chat-b'])
     seedRepos([repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })])
-    expect(rows([done])).toEqual([])
+    expect(rows([importOp()]).map((r) => r.id)).toEqual(['chat-a'])
   })
 
-  // A ghost after reload: the snapshot replays a create whose chat was deleted since.
-  it('a succeeded item replayed on connect draws nothing: its entity was deleted, not in flight', () => {
+  // The daemon streams an item's success after its entity: absent then means deleted since,
+  // by a merge or a removal, whether met live or replayed on connect.
+  it('a succeeded item whose entity was deleted since draws nothing', () => {
+    const imported = importOp({ items: [item('chat-b', 'good', { state: 'succeeded' })] })
+    seedRepos([repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })])
+    expect(rows([imported])).toEqual([])
+    seedRepos([repo()])
+    expect(rows([{ ...imported, state: 'succeeded', version: 3 }])).toEqual([])
     const replayed = importOp({
-      state: 'succeeded',
-      snapshot: true,
-      items: [item('chat-b', 'good', { state: 'succeeded' })],
-    })
-    expect(rows([replayed])).toEqual([])
-    const partial = importOp({
+      id: 'op-2',
       state: 'failed',
       snapshot: true,
       items: [
         item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR }),
-        item('chat-b', 'good', { state: 'succeeded' }),
+        item('chat-c', 'good', { state: 'succeeded' }),
       ],
     })
-    expect(rows([partial]).map((r) => r.id)).toEqual(['chat-a'])
+    expect(rows([replayed]).map((r) => r.id)).toEqual(['chat-a'])
+  })
+
+  // Settled on its own reply, a local create may beat its entity's frame.
+  it('a local succeeded item draws until its entity arrives', () => {
+    const local = importOp({ local: true, state: 'succeeded', items: [item('chat-b', 'good')] })
+    putLocalOperation(local)
+    expect(deriveRows(treeInputFor('p1')).filter((r) => r.operation)).toMatchObject([
+      { id: 'chat-b' },
+    ])
   })
 
   it('a dismissed failed operation draws nothing', () => {

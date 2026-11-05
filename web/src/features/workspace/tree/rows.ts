@@ -181,9 +181,11 @@ export function createItemRefs(ops: readonly Operation[]): EntityRef[] {
   return refs
 }
 
-/** A succeeded item replayed on connect is history: an absent entity was deleted, not in flight. */
-function settledBeforeConnect(op: Operation, item: OperationItem): boolean {
-  return op.snapshot === true && (item.state === 'succeeded' || op.state === 'succeeded')
+/** The daemon streams an item's success after the entities it wrote, so a streamed succeeded item
+ *  whose entity is absent was deleted since (a merge, a removal), not in flight. A local one may
+ *  have settled on its reply before the stream delivered them. */
+function deletedSince(op: Operation, item: OperationItem): boolean {
+  return !op.local && (item.state === 'succeeded' || op.state === 'succeeded')
 }
 
 /** One row per create item whose entity has not arrived: a spinner while it runs, its reason once it failed. */
@@ -194,7 +196,7 @@ function operationRows(input: TreeInput): SidebarRow[] {
     if (!kind || op.dismissed || op.projectId !== input.projectId) continue
     const subject = drawnUnder(op)
     for (const item of drawnItems(op)) {
-      if (input.isPresent(item.ref) || settledBeforeConnect(op, item)) continue
+      if (input.isPresent(item.ref) || deletedSince(op, item)) continue
       const isFailed = failed(op, item)
       const parentId = item.parentId === undefined ? subject.id : item.parentId || null
       rows.push({
