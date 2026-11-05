@@ -30,7 +30,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   useChatProviders(wsId)
 
   // A workspace mounts when it first becomes active: this cold switch's span
-  // closes after its first paint (M4). A warm switch is only an `active` flip,
+  // closes after its first paint. A warm switch is only an `active` flip,
   // and WorkspaceHost, which alone knows the target was retained, owns its span.
   useEffect(() => {
     markStart('workspace.switch')

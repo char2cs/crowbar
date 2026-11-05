@@ -82,6 +82,7 @@ import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 import type { Repo } from '@/core/entities/repo-types'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import * as perf from '@/lib/perf/instrumentation'
 
 function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) {
   const repo: Repo = {
@@ -136,6 +137,32 @@ describe('WorkspaceHost — the pane tree across a switch', () => {
     rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
 
     expect(new Set(ambientSeen.filter(Boolean)).size).toBe(1)
+  })
+})
+
+describe('WorkspaceHost — warm-switch span', () => {
+  // WorkspaceView spans a cold mount itself; the host must only span a switch it mounted nothing for.
+  function hostSwitchSpans(spy: { mock: { calls: unknown[][] } }): number {
+    return spy.mock.calls.filter((c) => c[0] === 'workspace.switch').length
+  }
+
+  it('does not span a cold switch to a workspace that was not retained', () => {
+    const spy = vi.spyOn(perf, 'markStart')
+    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+    spy.mockClear()
+    rerender(<WorkspaceHost activeWsId="b" />)
+    expect(hostSwitchSpans(spy)).toBe(0)
+    spy.mockRestore()
+  })
+
+  it('spans a warm switch back to a retained workspace', () => {
+    const spy = vi.spyOn(perf, 'markStart')
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
+    spy.mockClear()
+    rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    expect(hostSwitchSpans(spy)).toBe(1)
+    spy.mockRestore()
   })
 })
 

@@ -139,6 +139,22 @@ export function WorkspaceHost({
     setMountedIds(plan.retain)
   }
 
+  // Warm-switch span: activating an already-retained workspace mounts nothing, so WorkspaceView's
+  // cold-mount span can't see it. Declared before reconcile's layout effect so it reads the
+  // retained set from before reconcile adds the new active workspace.
+  const spanPrevActiveRef = useRef<string | null>(activeWsId)
+  useLayoutEffect(() => {
+    const prev = spanPrevActiveRef.current
+    spanPrevActiveRef.current = activeWsId
+    if (!activeWsId || activeWsId === prev) return
+    // Only warm (already retained) targets; WorkspaceView spans cold mounts itself.
+    const warm = retainedRef.current!.has(activeWsId)
+    if (!warm) return
+    markStart('workspace.switch')
+    const raf = requestAnimationFrame(() => markEnd('workspace.switch'))
+    return () => cancelAnimationFrame(raf)
+  }, [activeWsId])
+
   // Every input that can flip retention updates synchronously with its state, so no timer.
   useLayoutEffect(() => {
     reconcileRef.current()
@@ -157,21 +173,6 @@ export function WorkspaceHost({
       }),
     [],
   )
-
-  // Warm-switch span: activating an already-retained workspace mounts nothing, so WorkspaceView's
-  // cold-mount span can't see it; bracket one frame under the same `workspace.switch` name.
-  const spanPrevActiveRef = useRef<string | null>(activeWsId)
-  useLayoutEffect(() => {
-    const prev = spanPrevActiveRef.current
-    spanPrevActiveRef.current = activeWsId
-    if (!activeWsId || activeWsId === prev) return
-    // Only warm (already retained) targets; WorkspaceView spans cold mounts itself.
-    const warm = retainedRef.current!.has(activeWsId)
-    if (!warm) return
-    markStart('workspace.switch')
-    const raf = requestAnimationFrame(() => markEnd('workspace.switch'))
-    return () => cancelAnimationFrame(raf)
-  }, [activeWsId])
 
   // Destroy after unmount: deleted children clean up before this passive effect, so no slot is
   // live over a destroyed store. An id re-retained before the flush keeps its store.
