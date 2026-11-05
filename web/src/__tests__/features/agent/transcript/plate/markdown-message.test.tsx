@@ -52,8 +52,7 @@ describe('MarkdownMessage', () => {
     )
   }, 30_000)
 
-  // REGRESSION, from the engine this replaced: react-markdown v9 dropped its
-  // `inline` prop and every inline code span silently became a <pre> block.
+  // react-markdown v9 has no `inline` prop; inline code must not become a <pre> block.
   it('renders an inline code span inline, not as a block', () => {
     render(<MarkdownMessage>{'run `make dev` first'}</MarkdownMessage>)
     const code = screen.getByText('make dev')

@@ -248,22 +248,9 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
 })
 
 /**
- * REGRESSION, caught live on a 30-item numbered list and reproduced in Chrome:
- * `.chat-fresh-text` spans climbed monotonically to 314 over a single reply
- * and never fell until the stream stopped.
- *
- * Settling is bookkeeping — it deliberately performs no edit — and a block
- * only recomputes its decorations when something re-renders it. While a list
- * streams, only the LAST item is ever re-rendered, so every finished item kept
- * its animated spans in the DOM for the rest of the turn: each one an element
- * still carrying a running `animation` declaration that `fill-mode: both`
- * keeps alive. The old pre-decoration design never had this because settling
- * unset the marks, which merged the leaves back into plain text and removed
- * the spans outright.
- *
- * Bounded, not zero, is the contract: words that genuinely are still fading
- * keep their spans.
- */
+ /** Settling performs no edit and only the last list item re-renders while a list streams, so
+  * finished items could keep animated spans all turn. Bounded, not zero, is the contract: words
+  * still fading keep their spans. */
 describe('finished fades do not pile up in the DOM', () => {
   const listItem = (i: number) => `${i + 1}. item ${i} of the list here`
 

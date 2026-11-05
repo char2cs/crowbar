@@ -102,11 +102,8 @@ describe('lastLineTop', () => {
     expect(lastLineTop(doc)).toBeCloseTo(48 + 23.8)
   })
 
-  // REGRESSION: the pane's overlay chat header floats over this document
-  // with no flex space of its own, so a genuinely empty document's fallback
-  // position has to add the SAME clearance `.doc`'s own top padding gets
-  // (composer.css's `--agent-header-clearance`) or the handle renders above
-  // where the (padded-down) first line actually sits.
+  // The overlay chat header takes no flex space, so an empty document's fallback position adds
+  // the same clearance as `.doc`'s top padding (`--agent-header-clearance`).
   it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
     expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 23.8)
   })
@@ -153,16 +150,8 @@ describe('AgentEmptyDocument header clearance', () => {
   })
 })
 
-// REGRESSION: `selectionchange` is a DOCUMENT event, and this box listened to
-// it unconditionally to keep its handle under the last line. Monaco mirrors the
-// editor selection into a hidden textarea, so a drag-select in a code pane fires
-// one per pointer move / auto-scroll tick (~120/s) — and every mounted chat
-// composer answered each of them with `place()`: two getBoundingClientRect reads
-// (a forced layout of the whole document) followed by a style write that dirties
-// it again. Measured live in the Tauri app: 239 synthetic selectionchange events
-// produced 478 rect reads on `.doc` — two per open chat — while the person was
-// doing nothing in any chat at all. The listener must ignore selections that are
-// not inside THIS document.
+// `selectionchange` is a document event that Monaco fires ~120/s during a drag-select; each
+// `place()` forces a layout, so the listener must ignore selections outside THIS document.
 describe('AgentEmptyDocument selectionchange gating', () => {
   const FALLBACK_TRANSFORM = 'translateY(76px)' // 48 + 23.8 + HANDLE_LEAD, rounded
 

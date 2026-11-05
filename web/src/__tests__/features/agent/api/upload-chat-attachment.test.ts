@@ -111,11 +111,8 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported by review: backslash/quote were the only characters
-  // escaped, so a filename carrying a literal CR/LF split the hand-built
-  // Content-Disposition line in two, injecting an extra header line into the
-  // multipart body this client itself constructs. Self-request-only (this
-  // is the CLIENT'S own outgoing request), but a real gap regardless.
+  // A CR/LF in the filename would split the hand-built Content-Disposition line and inject an
+  // extra header into the client's own multipart body.
   it('strips CR/LF from the filename instead of letting it inject an extra header line', async () => {
     const fetchMock = vi
       .fn()

@@ -57,11 +57,8 @@ describe('empty chat document — overflow-x', () => {
     expect(doc['overflow-x']).toBe('auto')
   })
 
-  // REGRESSION: a retired `.sheet`-placeholder rule shares the exact same
-  // `.agent-chat .doc` selector and sits LATER in the file. Its `overflow:
-  // hidden` had equal specificity and later source order, so it silently
-  // beat the live rule's own `overflow-x` for the one real `.doc` element on
-  // screen — adding `overflow-x: auto` to the live rule alone did nothing.
+  // The retired `.sheet` rule reuses the `.agent-chat .doc` selector later in the file; its
+  // `overflow: hidden` must not beat the live rule's `overflow-x`.
   it('is not clobbered by the retired .sheet-era .doc rule further down the file', () => {
     const occurrences = [...composerCss.matchAll(/\.agent-chat \.doc\s*\{/g)]
     expect(occurrences.length).toBeGreaterThan(1)
@@ -84,13 +81,8 @@ describe('empty chat document — font size', () => {
   })
 })
 
-// REGRESSION: `.agent-chat .underbar` used `flex-wrap: wrap`, so once `.left`
-// (the model/effort/switcher cluster) and `.right` (queued count + the
-// context gauge/Compact chip) could not both fit on one line, `.right`
-// dropped to its own wrapped line — pushed toward, sometimes through, the
-// dock's bottom edge. Measured live at a 640px viewport: three lines, the
-// gauge on the last pixel row. `.right` must stay on the baseline row always;
-// `.left` absorbs the pressure instead.
+// `.right` (queued count, gauge, Compact) must stay on the baseline row however narrow the dock;
+// `.left` absorbs the pressure, else a wrapped `.right` is pushed through the dock's bottom edge.
 describe('underbar — .right never leaves the baseline row', () => {
   it('the row itself does not wrap', () => {
     const underbar = cascadedDeclarations(composerCss, '.agent-chat .underbar')
