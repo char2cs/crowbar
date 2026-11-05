@@ -44,6 +44,22 @@ pub fn guard(url: &Url, dev_url: Option<&Url>) -> bool {
     }
 }
 
+/// Applies [`guard`] to every app webview (browser panes have their own policy).
+pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri::Manager;
+
+    tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            #[cfg(desktop)]
+            if crate::browser::exempt_from_app_guard(webview.label()) {
+                return true;
+            }
+            let dev_url = webview.app_handle().config().build.dev_url.clone();
+            guard(url, dev_url.as_ref())
+        })
+        .build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

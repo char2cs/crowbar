@@ -1,1053 +1,63 @@
+//! The Tauri app builder: plugins, managed state, lifecycle hooks and the command table.
+
 mod api_proxy;
+#[cfg(target_os = "macos")]
+mod app_menu;
 #[cfg(desktop)]
 mod browser;
 #[cfg(desktop)]
 mod console_menu;
 #[cfg(desktop)]
+mod context_menu;
+#[cfg(debug_assertions)]
+mod dev_identity;
+#[cfg(desktop)]
 mod diagnostics;
 #[cfg(desktop)]
 mod fdlimit;
+#[cfg(desktop)]
+mod file_manager;
+#[cfg(target_os = "macos")]
+mod frame_rate;
 mod host_tokens;
 mod hosts;
+mod init_scripts;
+mod logging;
 mod navigation;
 #[cfg(desktop)]
 mod sidecar;
-mod tls_pin;
-mod ws_bridge;
-
 #[cfg(test)]
-mod test_support {
-    use std::sync::OnceLock;
-    use tokio::sync::{Mutex, MutexGuard};
-
-    /// Serialises every test that opens a file descriptor.
-    ///
-    /// A descriptor leak can only be measured process-wide (`/dev/fd`), and cargo runs the
-    /// suite in parallel — so a descriptor another test opens mid-measurement reads as a
-    /// leak, and one it closes can hide a real one. Every test that opens *anything* — a
-    /// socket, a log file, a zip — takes this, which is what makes the count attributable
-    /// to the test doing the counting. A test that opens nothing does not need it.
-    ///
-    /// tokio's mutex rather than std's: it is held across awaits, and it does not poison,
-    /// so one failing test cannot cascade into the rest.
-    fn lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    pub async fn fd_tests() -> MutexGuard<'static, ()> {
-        lock().lock().await
-    }
-
-    /// For the sync tests. `blocking_lock` panics inside a runtime, and these are not in
-    /// one — that is precisely why they cannot use [`fd_tests`].
-    pub fn fd_tests_blocking() -> MutexGuard<'static, ()> {
-        lock().blocking_lock()
-    }
-}
+mod test_support;
+mod tls_pin;
+#[cfg(desktop)]
+mod window_chrome;
+#[cfg(desktop)]
+mod windows;
+mod ws_bridge;
 
 use tauri::Manager;
 
-// ProMotion / high-refresh-rate: WKWebView defaults to 60fps due to the
-// `preferPageRenderingUpdatesNear60FPSEnabled` WebKit preference, and macOS
-// ProMotion adaptively drops below 120fps when content is static.
-//
-// Three-pronged approach:
-//   1. NSUserDefaults before WKWebView creation (disable_webkit_60fps_cap_early).
-//      Works on macOS 13–15 where WebKit reads this key before creating its
-//      CADisplayLink. May be ignored on macOS 26 where the preference backend
-//      was restructured.
-//   2. Direct WKPreferences setter to remove the 60fps cap.
-//      Guarded by respondsToSelector: — safe in FFI context.
-//   3. preferredFrameRateRange on the WKWebView itself (public API, macOS 13.3+).
-//      Sets minimum=80fps for the frames the app actually produces. This raises
-//      the rate of real rendering; it deliberately does NOT keep the display link
-//      alive while content is static. Rendering is demand-driven: an idle window
-//      must produce no frames, so ProMotion is free to drop. Do not "fix" an idle
-//      refresh-rate reading by driving a permanent rAF/WebGL loop — that pins the
-//      whole layer tree at ~120 commits/sec and costs ~65% of a core at idle.
-//
-// The post-creation plugin approach (tauri-plugin-macos-fps) uses the private
-// `_features` array API. That selector was removed in macOS 26 and calling it
-// throws "unrecognized selector" which aborts the process — avoid it.
-
-// CAFrameRateRange mirrors CoreAnimation's public struct (3 x f32, macOS 12+).
-// Used to set WKWebView.preferredFrameRateRange (macOS 13.3+).
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CAFrameRateRange {
-    minimum: f32,
-    maximum: f32,
-    preferred: f32,
-}
-
-// Static field array used by the Encode impl below.
-// const { &[...] } works but a static makes the 'static lifetime explicit.
-#[cfg(target_os = "macos")]
-static CA_FRAME_RATE_RANGE_FIELDS: [objc2::encode::Encoding; 3] = [
-    objc2::encode::Encoding::Float,
-    objc2::encode::Encoding::Float,
-    objc2::encode::Encoding::Float,
-];
-
-#[cfg(target_os = "macos")]
-const CA_FRAME_RATE_RANGE_ENCODING: objc2::encode::Encoding =
-    objc2::encode::Encoding::Struct("CAFrameRateRange", &CA_FRAME_RATE_RANGE_FIELDS);
-
-#[cfg(target_os = "macos")]
-unsafe impl objc2::encode::Encode for CAFrameRateRange {
-    const ENCODING: objc2::encode::Encoding = CA_FRAME_RATE_RANGE_ENCODING;
-}
-
-#[cfg(target_os = "macos")]
-unsafe impl objc2::encode::RefEncode for CAFrameRateRange {
-    const ENCODING_REF: objc2::encode::Encoding =
-        objc2::encode::Encoding::Pointer(&CA_FRAME_RATE_RANGE_ENCODING);
-}
-
-#[cfg(target_os = "macos")]
-unsafe fn disable_webkit_60fps_cap_early() {
-    use objc2::msg_send;
-    use objc2::runtime::{AnyClass, AnyObject, Bool};
-
-    let Some(defaults_cls) = AnyClass::get(c"NSUserDefaults") else {
-        return;
-    };
-    let defaults: *mut AnyObject = unsafe { msg_send![defaults_cls, standardUserDefaults] };
-    if defaults.is_null() {
-        return;
-    }
-
-    let Some(str_cls) = AnyClass::get(c"NSString") else {
-        return;
-    };
-
-    for key in [
-        b"WebKitPreferPageRenderingUpdatesNear60FPSEnabled\0" as &[u8],
-        b"PreferPageRenderingUpdatesNear60FPSEnabled\0",
-    ] {
-        let nskey: *mut AnyObject =
-            unsafe { msg_send![str_cls, stringWithUTF8String: key.as_ptr()] };
-        if nskey.is_null() {
-            continue;
-        }
-        let _: () = unsafe { msg_send![defaults, setBool: Bool::new(false), forKey: nskey] };
-    }
-    log::info!("ProMotion: NSUserDefaults 60fps keys cleared");
-}
-
-// Post-creation fix: applied via with_webview in setup().
-// Every call is guarded by respondsToSelector: — the only safe pattern inside
-// a with_webview closure, which runs synchronously from did_finish_launching
-// (extern "C" context where ObjC exceptions can't unwind → SIGABRT).
-#[cfg(target_os = "macos")]
-unsafe fn disable_webkit_60fps_cap_post(wkwebview_ptr: *mut objc2::runtime::AnyObject) {
-    use objc2::msg_send;
-    use objc2::runtime::{AnyObject, Bool};
-
-    // Step A: remove the 60fps cap from WKPreferences.
-    let config: *mut AnyObject = msg_send![wkwebview_ptr, configuration];
-    if !config.is_null() {
-        let prefs: *mut AnyObject = msg_send![config, preferences];
-        if !prefs.is_null() {
-            let sel = objc2::sel!(setPreferPageRenderingUpdatesNear60FPSEnabled:);
-            let responds: Bool = msg_send![prefs, respondsToSelector: sel];
-            if responds.as_bool() {
-                let _: () = msg_send![prefs, setPreferPageRenderingUpdatesNear60FPSEnabled: Bool::new(false)];
-                log::info!("ProMotion: 60fps cap removed via WKPreferences setter");
-            } else {
-                log::warn!("ProMotion: setPreferPageRenderingUpdatesNear60FPSEnabled: absent — 60fps cap may persist");
-            }
-        }
-    }
-
-    // Step B: lock the ProMotion rate to exactly 120fps.
-    // preferredFrameRateRange (public API, macOS 13.3+) with minimum=120 prevents
-    // the OS from ever running below 120fps, even when idle. This only takes effect
-    // while WKWebView's internal display link is active — the persistent rAF loop
-    // injected via CROWBAR_BOOTSTRAP keeps the link alive.
-    // Falls back to the deprecated preferredFramesPerSecond: NSInteger on macOS < 13.3.
-    let sel_pfr = objc2::sel!(setPreferredFrameRateRange:);
-    let has_pfr: Bool = msg_send![wkwebview_ptr, respondsToSelector: sel_pfr];
-    if has_pfr.as_bool() {
-        let range = CAFrameRateRange {
-            minimum: 120.0,
-            maximum: 120.0,
-            preferred: 120.0,
-        };
-        let _: () = msg_send![wkwebview_ptr, setPreferredFrameRateRange: range];
-        log::info!("ProMotion: preferredFrameRateRange locked to 120fps");
-    } else {
-        let sel_fps = objc2::sel!(setPreferredFramesPerSecond:);
-        let has_fps: Bool = msg_send![wkwebview_ptr, respondsToSelector: sel_fps];
-        if has_fps.as_bool() {
-            let _: () = msg_send![wkwebview_ptr, setPreferredFramesPerSecond: 120i64];
-            log::info!("ProMotion: preferredFramesPerSecond set to 120 (pre-13.3 fallback)");
-        }
-    }
-}
-
-/// Badged artwork worn only by builds running out of a developer's own tree.
-///
-/// `desktop/icons-src/crowbar-dev.png` carries ~10% transparent padding on all
-/// four sides. That margin is LOAD-BEARING, not slack to be cropped: unlike the
-/// bundled .icns/.icon paths, `-setApplicationIconImage:` hands AppKit a bitmap
-/// it draws edge-to-edge with no inset of its own, so a tight crop renders
-/// noticeably larger than every neighbouring Dock icon. Leave the file alone.
-#[cfg(all(debug_assertions, target_os = "macos"))]
-const DEV_ICON_PNG: &[u8] = include_bytes!("../../icons-src/crowbar-dev.png");
-
-/// Give debug builds a visually distinct Dock / app-switcher icon.
-///
-/// Both dev entry points otherwise wear production Crowbar's face: `make
-/// dev-desktop` (`tauri dev`) runs a bare binary with no bundle at all, and
-/// `make dev-bundle` produces a .app carrying the same icon the release does.
-/// With a real Crowbar usually also running, that makes the two instances
-/// indistinguishable at a glance — the wrong window gets driven, and worse,
-/// trusted (see the dev-isolation rules in the Makefile).
-///
-/// Swapping the icon at RUNTIME rather than through `bundle.icon` is what keeps
-/// this off the release path entirely: `cfg(debug_assertions)` means the bytes
-/// are not even linked into a release binary, and macOS release builds keep the
-/// Icon Composer bundle (`icons/crowbar.icon` → Assets.car) untouched.
-///
-/// MUST be called from the `RunEvent::Ready` handler, never from `setup()`.
-/// Tauri does this exact same call itself under `cfg(all(dev, target_os =
-/// "macos"))` — see the `RuntimeRunEvent::Ready` arm in tauri's app.rs — feeding
-/// it whichever `bundle.icon` entry ends in `.icns`. That fires after `setup()`,
-/// so an icon set there is silently overwritten by `icons/icon.icns` moments
-/// later; the app logs success and the Dock still shows the release artwork.
-/// Ready reaches our callback only after tauri's own arm has run, which is what
-/// makes it the first point where this sticks.
-///
-/// Best-effort by design: an app that fails to restyle its own icon has no
-/// reason to refuse to boot, so every step degrades to leaving the icon as-is.
-#[cfg(all(debug_assertions, target_os = "macos"))]
-fn apply_dev_app_icon() {
-    use objc2::msg_send;
-    use objc2::runtime::{AnyClass, AnyObject};
-
-    unsafe {
-        let (Some(data_cls), Some(image_cls), Some(app_cls)) = (
-            AnyClass::get(c"NSData"),
-            AnyClass::get(c"NSImage"),
-            AnyClass::get(c"NSApplication"),
-        ) else {
-            return;
-        };
-
-        // +dataWithBytes:length: copies, so the borrow of DEV_ICON_PNG ends here.
-        let data: *mut AnyObject = msg_send![
-            data_cls,
-            dataWithBytes: DEV_ICON_PNG.as_ptr().cast::<std::ffi::c_void>(),
-            length: DEV_ICON_PNG.len(),
-        ];
-        if data.is_null() {
-            return;
-        }
-
-        // -initWithData: returns +1. We never release it: NSApp holds the icon
-        // for the process lifetime anyway, so a matching release would only
-        // hand us a dangling pointer. One leaked NSImage, once, in debug only.
-        let image: *mut AnyObject = msg_send![image_cls, alloc];
-        let image: *mut AnyObject = msg_send![image, initWithData: data];
-        if image.is_null() {
-            return;
-        }
-
-        let ns_app: *mut AnyObject = msg_send![app_cls, sharedApplication];
-        if ns_app.is_null() {
-            return;
-        }
-
-        let _: () = msg_send![ns_app, setApplicationIconImage: image];
-    }
-    log::info!("dev build: Dock icon set to badged dev artwork");
-}
-
-/// The title a debug build wears, or `None` when there is nothing to say.
-///
-/// A blank label is not a small defect to paper over with an empty interpolation:
-/// `Crowbar — dev: ` claims to name a worktree and then names none, which is
-/// worse than the plain title, because it looks like the answer. So an absent,
-/// empty or whitespace-only label degrades all the way back to the configured
-/// "Crowbar" rather than part of the way.
-#[cfg(desktop)]
-#[cfg(debug_assertions)]
-fn dev_window_title(label: &str) -> Option<String> {
-    let label = label.trim();
-    (!label.is_empty()).then(|| format!("Crowbar — dev: {label}"))
-}
-
-/// Name the worktree a debug build was launched from, in its window title.
-///
-/// Same motivation as [`apply_dev_app_icon`], one notch finer. Badged artwork
-/// separates dev from production, but not one dev instance from another — and
-/// several agents run `make dev-desktop` on this machine at once, each out of a
-/// different git worktree of this repo. Every one of them is a
-/// `target/debug/crowbar-desktop` showing a window called "Crowbar", so an agent
-/// asked to clean up *its own* app has nothing to match on and has already taken
-/// down someone else's session by guessing. A branch is the one label that is
-/// unique per worktree — git refuses to check the same one out twice — which is
-/// what makes it worth putting in the title.
-///
-/// The label arrives through `CROWBAR_DEV_LABEL`, exported by the dev targets in
-/// the root Makefile, instead of being resolved here. That Makefile knows which
-/// worktree it is; this process only knows a working directory, which under
-/// `tauri dev` is `desktop/src-tauri` — inside the tree today, but nothing holds
-/// it there, and asking git from the wrong directory answers for whichever
-/// repository happens to enclose it.
-///
-/// Unlike the Dock icon this needs no `RunEvent::Ready`: tauri builds the
-/// config-declared windows before `setup()` runs and never revisits their titles,
-/// so `setup` is simply the first moment "main" exists to be renamed.
-///
-/// Best-effort, like the icon: a window that cannot rename itself is still a
-/// perfectly good window.
-#[cfg(desktop)]
-#[cfg(debug_assertions)]
-fn apply_dev_window_title(app: &tauri::App) {
-    let Some(title) = std::env::var("CROWBAR_DEV_LABEL")
-        .ok()
-        .and_then(|label| dev_window_title(&label))
-    else {
-        return;
-    };
-
-    let Some(window) = app.get_window("main") else {
-        return;
-    };
-
-    match window.set_title(&title) {
-        Ok(()) => log::info!("dev build: window titled {title:?}"),
-        Err(e) => log::warn!("dev build: could not set window title: {e}"),
-    }
-}
-
-// Injected into the webview at document-start on every page load (including full
-// reloads), before any frontend JS runs. It sets the API base the frontend
-// resolves against (`api.ts` / `ws/url.ts`). Doing this as an init script rather
-// than a one-time `setup()` eval matters: a reload wipes `window.__CROWBAR__`,
-// and without it the frontend falls back to the dev origin and dials a doomed
-// `ws://localhost:5173`, which flips the connection store to "disconnected" and
-// flashes the "backend unavailable — reconnecting" banner. Guarded by hostname
-// so it never leaks the global into browser-pane webviews showing external sites
-// (the app itself is served from localhost / tauri.localhost).
-//
-// ProMotion note: a rAF loop with no DOM work does NOT keep the display at 120 Hz
-// because WebKit skips GPU commits when nothing changes. The real fix is a CSS
-// transform animation in index.html (a composited CA layer that continuously
-// submits GPU frames, signalling ProMotion to hold 120 Hz).
-const CROWBAR_BOOTSTRAP: &str = r#"
-(function () {
-  var h = location.hostname;
-  if (h === 'localhost' || h === 'tauri.localhost') {
-    window.__CROWBAR__ = Object.assign(window.__CROWBAR__ || {}, {
-      mode: 'local',
-      endpoint: 'crowbar://localhost',
-      api: 'crowbar://localhost',
-    });
-  }
-})();
-"#;
-
-/// Forwards `console.warn/error`, uncaught errors and rejected promises to the log plugin.
-#[cfg(all(mobile, debug_assertions))]
-const WEBVIEW_CONSOLE_FORWARD: &str = r#"
-(function () {
-  function send(level, parts) {
-    try {
-      var message = parts.map(function (p) {
-        return p instanceof Error ? p.stack || String(p) : typeof p === 'string' ? p : JSON.stringify(p);
-      }).join(' ');
-      window.__TAURI_INTERNALS__.invoke('plugin:log|log', { level: level, message: message, location: 'webview' });
-    } catch (_) {}
-  }
-  ['warn', 'error'].forEach(function (name) {
-    var original = console[name];
-    console[name] = function () {
-      send(name === 'error' ? 5 : 4, Array.prototype.slice.call(arguments));
-      original.apply(console, arguments);
-    };
-  });
-  window.addEventListener('error', function (e) { send(5, ['uncaught', e.message, e.filename + ':' + e.lineno]); });
-  window.addEventListener('unhandledrejection', function (e) { send(5, ['unhandledrejection', e.reason]); });
-})();
-"#;
-
-/// macOS application menu, deliberately omitting four default accelerators so
-/// the keystrokes reach the webview instead of being captured natively by AppKit
-/// (menu key-equivalents are handled before the web content):
-///   - Edit > Undo / Redo (Cmd+Z / Shift+Cmd+Z): the native Undo targets the
-///     WKWebView's own undo, not Monaco's document undo stack. Omitting lets
-///     Cmd+Z reach Monaco so editor undo works.
-///   - Edit > Select All (Cmd+A): the native Select All runs WebKit's `selectAll:`
-///     on the focused element — Monaco's hidden input textarea, which (with
-///     `editContext: false`, see monaco-adapters.ts) only ever holds a small buffer
-///     around the cursor, NOT the whole document. So the native path selects that
-///     partial buffer instead of the file. Omitting lets Cmd+A reach Monaco, whose
-///     own select-all keybinding selects the full model
-///     (web/src/features/editor/hooks/use-pane-editor-satellites.ts). Plain HTML
-///     inputs keep Cmd+A via WebKit's built-in editing key bindings regardless of
-///     this menu item, so nothing else regresses.
-///   - Window > Close (Cmd+W): natively closes the window, quitting the app.
-///     Omitting frees Cmd+W for the in-app "close active tab" keybinding
-///     (web/src/features/panes/hooks/use-pane-keyboard.ts).
-///
-/// Everything else standard is kept: Cut/Copy/Paste, Hide, Services,
-/// Quit (Cmd+Q), Minimize.
-#[cfg(target_os = "macos")]
-fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
-
-    let app_menu = SubmenuBuilder::new(app, "Crowbar")
-        .about(Some(AboutMetadata::default()))
-        .separator()
-        .services()
-        .separator()
-        .hide()
-        .hide_others()
-        .show_all()
-        .separator()
-        .quit()
-        .build()?;
-
-    // No undo()/redo()/select_all(): freed for Monaco (see doc comment above).
-    // Cut/Copy/Paste stay — WebKit fires those as DOM events Monaco intercepts and
-    // maps onto its model; Select All has no such interceptable event, so its
-    // native accelerator would only ever select Monaco's partial input buffer.
-    let edit_menu = SubmenuBuilder::new(app, "Edit")
-        .cut()
-        .copy()
-        .paste()
-        .build()?;
-
-    // Still no close_window(): its accelerator is Cmd+W, which stays freed for the
-    // in-app close-active-tab binding.
-    //
-    // Accelerators here must not collide with anything in the frontend keymap
-    // registry (web/src/features/keymaps/registry.ts). A native menu accelerator is
-    // consumed by AppKit BEFORE the keystroke reaches WKWebView, so a collision does
-    // not "win a race" — it makes the in-app binding permanently unreachable, and
-    // unrebindable too, since the settings capture never sees the key either. That
-    // mechanism is why close_window() is omitted above.
-    //
-    // Both conventional New Window chords are already taken by in-app actions:
-    // Cmd+N is `agent.newChat` and Cmd+Shift+N is `tab.newFile` (registry.ts). Window
-    // management is far less frequent than either, so it does not get to evict them —
-    // hence Cmd+Alt+N, which the registry leaves free.
-    //
-    // Close Window at Cmd+Shift+W (also free) is not optional decoration: with Cmd+W
-    // rebound to close-tab, a keyboard-driven user otherwise has NO way to close a
-    // window at all — only the traffic light. Fine for a one-window app, a real gap
-    // for a multi-window one. Both are built by hand rather than via the predefined
-    // items so they get these accelerators instead of the reserved defaults.
-    let new_window = tauri::menu::MenuItemBuilder::new("New Window")
-        .id(NEW_WINDOW_MENU_ID)
-        .accelerator("CmdOrCtrl+Alt+N")
-        .build(app)?;
-    let close_window = tauri::menu::MenuItemBuilder::new("Close Window")
-        .id(CLOSE_WINDOW_MENU_ID)
-        .accelerator("CmdOrCtrl+Shift+W")
-        .build(app)?;
-    // Accelerator is set at runtime from the keymap (console_menu::set_console_menu_chord).
-    let toggle_console = console_menu::menu_item(app)?;
-    let window_menu = SubmenuBuilder::with_id(app, console_menu::WINDOW_MENU_ID, "Window")
-        .item(&new_window)
-        .item(&toggle_console)
-        .item(&close_window)
-        .separator()
-        .minimize()
-        .build()?;
-
-    MenuBuilder::new(app)
-        .items(&[&app_menu, &edit_menu, &window_menu])
-        .build()
-}
-
-/// Menu id for the "New Window" item, shared between where it's built
-/// (`build_app_menu`, above) and where it's matched (`on_menu_event` in `run`, ~285
-/// lines away) so the two can't drift out of sync — a typo in either literal would
-/// just make the menu item stop responding, with no compiler error and no runtime log.
-#[cfg(target_os = "macos")]
-const NEW_WINDOW_MENU_ID: &str = "new_window";
-
-/// Menu id for "Close Window". Same drift argument as [`NEW_WINDOW_MENU_ID`].
-#[cfg(target_os = "macos")]
-const CLOSE_WINDOW_MENU_ID: &str = "close_window";
-
-/// Reveal a file or directory in the OS file manager (Finder on macOS) with the
-/// item selected. Calls tauri-plugin-opener's platform implementation as a plain
-/// library function behind our own command: an app command is invokable without
-/// any capability entry, whereas the plugin's FE-facing command would need a
-/// path-glob scope broad enough to whitelist every workspace root (including
-/// dot-segment paths like ~/.crowbar/projects/...), which the glob matcher
-/// handles inconsistently. (Verified: this app has no `permissions/` dir, so no
-/// ACL manifest exists under tauri_utils::acl::APP_ACL_KEY for it — `RuntimeAuthority`
-/// only gates local, non-plugin commands when the app HAS one — see
-/// tauri::webview's invoke dispatch. `cargo build`'s `gen/schemas/acl-manifests.json`
-/// has no "app" key, confirming it today. If a `permissions/` dir is ever added for
-/// some other command, this one must get an explicit allow alongside it.)
-///
-/// Must be `async`, unlike this rule's one other exception below
-/// (`set_vibrancy_appearance`, which genuinely needs the main thread for its
-/// AppKit view mutation): a plain, non-async `#[tauri::command]` runs INLINE on
-/// the calling thread, which for a WKWebView IPC message is the app's main
-/// thread (see `set_vibrancy_appearance`'s doc comment). `reveal_item_in_dir`'s
-/// macOS path calls `NSWorkspace.activateFileViewerSelectingURLs`, a blocking
-/// round trip to Finder over XPC. Run inline on the main thread, a slow round
-/// trip stalls it — and because that same thread also pumps the WKWebView's
-/// message loop, the whole script context freezes (not just this one invoke)
-/// until it resolves. This is exactly the "invoke hangs the page" symptom Task
-/// 30 reported; it is not an ACL denial (see above). Every other IPC command in
-/// this file (ws_bridge.rs, diagnostics.rs) is already `async` for
-/// this reason — this one just wasn't (Task 28). `spawn_blocking` moves the
-/// actual blocking call onto a dedicated blocking-pool thread so a slow Finder
-/// round trip no longer holds up the UI.
-#[cfg(desktop)]
-#[tauri::command]
-async fn reveal_in_finder(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tauri_plugin_opener::reveal_item_in_dir(&path).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("reveal_in_finder task panicked: {e}"))?
-}
-
-/// Pin the native vibrancy frost to a fixed appearance so it renders per-theme.
-///
-/// window-vibrancy `apply_vibrancy` adds an NSVisualEffectView tagged
-/// NS_VIEW_TAG_BLUR_VIEW = 91376254 (window-vibrancy-0.8.0/src/macos/vibrancy.rs:13)
-/// as a `Below` subview of the window contentView but never calls setAppearance:,
-/// so the frost inherits effectiveAppearance from the OS (dark in BOTH themes —
-/// the proven root cause of the light theme reading gray). Pinning the blur view
-/// to NSAppearanceNameAqua (light) / NSAppearanceNameDarkAqua (dark) makes the
-/// SAME HUDWindow material render light/dark by construction. Targets the blur
-/// VIEW (falls back to the NSWindow), never NSApp, so the WKWebView's own
-/// prefers-color-scheme is untouched.
-#[cfg(desktop)]
-#[tauri::command]
-fn set_vibrancy_appearance(window: tauri::Window, dark: bool) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use objc2::msg_send;
-        use objc2::runtime::{AnyClass, AnyObject, Bool};
-
-        // window-vibrancy vibrancy.rs:13 — the tag of the NSVisualEffectView.
-        const NS_VIEW_TAG_BLUR_VIEW: isize = 91376254;
-
-        unsafe {
-            // AppKit is main-thread-only. Tauri runs sync commands on the main
-            // (event-loop) thread; guard defensively so we never msg_send a UI
-            // object off-main.
-            let thread_cls = AnyClass::get(c"NSThread").ok_or("NSThread class missing")?;
-            let is_main: Bool = msg_send![thread_cls, isMainThread];
-            if !is_main.as_bool() {
-                return Err("set_vibrancy_appearance must run on the main thread".into());
-            }
-
-            let ns_window = window
-                .ns_window()
-                .map_err(|e| format!("ns_window() failed: {e}"))?
-                as *mut AnyObject;
-            if ns_window.is_null() {
-                return Err("ns_window is null".into());
-            }
-            let content_view: *mut AnyObject = msg_send![ns_window, contentView];
-            if content_view.is_null() {
-                return Err("contentView is null".into());
-            }
-
-            // The string VALUE of NSAppearanceNameAqua / NSAppearanceNameDarkAqua
-            // equals the symbol name, so appearanceNamed: resolves it from a
-            // plain NSString.
-            let appearance_cls =
-                AnyClass::get(c"NSAppearance").ok_or("NSAppearance class missing")?;
-            let str_cls = AnyClass::get(c"NSString").ok_or("NSString class missing")?;
-            let name_bytes: &[u8] = if dark {
-                b"NSAppearanceNameDarkAqua\0"
-            } else {
-                b"NSAppearanceNameAqua\0"
-            };
-            let name: *mut AnyObject =
-                msg_send![str_cls, stringWithUTF8String: name_bytes.as_ptr()];
-            let appearance: *mut AnyObject = msg_send![appearance_cls, appearanceNamed: name];
-            if appearance.is_null() {
-                return Err("appearanceNamed: returned nil".into());
-            }
-
-            // Pin ONLY the blur view's appearance — NOT the NSWindow. Setting the
-            // window appearance also flips the WKWebView's effectiveAppearance →
-            // its `prefers-color-scheme`, which the JS `system` theme mode reads to
-            // follow macOS; pinning the window froze that ("doesn't react to
-            // light/dark"). Pinning just the blur view lightens the HudWindow frost
-            // (Aqua) / darkens it (DarkAqua) while leaving the webview's
-            // prefers-color-scheme tied to the OS, so system mode keeps following.
-            //
-            // viewWithTag: searches the receiver + descendants; contentView.tag==0.
-            let blur_view: *mut AnyObject =
-                msg_send![content_view, viewWithTag: NS_VIEW_TAG_BLUR_VIEW];
-            if !blur_view.is_null() {
-                let _: () = msg_send![blur_view, setAppearance: appearance];
-                let _: () = msg_send![blur_view, setNeedsDisplay: Bool::new(true)];
-            } else {
-                // Fallback only if the tagged view is missing — which means
-                // apply_vibrancy never ran (or failed) for this window. Worth a
-                // warning rather than a silent fallback: the window is
-                // `transparent: true` and the chrome tokens are translucent on the
-                // assumption this view is behind them, so its absence is not "no
-                // blur", it is the desktop showing through the app. Silent fallback
-                // is how that shipped once already, on windows built by open_window
-                // — apply_vibrancy is main-thread-only and the command is async.
-                log::warn!(
-                    "vibrancy view missing on window '{}' — blur was never applied; \
-                     chrome will render translucent over the desktop",
-                    window.label()
-                );
-                let _: () = msg_send![ns_window, setAppearance: appearance];
-            }
-
-            let _: () = msg_send![content_view, setNeedsDisplay: Bool::new(true)];
-        }
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (window, dark);
-        Ok(())
-    }
-}
-
-/// Pure geometry for [`set_traffic_light_position`]: given the close button's
-/// own (OS-drawn) height, the requested `y` inset, and the window's current
-/// frame height, returns the title-bar container's new `(height, origin_y)`
-/// — AppKit's frame is bottom-left-origin, so `origin_y` counts up from the
-/// window's bottom edge. Mirrors wry's own `inset_traffic_lights`
-/// (wry-0.55.1 `wkwebview/class/wry_web_view_parent.rs`) exactly. Pulled out
-/// as a pure function — no `AnyObject`, no live window — so the one bit of
-/// real arithmetic here is unit-testable without AppKit.
-#[cfg(desktop)]
-#[cfg_attr(not(test), allow(dead_code))]
-fn traffic_light_container_frame(
-    close_button_height: f64,
-    y: f64,
-    window_frame_height: f64,
-) -> (f64, f64) {
-    let height = close_button_height + y;
-    (height, window_frame_height - height)
-}
-
-/// Runtime counterpart to `tauri.conf.json`'s config-time-only
-/// `trafficLightPosition` (`WebviewWindowBuilder::traffic_light_position`,
-/// see `open_window`'s doc comment for that mechanism). No tauri/wry version
-/// exposes a runtime equivalent publicly: the underlying capability exists —
-/// `tauri_runtime::Dispatch::set_traffic_light_position` — but unlike every
-/// other `Dispatch` method, `tauri::Window` never wraps it in a `pub fn`, and
-/// wry's own `inset_traffic_lights` (which that dispatch call reaches) lives
-/// in `wkwebview::class`, a module `pub(crate)` to wry itself. So this
-/// reimplements it by hand against the raw `NSWindow`, exactly as wry/tao do:
-/// resize the (invisible) title-bar container view to `close_button_height +
-/// y`, then set each button's `frame.origin.x` in turn.
-///
-/// Plain (non-async) like `set_vibrancy_appearance`, for the same reason:
-/// AppKit view mutation must run on the main thread, and a sync command runs
-/// inline on the IPC caller's thread, which for WKWebView IS the main thread.
-///
-/// `x`/`y` are logical points — the same units as `tauri.conf.json`'s static
-/// value and as `getBoundingClientRect()` on whichever frontend row computes
-/// them; no DPI scaling happens here.
-#[cfg(desktop)]
-#[tauri::command]
-fn set_traffic_light_position(window: tauri::Window, x: f64, y: f64) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use objc2::msg_send;
-        use objc2::runtime::{AnyClass, AnyObject, Bool};
-        use objc2_foundation::NSRect;
-
-        const CLOSE_BUTTON: usize = 0;
-        const MINIATURIZE_BUTTON: usize = 1;
-        const ZOOM_BUTTON: usize = 2;
-
-        unsafe {
-            // See set_vibrancy_appearance's identical guard.
-            let thread_cls = AnyClass::get(c"NSThread").ok_or("NSThread class missing")?;
-            let is_main: Bool = msg_send![thread_cls, isMainThread];
-            if !is_main.as_bool() {
-                return Err("set_traffic_light_position must run on the main thread".into());
-            }
-
-            let ns_window = window
-                .ns_window()
-                .map_err(|e| format!("ns_window() failed: {e}"))?
-                as *mut AnyObject;
-            if ns_window.is_null() {
-                return Err("ns_window is null".into());
-            }
-
-            let close: *mut AnyObject = msg_send![ns_window, standardWindowButton: CLOSE_BUTTON];
-            let miniaturize: *mut AnyObject =
-                msg_send![ns_window, standardWindowButton: MINIATURIZE_BUTTON];
-            let zoom: *mut AnyObject = msg_send![ns_window, standardWindowButton: ZOOM_BUTTON];
-            if close.is_null() || miniaturize.is_null() {
-                return Err("traffic light buttons missing".into());
-            }
-
-            let close_superview: *mut AnyObject = msg_send![close, superview];
-            if close_superview.is_null() {
-                return Err("close button has no superview".into());
-            }
-            let title_bar_container: *mut AnyObject = msg_send![close_superview, superview];
-            if title_bar_container.is_null() {
-                return Err("title bar container missing".into());
-            }
-
-            let close_frame: NSRect = msg_send![close, frame];
-            let window_frame: NSRect = msg_send![ns_window, frame];
-            let (container_height, container_origin_y) =
-                traffic_light_container_frame(close_frame.size.height, y, window_frame.size.height);
-
-            let mut container_frame: NSRect = msg_send![title_bar_container, frame];
-            container_frame.size.height = container_height;
-            container_frame.origin.y = container_origin_y;
-            let _: () = msg_send![title_bar_container, setFrame: container_frame];
-
-            let miniaturize_frame: NSRect = msg_send![miniaturize, frame];
-            let space_between = miniaturize_frame.origin.x - close_frame.origin.x;
-
-            let mut buttons = vec![close, miniaturize];
-            if !zoom.is_null() {
-                buttons.push(zoom);
-            }
-            for (i, button) in buttons.into_iter().enumerate() {
-                let mut frame: NSRect = msg_send![button, frame];
-                frame.origin.x = x + (i as f64 * space_between);
-                let _: () = msg_send![button, setFrameOrigin: frame.origin];
-            }
-        }
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (window, x, y);
-        Ok(())
-    }
-}
-
-/// Pops a native context menu built via `@tauri-apps/api/menu`'s `Menu.new()`, at
-/// (`x`, `y`) in the calling window's coordinate space.
-///
-/// This exists ONLY because Tauri's own built-in `plugin:menu|popup` command
-/// (tauri-2.11.5 `src/menu/plugin.rs:667-696`) has a real deadlock: it holds
-/// `webview.resources_table()`'s `MutexGuard` (a webview-wide lock every other
-/// resource-backed command — file streams, images, and this app's own terminal
-/// PTY channels — needs to touch) across the ENTIRE, open-ended duration of the
-/// blocking native popup call. Confirmed live via `sample` on a hung dev build:
-/// the main thread sat inside `-[NSMenu popUpMenuPositioningItem:...]` while an
-/// unrelated `resources::plugin::close` call was stuck on that same mutex,
-/// wedging the whole webview for as long as the menu stayed open. `ResourceTable::get`
-/// already returns an owned `Arc<Menu<_>>` (`resources/mod.rs:133-140`), so the
-/// only fix needed is dropping the guard before the blocking call — this command
-/// is that fix, otherwise identical to the built-in one.
-///
-/// Async + `spawn_blocking`, matching `reveal_in_finder` above: a plain sync
-/// command runs inline on the thread dispatching the IPC message (the app's main
-/// thread for a WKWebView call), and `popup_at`'s own main-thread dispatch would
-/// deadlock against itself if called from there directly.
-#[cfg(desktop)]
-#[tauri::command]
-async fn popup_native_context_menu(
-    webview: tauri::Webview,
-    window: tauri::Window,
-    rid: tauri::ResourceId,
-    x: f64,
-    y: f64,
-) -> Result<(), String> {
-    use tauri::menu::{ContextMenu, Menu};
-
-    let menu: std::sync::Arc<Menu<tauri::Wry>> = {
-        let table = webview.resources_table();
-        table
-            .get::<Menu<tauri::Wry>>(rid)
-            .map_err(|e| e.to_string())?
-        // `table` (the MutexGuard) is dropped here, at the end of this block —
-        // BEFORE the blocking popup call below, unlike Tauri's own command.
-    };
-
-    tauri::async_runtime::spawn_blocking(move || {
-        menu.popup_at(window, tauri::LogicalPosition::new(x, y))
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("popup_native_context_menu task panicked: {e}"))?
-}
-
-/// Native macOS chrome for a Crowbar window: the vibrancy blur behind the transparent
-/// window plus the post-creation WebKit 60fps un-cap. Applied to EVERY window, not just
-/// `main` — a second window is the same app and must look and animate identically.
-///
-/// NSVisualEffectView blur is fixed per material (no numeric radius). `HudWindow` maps to
-/// NSVisualEffectMaterialHUDWindow — a heavy, smooth blur. Requires `transparent: true`
-/// on the window (set in tauri.conf.json for `main`, mirrored in `open_window`'s builder
-/// for every other window) and `macOSPrivateApi: true` app-wide (set once in
-/// tauri.conf.json — it is a process entitlement, not a per-window builder option, so
-/// every `WebviewWindowBuilder`-made window gets it automatically).
-///
-/// State is `Active`, NOT the `FollowsWindowActiveState` default: an inactive
-/// NSVisualEffectView stops sampling the desktop and paints a flat fill instead, and
-/// since the window is transparent with translucent chrome tokens on top, that reads as
-/// the blur vanishing the instant the window stops being key.
-#[cfg(target_os = "macos")]
-fn decorate_window(webview: &tauri::Webview) {
-    let window = webview.window();
-    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
-
-    if let Err(e) = apply_vibrancy(
-        window,
-        NSVisualEffectMaterial::HudWindow,
-        Some(NSVisualEffectState::Active),
-        None,
-    ) {
-        log::error!("failed to apply window vibrancy: {e}");
-    }
-
-    // Step 2: post-creation setter, guarded by respondsToSelector:.
-    let _ = webview.with_webview(|wv| {
-        use objc2::runtime::AnyObject;
-        let ptr = wv.inner() as *mut AnyObject;
-        unsafe { disable_webkit_60fps_cap_post(ptr) };
-    });
-}
-
-#[cfg(all(desktop, not(target_os = "macos")))]
-fn decorate_window(_webview: &tauri::Webview) {}
-
-/// Builds the `initialization_script` that seeds `location.hash` to `route` on a new
-/// window's first paint (see the guard rationale on `open_window`, which is the only
-/// caller). Pulled out as a pure, synchronous function — no `AppHandle`, no webview —
-/// so the guard's shape and its handling of adversarial `route` input are both
-/// unit-testable without spinning up a real window.
-///
-/// `route` is embedded via `serde_json::to_string`, not a raw `format!` interpolation:
-/// a workspace route is attacker-adjacent-enough data (round-tripped through routing
-/// state, not a compile-time constant) that a hand-rolled JS string literal would be a
-/// script-injection bug the moment a route contained a `"` or `\`. `serde_json`'s
-/// escaping happens to produce a syntactically valid JS string literal too — its
-/// escape rules for `"`, `\`, and control characters (including newlines, which are
-/// illegal unescaped inside a single-line JS string literal) are exactly JSON's.
-///
-/// The guard fires only when `location.hash` is empty — this window's genuine first
-/// load, before the hash router has ever run. It deliberately does NOT also match
-/// `'#/'`: the root route is a real, user-reachable location (e.g. after navigating
-/// back to the picker), not a stand-in for "nothing has happened yet". Matching it too
-/// would re-seed `route` on every reload after the user deliberately returns to the
-/// picker, silently overriding their navigation — the opposite of this guard's job.
-#[cfg(desktop)]
-fn seed_hash_script(route: &str) -> Result<String, String> {
-    let encoded = serde_json::to_string(route).map_err(|e| format!("encode route: {e}"))?;
-    Ok(format!(
-        "if (!location.hash) {{ location.hash = {encoded}; }}"
-    ))
-}
-
-/// Opens another Crowbar window at `route` (a router path such as
-/// `/ide/<projectId>/<repoId>/<wsId>`, or `/` for the picker).
-///
-/// Every window is the same app: same sidebar, same everything. What differs is only
-/// which workspace it is looking at, and that is pure routing — the frontend uses hash
-/// history, so the target is delivered by seeding `location.hash` from an init script
-/// (`seed_hash_script`) that runs before any app JS, on every load of this window
-/// including reloads. Its guard fires only on a genuinely empty hash — this window's
-/// first paint — so a later reload keeps wherever the user has since navigated,
-/// including back to the root route; see `seed_hash_script`'s doc comment for why the
-/// guard is narrow rather than also matching `'#/'`.
-///
-/// The window is built from tauri.conf.json's `app.windows[0]` with only the label
-/// changed, which is the pattern tauri's own `from_config` docs prescribe for multiple
-/// windows. That config describes only the FIRST window and a builder-made window
-/// inherits none of it, so the options were previously re-stated by hand — and the
-/// hand-written mirror was NOT equivalent, in a way that is invisible from the Rust
-/// side. `WebviewWindowBuilder::traffic_light_position` writes to the WEBVIEW
-/// attributes only (tauri-2.11.2 `webview/webview_window.rs:736`), whereas
-/// `from_config` populates the window attributes too (`WindowBuilder::from_config` →
-/// `tauri-runtime-wry` lib.rs:873). Those feed two independent macOS implementations
-/// of the same inset: wry's `WryWebViewParent` re-applies it from ITS `drawRect:`, tao
-/// re-applies it from the tao content view's. The tao view is the one that actually
-/// redraws under a webview-filled window, so a window with only the webview-side inset
-/// gets it applied once at webview creation — against a window frame height that is not
-/// yet final — and then never corrected. That is the whole bug: secondary windows'
-/// traffic lights sat at a different offset from the main window's. Deriving from the
-/// config keeps the two paths identical by construction, and any future change to the
-/// window config now reaches secondary windows for free.
-///
-/// `async` with no `.await` in the body is deliberate, not dead ceremony: Tauri's own
-/// docs for `WebviewWindowBuilder::new` warn that on Windows, building a window from a
-/// synchronous command or event handler deadlocks (tauri-2.11.2's
-/// `src/webview/webview_window.rs:58`, "you should use `async` commands and separate
-/// threads when creating windows"), and per-command handling already runs sync
-/// commands inline on the caller's thread — the main thread, for IPC (see
-/// `reveal_in_finder`'s doc comment for the general rule). Marking this `async` keeps
-/// window creation off the main thread on every platform, which is also why the
-/// `on_menu_event` caller `tauri::async_runtime::spawn`s it rather than blocking the
-/// menu event loop.
-#[cfg(desktop)]
-#[tauri::command]
-async fn open_window(app: tauri::AppHandle, route: String) -> Result<(), String> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT_WINDOW: AtomicU64 = AtomicU64::new(2);
-
-    let label = format!("w{}", NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
-    let seed_hash = seed_hash_script(&route)?;
-
-    // Only the label differs. `create: false` is not set on this config entry, so the
-    // window it describes is also the one tauri made at startup and `label` MUST be
-    // overridden — two live windows cannot share one.
-    let mut config = tauri::Manager::config(&app)
-        .app
-        .windows
-        .first()
-        .cloned()
-        .ok_or_else(|| {
-            log::error!("open_window: tauri.conf.json declares no windows");
-            "no window config to clone".to_string()
-        })?;
-    config.label = label;
-
-    let window = tauri::WebviewWindowBuilder::from_config(&app, &config)
-        .map_err(|e| {
-            log::error!("open_window: config is not a valid window: {e}");
-            format!("open window: {e}")
-        })?
-        .initialization_script(&seed_hash)
-        .build()
-        .map_err(|e| {
-            log::error!("open_window: build failed: {e}");
-            format!("open window: {e}")
-        })?;
-
-    // Must hop to the main thread. `apply_vibrancy` opens with a hard
-    // `MainThreadMarker::new().ok_or(Error::NotMainThread)` gate
-    // (window-vibrancy 0.6.0, macos/internal.rs:22), and this command is `async`,
-    // so tauri dispatches it onto the multi-threaded tokio runtime — the menu path
-    // spawns too. Called directly from here it fails EVERY time, and
-    // `decorate_window` only logs the error.
-    //
-    // That is not a cosmetic "no blur": the window is `transparent: true` and the
-    // chrome tokens are deliberately translucent (--chrome-bg is a color-mix with
-    // `transparent`, see web/src/styles/theme.css) precisely because they sit on
-    // the NSVisualEffectView. With no vibrancy view behind them the second window
-    // shows the raw desktop through its own chrome. A webview screenshot cannot
-    // see this — it captures no native chrome — which is exactly how it survived
-    // live verification.
-    //
-    // The sibling `with_webview` call inside decorate_window is safe off-main on
-    // its own (it proxies through send_user_message), but running the whole thing
-    // on main is simpler than splitting them.
-    let decorated = window.clone();
-    window
-        .run_on_main_thread(move || decorate_window(decorated.as_ref()))
-        .map_err(|e| {
-            log::error!("open_window: could not decorate on the main thread: {e}");
-            format!("decorate window: {e}")
-        })?;
-    Ok(())
-}
-
-/// Window-level labels: `webview_windows()` omits a window once it hosts a child
-/// webview (a browser tab), which would make the last-window check see none.
-#[cfg(desktop)]
-fn live_window_labels<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Vec<String> {
-    tauri::Manager::windows(app).into_keys().collect()
-}
-
-/// Does any window OTHER than `closing` still exist?
-///
-/// This is the whole last-window decision, extracted so it can be tested — the
-/// handler it serves is an inline closure inside [`run`], reachable only from a live
-/// event loop, and it is the highest-consequence branch in the window lifecycle: too
-/// eager and the daemon dies under a surviving window, too shy and it is orphaned.
-///
-/// It takes labels rather than an `AppHandle` for a reason beyond testability. The
-/// obvious implementation, `webview_windows().len() > 1`, is WRONG, because whether
-/// the closing window is still in that map depends on which event we are in.
-/// `webview_windows()` reads tauri's AppManager maps and `AppManager::on_window_close`
-/// prunes them: for `CloseRequested` that never runs (window still counted), for
-/// `Destroyed` the RunEvent callback runs it synchronously BEFORE per-window listeners
-/// (window already gone). The handler matches both, so any length threshold is wrong
-/// for one of them — `> 1` kills the daemon on a non-last `Destroyed`. Asking "is
-/// there another label" is immune to the asymmetry, and the tests below pin both
-/// event shapes.
-#[cfg(desktop)]
-fn another_window_survives<'a>(labels: impl Iterator<Item = &'a str>, closing: &str) -> bool {
-    labels.into_iter().any(|label| label != closing)
-}
-
-/// Stop the Go daemon sidecar — see `sidecar::shutdown`. Idempotent.
-#[cfg(desktop)]
-fn shutdown_sidecar(app: &tauri::AppHandle, reason: &str) {
-    if let Some(state) = app.try_state::<sidecar::SidecarHandle>() {
-        sidecar::shutdown(&state, reason);
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Before anything opens a descriptor: this process proxies every frontend
-    // request and every WebSocket to the daemon over its own unix sockets, and
-    // macOS starts a GUI app at launchd's soft limit of 256. No logger exists this
-    // early, so the outcome is reported from setup() below.
+    // Before anything opens a descriptor: macOS starts a GUI app at a soft limit of
+    // 256, and this process proxies every request and WebSocket over its own sockets.
+    // No logger exists yet, so setup() reports the outcome.
     #[cfg(desktop)]
     let fd_limit = fdlimit::raise();
 
-    // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
     #[cfg(target_os = "macos")]
     unsafe {
-        disable_webkit_60fps_cap_early()
+        frame_rate::uncap_before_webview()
     }
 
     #[cfg_attr(not(desktop), allow(unused_mut))] // reason: only desktop adds plugins below
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        // Default the log plugin to Info (it defaults to Trace, which drowns the
-        // output in the WebSocket stack's per-frame internals). Crowbar's own code
-        // only logs at info/warn/error, so nothing of ours is lost. Explicitly cap
-        // the chattiest dependency crates so a later global bump to debug/trace for
-        // our own code doesn't re-open the firehose.
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .level(log::LevelFilter::Info)
-                .level_for("tokio_tungstenite", log::LevelFilter::Warn)
-                // Never below Warn: its trace of a remote upgrade holds the bearer token.
-                .level_for("tungstenite", log::LevelFilter::Warn)
-                .level_for("hyper", log::LevelFilter::Warn)
-                .level_for("hyper_util", log::LevelFilter::Warn)
-                .level_for("reqwest", log::LevelFilter::Warn)
-                .level_for("mio", log::LevelFilter::Warn)
-                .build(),
-        )
-        // Inject the desktop API endpoint on every webview load (see CROWBAR_BOOTSTRAP).
-        .plugin(
-            tauri::plugin::Builder::<tauri::Wry, ()>::new("crowbar-bootstrap")
-                .js_init_script(CROWBAR_BOOTSTRAP.to_string())
-                .build(),
-        )
-        // The webview must never navigate away from the app: web links open in the
-        // OS default browser (every window, every platform).
-        .plugin(
-            tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
-                .on_navigation(|webview, url| {
-                    #[cfg(desktop)]
-                    if browser::exempt_from_app_guard(webview.label()) {
-                        return true;
-                    }
-                    let dev_url = webview.app_handle().config().build.dev_url.clone();
-                    navigation::guard(url, dev_url.as_ref())
-                })
-                .build(),
-        )
-        // Route webview `crowbar://localhost/v0/...` fetches through the unix
-        // socket the daemon listens on (see sidecar + api_proxy).
+        .plugin(logging::plugin())
+        .plugin(init_scripts::bootstrap())
+        // The webview never navigates away from the app: web links open in the OS browser.
+        .plugin(navigation::plugin())
+        // Route webview `crowbar://localhost/v0/...` fetches to the daemon's unix socket.
         .register_asynchronous_uri_scheme_protocol("crowbar", api_proxy::handle_request);
 
     #[cfg(target_os = "ios")]
@@ -1055,67 +65,30 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_crowbar_chrome::init());
     }
 
-    // WKWebView on a phone has no MCP bridge: route page errors to the native log.
     #[cfg(all(mobile, debug_assertions))]
     {
-        builder = builder.plugin(
-            tauri::plugin::Builder::<tauri::Wry, ()>::new("webview-console")
-                .js_init_script(WEBVIEW_CONSOLE_FORWARD.to_string())
-                .build(),
-        );
+        builder = builder.plugin(init_scripts::console_forward());
     }
 
     #[cfg(desktop)]
     {
-        // tauri-plugin-macos-fps uses the `_features` private selector which was
-        // removed in macOS 26. Keep it for macOS 13-15 compatibility but it is a
-        // no-op (or crash-risk) on macOS 26 — our KVC fix in setup() covers that.
+        // tauri-plugin-macos-fps covers macOS 13-15; frame_rate covers macOS 26.
         builder = builder
             .plugin(tauri_plugin_macos_fps::init())
             .plugin(tauri_plugin_shell::init());
     }
 
-    // Dev-only: exposes the webview to the Tauri MCP server (WebSocket :9223).
-    // Gated to debug builds so it never ships in a release.
+    // Exposes the webview to the Tauri MCP server (WebSocket :9223); never in a release.
     #[cfg(all(desktop, debug_assertions))]
     {
         builder = builder.plugin(tauri_plugin_mcp_bridge::init());
     }
 
-    // Custom macOS menu that frees Cmd+Z/Cmd+W from native capture so the webview
-    // (Monaco undo, in-app close-active-tab) can handle them. See build_app_menu.
     #[cfg(target_os = "macos")]
     {
-        builder = builder.menu(build_app_menu);
-        builder = builder.on_menu_event(|app, event| {
-            console_menu::handle_menu_event(app, event.id().as_ref());
-            if event.id() == NEW_WINDOW_MENU_ID {
-                let app = app.clone();
-                // The command is async and menu events are sync: spawn so the menu
-                // handler returns immediately rather than blocking the event loop.
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = open_window(app, "/".to_string()).await {
-                        log::error!("New Window menu item failed: {e}");
-                    }
-                });
-            } else if event.id() == CLOSE_WINDOW_MENU_ID {
-                // Closes the FOCUSED window, which is what a Window-menu command
-                // means. `close()` requests a close, so it runs the same
-                // CloseRequested path as the traffic light — transports retired,
-                // daemon stopped only if this was the last window.
-                match app.get_focused_window() {
-                    Some(window) => {
-                        if let Err(e) = window.close() {
-                            log::error!("Close Window menu item failed: {e}");
-                        }
-                    }
-                    // No key window — e.g. every window minimised while the app is
-                    // still frontmost. AppKit disables its own Close in that state;
-                    // this item stays enabled, so say why nothing happened.
-                    None => log::debug!("Close Window: no focused window to close"),
-                }
-            }
-        });
+        builder = builder
+            .menu(app_menu::build)
+            .on_menu_event(app_menu::handle_event);
     }
 
     #[cfg(desktop)]
@@ -1128,13 +101,9 @@ pub fn run() {
         .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore)
             as std::sync::Arc<dyn host_tokens::TokenStore>)
         .manage(hosts::HostRegistry::default())
-        // A page load orphans every bridged connection the outgoing page owned: its JS
-        // is gone and will never close ids it no longer remembers, and the new page
-        // opens its own. Nothing else can notice — a `Channel` keeps working across a
-        // reload, because a reloaded page is the same webview — so if we do not retire
-        // them here, their reader tasks park on sockets nobody will ever read again and
-        // hold a descriptor apiece for the life of the app. The daemon keeps each PTY
-        // alive, so a reloaded page simply re-attaches the terminals it still wants.
+        // A page load orphans every connection the outgoing page owned, and nothing
+        // else can notice: a `Channel` survives a reload. The daemon keeps each PTY
+        // alive, so the new page re-attaches the terminals it still wants.
         .on_page_load(|webview, payload| {
             if payload.event() != tauri::webview::PageLoadEvent::Started {
                 return;
@@ -1149,8 +118,7 @@ pub fn run() {
             #[cfg(desktop)]
             let app_handle = app.handle().clone();
 
-            // Report the descriptor ceiling now that a logger exists. It is the
-            // first number to reach for when the app cannot dial the daemon.
+            // The first number to reach for when the app cannot dial the daemon.
             #[cfg(desktop)]
             match &fd_limit {
                 fdlimit::Outcome::Failed(_) => log::warn!("{fd_limit}"),
@@ -1158,28 +126,23 @@ pub fn run() {
             }
 
             // The daemon binary says where its home and socket are, before any window
-            // can call in; the webview reaches the socket via `crowbar://` (api_proxy).
-            // The phone has no local daemon.
+            // can call in. The phone has no local daemon.
             #[cfg(desktop)]
             if !sidecar::resolve_or_explain(&app_handle) {
                 return Ok(());
             }
 
-            // Native macOS blur + WebKit 60fps un-cap. See decorate_window — applied
-            // here for `main`, and again for every window `open_window` creates.
+            // `main` here; `open_window` decorates every later window.
             #[cfg(target_os = "macos")]
             if let Some(webview) = app.get_webview("main") {
-                decorate_window(&webview);
+                window_chrome::decorate_window(&webview);
             }
 
-            // Say which worktree this instance came out of. See
-            // apply_dev_window_title for why setup is early enough.
             #[cfg(all(desktop, debug_assertions))]
-            apply_dev_window_title(app);
+            dev_identity::apply_window_title(app);
 
-            // Spawn the Go daemon sidecar on the unix socket, then supervise it:
-            // deep readiness probes, goroutine dump + restart on a wedge (see
-            // sidecar::start_watchdog).
+            // Spawn the daemon on its unix socket, then supervise it (deep readiness
+            // probes, goroutine dump + restart on a wedge).
             #[cfg(desktop)]
             {
                 tauri::async_runtime::spawn(async move {
@@ -1198,42 +161,7 @@ pub fn run() {
         });
 
     #[cfg(desktop)]
-    let builder = builder.on_window_event(|window, event| {
-        if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event {
-            let label = window.label();
-
-            // Retire this window's transports FIRST, whether or not it is the last
-            // window. A closing window orphans its connections exactly as a
-            // reloading one does — its JS is gone and will never call `ws_close` —
-            // and `on_page_load` cannot cover it, because a window that closes never
-            // loads a page again.
-            //
-            // This did not matter while any window's close took the whole app down
-            // with it. Now that a non-last close returns early below, a stranded
-            // connection would park its reader task on a socket for the life of the
-            // process — and this app runs into macOS's 256-descriptor ceiling for
-            // real (see fdlimit). Retiring is idempotent, so the second pass for the
-            // same window (CloseRequested then Destroyed) is a no-op.
-            let app = window.app_handle();
-            app.state::<ws_bridge::WsBridgeManager>()
-                .close_for_window(label);
-
-            // The sidecar is app-wide, so only the LAST window closing may take it
-            // down — and only once it is actually gone: a CloseRequested can still
-            // be prevented, and stopping the daemon under a window that stays open
-            // strands it. See another_window_survives for why this is a label check
-            // and not `webview_windows().len() > 1`.
-            if !matches!(event, tauri::WindowEvent::Destroyed) {
-                return;
-            }
-            let windows = live_window_labels(app);
-            if another_window_survives(windows.iter().map(String::as_str), label) {
-                return;
-            }
-
-            shutdown_sidecar(app, "last window closed");
-        }
-    });
+    let builder = builder.on_window_event(windows::on_window_event);
 
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -1246,11 +174,11 @@ pub fn run() {
         api_proxy::probe::probe_remote_fingerprint,
         hosts::register_remote_host,
         hosts::unregister_remote_host,
-        reveal_in_finder,
-        set_vibrancy_appearance,
-        set_traffic_light_position,
-        popup_native_context_menu,
-        open_window,
+        file_manager::reveal_in_finder,
+        window_chrome::set_vibrancy_appearance,
+        window_chrome::set_traffic_light_position,
+        context_menu::popup_native_context_menu,
+        windows::open_window,
         console_menu::set_console_menu_chord,
         browser::browser_open,
         browser::browser_set_bounds,
@@ -1281,258 +209,20 @@ pub fn run() {
     builder
         .build(tauri::generate_context!())
         .expect("error building Tauri app")
-        // Split out of `.run(context)` so we get a run-event callback: the dev
-        // icon can only be applied once Ready has been through tauri's own
-        // icon-setting arm. See apply_dev_app_icon.
+        // `build` + `run` rather than `run(context)`, for a run-event callback.
         .run(|app_handle, event| {
             #[cfg(mobile)]
             let _ = (app_handle, event); // reason: the dev icon and sidecar exit hook are desktop-only
             #[cfg(all(debug_assertions, target_os = "macos"))]
             if matches!(event, tauri::RunEvent::Ready) {
-                apply_dev_app_icon();
+                dev_identity::apply_app_icon();
             }
 
-            // Cmd+Q does NOT close windows individually (see shutdown_sidecar), so the
-            // on_window_event path never fires for it and the daemon would be orphaned
-            // — holding its socket, which makes the next launch's daemon fail to bind.
-            // tauri invokes this callback BEFORE cleanup_before_exit, so the handle is
-            // still live here. Idempotent with the last-window path.
+            // Cmd+Q exits without closing windows one by one, so the last-window path
+            // never fires; an orphaned daemon would hold the socket the next launch needs.
             #[cfg(desktop)]
             if matches!(event, tauri::RunEvent::Exit) {
-                shutdown_sidecar(app_handle, "app exit");
+                sidecar::shutdown_app(app_handle, "app exit");
             }
         });
-}
-
-#[cfg(desktop)]
-#[cfg(test)]
-mod traffic_light_container_frame_tests {
-    use super::traffic_light_container_frame;
-
-    // The known-good static config value: a 44px-tall row, flush with the
-    // window top (origin_y measured from the window's own top edge should
-    // land at 0), on an 800pt-tall window.
-    #[test]
-    fn matches_static_config_baseline() {
-        let (height, origin_y) = traffic_light_container_frame(14.0, 23.0, 800.0);
-        assert_eq!(height, 37.0);
-        // AppKit's frame is bottom-up: a container flush with the window top
-        // sits at window_height - container_height.
-        assert_eq!(origin_y, 800.0 - 37.0);
-    }
-
-    #[test]
-    fn taller_inset_grows_the_container_and_lowers_its_origin() {
-        let (short_height, short_origin_y) = traffic_light_container_frame(14.0, 23.0, 800.0);
-        let (tall_height, tall_origin_y) = traffic_light_container_frame(14.0, 33.0, 800.0);
-        assert!(tall_height > short_height);
-        assert!(tall_origin_y < short_origin_y);
-    }
-}
-
-#[cfg(desktop)]
-#[cfg(test)]
-mod reveal_in_finder_tests {
-    use super::reveal_in_finder;
-
-    // Regression for Task 30: `reveal_in_finder` must stay `async` so its
-    // blocking, cross-process Finder call runs on a `spawn_blocking` thread
-    // instead of inline on the caller — inline execution is what froze the
-    // whole webview main thread (see the doc comment on `reveal_in_finder`).
-    //
-    // A nonexistent path fails at `std::fs::canonicalize` before the platform
-    // `imp::reveal_items_in_dir` (the actual NSWorkspace/XPC call) ever runs,
-    // so this stays safe and deterministic in CI: no Finder window, no
-    // WindowServer dependency, no real IPC. It only exercises that the
-    // `async fn` + `spawn_blocking` + `JoinHandle` plumbing still propagates
-    // the underlying error correctly.
-    #[tokio::test]
-    async fn reveal_in_finder_is_async_and_propagates_errors() {
-        let result = reveal_in_finder("/definitely/does/not/exist/crowbar-task-30".into()).await;
-        assert!(
-            result.is_err(),
-            "canonicalize on a nonexistent path must fail"
-        );
-    }
-}
-
-#[cfg(desktop)]
-#[cfg(test)]
-mod last_window_tests {
-    use super::{another_window_survives, live_window_labels};
-    use tauri::test::mock_app;
-    use tauri::webview::WebviewBuilder;
-    use tauri::{LogicalPosition, LogicalSize, WebviewUrl, WebviewWindowBuilder};
-
-    /// A window hosting a browser child webview is no longer a "webview window"
-    /// to tauri, so `webview_windows()` drops it; it must still count as alive.
-    #[test]
-    fn a_window_hosting_a_browser_child_still_counts_as_a_window() {
-        let app = mock_app();
-        let main = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
-            .build()
-            .unwrap();
-        main.as_ref()
-            .window()
-            .add_child(
-                WebviewBuilder::new("browser-a", WebviewUrl::default()),
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(10.0, 10.0),
-            )
-            .unwrap();
-
-        let labels = live_window_labels(app.handle());
-        assert_eq!(labels, ["main"]);
-        assert!(another_window_survives(
-            labels.iter().map(String::as_str),
-            "w2"
-        ));
-    }
-
-    /// The two shapes the SAME close produces, because `on_window_event` matches both
-    /// `CloseRequested` and `Destroyed` and tauri prunes its window map between them.
-    /// A `webview_windows().len() > 1` guard passes the first of these and FAILS the
-    /// second — it sees `{main}`, concludes "no other window", and kills the daemon
-    /// under `main`. That regression is the reason this function exists, so both
-    /// shapes are pinned here rather than only the intuitive one.
-    #[test]
-    fn a_non_last_window_closing_leaves_the_daemon_alone_in_both_event_shapes() {
-        // CloseRequested(w2): tauri has not pruned yet, so w2 is still listed.
-        assert!(
-            another_window_survives(["main", "w2"].into_iter(), "w2"),
-            "CloseRequested: main survives w2, so the daemon must stay up"
-        );
-
-        // Destroyed(w2): tauri pruned w2 before dispatching to us. This is the case
-        // a length threshold gets wrong.
-        assert!(
-            another_window_survives(["main"].into_iter(), "w2"),
-            "Destroyed: main survives w2, so the daemon must stay up"
-        );
-    }
-
-    /// The mirror: the daemon MUST come down when the closing window is the last one,
-    /// or quitting leaves an orphan holding the socket and the next launch's daemon
-    /// cannot bind.
-    #[test]
-    fn the_last_window_closing_takes_the_daemon_down_in_both_event_shapes() {
-        // CloseRequested(main), sole window: still listed, and it is the one closing.
-        assert!(
-            !another_window_survives(["main"].into_iter(), "main"),
-            "CloseRequested: nothing survives main, so the daemon must stop"
-        );
-
-        // Destroyed(main), sole window: already pruned, so the map is empty.
-        assert!(
-            !another_window_survives(std::iter::empty(), "main"),
-            "Destroyed: nothing survives main, so the daemon must stop"
-        );
-    }
-
-    /// Three windows, middle one closing — the guard must not be accidentally
-    /// tuned to "exactly two".
-    #[test]
-    fn several_surviving_windows_all_keep_the_daemon_up() {
-        assert!(another_window_survives(
-            ["main", "w2", "w3"].into_iter(),
-            "w2"
-        ));
-        assert!(another_window_survives(["main", "w3"].into_iter(), "w2"));
-    }
-}
-
-#[cfg(test)]
-mod seed_hash_script_tests {
-    use super::seed_hash_script;
-
-    /// Pins the reload guard's exact shape. The guard must fire only when
-    /// `location.hash` is genuinely empty (this window's first paint) and must
-    /// NOT also match `'#/'` — a review found that widening it to `'#/'` would
-    /// re-seed `route` on every reload after the user deliberately navigates
-    /// back to the root route, silently undoing their navigation. See the doc
-    /// comment on `seed_hash_script` for the full rationale. Any future edit to
-    /// the guard's condition has to go through this assertion.
-    #[test]
-    fn guard_fires_only_on_genuinely_empty_hash() {
-        let script = seed_hash_script("/ide/p/r/w").expect("encode should succeed");
-        assert_eq!(
-            script,
-            "if (!location.hash) { location.hash = \"/ide/p/r/w\"; }"
-        );
-        assert!(
-            !script.contains("'#/'") && !script.contains("\"#/\""),
-            "guard must not special-case the root route: {script}"
-        );
-    }
-
-    /// "/" is the route the shipped caller actually passes — the New Window menu
-    /// item opens the picker, not a workspace. It is also the route the removed
-    /// `'#/'` guard arm used to reason about, so it is the one most likely to be
-    /// "special-cased" again by a future edit. Pin it separately from the
-    /// workspace-route case above.
-    #[test]
-    fn the_root_route_is_seeded_like_any_other() {
-        let script = seed_hash_script("/").expect("encode should succeed");
-        assert_eq!(script, "if (!location.hash) { location.hash = \"/\"; }");
-    }
-
-    /// A route reaching `open_window` is routing state, not a compile-time
-    /// constant, so it has to be treated as untrusted input to the JS string
-    /// literal this function builds. This proves a quote, a backslash, and a
-    /// raw newline all round-trip through `serde_json`'s escaping into a
-    /// syntactically valid JS string literal instead of breaking out of it.
-    #[test]
-    fn special_characters_round_trip_into_a_valid_js_string_literal() {
-        let route = "/ide/\"quote\"/back\\slash/new\nline";
-        let script = seed_hash_script(route).expect("encode should succeed");
-
-        let prefix = "if (!location.hash) { location.hash = ";
-        let suffix = "; }";
-        assert!(
-            script.starts_with(prefix) && script.ends_with(suffix),
-            "unexpected script shape: {script}"
-        );
-        let literal = &script[prefix.len()..script.len() - suffix.len()];
-
-        // An unescaped newline inside a single-line JS string literal is a
-        // syntax error, not just a semantic bug — assert it was escaped away.
-        assert!(
-            !literal.contains('\n'),
-            "raw newline leaked into the script: {script}"
-        );
-
-        // JSON and JS single-line string-literal escaping coincide for `"`,
-        // `\`, and control characters, so parsing the embedded literal back as
-        // JSON recovers exactly what a JS engine would parse it into.
-        let decoded: String =
-            serde_json::from_str(literal).expect("literal must be valid JSON/JS string syntax");
-        assert_eq!(decoded, route);
-    }
-}
-
-#[cfg(all(test, debug_assertions))]
-mod dev_window_title_tests {
-    use super::dev_window_title;
-
-    /// The whole point of the title: an agent reading it can tell this instance
-    /// from the other dev instances on the machine.
-    #[test]
-    fn a_branch_name_becomes_the_title() {
-        assert_eq!(
-            dev_window_title("feature/crowbar-skill").as_deref(),
-            Some("Crowbar — dev: feature/crowbar-skill")
-        );
-    }
-
-    /// `CROWBAR_DEV_LABEL` is a `$(shell git ...)` in the Makefile, so "git
-    /// failed" arrives as the empty string rather than as an unset variable —
-    /// and `$(shell)` output that came back on its own line arrives with
-    /// whitespace. Both must fall all the way back to the configured title:
-    /// dropping the emptiness check turns them into `Crowbar — dev: `, a title
-    /// that looks like it identifies a worktree and does not.
-    #[test]
-    fn a_label_git_could_not_produce_falls_back_to_the_plain_title() {
-        assert_eq!(dev_window_title(""), None);
-        assert_eq!(dev_window_title("   \n"), None);
-    }
 }

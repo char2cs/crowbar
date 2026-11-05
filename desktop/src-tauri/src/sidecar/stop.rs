@@ -4,6 +4,7 @@
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use tauri::Manager;
 use tauri_plugin_shell::process::CommandChild;
 
 use super::SidecarHandle;
@@ -20,7 +21,7 @@ const SIGTERM_GRACE: Duration = Duration::from_secs(3);
 /// Called from BOTH ways the app can end, because they are genuinely different code
 /// paths in tao: the last window being destroyed, and `RunEvent::Exit` — which is
 /// what Cmd+Q produces without closing windows individually.
-pub fn shutdown(state: &SidecarHandle, reason: &str) {
+fn shutdown(state: &SidecarHandle, reason: &str) {
     // Tell the supervisor this exit is intentional so neither the output pump nor
     // the watchdog respawns the daemon.
     state.shutting_down.store(true, Ordering::SeqCst);
@@ -38,6 +39,13 @@ pub fn shutdown(state: &SidecarHandle, reason: &str) {
     {
         let _ = pid;
         let _ = child.kill();
+    }
+}
+
+/// [`shutdown`] for the app's daemon, if it ever started one.
+pub fn shutdown_app(app: &tauri::AppHandle, reason: &str) {
+    if let Some(state) = app.try_state::<SidecarHandle>() {
+        shutdown(&state, reason);
     }
 }
 
