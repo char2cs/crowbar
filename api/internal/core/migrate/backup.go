@@ -3,10 +3,10 @@ package migrate
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
@@ -28,40 +28,52 @@ var errInsufficientDisk = errors.New("migrate: not enough free disk space for th
 // volume holding path.
 type FreeBytesFunc func(path string) (uint64, error)
 
-// backupResult describes a finished backup: Path is its directory. An empty
-// Path means state/ held nothing to back up.
+// backupResult describes a finished backup: Path is its archive, Bytes what
+// it holds and Packed its size on disk. An empty Path means there was nothing
+// to back up.
 type backupResult struct {
-	Path  string
-	Bytes int64
+	Path   string
+	Bytes  int64
+	Packed int64
 }
 
-// backupState copies state/ (minus the lock file), LAYOUT and the ledger to
-// migrate/backups/<runID>, built as <runID>.partial and renamed once complete,
-// if the volume has room. The caller holds the lock and has started its run.
+// backupState archives state/ (minus the lock file), LAYOUT, the ledger and the
+// paths extra matches under the home to migrate/backups/<runID>.tar.gz, built as
+// a .partial and renamed once it reads back as written, if the volume has room.
+// The caller holds the lock and has started its run.
 func backupState(
 	h home.Home,
 	runID string,
 	layout int,
+	extra []string,
 	free FreeBytesFunc,
 ) (backupResult, error) {
 	if !singleSegment(runID) {
 		return backupResult{}, fmt.Errorf("migrate: backup: run id %q is not a single path segment", runID)
 	}
-	stats, err := measureState(h.State())
+	stats, err := measureBackup(h, extra)
 	if err != nil {
 		return backupResult{}, err
 	}
 	if stats.files == 0 {
 		return backupResult{}, nil
 	}
-	final := filepath.Join(h.MigrateDir(), backupsDirName, runID)
+	final := backupPath(h, runID)
 	if err := requireAbsent(final); err != nil {
 		return backupResult{}, err
 	}
 	if _, err := probeRoom(h.Root(), stats.bytes, free); err != nil {
 		return backupResult{}, err
 	}
-	return writeBackup(h, runID, layout)
+	return writeBackup(h, runID, layout, extra)
+}
+
+// backupPath is where run's backup lives once whole.
+func backupPath(
+	h home.Home,
+	runID string,
+) string {
+	return filepath.Join(h.MigrateDir(), backupsDirName, runID+backupExt)
 }
 
 // cleanPartialBackups removes the half-written backups a crashed run left in
@@ -123,13 +135,20 @@ func writeBackup(
 	h home.Home,
 	runID string,
 	layout int,
+	extra []string,
 ) (backupResult, error) {
 	backups := filepath.Join(h.MigrateDir(), backupsDirName)
-	partial := filepath.Join(backups, runID+partialSuffix)
-	final := filepath.Join(backups, runID)
-	copied, err := fillBackup(h, partial, layout)
+	final := backupPath(h, runID)
+	partial := final + partialSuffix
+	if err := os.MkdirAll(backups, 0o700); err != nil {
+		return backupResult{}, fmt.Errorf("migrate: backup: %w", err)
+	}
+	a, err := writeArchive(partial, func(a *archiver) error { return fillBackup(h, a, layout, extra) })
+	if err == nil {
+		err = verifyArchive(partial, a.sums)
+	}
 	if err != nil {
-		return backupResult{}, errors.Join(err, removeTree(partial))
+		return backupResult{}, errors.Join(fmt.Errorf("migrate: backup: %w", err), removeTree(partial))
 	}
 	if err := os.Rename(partial, final); err != nil {
 		return backupResult{}, errors.Join(fmt.Errorf("migrate: backup: commit %s: %w", runID, err), removeTree(partial))
@@ -137,30 +156,104 @@ func writeBackup(
 	if err := syncDirs(backups, h.MigrateDir(), h.Root()); err != nil {
 		return backupResult{}, errors.Join(fmt.Errorf("migrate: backup: make %s durable: %w", runID, err), removeTree(final))
 	}
-	return backupResult{Path: final, Bytes: copied}, nil
+	info, err := os.Stat(final)
+	if err != nil {
+		return backupResult{}, fmt.Errorf("migrate: backup: %w", err)
+	}
+	return backupResult{Path: final, Bytes: a.bytes, Packed: info.Size()}, nil
 }
 
-// fillBackup writes into dir what a restore puts back, under the names it has
-// in the home: state/, LAYOUT and the ledger.
+// fillBackup writes what a restore puts back, under the names it has in the
+// home: state/, LAYOUT, the ledger and whatever extra matches.
 func fillBackup(
 	h home.Home,
-	dir string,
+	a *archiver,
 	layout int,
-) (int64, error) {
-	copied, err := copyTree(h.State(), filepath.Join(dir, filepath.Base(h.State())))
+	extra []string,
+) error {
+	if err := a.addTree(h.State(), filepath.Base(h.State()), isHomeLock); err != nil {
+		return err
+	}
+	if err := a.addBytes(filepath.Base(h.LayoutFile()), []byte(strconv.Itoa(layout)+"\n")); err != nil {
+		return err
+	}
+	ledger := ledgerPath(h)
+	info, err := os.Stat(ledger)
 	if err != nil {
-		return 0, err
+		return fmt.Errorf("copy the ledger: %w", err)
 	}
-	if err := stageLayout(filepath.Join(dir, filepath.Base(h.LayoutFile())), layout); err != nil {
-		return 0, fmt.Errorf("migrate: backup: %w", err)
+	if err := a.addFile(homeRel(h, ledger), ledger, info); err != nil {
+		return err
 	}
-	if _, err := copyFileSynced(ledgerPath(h), filepath.Join(dir, ledgerName), 0o600); err != nil {
-		return 0, fmt.Errorf("migrate: backup: copy the ledger: %w", err)
+	matches, err := extraMatches(h, extra)
+	if err != nil {
+		return err
 	}
-	if err := syncDir(dir); err != nil {
-		return 0, fmt.Errorf("migrate: backup: flush %s: %w", dir, err)
+	for _, path := range matches {
+		if err := a.addTree(path, homeRel(h, path), noSkip); err != nil {
+			return err
+		}
 	}
-	return copied, nil
+	return nil
+}
+
+func noSkip(string, string, fs.DirEntry) bool { return false }
+
+// homeRel is path as a backup names it: slash-separated, under the home.
+func homeRel(
+	h home.Home,
+	path string,
+) string {
+	rel, err := filepath.Rel(h.Root(), path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
+}
+
+// extraMatches expands the home-relative patterns a plan asked to back up.
+// A pattern that could reach outside the home or into state/ is refused.
+func extraMatches(
+	h home.Home,
+	patterns []string,
+) ([]string, error) {
+	var out []string
+	for _, pattern := range patterns {
+		local := filepath.FromSlash(pattern)
+		if !filepath.IsLocal(local) || strings.HasPrefix(pattern, filepath.Base(h.State())+"/") {
+			return nil, fmt.Errorf("migrate: backup: %q is not a path under the home outside state/", pattern)
+		}
+		matches, err := filepath.Glob(filepath.Join(h.Root(), local))
+		if err != nil {
+			return nil, fmt.Errorf("migrate: backup: %q: %w", pattern, err)
+		}
+		out = append(out, matches...)
+	}
+	return out, nil
+}
+
+// measureBackup is what a backup would hold: state/ and the extra matches.
+func measureBackup(
+	h home.Home,
+	extra []string,
+) (treeStats, error) {
+	stats, err := measureState(h.State())
+	if err != nil || stats.files == 0 {
+		return stats, err
+	}
+	matches, err := extraMatches(h, extra)
+	if err != nil {
+		return treeStats{}, err
+	}
+	for _, path := range matches {
+		more, err := measureState(path)
+		if err != nil {
+			return treeStats{}, err
+		}
+		stats.files += more.files
+		stats.bytes += more.bytes
+	}
+	return stats, nil
 }
 
 func removeTree(
@@ -309,114 +402,4 @@ func (s *treeStats) visit(
 	s.files++
 	s.bytes += info.Size()
 	return nil
-}
-
-// treeCopy mirrors src into dst. dirs lists every directory it created, so
-// their entries can be flushed once the walk is done.
-type treeCopy struct {
-	src   string
-	dst   string
-	bytes int64
-	dirs  []string
-}
-
-func copyTree(
-	src string,
-	dst string,
-) (int64, error) {
-	root, _, err := resolveRoot(src)
-	if err != nil {
-		return 0, fmt.Errorf("migrate: backup: resolve %s: %w", src, err)
-	}
-	copying := &treeCopy{src: root, dst: dst}
-	if err := filepath.WalkDir(root, copying.visit); err != nil {
-		return 0, fmt.Errorf("migrate: backup: copy %s: %w", src, err)
-	}
-	if err := syncDirs(append(copying.dirs, filepath.Dir(dst))...); err != nil {
-		return 0, fmt.Errorf("migrate: backup: flush %s: %w", dst, err)
-	}
-	return copying.bytes, nil
-}
-
-func (c *treeCopy) visit(
-	path string,
-	entry fs.DirEntry,
-	walkErr error,
-) error {
-	if walkErr != nil {
-		return walkErr
-	}
-	if isHomeLock(c.src, path, entry) {
-		return nil
-	}
-	rel, err := filepath.Rel(c.src, path)
-	if err != nil {
-		return err
-	}
-	target := filepath.Join(c.dst, rel)
-	switch {
-	case entry.IsDir():
-		c.dirs = append(c.dirs, target)
-		return os.MkdirAll(target, 0o700)
-	case entry.Type().IsRegular():
-		return c.copyFile(path, target, entry)
-	default:
-		return unsupportedEntry(path, entry.Type())
-	}
-}
-
-func (c *treeCopy) copyFile(
-	src string,
-	dst string,
-	entry fs.DirEntry,
-) error {
-	info, err := entry.Info()
-	if err != nil {
-		return err
-	}
-	written, err := copyFileSynced(src, dst, info.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	c.bytes += written
-	return nil
-}
-
-// copyFileSynced copies src to a new file dst and flushes it to disk. The file
-// is created owner-writable and given mode afterwards, so neither a read-only
-// source nor the umask changes the copy's mode.
-func copyFileSynced(
-	src string,
-	dst string,
-	mode fs.FileMode,
-) (int64, error) {
-	in, err := os.Open(src) //nolint:gosec // G304: src comes from walking the home's own state directory
-	if err != nil {
-		return 0, err
-	}
-	written, err := writeSynced(in, dst, mode)
-	err = errors.Join(err, in.Close())
-	if err != nil {
-		return 0, err
-	}
-	return written, nil
-}
-
-func writeSynced(
-	in io.Reader,
-	dst string,
-	mode fs.FileMode,
-) (int64, error) {
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: dst is inside the backup directory this run just created
-	if err != nil {
-		return 0, err
-	}
-	written, err := io.Copy(out, in)
-	if err == nil {
-		err = out.Chmod(mode)
-	}
-	if err == nil {
-		err = out.Sync()
-	}
-	return written, errors.Join(err, out.Close())
 }

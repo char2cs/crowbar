@@ -9,27 +9,40 @@ import (
 )
 
 func TestEditDiff_ReplacementKeepsSharedLinesAsContext(t *testing.T) {
-	got := editDiff("a/b.go", "one\ntwo\nthree\n", "one\n2\nthree\n")
+	got := editDiff("a/b.go", "", "one\ntwo\nthree\n", "one\n2\nthree\n")
 	assert.Equal(t, "--- a/a/b.go\n+++ b/a/b.go\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n", got)
 }
 
-func TestEditDiff_NewContentIsAllAdditions(t *testing.T) {
-	got := editDiff("n.txt", "", "hello\nworld")
-	assert.Equal(t, "--- a/n.txt\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n", got)
+func TestEditDiff_NewContentIsACreation(t *testing.T) {
+	got := editDiff("n.txt", "", "", "hello\nworld")
+	assert.Equal(t, "--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n", got)
 }
 
 func TestEditDiff_NothingToShowIsEmpty(t *testing.T) {
-	assert.Empty(t, editDiff("", "a", "b"))
-	assert.Empty(t, editDiff("f", "same", "same"))
+	assert.Empty(t, editDiff("", "", "a", "b"))
+	assert.Empty(t, editDiff("f", "", "same", "same"))
 }
 
 func TestEditDiff_AbsolutePathHeadersAgreeOnOneFileName(t *testing.T) {
-	got := editDiff("/repo/README.md", "a\n", "b\n")
+	got := editDiff("/repo/README.md", "", "a\n", "b\n")
 	assert.Equal(t, "--- a/repo/README.md\n+++ b/repo/README.md\n@@ -1,1 +1,1 @@\n-a\n+b\n", got)
 }
 
+func TestEditDiff_NamesAFileInTheSessionsDirectoryFromThere(t *testing.T) {
+	got := editDiff("/ws/repo/src/a.go", "/ws/repo", "a\n", "b\n")
+	assert.Equal(t, "--- a/src/a.go\n+++ b/src/a.go\n@@ -1,1 +1,1 @@\n-a\n+b\n", got)
+	assert.Contains(t, editDiff("/elsewhere/a.go", "/ws/repo", "a\n", "b\n"), "--- a/elsewhere/a.go\n")
+	assert.Contains(t, editDiff("/ws/repo2/a.go", "/ws/repo", "a\n", "b\n"), "--- a/ws/repo2/a.go\n")
+}
+
+func TestSessionPath_NamesAFileInsideTheSessionFromThereAndOthersAsGiven(t *testing.T) {
+	assert.Equal(t, "src/a.go", sessionPath("/ws/repo/src/a.go", "/ws/repo"))
+	assert.Equal(t, "/etc/hosts", sessionPath("/etc/hosts", "/ws/repo"))
+	assert.Equal(t, "/ws/repo/a.go", sessionPath("/ws/repo/a.go", ""))
+}
+
 func TestPatchDiff_KeepsTheProvidersTrueLineNumbers(t *testing.T) {
-	got := patchDiff("/repo/a.go", []engineagents.PatchHunk{
+	got := patchDiff("/ws/repo/a.go", "/ws", []engineagents.PatchHunk{
 		{OldStart: 8, NewStart: 8, Lines: []string{" ctx", "-old", "+new", " tail"}},
 		{OldStart: 40, NewStart: 40, Lines: []string{"-gone"}},
 	})
@@ -39,7 +52,7 @@ func TestPatchDiff_KeepsTheProvidersTrueLineNumbers(t *testing.T) {
 }
 
 func TestPatchDiff_NoHunksIsEmpty(t *testing.T) {
-	assert.Empty(t, patchDiff("a.go", nil))
+	assert.Empty(t, patchDiff("a.go", "", nil))
 }
 
 func TestToolDiffUsesTheCallsOwnProviderDiff(t *testing.T) {

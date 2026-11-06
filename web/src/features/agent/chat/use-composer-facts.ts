@@ -4,10 +4,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { useFeedStatus, useLiveReasoning } from '@/features/agent/hooks/use-chat-feed'
 import { chatStore, useChatStore, type ChatStoreState } from '@/features/agent/stores/chat-store'
 import type { ItemMap } from '@/features/agent/stores/lib/item-map'
-import type {
-  AskItem,
-  ChatFeed,
-  TranscriptItem,
+import {
+  userItemId,
+  type AskItem,
+  type ChatFeed,
+  type TranscriptItem,
 } from '@/features/agent/stores/lib/transcript-items'
 import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
 
@@ -81,6 +82,25 @@ function pendingAsks(feed: ChatFeed | undefined): AskItem[] {
     .filter((item): item is AskItem => item?.kind === 'ask' && item.choice.pending)
 }
 
+const heldBy = new WeakMap<ChatFeed['facts']['prompts'], string | null>()
+
+/** When the oldest prompt the daemon holds for a CLI that has not taken it yet was
+ *  said; cached on the prompts, which the fold copies only to change them. */
+function heldSince(feed: ChatFeed | undefined): string | undefined {
+  if (!feed) return undefined
+  let since = heldBy.get(feed.facts.prompts)
+  if (since === undefined) {
+    since = null
+    for (const [requestId, fact] of Object.entries(feed.facts.prompts)) {
+      if (fact.state !== 'pending') continue
+      const at = feed.items.get(userItemId(requestId, fact.seq))?.at
+      if (at && (!since || at < since)) since = at
+    }
+    heldBy.set(feed.facts.prompts, since)
+  }
+  return since ?? undefined
+}
+
 /** What the chat's feed says about the turn, read once for the view's parts. Each
  *  part is its own narrow read, so a row that changes none of them renders nothing. */
 export function useComposerFacts(chatId: string): ComposerFacts {
@@ -110,13 +130,15 @@ export function useComposerFacts(chatId: string): ComposerFacts {
     const newest = s.outbox[chatId]?.at(-1)
     return newest?.state === 'sending' ? newest.enteredAt : undefined
   })
+  // A send that launches a CLI lands its row long before the turn starts; it is still on its way.
+  const held = useChatStore((s) => (feedOf(s)?.facts.running ? undefined : heldSince(feedOf(s))))
   const halted = useMemo(() => haltOf(last), [last])
   const working = running != null || liveTail > 0 || agents > 0
   return {
     status,
     working,
-    active: working || enteredAt !== undefined,
-    since: running?.startedAt ?? enteredAt,
+    active: working || enteredAt !== undefined || held !== undefined,
+    since: running?.startedAt ?? enteredAt ?? held,
     compacting,
     reasoning,
     plan,

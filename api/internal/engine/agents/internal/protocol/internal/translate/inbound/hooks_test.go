@@ -338,15 +338,14 @@ func TestParse_ToolPostWithNoScopeMappingLeavesItEmpty(t *testing.T) {
 
 func TestParse_ToolEventCarriesTheMappedEditBeforeAndAfterText(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
-		spec.HookToolPre: {"tool_id": "id", "edit_before": "old", "edit_after": "new"},
+		spec.HookToolPre: {"tool_id": "id", "edit_before": "old", "edit_after": "new", "cwd": "cwd"},
 	})
 
-	ev, err := parse(d, spec.HookToolPre, []byte(`{"id":"t1","old":"a","new":"b"}`))
+	ev, err := parse(d, spec.HookToolPre, []byte(`{"id":"t1","old":"a","new":"b","cwd":"/ws"}`))
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Equal(t, "a", ev.Tool.EditBefore)
-	assert.Equal(t, "b", ev.Tool.EditAfter)
+	assert.Equal(t, []string{"a", "b", "/ws"}, []string{ev.Tool.EditBefore, ev.Tool.EditAfter, ev.Tool.Cwd})
 }
 
 func TestParse_ToolEventCarriesTheMappedPatchHunks(t *testing.T) {

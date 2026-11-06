@@ -58,10 +58,12 @@ surfaces:
   terminal: { channel: hooks, start_here: true }
 
 events:
+  # source says why the session started; a clear starts the conversation over.
   session_start:
     required: [session_id]
     in: SessionStart
-    map: { session_id: session_id, model: model }
+    status_map: { clear: cleared }
+    map: { session_id: session_id, model: model, reason: source }
     fixtures: [SessionStart.json]
 
   # session_id IS mapped: UserPromptSubmit.json's own real capture carries it
@@ -124,6 +126,7 @@ events:
       mcp_server:  mcp_server.name
       mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       edit_before: tool_input.old_string
       edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
     fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json, PreToolUse.Bash.json,
@@ -148,7 +151,9 @@ events:
       mcp_server:  mcp_server.name
       mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       tool_result: tool_response
+      tool_output: tool_response.stdout
       duration_ms: duration_ms
       spawns_scope: tool_response.agentId
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
@@ -179,6 +184,7 @@ events:
       mcp_server:  mcp_server.name
       mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       tool_result: { first_present: [tool_response, error] }
       tool_error:  error
       duration_ms: duration_ms
@@ -544,9 +550,11 @@ hooks_injection:
 # bare positional must NEVER follow it. Pinned by
 # TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
 mcp_injection:
+  # The relay's token rides a 0600 file in the runner's tmp dir: argv is readable by ps.
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
   - pass_arg:
       arg: "--mcp-config"
-      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
+      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 # NOT --append-system-prompt on resume: confirmed live, a resumed session's
@@ -603,14 +611,22 @@ injected_prompts:
 terminal_prompts:
   - kind: workspace_trust
     needle: "I trust this folder"
-    # The dialog opens with "Yes, I trust this folder" selected; Enter takes it.
+    # Which row the dialog preselects varies by version (2.1.319: "No, exit"), so
+    # the answer aims at its option's text from the cursor's row.
+    cursor: "❯"
+    down: "\e[B"
+    up: "\e[A"
     answers:
       - id: accept
         label: "Trust workspace"
+        option: "Yes, I trust this folder"
         keys: "\r"
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".
   - needle: "Enter to confirm"
+  # Footer of a dialog a command opens (/help, verified on 2.1.319): it holds the
+  # CLI until closed in the terminal, and no hook says so.
+  - needle: "Esc to cancel"
   # First-run onboarding, painted before any hook by a claude never set up on
   # this machine (verified on 2.1.281 with an empty CLAUDE_CONFIG_DIR): the
   # theme picker, then the login method. Neither paints the footer above.

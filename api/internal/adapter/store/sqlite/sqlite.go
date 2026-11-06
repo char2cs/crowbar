@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 
 	glebarez "github.com/glebarez/sqlite"
@@ -44,6 +46,17 @@ func DSN(path string) string {
 	return path + sep + "_pragma=synchronous(NORMAL)"
 }
 
+// ReadOnlyDSN opens the database at path for reading only. immutable=1 creates
+// no -wal or -shm but cannot see a WAL, so a database with a non-empty WAL
+// beside it opens mode=ro.
+func ReadOnlyDSN(path string) string {
+	query := "immutable=1"
+	if wal, err := os.Stat(path + "-wal"); err == nil && wal.Size() > 0 {
+		query = "mode=ro"
+	}
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String()
+}
+
 // readPoolConns sizes read-model/view pools so one long read cannot head-of-line-block the others
 // under WAL; event logs stay single-writer.
 const readPoolConns = 4
@@ -68,6 +81,9 @@ func openWithMaxConns(
 	path string,
 	maxConns int,
 ) (*gorm.DB, error) {
+	if err := OwnerOnly(path); err != nil {
+		return nil, err
+	}
 	db, err := gorm.Open(glebarez.Open(DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

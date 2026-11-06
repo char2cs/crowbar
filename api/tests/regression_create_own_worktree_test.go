@@ -4,7 +4,11 @@ package tests
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -128,4 +132,50 @@ func TestRegression_CreateChatOwnWorktreeWithNoProviderIs400(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
 	assert.Equal(t, "invalid_argument", env.Code)
+}
+
+// TestHome_EverythingCrowbarWritesIsOwnerOnly walks a home after a forked
+// worktree, two spawned CLIs and an attachment: every file Crowbar wrote is 0600
+// and every directory 0700. A checkout's contents are git's and keep the umask.
+func TestHome_EverythingCrowbarWritesIsOwnerOnly(t *testing.T) {
+	h := newHarness(t)
+	writePromoteStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+	base := repoBase(imported)
+	ancestorID := createChatWithProvider(t, h, base, "promotestub", imported.workspaceID, "")
+	startChat(t, h, base, ancestorID)
+	folder := createChatFolder(t, h, base, "own-worktree-holder", ancestorID)
+	forkID := createChatWithOwnWorktree(t, h, base, "promotestub", folder.ID)
+	startChat(t, h, base, forkID)
+	src := filepath.Join(t.TempDir(), "notes.txt")
+	require.NoError(t, os.WriteFile(src, []byte("an attachment"), 0o600))
+	h.post(base+"/chats/"+forkID+"/attachments", map[string]string{"path": src, "id": "att1"}, http.StatusCreated, nil)
+	h.Quiesce()
+
+	var loose []string
+	require.NoError(t, filepath.WalkDir(h.home, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == "worktree" {
+			return fs.SkipDir
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		want := fs.FileMode(0o600)
+		switch {
+		case d.IsDir():
+			want = 0o700
+		case !info.Mode().IsRegular():
+			return nil
+		}
+		if info.Mode().Perm() != want {
+			rel, _ := filepath.Rel(h.home, path)
+			loose = append(loose, rel+" "+info.Mode().Perm().String())
+		}
+		return nil
+	}))
+	assert.Empty(t, loose, "files Crowbar wrote that are not owner-only:\n%s", strings.Join(loose, "\n"))
 }

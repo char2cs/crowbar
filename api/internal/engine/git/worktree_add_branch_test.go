@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -49,4 +50,30 @@ func TestWorktreeAddBranch_InvalidStartPoint_ReturnsError(
 	_, err := e.WorktreeAddBranch(ctx, repo, child, "feature/y", "nonexistent-ref")
 
 	require.Error(t, err)
+}
+
+// TestWorktreeAdd_ParentsItCreatesAreOwnerOnly: the directories a worktree add
+// creates above the checkout are Crowbar's scaffolding, so they are 0700; the
+// checkout itself is git's and keeps the umask.
+func TestWorktreeAdd_ParentsItCreatesAreOwnerOnly(
+	t *testing.T,
+) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "file.txt", "content\n", "init")
+	e := git.New()
+	ctx := context.Background()
+	root := t.TempDir()
+
+	_, err := e.WorktreeAddBranch(ctx, repo, filepath.Join(root, "p", "a", "worktree"), "feature/a", "HEAD")
+	require.NoError(t, err)
+	_, err = e.WorktreeAddAtRef(ctx, repo, filepath.Join(root, "p", "b", "worktree"), "feature/b", "HEAD")
+	require.NoError(t, err)
+	gitRun(t, repo, "branch", "feature/c")
+	require.NoError(t, e.WorktreeAdd(ctx, repo, filepath.Join(root, "p", "c", "worktree"), "feature/c"))
+
+	for _, dir := range []string{"p", "p/a", "p/b", "p/c"} {
+		info, err := os.Stat(filepath.Join(root, dir))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+	}
 }

@@ -44,6 +44,19 @@ describe('useComposerFacts', () => {
     )
   })
 
+  it('keeps the line while the daemon holds the prompt for a CLI still starting', () => {
+    const { result } = renderHook(() => useComposerFacts('chat-1'))
+    const l = ledger()
+    const row = l.prompt('r1', 'hi')
+    push(row)
+    expect(result.current.active).toBe(true)
+    expect(result.current.working).toBe(false)
+    expect(result.current.since).toBe(row.at)
+    push(l.start('turn-1', 'r1'))
+    push(l.end('turn-1'))
+    expect(result.current.active).toBe(false)
+  })
+
   it('names the active todo, the running main tool and the agents the turn waits on', () => {
     const { result } = renderHook(() => useComposerFacts('chat-1'))
     const l = ledger()

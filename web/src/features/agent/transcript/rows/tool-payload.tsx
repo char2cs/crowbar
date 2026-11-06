@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
 import { readBlob } from '@/features/agent/api/agent-chat-reads'
+import { payloadText } from '@/features/agent/transcript/lib/payload-text'
 import { useChatHost } from '@/lib/host-resolve'
 
 type Read = { state: 'loading' } | { state: 'read'; text: string | null } | { state: 'failed' }
-
-function prettyPayload(text: string): string {
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2)
-  } catch {
-    return text // the provider's bytes, as they arrived
-  }
-}
 
 /** One side, read when it mounts. A swept blob reads null and is said
  *  plainly; any other failure is transient and offers a retry. */
@@ -58,7 +51,7 @@ function PayloadSide({
         <p className="payload-status">No longer available</p>
       ) : (
         <pre>
-          <code>{prettyPayload(current.text)}</code>
+          <code>{payloadText(current.text)}</code>
         </pre>
       )}
     </div>

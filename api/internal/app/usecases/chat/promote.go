@@ -83,7 +83,7 @@ func (u *Usecase) Promote(
 		return domain.Chat{}, u.unpromote(ctx, chatID, ws.ID, false,
 			fmt.Errorf("promote: set workspace: %w", err))
 	}
-	if _, err := u.runners.SwitchProvider(ctx, chatID, providerID); err != nil {
+	if _, err := u.runners.SwitchProvider(ctx, chatID, providerID, ""); err != nil {
 		return domain.Chat{}, u.unpromote(ctx, chatID, ws.ID, true,
 			fmt.Errorf("promote: respawn: %w", err))
 	}

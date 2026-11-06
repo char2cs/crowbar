@@ -122,7 +122,7 @@ func generate(certPath, keyPath string) error {
 	if err := writePEM(keyPath, "EC PRIVATE KEY", keyDER, 0o600); err != nil {
 		return err
 	}
-	return writePEM(certPath, "CERTIFICATE", der, 0o644)
+	return writePEM(certPath, "CERTIFICATE", der, 0o600)
 }
 
 func missing(path string) bool {

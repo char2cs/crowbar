@@ -150,7 +150,7 @@ func checkBody[B any](r Row) error {
 func checkSessionBound(r Row) error {
 	return checkNamed(r, func(b SessionBound) bool {
 		return b.Provider != "" && b.SessionID != "" &&
-			(b.Cause == CauseAssigned || b.Cause == CauseAnnounced || b.Cause == CauseFresh ||
+			(b.Cause == CauseAssigned || b.Cause == CauseAnnounced || b.Cause == CauseFresh || b.Cause == CauseCleared ||
 				b.Cause == CauseMoved && b.From != "")
 	})
 }

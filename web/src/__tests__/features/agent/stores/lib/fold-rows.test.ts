@@ -27,6 +27,43 @@ describe('applyRow', () => {
     expect(feed.items.get('m:turn-1:m1')?.seq).toBe(3)
   })
 
+  // claude reports a one-paragraph message only when its response ended: after
+  // the calls it made had started, and sometimes after they had ended.
+  it('reads a message reported whole after its calls above them, a closing reply below', () => {
+    const l = ledger()
+    const tools = (id: string) => [l.tool('turn-1', id, 'pre'), l.tool('turn-1', id, 'post')]
+    const whole = (id: string) => l.text('turn-1', id, 0, id, true)
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      ...tools('s0'),
+      l.tool('turn-1', 's1', 'pre'),
+      whole('A'),
+      l.tool('turn-1', 's1', 'post'),
+      ...tools('f'),
+      whole('B'),
+      ...tools('z'),
+      whole('C'),
+      l.end('turn-1'),
+      l.start('turn-2'),
+      l.tool('turn-2', 'g', 'pre'),
+      l.tool('turn-2', 'g', 'post'),
+      l.text('turn-2', 'D', 0, 'D', true),
+      ...[l.tool('turn-2', 'h', 'pre'), l.tool('turn-2', 'h', 'post'), l.end('turn-2')],
+    ])
+    const turn1 = ['t:s0', 'm:turn-1:A', 't:s1', 'm:turn-1:B', 't:f', 't:z', 'm:turn-1:C']
+    expect(feed.order).toEqual([...turn1, 'm:turn-2:D', 't:g', 't:h'])
+    const m = ledger()
+    // Only a one-chunk message may have waited for its response's end; text
+    // streamed or completed after its calls ended was said after them.
+    const streamed = applyRows(emptyFeed(), [
+      ...[m.tool('turn-3', 'a', 'pre'), m.tool('turn-3', 'a', 'post')],
+      m.text('turn-3', 'chunked', 0, 'first part'),
+      ...[m.tool('turn-4', 'b', 'pre'), m.tool('turn-4', 'b', 'post')],
+      m.text('turn-4', 'complete', -1, 'reported complete'),
+    ])
+    expect(streamed.order).toEqual(['t:a', 'm:turn-3:chunked', 't:b', 'm:turn-4:complete'])
+  })
+
   it('keeps the p:<requestId> id from user_message through settle', () => {
     const l = ledger()
     let feed = applyRow(emptyFeed(), l.prompt('r1', 'hi'))
@@ -191,6 +228,55 @@ describe('applyRow', () => {
     expect(feed.facts.prompts.r2).toEqual({ state: 'delivered', turnId: 'turn-1' })
   })
 
+  it('reads a prompt sent during a turn below what that turn still says, as it was delivered', () => {
+    const l = ledger()
+    const steer = { requestId: 'r2', text: 'and?', origin: 'crowbar' as const }
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'look at this'),
+      l.start('turn-1', 'r1'),
+      l.row('user_message', { ...steer, delivery: 'steer' }, { turnId: 'turn-2' }),
+      l.tool('turn-1', 'read', 'pre'),
+      l.tool('turn-1', 'read', 'post'),
+      l.text('turn-1', 'm1', 0, 'You asked nothing yet.', true),
+      l.end('turn-1'),
+      l.start('turn-2', 'r2'),
+      l.text('turn-2', 'm2', 0, 'A circle.', true),
+    ])
+    expect(feed.order).toEqual(['p:r1', 't:read', 'm:turn-1:m1', 'p:r2', 'm:turn-2:m2'])
+  })
+
+  it('keeps a steer parked on the turn end below that turn, and its reply under it', () => {
+    const l = ledger()
+    const waiting = applyRows(emptyFeed(), [
+      l.prompt('r1', 'a'),
+      l.start('turn-1', 'r1'),
+      l.tool('turn-1', 'tool-1', 'pre'),
+      l.row(
+        'user_message',
+        { requestId: 'r2', text: 'b', origin: 'crowbar', delivery: 'steer' },
+        { turnId: 'turn-2' },
+      ),
+      l.tool('turn-1', 'tool-1', 'post'),
+      l.tool('turn-1', 'tool-2', 'pre'),
+      l.text('turn-1', 'm1', 0, 'DONE-A', true),
+    ])
+    expect(waiting.facts.prompts.r2).toMatchObject({ state: 'pending' })
+    expect(waiting.order).toEqual(['p:r1', 't:tool-1', 'm:turn-1:m1', 't:tool-2', 'p:r2'])
+    const taken = applyRows(waiting, [
+      l.end('turn-1'),
+      l.start('turn-2', 'r2'),
+      l.text('turn-2', 'm2', 0, 'BANANA', true),
+    ])
+    expect(taken.order).toEqual([
+      'p:r1',
+      't:tool-1',
+      'm:turn-1:m1',
+      't:tool-2',
+      'p:r2',
+      'm:turn-2:m2',
+    ])
+  })
+
   it('folds numbered chunks into one text and settles on the final chunk', () => {
     const l = ledger()
     let feed = applyRows(emptyFeed(), [
@@ -212,6 +298,24 @@ describe('applyRow', () => {
       l.text('turn-1', 'm1', -1, 'Hello world'),
     ])
     expect(feed.items.get('m:turn-1:m1')).toMatchObject({ text: 'Hello world', settled: true })
+  })
+
+  it('reads a message that lands while its calls run above them, as it was said', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'go'),
+      l.start('turn-1', 'r1'),
+      l.tool('turn-1', 'step-1', 'pre'),
+      l.tool('turn-1', 'step-1', 'post'),
+      l.tool('turn-1', 'step-2', 'pre'),
+      l.tool('turn-1', 'step-3', 'pre'),
+      l.text('turn-1', 'm1', 0, 'Step 1 done, so steps 2 and 3 now.', true),
+      l.tool('turn-1', 'step-2', 'post'),
+      l.tool('turn-1', 'step-3', 'post'),
+      l.text('turn-1', 'm2', 0, 'Done.', true),
+    ])
+    const order = ['p:r1', 't:step-1', 'm:turn-1:m1', 't:step-2', 't:step-3', 'm:turn-1:m2']
+    expect(feed.order).toEqual(order)
   })
 
   it('settles every text of a turn when the turn ends', () => {
@@ -371,6 +475,18 @@ describe('applyRow', () => {
     ])
     expect(feed.order).toEqual(['m:turn-1:final-turn-1'])
     expect(feed.items.get('m:turn-1:final-turn-1')).toMatchObject({ text: 'Hello there' })
+  })
+
+  it('shows a joining message once, though its naming chunk came before its first', () => {
+    const l = ledger()
+    const joins = { messageId: 'm2', index: 1, final: true, text: ' there', reply: 'final-turn-1' }
+    const feed = applyRows(emptyFeed(), [
+      l.text('turn-1', 'final-turn-1', -1, 'Hello there'),
+      l.end('turn-1'),
+      l.row('assistant_text', joins, { turnId: 'turn-1' }),
+      l.text('turn-1', 'm2', 0, 'Hello'),
+    ])
+    expect(feed.order.filter((id) => id.startsWith('m:'))).toEqual(['m:turn-1:final-turn-1'])
   })
 })
 

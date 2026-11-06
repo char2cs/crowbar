@@ -48,6 +48,8 @@ type Env struct {
 	// what the step's earlier attempts marked, and the latest note under each key.
 	Earlier Marks
 	Notes   map[string]Note
+	// History is the ledger as the run found it, for Plan and Apply alike.
+	History History
 }
 
 // Note is what a step recorded about a key besides finishing it; the latest

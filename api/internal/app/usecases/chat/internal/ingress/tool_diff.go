@@ -2,6 +2,7 @@ package ingress
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -13,23 +14,38 @@ func toolStartDiff(tool *engineagents.ToolEvent) string {
 	if tool.Diff != "" {
 		return tool.Diff
 	}
-	return editDiff(tool.Target, tool.EditBefore, tool.EditAfter)
+	return editDiff(tool.Target, tool.Cwd, tool.EditBefore, tool.EditAfter)
 }
 
 func toolResultDiff(tool *engineagents.ToolEvent) string {
 	if tool.Diff != "" {
 		return tool.Diff
 	}
-	return patchDiff(tool.Target, tool.Patch)
+	return patchDiff(tool.Target, tool.Cwd, tool.Patch)
+}
+
+// diffName is how a diff names path: from cwd, the session's directory, when
+// the file is inside it; else the path itself.
+func diffName(path, cwd string) string {
+	return strings.TrimLeft(sessionPath(path, cwd), "/")
+}
+
+// sessionPath is path relative to cwd when it lies inside it, else path as given.
+func sessionPath(path, cwd string) string {
+	if rel, err := filepath.Rel(cwd, path); err == nil && cwd != "" && filepath.IsAbs(path) && filepath.IsLocal(rel) {
+		return filepath.ToSlash(rel)
+	}
+	return path
 }
 
 // editDiff renders one edit's before/after text as a single-hunk unified diff.
-// The file itself is never read, so line numbers are relative to the snippet.
-func editDiff(path, before, after string) string {
+// The file itself is never read, so line numbers are relative to the snippet;
+// no text before is a new file's.
+func editDiff(path, cwd, before, after string) string {
 	if path == "" || before == after {
 		return ""
 	}
-	path = strings.TrimLeft(path, "/")
+	path = diffName(path, cwd)
 	oldLines, newLines := splitLines(before), splitLines(after)
 	prefix := 0
 	for prefix < len(oldLines) && prefix < len(newLines) && oldLines[prefix] == newLines[prefix] {
@@ -58,13 +74,17 @@ func editDiff(path, before, after string) string {
 	}
 	oldCount := lead + oldEnd - prefix + trail
 	newCount := lead + newEnd - prefix + trail
-	return fmt.Sprintf("--- a/%s\n+++ b/%s\n@@ -%s +%s @@\n%s",
-		path, path, hunkRange(prefix-lead+1, oldCount), hunkRange(prefix-lead+1, newCount), body.String())
+	from := "a/" + path
+	if before == "" {
+		from = "/dev/null"
+	}
+	return fmt.Sprintf("--- %s\n+++ b/%s\n@@ -%s +%s @@\n%s",
+		from, path, hunkRange(prefix-lead+1, oldCount), hunkRange(prefix-lead+1, newCount), body.String())
 }
 
 // patchDiff renders the provider's own hunks, keeping their true line numbers.
-func patchDiff(path string, hunks []engineagents.PatchHunk) string {
-	path = strings.TrimLeft(path, "/")
+func patchDiff(path, cwd string, hunks []engineagents.PatchHunk) string {
+	path = diffName(path, cwd)
 	if path == "" || len(hunks) == 0 {
 		return ""
 	}

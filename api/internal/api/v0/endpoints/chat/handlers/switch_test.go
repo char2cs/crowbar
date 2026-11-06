@@ -49,6 +49,36 @@ func TestSwitch_Success(
 	assert.Equal(t, "vendor-b", uc.switchCalls[0].provider)
 }
 
+// The surface the client shows rides the switch, so the incoming CLI starts there.
+func TestSwitch_PassesTheClientsSurface(t *testing.T) {
+	uc := &fakeAgentUsecase{switchNewSegID: "seg-2"}
+	h := newChatHandlers(uc)
+
+	body := []byte(`{"provider":"vendor-b","surface":"terminal"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Switch(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.switchCalls, 1)
+	assert.Equal(t, domain.SurfaceTerminal, uc.switchCalls[0].surface)
+}
+
+func TestSwitch_RefusesAnUnknownSurface(t *testing.T) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+
+	body := []byte(`{"provider":"vendor-b","surface":"sideways"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Switch(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, uc.switchCalls)
+}
+
 // A switch refused because the chat is working carries the busy code, so a
 // client tells it apart from every other conflict.
 func TestSwitch_ABusyChatIsRefusedWithTheBusyCode(t *testing.T) {

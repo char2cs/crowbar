@@ -9,6 +9,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -28,6 +29,11 @@ type Runners struct {
 	agents  engineagents.Agents
 	term    seam.TerminalCommander
 	ws      seam.WorkspaceReader
+	// runnerDirs orders a spawn's mkdir of its runner dir against a reap pruning
+	// the parents it emptied, so neither removes what the other is creating.
+	runnerDirs sync.Mutex
+	// home resolves the crowbar home a chat's attachments live under.
+	home func() (string, error)
 	// ancestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see AncestorCwd's own doc for why this is declared here rather
 	// than imported directly.
@@ -37,7 +43,7 @@ type Runners struct {
 	// daemonHost is the address the daemon bound, rendered into every callback's
 	// --host so none derives one of its own.
 	daemonHost string
-	// crowbarBin is the crowbar binary the descriptors run (empty: the home's);
+	// crowbarBin is the crowbar binary the descriptors run (the daemon's own);
 	// noAPITransport keeps every provider on hooks alone.
 	crowbarBin     string
 	noAPITransport bool
@@ -94,14 +100,15 @@ type Deps struct {
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
 	Workspace seam.WorkspaceReader
+	// Home resolves the crowbar home.
+	Home func() (string, error)
 	// AncestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see the AncestorCwd interface's own doc.
 	AncestorCwd AncestorCwd
 	Ledger      *ledgerstore.Store
 	// DaemonHost is the address the daemon bound, rendered into the callbacks.
 	DaemonHost string
-	// CrowbarBin is the crowbar binary the descriptors run; empty is the one
-	// installed under the home.
+	// CrowbarBin is the crowbar binary the descriptors run: the daemon's own.
 	CrowbarBin string
 	// NoAPITransport runs every provider over hooks alone, its serve never forked.
 	NoAPITransport bool
@@ -126,6 +133,7 @@ func New(d Deps) *Runners {
 		agents:         d.Agents,
 		term:           d.Terminal,
 		ws:             d.Workspace,
+		home:           d.Home,
 		ancestorCwd:    d.AncestorCwd,
 		ledger:         d.Ledger,
 		daemonHost:     d.DaemonHost,

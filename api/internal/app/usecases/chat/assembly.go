@@ -63,8 +63,8 @@ type Deps struct {
 	// DaemonAddress is the address the daemon bound, handed to every callback a
 	// spawned CLI runs.
 	DaemonAddress string
-	// CrowbarBin is the crowbar binary a spawned CLI runs for its tool bridge;
-	// empty is the one installed under the home.
+	// CrowbarBin is the crowbar binary a spawned CLI runs for its tool bridge:
+	// the daemon's own executable.
 	CrowbarBin string
 	// NoAPITransport runs every provider over hooks alone.
 	NoAPITransport bool
@@ -114,6 +114,7 @@ func New(d Deps) *Usecase {
 		blobs:     d.Blobs,
 		agents:    d.Agents,
 		ws:        d.Workspace,
+		home:      d.Home,
 		worktree:  d.Worktree,
 		tools:     d.Tools,
 		folders:   d.Folders,
@@ -220,6 +221,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Agents:         d.Agents,
 		Terminal:       d.Terminal,
 		Workspace:      d.Workspace,
+		Home:           d.Home,
 		AncestorCwd:    cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
 		Ledger:         d.Ledger,
 		DaemonHost:     d.DaemonAddress,

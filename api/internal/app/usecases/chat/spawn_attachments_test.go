@@ -1,6 +1,7 @@
 package chat_test
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -37,7 +38,7 @@ func TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage(t *
 
 	last := f.term.calls[len(f.term.calls)-1]
 	absPath := filepath.ToSlash(filepath.Join(
-		worktreepath.AttachmentsDir(f.ws.chatsDir, chatID), stored.FileName))
+		worktreepath.AttachmentsDir(f.ws.home, chatID), stored.FileName))
 	wantText := "check this out ![photo](" + absPath + ")"
 	assert.Equal(t, -1, slices.Index(last.argv, text), "the raw durable ref must never reach the CLI's argv")
 	assert.NotEqual(t, -1, slices.Index(last.argv, wantText))
@@ -84,8 +85,40 @@ func TestSteer_TheTurnEndAfterAFailedOneHandsTheCLITheDispatchedText(t *testing.
 	reply, err := f.usecase.placeHook(f.ctx, engineagents.ChannelHooks, runnerID, "claude", "turn_stop", turnStop)
 	require.NoError(t, err)
 
-	absPath := filepath.ToSlash(filepath.Join(worktreepath.AttachmentsDir(f.ws.chatsDir, chatID), stored.FileName))
+	absPath := filepath.ToSlash(filepath.Join(worktreepath.AttachmentsDir(f.ws.home, chatID), stored.FileName))
 	assert.Contains(t, string(reply.Body), "("+absPath+")", "the CLI is handed the dispatched text")
 	assert.NotContains(t, string(reply.Body), "("+stored.Ref+")")
 	assert.Equal(t, text, receipt(t, f, chatID, requestID).Text, "the user's text is never the dispatched one")
+}
+
+// A chat's attachments are its own: stored under the home by chat id, read back
+// whatever its workspace now resolves to, and gone with the chat.
+func TestUploadAttachment_LivesWithTheChatNotItsWorkspace(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	stored, err := f.usecase.UploadAttachment(f.ctx, chatID, agentusecase.UploadAttachmentInput{
+		ID: "ab12", OriginalName: "photo.png", Data: []byte("bytes"),
+	})
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(f.ws.home, "chats", chatID, "attachments", stored.FileName))
+
+	f.ws.chatsDir = filepath.Join(f.ws.home, "projects", "p1", "slug", "moved", "chats")
+	data, _, err := f.usecase.ReadAttachment(f.ctx, chatID, stored.FileName)
+	require.NoError(t, err, "a workspace move does not lose the chat's attachments")
+	assert.Equal(t, []byte("bytes"), data)
+
+	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
+	assert.Empty(t, filesNamed(t, f.ws.home, stored.FileName), "a deleted chat leaves no attachment on disk")
+}
+
+func filesNamed(t *testing.T, root, name string) []string {
+	t.Helper()
+	var found []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.Name() == name {
+			found = append(found, path)
+		}
+		return err
+	}))
+	return found
 }

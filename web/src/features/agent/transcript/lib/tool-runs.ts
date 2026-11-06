@@ -39,7 +39,8 @@ export function displayRows(order: string[], items: ItemMap): DisplayRow[] {
 
 const NOUNS: Partial<Record<ToolItem['family'], [string, string, string, string]>> = {
   read: ['reading', 'read', 'file', 'files'],
-  search: ['searching', 'searched', 'pattern', 'patterns'],
+  // A search may be a pattern, a file glob or a web query: it is counted as a search.
+  search: ['running', 'ran', 'search', 'searches'],
   fetch: ['fetching', 'fetched', 'page', 'pages'],
 }
 

@@ -129,6 +129,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
       'claude',
       'develop-row',
       'typed-branch',
+      undefined,
     )
   })
 

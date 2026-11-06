@@ -46,8 +46,7 @@ func TestCopyFile_CreateDstFails(t *testing.T) {
 }
 
 // A directory opens without error but fails to read as a byte stream, so this
-// exercises io.Copy's error path rather than os.Open's — the same technique
-// selfinstall's own copyFile tests use for its analogous helper.
+// exercises io.Copy's error path rather than os.Open's.
 func TestCopyFile_CopyFailsWhenSourceIsADirectory(t *testing.T) {
 	dir := t.TempDir()
 	srcDir := filepath.Join(dir, "adir")

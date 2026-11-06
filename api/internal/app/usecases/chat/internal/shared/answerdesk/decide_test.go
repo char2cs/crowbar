@@ -68,6 +68,25 @@ func TestDecide_CarriesTheKindReasonAndContent(t *testing.T) {
 	assert.Equal(t, []byte("body"), decision.Content)
 }
 
+// A provider reads an empty deny message as its own hook's refusal and goes looking
+// for a misconfigured hook; a person's deny must read as theirs.
+func TestDecide_ADenyWithNoReasonSaysThePersonDeniedIt(t *testing.T) {
+	t.Parallel()
+
+	decision, err := answerdesk.Decide(permission(), []string{"opt-deny"}, "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChoiceOptionDeny, decision.Key)
+	assert.Contains(t, decision.Reason, "user denied")
+
+	given, err := answerdesk.Decide(permission(), []string{"opt-deny"}, "not that file", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "not that file", given.Reason)
+
+	allowed, err := answerdesk.Decide(permission(), []string{"opt-allow"}, "", nil)
+	require.NoError(t, err)
+	assert.Empty(t, allowed.Reason)
+}
+
 // A choice with no options at all is a free-form prompt: the option id IS the
 // answer, passed through untouched.
 func TestDecide_PassesTheRawIDThroughForAnOptionlessChoice(t *testing.T) {

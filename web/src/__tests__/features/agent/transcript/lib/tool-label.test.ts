@@ -58,6 +58,20 @@ describe('tool labels', () => {
     expect(labelText({ ...fetch, status: 'ok' })).toBe('Fetched docs.rs/…')
   })
 
+  it('says a new file is created, not edited', () => {
+    const write = tool({
+      kind: 'edit',
+      target: '/r/notes.md',
+      diff: '--- /dev/null\n+++ b/notes.md\n',
+    })
+    expect(liveLabel(write)).toBe('Creating r/notes.md')
+    expect(labelText({ ...write, status: 'ok' })).toBe('Created r/notes.md')
+    expect(labelText({ ...write, status: 'declined' })).toBe('Create r/notes.md')
+    expect(labelText(tool({ kind: 'edit', target: 'a.md', diff: '--- a/a.md\n' }, 'ok'))).toBe(
+      'Edited a.md',
+    )
+  })
+
   it('falls back to the humanized name when a tool names no target', () => {
     expect(labelText(tool({ name: 'NotebookRead' }, 'ok'))).toBe('Notebook read')
     expect(labelText(tool({}, 'ok'))).toBe('Tool')

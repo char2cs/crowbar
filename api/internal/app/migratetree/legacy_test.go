@@ -169,6 +169,31 @@ func TestReadLegacy_ReadsEveryRetiredRecordAsWritten(t *testing.T) {
 	assert.Equal(t, []tree.Folder{{ID: "f-1", Name: "Ideas", HomeID: "h-1"}}, got.Folders)
 }
 
+// The retire-legacy step deletes the node log only while it still matches the
+// backup, so reading it must not add the tables the live opener creates.
+func TestReadLegacy_LeavesTheNodeLogAsTheRetiredBuildWroteIt(t *testing.T) {
+	l := newLegacy(t)
+	l.nodes(t, legacyNode{ID: "f-1", Kind: "folder"})
+	db, err := storesqlite.OpenDB(l.nodeLog())
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("DROP TABLE receipts").Error)
+	require.NoError(t, db.Exec("DROP TABLE deliveries").Error)
+	require.NoError(t, db.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	before, err := os.ReadFile(l.nodeLog())
+	require.NoError(t, err)
+
+	got, err := ReadLegacy(context.Background(), l.sources())
+
+	require.NoError(t, err)
+	assert.Equal(t, []tree.Node{{ID: "f-1", Kind: tree.KindFolder}}, got.Nodes)
+	after, err := os.ReadFile(l.nodeLog())
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "reading the retired node log leaves it byte for byte as it was")
+}
+
 func TestReadLegacy_AFreshHomeHasNoRetiredRecords(t *testing.T) {
 	l := newLegacy(t)
 

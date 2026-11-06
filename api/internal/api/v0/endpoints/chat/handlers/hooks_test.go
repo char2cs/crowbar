@@ -172,6 +172,7 @@ type ingestCall struct {
 type switchCall struct {
 	chatID   string
 	provider string
+	surface  string
 }
 
 type selectionCall struct {
@@ -274,11 +275,9 @@ func (f *fakeAgentUsecase) ConversationsForChat(context.Context, string) ([]engi
 }
 
 func (f *fakeAgentUsecase) SwitchProvider(
-	_ context.Context,
-	chatID string,
-	provider string,
+	_ context.Context, chatID, provider, surface string,
 ) (string, error) {
-	f.switchCalls = append(f.switchCalls, switchCall{chatID: chatID, provider: provider})
+	f.switchCalls = append(f.switchCalls, switchCall{chatID: chatID, provider: provider, surface: surface})
 	if f.switchErr != nil {
 		return "", f.switchErr
 	}
