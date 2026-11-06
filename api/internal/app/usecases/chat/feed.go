@@ -48,8 +48,8 @@ func rowFrame(r ledger.Row) FeedFrame { return FeedFrame{Type: feedRow, Row: &r}
 var errFeedEnded = errors.New("chat feed: ended while attaching")
 
 // OpenFeed is chatID's feed: rows after since, ready, a snapshot of its live
-// streams, then live frames. A since below 0 is a window of the newest -since
-// turns, whose ready says where it begins. It registers before reading the
+// streams, then live frames. A since below 0 is a window of about the newest
+// -since rows in whole turns, whose first row says where it begins. It registers before reading the
 // head, so a row committed meanwhile is sent once; an unknown chat is
 // problem.ErrNotFound.
 func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error) {
@@ -109,7 +109,7 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, em
 	}
 	from := int64(0)
 	if since < 0 {
-		if since, err = u.ledger.WindowStart(ctx, chatID, int(-since), openTurns(st)); err != nil {
+		if since, err = u.ledger.WindowStart(ctx, chatID, -since, openTurns(st)); err != nil {
 			return fmt.Errorf("chat feed: %s: %w", chatID, err)
 		}
 		from = since

@@ -295,7 +295,7 @@ func imported(t *testing.T, u *Usecase, rows ...ledger.Row) {
 	require.NoError(t, u.ledger.Import(t.Context(), "c1", rows))
 }
 
-func TestOpenFeed_ANegativeSinceOpensOnTheNewestTurnsAndSaysWhere(t *testing.T) {
+func TestOpenFeed_ANegativeSinceOpensOnTheNewestRowsAndSaysWhere(t *testing.T) {
 	u := newWiringFixture(t)
 	u.chats = knownChats{id: "c1"}
 	imported(t, u, slices.Concat(turnRows(t, "T1"), turnRows(t, "T2"), turnRows(t, "T3"))...)

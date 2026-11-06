@@ -27,15 +27,16 @@ interface Attachment {
   frame: number | null
   /** A synced disagreed with the last applied row and the scope was asked for again. */
   reasked: boolean
-  /** How many of the newest turns a fresh replay opens on. */
-  turns: number
+  /** About how many of the newest rows a fresh replay opens on, in whole turns. */
+  rows: number
   /** A wider window is replaying: the next sub asks for it, not for rows after the head. */
   widening: boolean
 }
 
-/** A long chat opens on its newest turns; older ones replay as the reader reaches them. */
-const OPEN_TURNS = 30
-const OLDER_TURNS = 60
+/** A long chat opens on its newest rows; older ones replay as the reader reaches them.
+ *  Rows, not turns: one turn of a heavy chat can hold a thousand of them. */
+const OPEN_ROWS = 1500
+const OLDER_ROWS = 3000
 
 const attachments = new Map<string, Attachment>()
 /** host → the daemon run its stream's ready named: a feed synced under another drops its live tail. */
@@ -102,11 +103,11 @@ function checkHead(chatId: string, attachment: Attachment, head: number | undefi
 }
 
 registerScopeKind('chat', {
-  // Rows after the head the feed holds, or (a negative since) a window of the newest turns.
+  // Rows after the head the feed holds, or (a negative since) a window of the newest rows.
   since: (hostId, chatId) => {
     const attachment = attachments.get(chatId)
     const held = attachment?.hostId === hostId && !attachment.widening
-    return (held && chatStore.getState().feeds[chatId]?.seq) || -(attachment?.turns ?? OPEN_TURNS)
+    return (held && chatStore.getState().feeds[chatId]?.seq) || -(attachment?.rows ?? OPEN_ROWS)
   },
   epoch: (hostId, next) => {
     epochs.set(hostId, next)
@@ -130,7 +131,7 @@ registerScopeKind('chat', {
 export function loadOlder(chatId: string) {
   const attachment = attachments.get(chatId)
   if (!attachment || attachment.widening || !chatStore.getState().feeds[chatId]?.from) return
-  attachment.turns += OLDER_TURNS
+  attachment.rows += OLDER_ROWS
   attachment.widening = true
   refoldFeed(chatId)
   resubscribe(attachment.hostId, scopeOf(chatId))
@@ -149,7 +150,7 @@ export function attachFeed(hostId: string, chatId: string): () => void {
       pending: [],
       frame: null,
       reasked: false,
-      turns: OPEN_TURNS,
+      rows: OPEN_ROWS,
       widening: false,
     }
     attachment = fresh

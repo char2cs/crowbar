@@ -26,15 +26,15 @@ func turns(t *testing.T, s *ledgerstore.Store, n int) {
 	}
 }
 
-func TestWindowStart_TakesTheNewestTurnsWhole(t *testing.T) {
+func TestWindowStart_TakesTheNewestRowsInWholeTurns(t *testing.T) {
 	s := newStore(t)
 	turns(t, s, 4)
 
-	after, err := s.WindowStart(t.Context(), "c1", 2, nil)
+	after, err := s.WindowStart(t.Context(), "c1", 4, nil)
 	require.NoError(t, err)
-	assert.Equal(t, int64(6), after, "turn 3's prompt is the window's first row")
+	assert.Equal(t, int64(6), after, "turn 3, which the newest 4 rows cut, comes whole")
 
-	all, err := s.WindowStart(t.Context(), "c1", 9, nil)
+	all, err := s.WindowStart(t.Context(), "c1", 12, nil)
 	require.NoError(t, err)
 	assert.Zero(t, all, "a window wider than the chat is all of it")
 }

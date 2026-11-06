@@ -5,24 +5,27 @@ import (
 	"fmt"
 )
 
-// WindowStart is the seq a feed of chatID's newest turns replays after: the
-// first row of its newest `turns` main turns and of the turns keep names, and
-// a turn with any row after that point comes whole, so no row it folds names
-// a turn the feed lacks. 0 when the window reaches back to the chat's start.
-func (s *Store) WindowStart(ctx context.Context, chatID string, turns int, keep []string) (int64, error) {
-	var newest []string
+// WindowStart is the seq a feed of chatID's newest `rows` rows replays after,
+// widened so no turn is cut: a turn with any row after that point comes whole,
+// and so does every turn keep names, so no row the client folds names a turn it
+// lacks. 0 when the window reaches back to the chat's start.
+func (s *Store) WindowStart(ctx context.Context, chatID string, rows int64, keep []string) (int64, error) {
+	var head int64
 	if err := s.db.WithContext(ctx).Raw(
-		`SELECT turn_id FROM chat_ledger WHERE chat_id = ? AND kind = 'turn_started' AND scope = ''
-		 ORDER BY seq DESC LIMIT ?`, chatID, turns,
-	).Scan(&newest).Error; err != nil {
-		return 0, fmt.Errorf("ledger: window %s: newest turns: %w", chatID, err)
+		`SELECT COALESCE(MAX(seq), 0) FROM chat_ledger WHERE chat_id = ?`, chatID,
+	).Scan(&head).Error; err != nil {
+		return 0, fmt.Errorf("ledger: window %s: head: %w", chatID, err)
 	}
-	if len(newest) < turns {
+	after := head - rows
+	if after <= 0 {
 		return 0, nil
 	}
 	held := map[string]bool{}
-	after := int64(-1)
-	for want := append(newest, keep...); len(want) > 0; {
+	want, err := s.turnsAfter(ctx, chatID, after, held)
+	if err != nil {
+		return 0, err
+	}
+	for want = append(want, keep...); len(want) > 0; {
 		first, err := s.firstOf(ctx, chatID, want)
 		if err != nil {
 			return 0, err
@@ -30,9 +33,7 @@ func (s *Store) WindowStart(ctx context.Context, chatID string, turns int, keep 
 		for _, id := range want {
 			held[id] = true
 		}
-		if after < 0 || first-1 < after {
-			after = first - 1
-		}
+		after = min(after, first-1)
 		if want, err = s.turnsAfter(ctx, chatID, after, held); err != nil {
 			return 0, err
 		}
