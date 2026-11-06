@@ -43,7 +43,6 @@ function draw() {
       providers={[]}
       status="live"
       working={false}
-      line={{ working: false }}
       onOpenTerminal={() => {}}
       promptActions={{ ...noRowActions, ...actions }}
     />,

@@ -11,6 +11,7 @@ import type { RowActions } from '@/features/agent/transcript/rows/transcript-row
 import type { AgentTerminalAnswer, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
+import { ChatWorkingLine } from '@/features/agent/activity/working-line'
 import { TodoStrip } from '@/features/agent/activity/todo-strip'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/lib/composer-state'
@@ -341,18 +342,7 @@ export function AgentChatView({
       providers={providers}
       status={facts.status}
       working={working}
-      line={{
-        working: facts.active,
-        since: facts.since,
-        compacting,
-        asking: facts.asks.length > 0,
-        activeTodo: facts.activeTodo,
-        toolLabel: facts.toolLabel,
-        agents: facts.agents,
-        reasoning: facts.reasoning,
-        streaming: facts.streaming,
-        stopping: facts.stopping,
-      }}
+      tail={<ChatWorkingLine chatId={chatId} />}
       suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}
       promptActions={rowActions}

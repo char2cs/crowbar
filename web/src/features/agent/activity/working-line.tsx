@@ -4,6 +4,7 @@ import { reasoningHeadline } from '@/features/agent/activity/lib/reasoning-headl
 import { useTextClock } from '@/features/agent/activity/lib/text-clock'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
+import { useWorkingLineFacts } from '@/features/agent/chat/use-composer-facts'
 
 export interface WorkingLineProps {
   working: boolean
@@ -87,4 +88,10 @@ export function WorkingLine(props: WorkingLineProps) {
       )}
     </div>
   )
+}
+
+/** `chatId`'s working line, reading the turn itself: what it says changes with every
+ *  tool and token, and the chat view around it need not render for that. */
+export function ChatWorkingLine({ chatId }: { chatId: string }) {
+  return <WorkingLine {...useWorkingLineFacts(chatId)} />
 }

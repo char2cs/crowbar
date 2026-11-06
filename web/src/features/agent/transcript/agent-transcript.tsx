@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -22,7 +23,6 @@ import { markEnd } from '@/lib/perf/instrumentation'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { WorkingLine, type WorkingLineProps } from '@/features/agent/activity/working-line'
 import {
   useChatItems,
   useDisplayRows,
@@ -56,8 +56,8 @@ interface AgentTranscriptProps {
   providers: AgentProvider[]
   status?: ChatFeed['status']
   working: boolean
-  /** What the working line at the tail says. */
-  line: WorkingLineProps
+  /** Drawn after the rows: the chat's working line. */
+  tail?: ReactNode
   /** A row the composer already shows (the provider's halt notice): said once. */
   suppressId?: string
   onOpenTerminal: () => void
@@ -489,7 +489,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        <WorkingLine {...props.line} />
+        {props.tail}
         {!holding && !empty && <JumpToLatest onJump={jumpToLatest} />}
         <div className="dock-spacer" aria-hidden="true" />
       </div>

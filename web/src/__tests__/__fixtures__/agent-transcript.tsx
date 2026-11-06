@@ -10,7 +10,6 @@ export function drawTranscript(overrides: Partial<ComponentProps<typeof AgentTra
     providers: [],
     status: 'live',
     working: false,
-    line: { working: false },
     onOpenTerminal: () => {},
     promptActions: noRowActions,
     ...overrides,

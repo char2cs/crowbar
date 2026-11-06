@@ -11,28 +11,15 @@ import {
   type TranscriptItem,
 } from '@/features/agent/stores/lib/transcript-items'
 import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
+import type { WorkingLineProps } from '@/features/agent/activity/working-line'
 
 export interface ComposerFacts {
   status?: ChatFeed['status']
   /** A turn runs, a reply streams ahead of its rows, or a subagent works. */
   working: boolean
-  /** Working, or a prompt is on its way: the working line shows. */
-  active: boolean
-  /** When the turn started, or when Enter was pressed before it did. */
-  since?: string
   compacting: boolean
-  reasoning?: string
   /** The main agent's plan. */
   plan?: PlanItem[]
-  activeTodo?: string
-  /** The live label of the running main-agent tool. */
-  toolLabel?: string
-  /** Subagents still running. */
-  agents: number
-  /** Answer text is streaming. */
-  streaming: boolean
-  /** Stop was pressed on the running turn. */
-  stopping: boolean
   /** Pending asks of every scope, oldest first. */
   asks: AskItem[]
   /** The provider's last word on why the chat stopped, while nothing follows it. */
@@ -42,6 +29,8 @@ export interface ComposerFacts {
   /** Nothing has been said in this chat yet. */
   empty: boolean
 }
+
+const lastOf = (feed: ChatFeed | undefined) => feed?.items.get(feed.order.at(-1) ?? '')
 
 function haltOf(item: TranscriptItem | undefined): ComposerFacts['halted'] {
   if (item?.kind === 'user' && item.origin === 'note') return { id: item.id, text: item.text }
@@ -101,56 +90,72 @@ function heldSince(feed: ChatFeed | undefined): string | undefined {
   return since ?? undefined
 }
 
-/** What the chat's feed says about the turn, read once for the view's parts. Each
- *  part is its own narrow read, so a row that changes none of them renders nothing. */
+/** What the chat's feed says about the turn for the view's parts. Each is its own
+ *  narrow read, and none is a tool's or a token's, so a running turn renders nothing. */
 export function useComposerFacts(chatId: string): ComposerFacts {
   const feedOf = (s: ChatStoreState) => s.feeds[chatId]
   const status = useFeedStatus(chatId)
-  const reasoning = useLiveReasoning(chatId)
-  const running = useChatStore((s) => feedOf(s)?.facts.running)
+  const working = useChatStore((s) => {
+    const feed = feedOf(s)
+    const { running, liveSubagents } = feed?.facts ?? {}
+    return running != null || (feed?.liveTail.length ?? 0) > 0 || (liveSubagents?.length ?? 0) > 0
+  })
   const plan = useChatStore((s) => feedOf(s)?.facts.plan[''])
-  const agents = useChatStore((s) => feedOf(s)?.facts.liveSubagents.length ?? 0)
   const compacting = useChatStore((s) => feedOf(s)?.facts.compacting ?? false)
-  const stopTurn = useChatStore((s) => feedOf(s)?.facts.stopping)
   const efforts = useChatStore((s) => feedOf(s)?.facts.efforts)
   const effort = useMemo(() => Object.values(efforts ?? {}).at(-1) ?? '', [efforts])
-  const liveTail = useChatStore((s) => feedOf(s)?.liveTail.length ?? 0)
   const empty = useChatStore((s) => !feedOf(s)?.order.length && !feedOf(s)?.liveTail.length)
-  const last = useChatStore((s) => {
-    const feed = feedOf(s)
-    return feed?.items.get(feed.order.at(-1) ?? '')
+  const haltId = useChatStore((s) => haltOf(lastOf(feedOf(s)))?.id)
+  const haltText = useChatStore((s) => haltOf(lastOf(feedOf(s)))?.text)
+  const asks = useChatStore(useShallow((s) => pendingAsks(feedOf(s))))
+  const halted = useMemo(
+    () => (haltId === undefined ? undefined : { id: haltId, text: haltText ?? '' }),
+    [haltId, haltText],
+  )
+  return { status, working, compacting, plan, asks, halted, latestEffort: effort, empty }
+}
+
+/** What the working line says of the turn: these change with every tool and token,
+ *  so only the line reads them. */
+export function useWorkingLineFacts(chatId: string): WorkingLineProps {
+  const feedOf = (s: ChatStoreState) => s.feeds[chatId]
+  const reasoning = useLiveReasoning(chatId)
+  const running = useChatStore((s) => feedOf(s)?.facts.running)
+  const activeTodo = useChatStore(
+    (s) => feedOf(s)?.facts.plan['']?.find((step) => step.status === 'active')?.text,
+  )
+  const agents = useChatStore((s) => feedOf(s)?.facts.liveSubagents.length ?? 0)
+  const compacting = useChatStore((s) => feedOf(s)?.facts.compacting ?? false)
+  const asking = useChatStore((s) => pendingAsks(feedOf(s)).length > 0)
+  const stopTurn = useChatStore((s) => feedOf(s)?.facts.stopping)
+  const liveTail = useChatStore((s) => feedOf(s)?.liveTail.length ?? 0)
+  const textStreaming = useChatStore((s) => {
+    const last = lastOf(feedOf(s))
+    return last?.kind === 'text' && !last.settled
   })
   const toolLabel = useChatStore((s) => {
     const feed = feedOf(s)
     const turn = feed?.facts.running?.turnId
     return feed && turn ? runningTool(feed.order, feed.items, turn) : undefined
   })
-  const asks = useChatStore(useShallow((s) => pendingAsks(feedOf(s))))
   const enteredAt = useChatStore((s) => {
     const newest = s.outbox[chatId]?.at(-1)
     return newest?.state === 'sending' ? newest.enteredAt : undefined
   })
   // A send that launches a CLI lands its row long before the turn starts; it is still on its way.
   const held = useChatStore((s) => (feedOf(s)?.facts.running ? undefined : heldSince(feedOf(s))))
-  const halted = useMemo(() => haltOf(last), [last])
   const working = running != null || liveTail > 0 || agents > 0
   return {
-    status,
-    working,
-    active: working || enteredAt !== undefined || held !== undefined,
+    working: working || enteredAt !== undefined || held !== undefined,
     since: running?.startedAt ?? enteredAt ?? held,
     compacting,
-    reasoning,
-    plan,
-    activeTodo: plan?.find((step) => step.status === 'active')?.text,
+    asking,
+    activeTodo,
     toolLabel,
     agents,
-    streaming: liveTail > 0 || (last?.kind === 'text' && !last.settled),
+    reasoning,
+    streaming: liveTail > 0 || textStreaming,
     stopping: running != null && stopTurn === running.turnId,
-    asks,
-    halted,
-    latestEffort: effort,
-    empty,
   }
 }
 
