@@ -26,6 +26,8 @@ const NO_ROWS: DisplayRow[] = []
 // An order array is replaced whenever an item joins it, and the grouping reads
 // only facts an item never changes, so one result per order array is exact.
 const drawn = new WeakMap<string[], DisplayRow[]>()
+/** Each chat's rows as last drawn, which its next order's rows reuse. */
+const lastDrawn = new Map<string, DisplayRow[]>()
 
 /** The main-scope order as drawn: hidden calls left out, read-only runs folded. */
 export function useDisplayRows(chatId: string | undefined): DisplayRow[] {
@@ -34,8 +36,9 @@ export function useDisplayRows(chatId: string | undefined): DisplayRow[] {
     if (!feed) return NO_ROWS
     let rows = drawn.get(feed.order)
     if (!rows) {
-      rows = displayRows(feed.order, feed.items)
+      rows = displayRows(feed.order, feed.items, lastDrawn.get(chatId!))
       drawn.set(feed.order, rows)
+      lastDrawn.set(chatId!, rows)
     }
     return rows
   })

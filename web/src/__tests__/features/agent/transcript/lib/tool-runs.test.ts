@@ -87,6 +87,20 @@ describe('displayRows', () => {
     }
   })
 
+  // A memoized row skips only while its props keep their identity.
+  it('keeps the rows a newer call leaves as they were', () => {
+    const a = tool({ kind: 'read', target: '/a' })
+    const b = tool({ kind: 'search', target: 'x' })
+    const edit = tool({ kind: 'edit', target: '/a' })
+    const items = ItemMap.empty.edit()
+    for (const item of [a, b, edit]) items.set(item)
+    const map = items.finish()
+    const before = displayRows([a.id, b.id, edit.id], map)
+    const after = displayRows([a.id, b.id, edit.id, 'later'], map, before)
+    expect(after[0]).toBe(before[0])
+    expect(after[1]).toBe(before[1])
+  })
+
   it('hides meta and plan tool rows', () => {
     const a = tool({ kind: 'read', target: '/a' })
     const meta = tool({ kind: 'meta', name: 'ToolSearch' })

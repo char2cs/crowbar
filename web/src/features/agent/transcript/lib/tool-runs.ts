@@ -10,13 +10,19 @@ export interface DisplayRow {
 const FOLDS = new Set<ToolItem['family']>(['read', 'search', 'fetch'])
 const HIDDEN = new Set<ToolItem['family']>(['meta', 'plan'])
 
+const sameRow = (a: DisplayRow | undefined, b: DisplayRow) =>
+  a?.id === b.id &&
+  a.members?.length === b.members?.length &&
+  (a.members ?? []).every((id, i) => id === b.members![i])
+
 const foldable = (item: TranscriptItem | undefined): item is ToolItem =>
   item?.kind === 'tool' && FOLDS.has(item.family)
 
 /** The order as drawn: meta and plan calls hidden, consecutive read-only calls
  *  of one turn folded into a run whose key stays as it grows. Depends only on
- *  each item's kind, family and turn, which never change. */
-export function displayRows(order: string[], items: ItemMap): DisplayRow[] {
+ *  each item's kind, family and turn, which never change; a row as it was in
+ *  `prev` is that same object, so its memoized line skips. */
+export function displayRows(order: string[], items: ItemMap, prev?: DisplayRow[]): DisplayRow[] {
   const rows: DisplayRow[] = []
   let run: (DisplayRow & { members: string[]; turn?: string }) | null = null
   for (const id of order) {
@@ -34,7 +40,10 @@ export function displayRows(order: string[], items: ItemMap): DisplayRow[] {
     run = { id: `g:${id}`, members: [id], turn: item.turnId }
     rows.push(run)
   }
-  return rows.map((row) => (row.members ? { id: row.id, members: row.members } : row))
+  return rows.map((row, i) => {
+    const next = row.members ? { id: row.id, members: row.members } : row
+    return sameRow(prev?.[i], next) ? prev![i]! : next
+  })
 }
 
 const NOUNS: Partial<Record<ToolItem['family'], [string, string, string, string]>> = {
