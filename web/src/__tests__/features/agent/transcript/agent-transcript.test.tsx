@@ -1,10 +1,9 @@
-import { Profiler, type ComponentProps } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { Profiler, type ComponentProps, type ReactNode } from 'react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 import { applyFeedFrame, chatStore, failFeed, openFeed } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
-import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import {
   layOut,
   measureRows,
@@ -12,7 +11,6 @@ import {
   rect,
 } from '@/__tests__/__fixtures__/transcript-layout'
 import { drawTranscript as draw } from '@/__tests__/__fixtures__/agent-transcript'
-import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 const { toolRenders } = vi.hoisted(() => ({ toolRenders: new Map<string, number>() }))
 vi.mock('@/features/agent/transcript/rows/tool-row', async (importOriginal) => {
@@ -86,18 +84,12 @@ describe('AgentTranscript', () => {
   it('folds 5000 replayed rows into one order without re-rendering per row', () => {
     openFeed('chat-1')
     let commits = 0
-    render(
+    const counted = ({ children }: { children: ReactNode }) => (
       <Profiler id="transcript" onRender={() => void (commits += 1)}>
-        <AgentTranscript
-          chatId="chat-1"
-          providers={[]}
-          status="connecting"
-          working={false}
-          onOpenTerminal={() => {}}
-          promptActions={noRowActions}
-        />
-      </Profiler>,
+        {children}
+      </Profiler>
     )
+    draw({ status: 'connecting' }, { wrapper: counted })
     const l = ledger()
     const rows = Array.from({ length: 2500 }, (_, i) => [
       l.prompt(`r${i}`, `prompt ${i}`),
@@ -130,23 +122,13 @@ describe('AgentTranscript', () => {
   })
 
   it('marks the first turn only on a feed that holds the chat from its start', () => {
-    const turn = (l: ReturnType<typeof ledger>) => [
-      l.prompt('r1', 'ask'),
-      l.start('turn-1', 'r1'),
-      l.text('turn-1', 'm1', 0, 'answer', true),
-      l.end('turn-1'),
-    ]
-    seedFeed('chat-1', turn(ledger()))
-    const { unmount } = draw()
-    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
-    unmount()
-
-    chatStore.setState({ feeds: {} })
-    const [first, ...rest] = turn(ledger('chat-1', 41))
-    applyFeedFrame('chat-1', { type: 'row', row: first!, from: 40 })
-    seedFeed('chat-1', rest)
+    seedFeed('chat-1', [ledger().prompt('r1', 'ask')])
     draw()
-    expect(screen.queryByTestId('agent-first-turn-divider')).toBeNull()
+    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
+    applyFeedFrame('c2', { type: 'row', row: ledger('c2', 41).prompt('r1', 'ask'), from: 40 })
+    seedFeed('c2')
+    const { container } = draw({ chatId: 'c2' })
+    expect(container.querySelector('[data-testid="agent-first-turn-divider"]')).toBeNull()
   })
 
   it('keeps the turn actions of earlier turns while a new one runs', () => {
