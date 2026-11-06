@@ -22,13 +22,17 @@ import (
 const mcpRelayTimeout = 120 * time.Second
 
 func newMCPCmd() *cobra.Command {
-	var project, repo, workspace, segment, token, home, host string
+	var project, repo, workspace, segment, tokenFile, home, host string
 	cmd := &cobra.Command{
 		Use:    "mcp",
 		Short:  "Relay MCP stdio traffic to the Crowbar daemon",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := applyHomeOverride(home); err != nil {
+				return err
+			}
+			token, err := readRunnerToken(tokenFile)
+			if err != nil {
 				return err
 			}
 			client, err := ipc.NewClientWithTimeout(host, mcpRelayTimeout)
@@ -42,9 +46,22 @@ func newMCPCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&segment, "segment", "", "Crowbar segment id")
-	cmd.Flags().StringVar(&token, "token", "", "runner token minted at spawn")
+	cmd.Flags().StringVar(&tokenFile, "token-file", "", "file holding the runner token minted at spawn")
 	bindScopeFlags(cmd, &project, &repo, &workspace, &home, &host)
 	return cmd
+}
+
+// readRunnerToken reads the token the spawn wrote for this runner. It travels in
+// a 0600 file, not argv, because any local user can read a process's argv.
+func readRunnerToken(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: the spawn names its own runner's token file
+	if err != nil {
+		return "", fmt.Errorf("mcp: read the runner token: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
 }
 
 // runMCPRelay reads one JSON-RPC message per line, hands it to the daemon and
