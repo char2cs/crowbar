@@ -1051,7 +1051,7 @@ func TestObservation_APermissionIsRecordedAsAPendingChoice(t *testing.T) {
 	assert.Equal(t, domain.ChoiceOptionAllow, got[0].Options[0].Kind)
 	assert.Equal(t, domain.ChoiceOptionDeny, got[0].Options[1].Kind)
 	assert.Equal(t, "Allow this directory from now on", got[0].Options[2].Label)
-	assert.Equal(t, "Switch to a more permissive mode", got[0].Options[3].Label)
+	assert.Equal(t, "Allow edits for the rest of this session", got[0].Options[3].Label)
 	assert.NotEmpty(t, got[0].ID, "a future answer has to be able to name this record")
 }
 
