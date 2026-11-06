@@ -103,7 +103,7 @@ func New(
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("adapter: create %s: %w", dir, err)
 		}
-		if err := os.Chmod(dir, 0o700); err != nil {
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a directory needs its search bit; 0700 is owner-only
 			return nil, fmt.Errorf("adapter: restrict %s: %w", dir, err)
 		}
 	}

@@ -34,8 +34,14 @@ func TestOwnerOnly_NarrowsWhatAnOlderBuildLeftOpenButNotACheckout(t *testing.T) 
 	chmod(t, root, "model-manifest-cache/m.json", 0o644)
 	chmod(t, root, "model-manifest-cache", 0o750)
 	chmod(t, root, "projects/p1/acme-app/main/worktree/README.md", 0o644)
-	for _, dir := range []string{"projects", "projects/p1", "projects/p1/acme-app", "projects/p1/acme-app/main",
-		"projects/p1/acme-app/main/worktree"} {
+	opened := []string{
+		"projects",
+		"projects/p1",
+		"projects/p1/acme-app",
+		"projects/p1/acme-app/main",
+		"projects/p1/acme-app/main/worktree",
+	}
+	for _, dir := range opened {
 		chmod(t, root, dir, 0o755)
 	}
 

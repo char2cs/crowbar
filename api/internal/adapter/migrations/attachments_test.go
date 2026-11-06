@@ -63,7 +63,7 @@ func TestChatAttachments_PlansNothingWithoutAttachments(t *testing.T) {
 
 func readHome(t *testing.T, root, rel string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // G304: a path under the test's own temp home
+	b, err := os.ReadFile(filepath.Join(root, rel))
 	require.NoError(t, err)
 	return string(b)
 }

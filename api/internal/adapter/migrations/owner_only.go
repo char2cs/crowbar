@@ -2,10 +2,10 @@ package migrations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
@@ -34,10 +34,15 @@ func narrowOwnerOnly(_ context.Context, env migrate.Env, _ *migrate.Checkpoints)
 }
 
 // ownerOnly counts, and with apply narrows, every regular file and directory
-// under root that grants group or other bits, never entering a checkout.
-func ownerOnly(root string, apply bool) (int64, error) {
-	var n int64
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+// under home that grants group or other bits, never entering a checkout. It
+// works through an os.Root so a symlink cannot lead it outside the home.
+func ownerOnly(home string, apply bool) (n int64, err error) {
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return 0, fmt.Errorf("owner-only: %w", err)
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			return err
@@ -58,7 +63,7 @@ func ownerOnly(root string, apply bool) (int64, error) {
 		if !apply {
 			return nil
 		}
-		return os.Chmod(path, perm&^0o077)
+		return root.Chmod(rel, perm&^0o077)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("owner-only: %w", err)

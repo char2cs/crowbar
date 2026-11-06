@@ -67,9 +67,8 @@ func (e assertError) Error() string { return string(e) }
 func TestRewritePromptTextForDispatch_HomeLookupFailure_IsWrapped(t *testing.T) {
 	rs := &Runners{home: func() (string, error) { return "", assertError("boom: no home") }}
 	_, err := rs.rewritePromptTextForDispatch("chat-1", "hello")
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "home")
-	assert.ErrorContains(t, err, "boom")
+	require.ErrorContains(t, err, "home")
+	require.ErrorContains(t, err, "boom")
 }
 
 // apiPushAttachmentTestDescriptor mirrors apiTransportTestDescriptor's shape
