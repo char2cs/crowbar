@@ -214,11 +214,8 @@ func (u *hierarchyUsecase) cleanupFailedWorktree(
 	detached bool,
 	createdBranch bool,
 ) {
-	// The undo outlives the request: a caller that hung up would otherwise
-	// leave the worktree and branch on disk for good.
-	ctx = context.WithoutCancel(ctx)
-	// The worktree was created a moment ago by this very call, so nothing in
-	// it can be anyone's uncommitted work: force is safe.
+	ctx = context.WithoutCancel(ctx) // a caller that hung up would leave the worktree and branch for good
+	// Made a moment ago by this very call, the worktree holds nobody's work: force is safe.
 	if rmErr := u.git.WorktreeRemove(ctx, repoPath, path, true); rmErr != nil {
 		slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
 			"worktree", path, "err", rmErr)

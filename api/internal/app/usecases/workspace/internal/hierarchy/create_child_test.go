@@ -54,17 +54,19 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 // TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
 // row fails to persist after the worktree + branch were created on disk, both are
 // cleaned up best-effort so a fresh-wsID retry is not blocked by the orphaned
-// branch and the worktree dir does not dangle.
+// branch and the worktree dir does not dangle; even when the caller hung up.
 func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
+	ctx, hangUp := context.WithCancel(t.Context())
 	g := &fakeGit{addStartSha: "sha"}
 	ws := &fakeWorkspace{
 		CreateFn: func(_ context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			hangUp()
 			return domain.Workspace{}, errBoom
 		},
 	}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
+	_, err := uc.CreateChild(ctx, hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",
@@ -77,29 +79,6 @@ func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
 	ops := g.ops()
 	assert.Contains(t, ops, "WorktreeRemove", "failed create must remove the orphaned worktree")
 	assert.Contains(t, ops, "ForceDeleteBranch", "failed create must delete the orphaned branch")
-}
-
-// A client that hangs up while its create is writing the row still gets the
-// worktree and branch it left behind removed: no orphan blocks a retry.
-func TestCreateChild_CleansUpWorktreeWhenTheCallerHangsUp(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	g := &fakeGit{addStartSha: "sha"}
-	ws := &fakeWorkspace{
-		CreateFn: func(ctx context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
-			cancel()
-			return domain.Workspace{}, ctx.Err()
-		},
-	}
-	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
-
-	_, err := uc.CreateChild(ctx, hierarchy.CreateChildInput{
-		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
-		Branch: "feature/x", ParentID: "w-parent", ParentBranch: "develop",
-	})
-	require.ErrorIs(t, err, context.Canceled)
-	ops := g.ops()
-	assert.Contains(t, ops, "WorktreeRemove", "the orphaned worktree must go even though the caller left")
-	assert.Contains(t, ops, "ForceDeleteBranch", "and so must its branch")
 }
 
 func TestCreateChild_LocksProtectedBranch(t *testing.T) {
