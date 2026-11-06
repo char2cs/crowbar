@@ -198,6 +198,11 @@ export class FeedFold {
     return (this.order ?? this.base.order).includes(id)
   }
 
+  /** The main-scope order as placed so far. */
+  get placedOrder(): readonly string[] {
+    return this.order ?? this.base.order
+  }
+
   unplace(id: string) {
     const order = this.order ?? this.base.order
     if (order.includes(id)) this.order = order.filter((other) => other !== id)

@@ -81,6 +81,20 @@ const PILL_MARKERS = new Set([
 ])
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
 
+/** A switch made with nothing said since the last of its kind supersedes that
+ *  one: back-and-forth switches on a quiet chat read as where it landed. */
+function dropSupersededDivider(fold: FeedFold, kind: string) {
+  const order = fold.placedOrder
+  for (let i = order.length - 1; i >= 0; i--) {
+    const item = fold.item(order[i]!)
+    if (item?.kind !== 'marker' || !LAUNCH_DIVIDERS.has(item.marker)) return
+    if (item.marker === kind) {
+      fold.unplace(item.id)
+      return
+    }
+  }
+}
+
 /** Draws a pill marker; a launch's lands above the prompt it carries, which
  *  the ledger records first so the new CLI can find it. A selection change
  *  takes no busy guard, so a queued prompt stays where it is. */
@@ -93,6 +107,7 @@ export function divider(fold: FeedFold, kind: string, draw: () => void) {
     newest = fact.seq
     carried = userItemId(requestId, fact.seq)
   }
+  if (LAUNCH_DIVIDERS.has(kind)) dropSupersededDivider(fold, kind)
   const move = LAUNCH_DIVIDERS.has(kind) && carried !== undefined && fold.placed(carried)
   if (move) fold.unplace(carried!)
   draw()

@@ -357,6 +357,18 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['k:2', 'k:3'])
   })
 
+  it('draws one switch divider for switches back and forth with nothing said between', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
+      l.row('marker', { kind: 'model_changed', detail: 'big' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'claude' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
+    ])
+    expect(feed.order).toEqual(['k:2', 'k:4'])
+    expect(feed.items['k:4']).toMatchObject({ marker: 'provider_switched', detail: 'codex' })
+  })
+
   it('shows what the CLI warned its user about as a notice in the transcript', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
