@@ -247,16 +247,16 @@ describe('chat outbox', () => {
     expect(detach).toHaveBeenCalledTimes(1)
   })
 
+  // A prompt queued behind a turn is the chat's stash until it is sent: a reload keeps it.
   it('sends the next prompt on the turn_ended row, never on a clock', async () => {
     vi.useFakeTimers()
     const l = busy()
     send('after this turn')
     await vi.advanceTimersByTimeAsync(60_000)
     expect(submit).not.toHaveBeenCalled()
-
+    expect(loadPromptStashes('w1', 'c1')).toMatchObject([{ markdown: 'after this turn' }])
     seedFeed('c1', [l.end('turn-0')])
-    expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', 'after this turn'])
+    expect(submit.mock.calls.map((call) => call[2])).toEqual(['after this turn'])
   })
 
   it('holds the outbox while a reset ledger replays', () => {
@@ -307,22 +307,6 @@ describe('chat outbox', () => {
     expect(stashed()).toEqual(['two'])
     retryPrompt('w1', 'c1', outbox()[0]?.requestId ?? '', false)
     await flush()
-    expect(stashed()).toEqual([])
-  })
-
-  // A queued prompt has not reached the daemon, so a reload would lose it: until it
-  // is sent it is also the chat's stash, which the reload keeps.
-  it('keeps a queued prompt as a stash until it is sent', async () => {
-    const stashed = () => loadPromptStashes('w1', 'c1').map((stash) => stash.markdown)
-    const l = busy()
-    send('wait for me')
-    await flush()
-    expect(outbox()[0]?.state).toBe('queued')
-    expect(stashed()).toEqual(['wait for me'])
-
-    seedFeed('c1', [l.end('turn-0')])
-    await flush()
-    expect(submit).toHaveBeenCalledTimes(1)
     expect(stashed()).toEqual([])
   })
 

@@ -284,17 +284,11 @@ describe('ComposerChoice suggestions', () => {
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
-        {
-          id: 'suggestion-0',
-          kind: 'suggestion',
-          label: 'Allow edits for the rest of this session',
-        },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow edits this session' },
       ],
     })
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Allow edits for the rest of this session/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: /Allow edits this session/ }))
 
     await waitFor(() =>
       expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', expect.any(String), {

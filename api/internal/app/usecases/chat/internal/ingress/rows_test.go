@@ -1,7 +1,6 @@
 package ingress
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -373,37 +372,22 @@ func TestMap_AnIdleThatEndsTheTurnKeepsWhatItSaid(t *testing.T) {
 	assert.Empty(t, c.st.PendingAsks())
 }
 
-// An idle with nothing running is recorded late: on hooks it also says the
-// prompts the CLI carried were never taken; on an api connection, nothing more.
+// An idle with nothing running is recorded late: on hooks it also says the prompts the CLI
+// carried were never taken, bar a command it ran itself; on an api connection, nothing more.
 func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
 	c := liveChatRows(t)
-	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart))
-	api := hooksSource()
-	api.Channel = engineagents.ChannelAPI
-
-	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, api)
+	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart), crowbarPrompt(t, "req-2", "/context", ledger.DeliveryRestart))
+	src := hooksSource()
+	src.Channel = engineagents.ChannelAPI
+	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
 	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows))
 	assert.Empty(t, fx.Ended)
 
-	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, hooksSource())
-	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled}, kinds(rows))
-	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
-}
-
-// A command the CLI ran itself (/context prints, opens no turn) is taken by its
-// builtin once the CLI goes idle, never reported as untaken.
-func TestMap_AnIdleSettlesACarriedCommandAsRunByTheCLI(t *testing.T) {
-	c := liveChatRows(t)
-	c.commit(crowbarPrompt(t, "req-1", "/context", ledger.DeliveryRestart))
-	src := hooksSource()
-	src.Command = func(text string) bool { return strings.HasPrefix(text, "/") }
-
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
-
-	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled}, kinds(rows))
-	settled := bodyOf[ledger.PromptSettled](t, rows[1])
-	assert.True(t, settled.Consumed)
-	assert.Equal(t, ledger.ReasonProviderBuiltin, settled.Reason)
+	src = hooksSource()
+	src.Command = func(text string) bool { return text == "/context" }
+	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
+	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled, ledger.KindPromptSettled}, kinds(rows))
+	assert.Equal(t, []string{ledger.ReasonProviderBuiltin, ledger.ReasonNotAcknowledged}, []string{bodyOf[ledger.PromptSettled](t, rows[1]).Reason, bodyOf[ledger.PromptSettled](t, rows[2]).Reason})
 }
 
 // A late turn_stop closes its turn no second time; what it said lands in it,

@@ -369,17 +369,11 @@ func TestAnswer_ASuggestionReachesTheCLIAsTheGrantOffered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
-
-	suggestion := ""
-	for _, option := range choice.Options {
-		if option.Kind == domain.ChoiceOptionSuggestion {
-			suggestion = option.ID
-		}
-	}
-	require.NotEmpty(t, suggestion, "claude's permission carries suggestions")
+	suggestion := choice.Options[len(choice.Options)-1]
+	require.Equal(t, domain.ChoiceOptionSuggestion, suggestion.Kind, "claude's permission carries suggestions")
 
 	printed := await(f, ask)
-	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion}, "", nil))
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion.ID}, "", nil))
 	f.wait()
 
 	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+

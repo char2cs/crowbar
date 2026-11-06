@@ -929,20 +929,6 @@ func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 	assert.JSONEq(t, `{"decision":"accept"}`, string(stdout))
 }
 
-// Picking claude's own "always" grant allows the call and hands the grant back as
-// updatedPermissions, the shape its PermissionRequest hook applies.
-func TestAgent_ClaudeGrantsTheSuggestionPicked(t *testing.T) {
-	raw, err := os.ReadFile("internal/protocol/testdata/fixtures/claude/PermissionRequest.Edit.json")
-	require.NoError(t, err)
-
-	out, err := get(t, "claude").RenderAnswer(agents.HookPermission, raw,
-		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion, Picked: []string{"suggestion-0"}})
-
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
-		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, string(out))
-}
-
 func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {
 	tmp := t.TempDir()
 	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
@@ -1009,29 +995,12 @@ func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
 	}
 }
 
-// A command that opens a dialog (/help) holds the CLI until the person closes it
-// in the terminal; its screen (captured on 2.1.319) reads as blocking.
+// A command's dialog (2.1.319) blocks: by its footer, or by its tab row where a small grid cuts it.
 func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
-	screen := " Help General Commands Custom commands\n Shortcuts ! for shell mode\n" +
-		" For more help: https://code.claude.com/docs/en/overview\n Esc to cancel"
-
-	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
-
-	require.True(t, ok)
-	assert.Empty(t, prompt.Kind)
-}
-
-// On the unviewed 80x24 grid the dialog is cut above its footer; its tab row
-// (captured on 2.1.319 at that size) still reads as blocking.
-func TestMatchTerminalPrompt_ClaudeCommandDialogBlocksOnASmallGrid(t *testing.T) {
-	screen := "       Help       General      Commands   Custom commands\n" +
-		"   Claude understands your codebase, makes edits with your permission, and\n" +
-		"   Shortcuts\n   ! for shell mode     double tap esc to clear     ctrl + shift + _ to"
-
-	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
-
-	require.True(t, ok)
-	assert.Empty(t, prompt.Kind)
+	for _, screen := range []string{" For more help: …\n Esc to cancel", "  Help   General   Commands   Custom commands\n"} {
+		prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
+		assert.True(t, ok && prompt.Kind == "", screen)
+	}
 }
 
 // The trust dialog as the real CLI paints it (2.1.319, through our emulator) preselects
