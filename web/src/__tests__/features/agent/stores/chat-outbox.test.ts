@@ -310,6 +310,22 @@ describe('chat outbox', () => {
     expect(stashed()).toEqual([])
   })
 
+  // A queued prompt has not reached the daemon, so a reload would lose it: until it
+  // is sent it is also the chat's stash, which the reload keeps.
+  it('keeps a queued prompt as a stash until it is sent', async () => {
+    const stashed = () => loadPromptStashes('w1', 'c1').map((stash) => stash.markdown)
+    const l = busy()
+    send('wait for me')
+    await flush()
+    expect(outbox()[0]?.state).toBe('queued')
+    expect(stashed()).toEqual(['wait for me'])
+
+    seedFeed('c1', [l.end('turn-0')])
+    await flush()
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(stashed()).toEqual([])
+  })
+
   it('sends the prompts queued behind one the daemon refused', async () => {
     busy()
     submit.mockRejectedValueOnce(new ApiError('no provider: unprocessable entity', 422))

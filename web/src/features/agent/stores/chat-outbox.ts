@@ -61,18 +61,19 @@ function itemsOf(chatId: string): OutboxItem[] {
   return chatStore.getState().outbox[chatId] ?? NO_ITEMS
 }
 
-// A failed prompt is the outbox's alone, which a reload empties: while it fails,
-// its text is also the chat's stash, so the composer can still give it back.
-function failedById(items: OutboxItem[]) {
-  const failed = new Map<string, OutboxItem>()
+// A queued or failed prompt is the outbox's alone, which a reload empties: until it
+// is sent its text is also the chat's stash, so the composer can still give it back.
+function unsentById(items: OutboxItem[]) {
+  const unsent = new Map<string, OutboxItem>()
   for (const item of items)
-    if (item.state === 'failed') failed.set(`unsent:${item.requestId}`, item)
-  return failed
+    if (item.state === 'failed' || item.state === 'queued')
+      unsent.set(`unsent:${item.requestId}`, item)
+  return unsent
 }
 
-function stashFailed(chatId: string, before: OutboxItem[], next: OutboxItem[]) {
-  const was = failedById(before)
-  const now = failedById(next)
+function stashUnsent(chatId: string, before: OutboxItem[], next: OutboxItem[]) {
+  const was = unsentById(before)
+  const now = unsentById(next)
   const left = new Set([...was.keys()].filter((id) => !now.has(id)))
   const added = [...now].filter(([id]) => !was.has(id))
   const wsId = (added[0]?.[1] ?? was.get([...left][0] ?? ''))?.wsId
@@ -89,7 +90,7 @@ function update(chatId: string, change: (items: OutboxItem[]) => OutboxItem[]) {
   const before = itemsOf(chatId)
   const next = change(before)
   if (next === before) return
-  stashFailed(chatId, before, next)
+  stashUnsent(chatId, before, next)
   const { [chatId]: _old, ...rest } = chatStore.getState().outbox
   chatStore.setState({ outbox: next.length > 0 ? { ...rest, [chatId]: next } : rest })
   const hostId = next.length > 0 && !feedHolds.has(chatId) ? chatHostOf(chatId) : null
