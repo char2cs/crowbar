@@ -335,7 +335,9 @@ describe('AgentChatPane — a split nobody is looking at', () => {
   // A hidden tab is still MOUNTED, for keep-alive. Nothing structural stops it
   // rendering, so the props have to.
   it('goes dormant with the tab that holds it', async () => {
-    await renderPane(seed(), { isVisible: false })
+    const store = seed()
+    const view = await act(async () => render(pane(store)))
+    await act(async () => view.rerender(pane(store, { isVisible: false })))
     await choose('Split')
 
     expect(showing()).toBe('split')
