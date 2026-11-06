@@ -22,7 +22,7 @@ export async function createThread(
 ): Promise<void> {
   await handleCreate(parentId, 'thread', ...rest)
   const paneId = draftPaneId()
-  if (paneId) await promoteDraftThread(paneId, FIRST_PROMPT)
+  if (paneId) await promoteDraftThread(paneId, FIRST_PROMPT, () => '')
 }
 
 /** The project-home "New thread", then the first send from its draft. */
@@ -34,5 +34,5 @@ export async function createHomeThread(
   windowPaneStore.setState({ activeProjectId: projectId })
   await handleCreateHomeThread(projectId, homeWorkspaceId, navigate)
   const paneId = draftPaneId()
-  if (paneId) await promoteDraftThread(paneId, FIRST_PROMPT)
+  if (paneId) await promoteDraftThread(paneId, FIRST_PROMPT, () => '')
 }

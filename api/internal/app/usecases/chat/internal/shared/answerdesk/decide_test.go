@@ -87,6 +87,20 @@ func TestDecide_ADenyWithNoReasonSaysThePersonDeniedIt(t *testing.T) {
 	assert.Empty(t, allowed.Reason)
 }
 
+// Picking the provider's broader grant names which of its suggestions to apply.
+func TestDecide_ASuggestionNamesTheGrantsPicked(t *testing.T) {
+	t.Parallel()
+	choice := permission()
+	choice.Options = append(choice.Options,
+		domain.ActivityChoiceOption{ID: "suggestion-1", Kind: domain.ChoiceOptionSuggestion, Label: "Always"})
+
+	decision, err := answerdesk.Decide(choice, []string{"suggestion-1"}, "", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChoiceOptionSuggestion, decision.Key)
+	assert.Equal(t, []string{"suggestion-1"}, decision.Picked)
+}
+
 // A choice with no options at all is a free-form prompt: the option id IS the
 // answer, passed through untouched.
 func TestDecide_PassesTheRawIDThroughForAnOptionlessChoice(t *testing.T) {

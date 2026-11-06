@@ -88,7 +88,25 @@ func replacer(
 		"{reason_json}", encode(decision.Reason, `""`),
 		"{content_json}", rawJSON(decision.Content, "{}"),
 		"{tool_input_json}", toolInput(d, event, canonical, raw, decision.Answers),
+		"{suggestions_json}", encode(pickedSuggestions(d, canonical, raw, decision.Picked), "[]"),
 	)
+}
+
+// pickedSuggestions are the suggestions raw offered that picked names, as offered.
+func pickedSuggestions(d *spec.Descriptor, canonical string, raw []byte, picked []string) []map[string]any {
+	out := []map[string]any{}
+	fields, declared := d.EventFields(canonical)
+	var decoded map[string]any
+	if !declared || len(picked) == 0 || json.Unmarshal(raw, &decoded) != nil {
+		return out
+	}
+	offered := mapping.Objects(decoded, fields["suggestions"])
+	for _, id := range picked {
+		if i, ok := models.SuggestionIndex(id); ok && i < len(offered) {
+			out = append(out, offered[i])
+		}
+	}
+	return out
 }
 
 func toolInput(

@@ -453,3 +453,19 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 	require.NotNil(t, permission.Choice)
 	assert.Len(t, permission.Choice.Options, 34, "allow and deny, then the capped suggestions")
 }
+
+// A label the descriptor gives a suggestion's exact grant reads alone: the provider's
+// machine word for it (acceptEdits) is never shown as the description.
+func TestParse_ASuggestionsExactGrantReadsInWords(t *testing.T) {
+	m := permissionMap()
+	m["suggestion_description"] = "mode"
+	m["suggestion_label.setMode.acceptEdits"] = "Accept every edit for the rest of this session"
+	fields := fieldMap(m)
+
+	ev, err := parse(descriptorWithFields(spec.HookPermission, fields), spec.HookPermission, []byte(permissionPayload))
+	require.NoError(t, err)
+
+	require.Len(t, ev.Choice.Options, 4)
+	assert.Equal(t, "Accept every edit for the rest of this session", ev.Choice.Options[3].Label)
+	assert.Empty(t, ev.Choice.Options[3].Description)
+}

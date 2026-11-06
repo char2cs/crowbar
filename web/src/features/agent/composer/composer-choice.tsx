@@ -1,6 +1,7 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useEffectEvent, useState, type KeyboardEvent } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { answerChoice } from '@/features/agent/api/agent-chat-commands'
 import type {
   AgentChoice,
@@ -19,7 +20,6 @@ import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import {
   ChoiceQuestions,
   ChoiceButtons,
-  ChoiceSuggestions,
   ChoiceReadOnly,
   ChoiceSchema,
 } from '@/features/agent/composer/composer-choice-controls'
@@ -53,6 +53,8 @@ type CardState = {
   /** A 400: the relay refuses this shape of answer, so retrying cannot help; only the
    *  terminal can answer it. */
   unsupportedHere: boolean
+  /** What a Deny tells the CLI: why, or what to do instead. */
+  reason: string
 }
 
 function freshCard(choiceId: string): CardState {
@@ -65,6 +67,7 @@ function freshCard(choiceId: string): CardState {
     error: '',
     gateClosed: false,
     unsupportedHere: false,
+    reason: '',
   }
 }
 
@@ -117,16 +120,13 @@ export function ComposerChoice({
     }))
 
   const answerable = choice.answerable && !card.gateClosed
-  // Suggestions are separated out rather than filtered away: what the provider
-  // offered is worth showing even when Crowbar cannot send it.
-  const suggestions = choice.options.filter((option) => option.kind === 'suggestion')
   const questions = choiceQuestions(choice)
   const isForm = choice.options.length === 0 && choice.kind === 'elicitation'
   // The flat row is what is left once questions are their own groups: a
-  // permission's allow and deny, or an elicitation's verbs.
+  // permission's allow, deny and broader grants, or an elicitation's verbs.
   const controls: AgentChoiceOption[] = isForm
     ? ELICITATION_VERBS.map((verb) => ({ id: verb.id, kind: verb.id, label: verb.label }))
-    : choice.options.filter((option) => option.kind !== 'suggestion')
+    : choice.options
   // Answerable is necessary and not sufficient: a relay can be holding the gate
   // for a prompt whose only options are ones Crowbar declines to send, and an
   // empty row of buttons would be a control surface that answers nothing.
@@ -136,15 +136,16 @@ export function ComposerChoice({
   // bar shows nothing but the one thing that still works.
   const terminalOnly = !canAnswerHere || card.unsupportedHere
   // Answerable, but with something the terminal covers and this card cannot: a
-  // form Crowbar can't compose, or suggestions with no declared answer shape.
-  const needsTerminal = isForm || suggestions.length > 0
+  // form Crowbar can't compose.
+  const needsTerminal = isForm
   const busy = card.sending || card.sent
   const flat = canAnswerHere && !card.unsupportedHere && questions.length === 0
 
   const send = async (optionIds: string[]) => {
     update({ error: '', sending: true })
     try {
-      await answerChoice(wsId, chatId, choice.id, { optionIds })
+      const reason = optionIds.includes('deny') ? card.reason.trim() : ''
+      await answerChoice(wsId, chatId, choice.id, reason ? { optionIds, reason } : { optionIds })
       // Deliberately NOT removed here. The card lives until the server says the
       // prompt stopped pending, so an answer that raced a terminal keystroke
       // resolves to whatever actually reached the CLI.
@@ -162,16 +163,28 @@ export function ComposerChoice({
 
   // A digit picks that option; Enter allows once, only from the card itself so
   // an Enter meant for the composer never grants a permission.
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Only from the card itself: a key on a control inside it is that control's.
-    if (event.target !== event.currentTarget || event.repeat || event.nativeEvent.isComposing)
-      return
-    if (!flat || busy || event.metaKey || event.ctrlKey || event.altKey) return
+  const pickByKey = (event: globalThis.KeyboardEvent, enter: boolean) => {
+    if (event.repeat || event.isComposing || !flat || busy) return
+    if (event.metaKey || event.ctrlKey || event.altKey || (!enter && event.key === 'Enter')) return
     const picked = keyedOption(controls, event.key)
     if (!picked) return
     event.preventDefault()
     void send([picked.id])
   }
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Only from the card itself: a key on a control inside it is that control's.
+    if (event.target === event.currentTarget) pickByKey(event.nativeEvent, true)
+  }
+  // The composer gives way to the card and focus falls to the page: a digit typed
+  // then is for the card. Not an Enter, which may be the end of a message.
+  const onPageKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (event.target === document.body && document.activeElement === document.body)
+      pickByKey(event, false)
+  })
+  useEffect(() => {
+    window.addEventListener('keydown', onPageKey)
+    return () => window.removeEventListener('keydown', onPageKey)
+  }, [])
 
   // WHAT IS ASKED goes above the bar; the bar is the QUESTION and its controls.
   // Options are a list to read down, and folding them into a 38px row turns them
@@ -193,6 +206,16 @@ export function ComposerChoice({
       {view && (
         <ChoiceRequest view={view} expanded={expanded} onExpand={() => setExpandedId(choice.id)} />
       )}
+      {flat && controls.some((option) => option.kind === 'deny') && (
+        <Input
+          size="sm"
+          aria-label="Reason, sent with Deny"
+          placeholder={`Or tell ${providerLabel} what to do instead, then Deny`}
+          value={card.reason}
+          disabled={busy}
+          onChange={(event) => update({ reason: event.target.value })}
+        />
+      )}
       {canAnswerHere && questions.length > 0 && (
         <ChoiceQuestions
           questions={questions}
@@ -203,7 +226,6 @@ export function ComposerChoice({
           }
         />
       )}
-      {canAnswerHere && suggestions.length > 0 && <ChoiceSuggestions options={suggestions} />}
       {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
 
       {/* ── the bar itself ── */}

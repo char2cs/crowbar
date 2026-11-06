@@ -9,6 +9,17 @@ import {
 const folded = (command: string) =>
   foldCode(requestView({ toolName: 'Bash', toolInput: { command } }).code)
 
+describe('requestView', () => {
+  it('shows the plan a plan approval asks about', () => {
+    const view = requestView({
+      toolName: 'ExitPlanMode',
+      toolInput: { plan: '# Plan\n1. Create a.txt', planFilePath: '/h/plans/p.md' },
+    })
+    expect(view.code.map((line) => line.text)).toEqual(['# Plan', '1. Create a.txt'])
+    expect(view.note).toBeUndefined()
+  })
+})
+
 describe('foldedCue', () => {
   it('counts the characters cut from long lines as well as the lines left out', () => {
     const command = Array.from({ length: 13 }, () => 'y'.repeat(300)).join('\n')

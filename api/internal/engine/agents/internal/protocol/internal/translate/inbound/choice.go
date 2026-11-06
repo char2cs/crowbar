@@ -126,15 +126,19 @@ func suggestionOptions(fields spec.FieldMap, decoded map[string]any) []models.Ch
 		if len(out) >= maxChoiceOptions {
 			break
 		}
-		label := suggestionLabel(fields, suggestion)
+		description := mapping.String(suggestion, fields["suggestion_description"])
+		label, exact := suggestionLabel(fields, suggestion, description)
 		if label == "" {
 			continue
 		}
+		if exact {
+			description = ""
+		}
 		out = append(out, models.ChoiceOption{
-			ID:          "suggestion-" + strconv.Itoa(i),
+			ID:          models.SuggestionOptionID(i),
 			Kind:        models.ChoiceOptionSuggestion,
 			Label:       label,
-			Description: mapping.String(suggestion, fields["suggestion_description"]),
+			Description: description,
 		})
 	}
 	return out
@@ -142,15 +146,20 @@ func suggestionOptions(fields spec.FieldMap, decoded map[string]any) []models.Ch
 
 // suggestionLabel reads a LITERAL display string out of the descriptor, not a
 // payload path: suggestion_label.* maps a provider's machine name for a broader
-// grant to the English text the field map carries verbatim.
-func suggestionLabel(fields spec.FieldMap, suggestion map[string]any) string {
+// grant to the English text the field map carries verbatim. exact when a label
+// names the grant's description too (suggestion_label.<type>.<description>).
+func suggestionLabel(fields spec.FieldMap, suggestion map[string]any, description string) (string, bool) {
 	kind := mapping.String(suggestion, fields["suggestion_type"])
-	if kind != "" {
-		if label := literal(fields, suggestionLabelPrefix+kind); label != "" {
-			return label
-		}
+	if kind == "" {
+		return literal(fields, suggestionLabelDefault), false
 	}
-	return literal(fields, suggestionLabelDefault)
+	if label := literal(fields, suggestionLabelPrefix+kind+"."+description); description != "" && label != "" {
+		return label, true
+	}
+	if label := literal(fields, suggestionLabelPrefix+kind); label != "" {
+		return label, false
+	}
+	return literal(fields, suggestionLabelDefault), false
 }
 
 // literal reads a FieldMap entry as the single literal value it declares,

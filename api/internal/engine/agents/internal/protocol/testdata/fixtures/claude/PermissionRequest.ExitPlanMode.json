@@ -1,0 +1,17 @@
+{
+  "session_id": "91408893-1f11-4c74-8251-03a4f6a8ac72",
+  "transcript_path": "/h/.claude/projects/-ws/91408893-1f11-4c74-8251-03a4f6a8ac72.jsonl",
+  "cwd": "/ws",
+  "scratchpad_dir": "/tmp/claude-1000/-ws/91408893-1f11-4c74-8251-03a4f6a8ac72/scratchpad",
+  "prompt_id": "aada68e3-7987-4438-9749-1b4e980e91c1",
+  "permission_mode": "plan",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "ExitPlanMode",
+  "tool_input": {
+    "plan": "# Plan\n\n## Context\nUser wants a file `plx.txt` containing `x` in the repo root.\n\n## Step\n1. Create `/ws/plx.txt` with content `x`.\n\n## Verification\nRead the file and confirm it contains `x`; reply PLX-DONE.\n",
+    "planFilePath": "/h/.claude/plans/make-a-one-step-plan-zany-moler.md"
+  }
+}
