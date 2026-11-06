@@ -115,6 +115,15 @@ describe('ToolRow', () => {
     expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
   })
 
+  it('shows a finished call’s short output without opening it, colour codes stripped', () => {
+    const l = ledger()
+    const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'ls' }
+    const output = 'one\n\u001b[32mtwo\u001b[0m'
+    seed([l.row('tool_call', { ...call, phase: 'post', output }, { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    expect(screen.getByTestId('agent-tool-short-output').textContent).toBe('one\ntwo')
+  })
+
   it('shows the first error line of a failed tool inline', () => {
     const l = ledger()
     const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'cat missing.txt' }

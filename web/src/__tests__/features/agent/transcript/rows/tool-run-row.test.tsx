@@ -36,7 +36,7 @@ describe('ToolRunRow', () => {
     render(<ToolRunRow chatId="chat-1" id="g:t:a" members={['t:a', 't:b']} />)
     const run = screen.getByTestId('agent-tool-run')
     expect(run).toHaveAttribute('data-status', 'running')
-    expect(run).toHaveTextContent('Reading 1 file, searching 1 pattern…')
+    expect(run).toHaveTextContent('Reading 1 file, running 1 search…')
     expect(screen.getByTestId('agent-tool-run-ticker')).toHaveTextContent('Searching for "TODO"')
 
     push(read('a', 'post', '/repo/a.ts'))
@@ -48,7 +48,7 @@ describe('ToolRunRow', () => {
       ),
     )
     expect(run).toHaveAttribute('data-status', 'ok')
-    expect(run).toHaveTextContent('Read 1 file, searched 1 pattern')
+    expect(run).toHaveTextContent('Read 1 file, ran 1 search')
     expect(screen.queryByTestId('agent-tool-run-ticker')).toBeNull()
     expect(screen.queryByTestId('agent-activity-tool')).toBeNull()
 

@@ -26,6 +26,7 @@ import {
 } from '@/features/agent/transcript/lib/tool-label'
 import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
 import { ToolPayload } from '@/features/agent/transcript/rows/tool-payload'
+import { plain } from '@/features/agent/transcript/lib/payload-text'
 
 /** A running tool's output is a progress signal, not a log: one line's worth. */
 const TOOL_OUTPUT_LIMIT = 120
@@ -183,6 +184,11 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
               <div className="turn-diff tool-turn-diff" data-testid="agent-tool-diff">
                 <TurnDiffPreview diff={patch} turnId={item.toolId} />
               </div>
+            )}
+            {body.output && !running && !toggled && (
+              <pre className="tool-call-output" data-testid="agent-tool-short-output">
+                {plain(body.output)}
+              </pre>
             )}
             {/* The blobs are read only once someone asks for them. */}
             {toggled && (body.inputRef || body.resultRef) && (
