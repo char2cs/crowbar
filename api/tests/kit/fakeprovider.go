@@ -119,7 +119,7 @@ func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider
 	raw, err := yaml.Marshal(doc)
 	require.NoError(tb, err)
 	descriptors := filepath.Join(home, "descriptors")
-	require.NoError(tb, os.MkdirAll(descriptors, 0o750))
+	require.NoError(tb, os.MkdirAll(descriptors, 0o700))
 	path := filepath.Join(descriptors, id+".yaml")
 	writeDescriptor(tb, path, raw)
 	return FakeProvider{ID: id, Dir: dir, descriptor: path}

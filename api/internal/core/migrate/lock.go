@@ -34,7 +34,7 @@ func createHome(
 func lockHome(
 	h home.Home,
 ) (*homeLock, error) {
-	if err := os.MkdirAll(h.State(), 0o750); err != nil {
+	if err := os.MkdirAll(h.State(), 0o700); err != nil {
 		return nil, fmt.Errorf("migrate: create state directory: %w", err)
 	}
 	return acquireLock(h, os.O_CREATE|os.O_RDWR)
