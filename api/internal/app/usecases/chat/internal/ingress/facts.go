@@ -154,7 +154,7 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	}
 	turnID, _ := turnFor(st, src, scope, ev.TurnID)
 	body := ledger.ToolCall{
-		ToolID: id, Phase: phase, Name: tool.Name, Kind: tool.Kind, Title: tool.Title, Target: tool.Target,
+		ToolID: id, Phase: phase, Name: tool.Name, Kind: tool.Kind, Title: tool.Title, Target: toolTarget(tool),
 		Locations: toolLocations(tool), InputRef: refs.Input, ResultRef: refs.Result,
 		Error: caption(tool.Error), DurationMS: tool.DurationMS, ExitCode: tool.ExitCode, Interrupted: tool.Interrupted,
 	}

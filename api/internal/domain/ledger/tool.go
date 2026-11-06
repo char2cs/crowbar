@@ -16,11 +16,13 @@ const (
 	ToolFail = "fail" // it failed or was declined
 )
 
-// The tool kinds the ledger reads: a call into an MCP server, and a call that
-// spawns a subagent.
+// The tool kinds the ledger reads: a call into an MCP server, one that spawns
+// a subagent, and one whose target is the file it reads or edits.
 const (
 	ToolKindMCP      = "mcp"
 	ToolKindSubagent = "subagent"
+	ToolKindRead     = "read"
+	ToolKindEdit     = "edit"
 )
 
 // ToolCall is the body of a tool_call row: one phase of one tool call.

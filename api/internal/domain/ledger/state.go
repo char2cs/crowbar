@@ -28,6 +28,7 @@ type State struct {
 	hasTurn bool
 	agents  SubagentBook
 	plan    []PlanItem // the main agent's plan
+	effort  string     // the effort the newest main turn to report one ran at
 
 	keys keys // what a retried hook's fact is recognised by
 }
