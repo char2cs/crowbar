@@ -316,3 +316,19 @@ func TestRegression_ACodexChatsChosenModelReachesItsServeProcess(t *testing.T) {
 		"an adopted codex connection has no argv but this one; a model that misses it is not run")
 	assert.Contains(t, serveArgv, `model_reasoning_effort="high"`)
 }
+
+// A codex chat's terminal view is a new process resuming the api session; without the
+// selection on its argv the TUI ran the provider default model, effort and sandbox.
+func TestRegression_ACodexTerminalViewKeepsTheChatsSelection(t *testing.T) {
+	attachArgv, ok := get(t, "codex").APIAttachArgv(agents.TemplateCtx{
+		Session: "sess-1", Model: "gpt-5.4-codex", Effort: "low", PermissionLevel: "trusted",
+		Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarBin: "/bin/crowbar", CrowbarHome: t.TempDir(),
+		Segid: "seg-1", RunnerToken: "tok", HookBase: "http://h", Provider: "codex", ProjectID: "p",
+	})
+
+	require.True(t, ok)
+	assert.Contains(t, strings.Join(attachArgv, " "), "--model gpt-5.4-codex")
+	assert.Contains(t, attachArgv, `model_reasoning_effort="low"`)
+	assert.Contains(t, strings.Join(attachArgv, " "), "--sandbox workspace-write")
+	assert.Contains(t, strings.Join(attachArgv, " "), "--ask-for-approval on-request")
+}
