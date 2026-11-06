@@ -40,7 +40,11 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
 // A retracted prompt went back to the composer, so its row leaves the transcript.
 export function applyPromptSettled(fold: FeedFold, row: LedgerRow<'prompt_settled'>) {
   const { requestId, consumed, reason } = row.body
-  if (consumed) setPrompt(fold, requestId, { state: 'settled' })
+  if (consumed)
+    setPrompt(fold, requestId, {
+      state: 'settled',
+      ...(reason === 'provider_builtin' && { builtin: true }),
+    })
   else if (reason === 'retracted') {
     setPrompt(fold, requestId, { state: 'retracted' })
     fold.unplace(userItemId(requestId, row.seq))
