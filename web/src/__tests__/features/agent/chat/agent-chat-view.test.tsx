@@ -116,6 +116,7 @@ const submitted = () =>
     .spyOn(commands, 'submitAgentPrompt')
     .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
 
+const unretried = (text: string) => ['w1', 'c1', text, expect.any(String), '', '', '', undefined]
 const transcriptReads = () =>
   fetchSpy.mock.calls.filter(([url]) => /\/(messages|activity)\b/.test(String(url)))
 
@@ -227,9 +228,7 @@ describe('AgentChatView', () => {
     await type('/compact')
     await press('Enter')
 
-    await waitFor(() =>
-      expect(submit).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', ''),
-    )
+    await waitFor(() => expect(submit).toHaveBeenCalledWith(...unretried('/compact')))
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {
@@ -305,9 +304,7 @@ describe('AgentChatView one composer', () => {
     await press('Enter', DOCUMENT)
 
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('add a flag')
-    await waitFor(() =>
-      expect(submit).toHaveBeenCalledWith('w1', 'c1', 'add a flag', expect.any(String), '', '', ''),
-    )
+    await waitFor(() => expect(submit).toHaveBeenCalledWith(...unretried('add a flag')))
     expect(screen.getAllByRole('textbox')).toEqual([box()])
     expect(box()).toBe(editable)
     expect(markdown()).toBe('')
