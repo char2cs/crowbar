@@ -14,7 +14,7 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
 
 const WS = 'ws-commit'
 const calls = () =>
-  apiFetch.mock.calls.map(([url, init]: [string, RequestInit]) => [
+  (apiFetch.mock.calls as [string, RequestInit][]).map(([url, init]) => [
     url.split('/git/')[1],
     JSON.parse(String(init.body)),
   ])
