@@ -50,16 +50,16 @@ func TestUploadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "upload attachment: chat")
 }
 
-func TestUploadAttachment_ChatsDirLookupFailure_ReturnsWrappedError(t *testing.T) {
+func TestUploadAttachment_HomeLookupFailure_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	f.ws.err = fmt.Errorf("boom: worktree lookup")
+	*f.homeErr = fmt.Errorf("boom: no home")
 	_, err := f.usecase.UploadAttachment(f.ctx, chatID, agentusecase.UploadAttachmentInput{
 		ID: "ab12", OriginalName: "photo.png", Data: pngBytes(),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "upload attachment: chats dir")
+	assert.Contains(t, err.Error(), "upload attachment: home")
 }
 
 func TestUploadAttachment_StoreFailure_ReturnsWrappedError(t *testing.T) {
@@ -107,12 +107,12 @@ func TestReadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "read attachment: chat")
 }
 
-func TestReadAttachment_ChatsDirLookupFailure_ReturnsWrappedError(t *testing.T) {
+func TestReadAttachment_HomeLookupFailure_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	f.ws.err = fmt.Errorf("boom: worktree lookup")
+	*f.homeErr = fmt.Errorf("boom: no home")
 	_, _, err := f.usecase.ReadAttachment(f.ctx, chatID, "no-such-file.png")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read attachment: chats dir")
+	assert.Contains(t, err.Error(), "read attachment: home")
 }

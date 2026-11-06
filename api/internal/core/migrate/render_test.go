@@ -174,3 +174,15 @@ func TestRender_ReturnsTheWriteError(t *testing.T) {
 
 	require.ErrorContains(t, err, "broken pipe")
 }
+
+func TestRender_ListsTheBackupsOnDiskEvenWithNothingToDo(t *testing.T) {
+	lines := render(t, Report{
+		Home: "/home/me/.crowbar", Layout: 1, Known: 1,
+		Backups:     []BackupFile{{Path: "/home/me/.crowbar/migrate/backups/20261106T101010.000000000Z.tar.gz", Bytes: 5 << 20}},
+		RestoreNote: "/home/me/.crowbar/migrate/backups/README.txt",
+	})
+
+	assert.Contains(t, lines, "nothing to do")
+	assert.Contains(t, lines, "backups on disk, newest kept   restore: see /home/me/.crowbar/migrate/backups/README.txt")
+	assert.Contains(t, lines, "  /home/me/.crowbar/migrate/backups/20261106T101010.000000000Z.tar.gz  5.0 MiB")
+}

@@ -35,14 +35,13 @@ var _ seam.WorkspaceReader = fakeWSReader{}
 
 func TestRewritePromptTextForDispatch_RewritesAnAttachmentReference(t *testing.T) {
 	home := t.TempDir()
-	chatsDir := filepath.Join(home, "chats")
-	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
+	durableDir := worktreepath.AttachmentsDir(home, "chat-1")
 	fileName, _, err := repoattachments.Store(durableDir, "ab12", "photo.png", []byte("bytes"))
 	require.NoError(t, err)
 
-	rs := &Runners{ws: fakeWSReader{chatsDir: chatsDir}}
+	rs := &Runners{home: homeAt(home)}
 	text := "![photo](chats/chat-1/attachments/" + fileName + ")"
-	out, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", text)
+	out, err := rs.rewritePromptTextForDispatch("chat-1", text)
 	require.NoError(t, err)
 
 	assert.Contains(t, out, filepath.ToSlash(filepath.Join(durableDir, fileName)))
@@ -51,31 +50,25 @@ func TestRewritePromptTextForDispatch_RewritesAnAttachmentReference(t *testing.T
 }
 
 func TestRewritePromptTextForDispatch_NoAttachmentReference_ReturnsTextUnchanged(t *testing.T) {
-	rs := &Runners{ws: fakeWSReader{chatsDir: filepath.Join(t.TempDir(), "chats")}}
-	out, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", "hello")
+	rs := &Runners{home: homeAt(t.TempDir())}
+	out, err := rs.rewritePromptTextForDispatch("chat-1", "hello")
 	require.NoError(t, err)
 	assert.Equal(t, "hello", out)
 }
 
-// boomWorkspaceReader fails AgentChatsDir every time, so rewritePromptTextForDispatch's
-// own error branch is reachable independent of anything materializeAttachmentsForDispatch
-// itself might fail on.
-type boomWorkspaceReader struct{ seam.WorkspaceReader }
-
-func (boomWorkspaceReader) AgentChatsDir(context.Context, string) (string, error) {
-	return "", assertError("boom: chats dir lookup failed")
+func homeAt(dir string) func() (string, error) {
+	return func() (string, error) { return dir, nil }
 }
 
 type assertError string
 
 func (e assertError) Error() string { return string(e) }
 
-func TestRewritePromptTextForDispatch_ChatsDirLookupFailure_IsWrapped(t *testing.T) {
-	rs := &Runners{ws: boomWorkspaceReader{}}
-	_, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", "hello")
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "chats dir")
-	assert.ErrorContains(t, err, "boom")
+func TestRewritePromptTextForDispatch_HomeLookupFailure_IsWrapped(t *testing.T) {
+	rs := &Runners{home: func() (string, error) { return "", assertError("boom: no home") }}
+	_, err := rs.rewritePromptTextForDispatch("chat-1", "hello")
+	require.ErrorContains(t, err, "home")
+	require.ErrorContains(t, err, "boom")
 }
 
 // apiPushAttachmentTestDescriptor mirrors apiTransportTestDescriptor's shape
@@ -134,8 +127,7 @@ func apiPushAttachmentTestAgent(t *testing.T) engineagents.Agent {
 func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T) {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "worktree")
-	chatsDir := filepath.Join(home, "chats")
-	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
+	durableDir := worktreepath.AttachmentsDir(home, "chat-1")
 	fileName, _, err := repoattachments.Store(durableDir, "ab12", "photo.png", []byte("bytes"))
 	require.NoError(t, err)
 
@@ -168,7 +160,8 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
-		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
+		ws:            fakeWSReader{chatsDir: filepath.Join(home, "chats"), worktree: worktree},
+		home:          homeAt(home),
 		ledger:        newTestLedger(t),
 		live:          liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1", TerminalSession: "term-1"}),
 		conversations: stubConversationsForPromptRestart{},
@@ -205,8 +198,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePrompt(t *testing.T) {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "worktree")
-	chatsDir := filepath.Join(home, "chats")
-	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
+	durableDir := worktreepath.AttachmentsDir(home, "chat-1")
 	fileName, _, err := repoattachments.Store(durableDir, "ab12", "photo.png", []byte("bytes"))
 	require.NoError(t, err)
 
@@ -242,7 +234,8 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
-		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
+		ws:            fakeWSReader{chatsDir: filepath.Join(home, "chats"), worktree: worktree},
+		home:          homeAt(home),
 		ledger:        newTestLedger(t),
 		conversations: stubConversationsForPromptRestart{},
 	}
@@ -285,7 +278,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 func TestSubmitPromptOverAPI_MaterializeFailure_RecordsNothing(t *testing.T) {
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
-		ws:            boomWorkspaceReader{},
+		home:          func() (string, error) { return "", assertError("boom: no home") },
 		ledger:        newTestLedger(t),
 		conversations: stubConversationsForPromptRestart{},
 	}

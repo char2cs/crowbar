@@ -182,12 +182,10 @@ func Store(
 	path string,
 	data []byte,
 ) error {
-	//nolint:gosec // G301: 0o755 is the intended perm for the daemon's own icon directory; it matches the perms it creates its project directories with.
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("could not create icon directory: %w", err)
 	}
-	//nolint:gosec // G306: icon bytes are non-secret assets served over HTTP; 0o644 is the intended readable perm.
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write error: %w", err)
 	}
 	return nil

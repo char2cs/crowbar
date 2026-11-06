@@ -44,6 +44,7 @@ type backupDue struct {
 	free  uint64
 	kept  string
 	gone  string
+	extra []string
 }
 
 // preflight plans every pending step of both phases offline, checks what the
@@ -56,7 +57,7 @@ func (s *Session) preflight(
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(err)
 	}
-	res, err := checkPending(ctx, Env{Home: s.home, Log: s.opts.Log}, pending, s.view(), s.opts)
+	res, err := checkPending(ctx, s.env(), pending, s.view(), s.opts)
 	var f *fault
 	switch {
 	case errors.As(err, &f):
@@ -127,6 +128,9 @@ func dueBackup(
 		return backupDue{}, nil
 	}
 	due := backupDue{step: pending[i]}
+	for _, p := range plans {
+		due.extra = append(due.extra, p.BacksUp...)
+	}
 	earlier := view.backupInForce()
 	kept, err := backupExists(earlier.Path)
 	if err != nil {
@@ -137,7 +141,7 @@ func dueBackup(
 		return due, nil
 	}
 	due.gone = earlier.Path
-	stats, err := measureState(h.State())
+	stats, err := measureBackup(h, due.extra)
 	if err != nil {
 		return backupDue{}, &fault{HaltPreflight, due.step, err}
 	}
@@ -164,7 +168,7 @@ func (s *Session) backUpState(
 	if !due.copy {
 		return nil
 	}
-	if err := s.takeBackup(); err != nil {
+	if err := s.takeBackup(due.extra); err != nil {
 		return s.failUnstarted(HaltPreflight, due.step, err)
 	}
 	return nil
@@ -172,8 +176,10 @@ func (s *Session) backUpState(
 
 // takeBackup copies state/ and records the copy. A copy the ledger cannot
 // record is removed: no halt would offer it, and no retry would reuse it.
-func (s *Session) takeBackup() error {
-	res, err := backupState(s.home, s.run.id, s.layout, s.opts.FreeBytes)
+func (s *Session) takeBackup(
+	extra []string,
+) error {
+	res, err := backupState(s.home, s.run.id, s.layout, extra, s.opts.FreeBytes)
 	if err != nil || res.Path == "" {
 		return err
 	}
@@ -181,7 +187,9 @@ func (s *Session) takeBackup() error {
 	if err != nil {
 		return errors.Join(fmt.Errorf("record backup: %w", err), removeTree(res.Path))
 	}
-	return nil
+	s.opts.Log.Info("migrate: backed up the home before migrating it", "backup", res.Path,
+		"bytes", res.Bytes, "packed", res.Packed, "restore", restoreHint(s.home, res.Path))
+	return writeRestoreNote(s.home)
 }
 
 // backupOnDisk reports whether the backup at path is there to restore from.

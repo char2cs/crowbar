@@ -97,6 +97,10 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 		// A later run only imports chats the ledger has no row of: nothing a
 		// backup would restore, so the upgrade's backup stays the only one.
 		plan.RewritesState = !ranBefore
+		if plan.RewritesState {
+			// The prompt journals are input too, and they live outside state/.
+			plan.BacksUp = []string{"chats/*/" + PromptsDir}
+		}
 	}
 	if n := owed[dutyRecordChange]; n > 0 {
 		plan.Actions = append(plan.Actions, migrate.Action{
@@ -109,6 +113,23 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 		plan.Actions = []migrate.Action{{Kind: migrate.Record, Subject: "legacy files changed since the last run", Count: 1}}
 	}
 	return plan, nil
+}
+
+// Settled reports whether the step's ledger record, its marks and notes, says
+// every legacy chat is in the chat ledger: it ran, owes no chat a retry, and
+// every chat it skipped was converted since. Only then is a legacy file spare.
+func Settled(marks migrate.Marks, notes map[string]migrate.Note) bool {
+	stamp, ran := notes[stampKey]
+	if !ran || stamp.Counts[retryingChats] > 0 {
+		return false
+	}
+	for key := range notes {
+		chatID, skipped := strings.CutPrefix(key, skippedKey(""))
+		if skipped && !marks.Done(chatID) {
+			return false
+		}
+	}
+	return true
 }
 
 // retryingChats counts the chats a run left owed a retry of their import.

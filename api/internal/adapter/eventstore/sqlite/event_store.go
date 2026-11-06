@@ -56,6 +56,9 @@ type eventStore struct {
 func NewEventStore(
 	path string,
 ) (models.Store, error) {
+	if err := storesqlite.OwnerOnly(path); err != nil {
+		return nil, fmt.Errorf("eventstore: %w", err)
+	}
 	db, err := gorm.Open(sqlite.Open(eventStoreDSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -80,6 +83,16 @@ func NewEventStore(
 		}
 	}
 	return &eventStore{db: sqlDB}, nil
+}
+
+// OpenReadOnly returns an event store over the existing database at path that
+// only reads: it creates no table, so a retired log stays as its build wrote it.
+func OpenReadOnly(path string) (models.Store, error) {
+	db, err := sql.Open(sqlite.DriverName, storesqlite.ReadOnlyDSN(path))
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: open read-only: %w", err)
+	}
+	return &eventStore{db: db}, nil
 }
 
 func eventStoreDSN(

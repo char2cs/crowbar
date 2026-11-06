@@ -366,10 +366,10 @@ func writeDiscoverCache(home, id string, found []Model) error {
 		return fmt.Errorf("modeldiscovery: encode discover cache: %w", err)
 	}
 	path := discoverCachePath(home, id)
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("modeldiscovery: discover cache dir: %w", err)
 	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil { //nolint:gosec // cache file, not a secret
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		return fmt.Errorf("modeldiscovery: write discover cache: %w", err)
 	}
 	return nil

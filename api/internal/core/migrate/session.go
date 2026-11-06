@@ -142,16 +142,25 @@ func (s *Session) load(
 		s.refuse(HaltIOFailed, s.opts.plain(err).Error())
 		return
 	}
-	s.again = s.cat.recurring(ctx, Env{Home: s.home, Log: s.opts.Log}, s.layout, s.begun)
+	s.again = s.cat.recurring(ctx, s.env(), s.layout, s.begun)
 }
 
-// tidy undoes what a killed process left: half-written backups and a run with
-// no end. These are the only writes Begin makes.
+// tidy undoes what a killed process left, half-written backups and a run with no
+// end, then deletes the backups a completed run superseded. These are the only
+// writes Begin makes.
 func (s *Session) tidy() error {
 	if err := cleanPartialBackups(s.home); err != nil {
 		return err
 	}
-	return s.closeDanglingRun()
+	if err := s.closeDanglingRun(); err != nil {
+		return err
+	}
+	return pruneBackups(s.home, s.view(), s.opts.Log)
+}
+
+// env is what a step is handed: the home, the log and the ledger as it stands.
+func (s *Session) env() Env {
+	return Env{Home: s.home, Log: s.opts.Log, History: History{home: s.home, view: s.view()}}
 }
 
 // closeDanglingRun ends the run a killed process left open, so the ledger never

@@ -32,7 +32,7 @@ func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 	if runtime.GOOS != "windows" {
-		assert.Zero(t, info.Mode().Perm()&^0o750, "umask may narrow the mode, never widen it")
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "state/ is owner-only")
 	}
 }
 

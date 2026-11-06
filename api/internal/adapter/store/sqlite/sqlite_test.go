@@ -219,3 +219,25 @@ func TestGormStore_FindWhere_ClosedDB_ReturnsError(t *testing.T) {
 	_, err = s.FindWhere(context.Background(), scopedFixture{ProjectID: "p1"})
 	assert.Error(t, err)
 }
+
+// TestOpenDB_FilesAreOwnerOnly: a database OpenDB creates is 0600 and SQLite
+// gives its -wal and -shm the same mode; an existing looser one is narrowed.
+func TestOpenDB_FilesAreOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	fresh := filepath.Join(dir, "fresh.db")
+	loose := filepath.Join(dir, "loose.db")
+	for _, p := range []string{loose, loose + "-wal", loose + "-shm"} {
+		require.NoError(t, os.WriteFile(p, nil, 0o600))
+		require.NoError(t, os.Chmod(p, 0o644))
+	}
+	for _, path := range []string{fresh, loose} {
+		s, err := sqlite.New[domain.Project, string](path)
+		require.NoError(t, err)
+		require.NoError(t, s.Save(context.Background(), domain.Project{ID: "p1", Name: "Alpha"}))
+		for _, p := range []string{path, path + "-wal", path + "-shm"} {
+			info, err := os.Stat(p)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), p)
+		}
+	}
+}

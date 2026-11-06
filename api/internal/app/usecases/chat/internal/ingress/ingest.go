@@ -232,11 +232,11 @@ func (r *Recorder) promptOf(
 	case harnessSaid(agent, text):
 		return Prompt{Text: text, Origin: ledger.OriginHarness}
 	}
-	if chatsDir, err := r.ws.AgentChatsDir(ctx, runner.WorkspaceID); err != nil {
-		slog.WarnContext(ctx, "agent: ingest hook: resolve chats dir for attachment ref restore",
+	if home, err := r.home(); err != nil {
+		slog.WarnContext(ctx, "agent: ingest hook: resolve home for attachment ref restore",
 			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
 	} else {
-		text = worktreepath.RestoreDurableAttachmentRefs(text, chatsDir, chat.ID)
+		text = worktreepath.RestoreDurableAttachmentRefs(text, home, chat.ID)
 	}
 	sigils, escape := agent.PromptLeadingSigils()
 	return Prompt{Text: promptsigil.Strip(sigils, escape, chat.ID, text), Origin: ledger.OriginProvider}
