@@ -277,65 +277,45 @@ describe('ComposerChoice failures', () => {
 })
 
 describe('ComposerChoice suggestions', () => {
-  // No answer template exists for a suggestion, so pressing one could only 400; a
-  // disabled button still reads as a control, and a note cannot be pressed.
-  it('writes suggestions down as a plain list, with nothing on them to press', () => {
+  // A provider's broader grant ("allow edits for this session") is an answer of
+  // its own: pressing it allows this call and applies the grant.
+  it('offers each suggestion as a button that grants it', async () => {
     draw({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        {
+          id: 'suggestion-0',
+          kind: 'suggestion',
+          label: 'Allow edits for the rest of this session',
+        },
       ],
     })
 
-    const suggestions = screen.getByTestId('agent-choice-suggestions')
-    expect(suggestions).toHaveTextContent('Add a permanent rule for this')
-    // Nothing inside the list is interactive — not enabled, not disabled, absent.
-    expect(suggestions.querySelectorAll('button, input, [role="button"]')).toHaveLength(0)
-    expect(screen.queryByRole('button', { name: 'Add a permanent rule for this' })).toBeNull()
-    // The two real answers are untouched by it.
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+    fireEvent.click(
+      screen.getByRole('button', { name: /Allow edits for the rest of this session/ }),
+    )
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', expect.any(String), {
+        optionIds: ['suggestion-0'],
+      }),
+    )
   })
 
-  // The Terminal button beside Allow/Deny is the answer, when a handler exists.
-  it('offers a terminal button in the bar alongside the real controls', () => {
-    const onOpenTerminal = vi.fn()
-    const options: AgentChoice['options'] = [
-      { id: 'allow', kind: 'allow', label: 'Allow' },
-      { id: 'deny', kind: 'deny', label: 'Deny' },
-      { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-    ]
-    show({ options }, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onOpenTerminal).toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
-  })
-
-  it('does not offer a terminal button without a handler to open one', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-      ],
-    })
+  it('needs no terminal for a permission it can answer whole', () => {
+    show(
+      {
+        options: [
+          { id: 'allow', kind: 'allow', label: 'Allow' },
+          { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        ],
+      },
+      { onOpenTerminal: vi.fn() },
+    )
 
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-  })
-
-  // The backend never sends a raw provider type name any more, but a stale poll
-  // could still be holding one — so nothing here reconstructs a control from a
-  // label whatever it says.
-  it('never turns a suggestion into a control, whatever it is labelled', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'addRules' },
-      ],
-    })
-
-    expect(screen.queryByRole('button', { name: 'addRules' })).toBeNull()
-    expect(screen.queryByRole('checkbox', { name: 'addRules' })).toBeNull()
+    expect(screen.getByRole('button', { name: /Add a permanent rule for this/ })).toBeEnabled()
   })
 })
 

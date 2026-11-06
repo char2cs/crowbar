@@ -19,7 +19,6 @@ import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import {
   ChoiceQuestions,
   ChoiceButtons,
-  ChoiceSuggestions,
   ChoiceReadOnly,
   ChoiceSchema,
 } from '@/features/agent/composer/composer-choice-controls'
@@ -118,16 +117,13 @@ export function ComposerChoice({
     }))
 
   const answerable = choice.answerable && !card.gateClosed
-  // Suggestions are separated out rather than filtered away: what the provider
-  // offered is worth showing even when Crowbar cannot send it.
-  const suggestions = choice.options.filter((option) => option.kind === 'suggestion')
   const questions = choiceQuestions(choice)
   const isForm = choice.options.length === 0 && choice.kind === 'elicitation'
   // The flat row is what is left once questions are their own groups: a
-  // permission's allow and deny, or an elicitation's verbs.
+  // permission's allow, deny and broader grants, or an elicitation's verbs.
   const controls: AgentChoiceOption[] = isForm
     ? ELICITATION_VERBS.map((verb) => ({ id: verb.id, kind: verb.id, label: verb.label }))
-    : choice.options.filter((option) => option.kind !== 'suggestion')
+    : choice.options
   // Answerable is necessary and not sufficient: a relay can be holding the gate
   // for a prompt whose only options are ones Crowbar declines to send, and an
   // empty row of buttons would be a control surface that answers nothing.
@@ -137,8 +133,8 @@ export function ComposerChoice({
   // bar shows nothing but the one thing that still works.
   const terminalOnly = !canAnswerHere || card.unsupportedHere
   // Answerable, but with something the terminal covers and this card cannot: a
-  // form Crowbar can't compose, or suggestions with no declared answer shape.
-  const needsTerminal = isForm || suggestions.length > 0
+  // form Crowbar can't compose.
+  const needsTerminal = isForm
   const busy = card.sending || card.sent
   const flat = canAnswerHere && !card.unsupportedHere && questions.length === 0
 
@@ -204,7 +200,6 @@ export function ComposerChoice({
           }
         />
       )}
-      {canAnswerHere && suggestions.length > 0 && <ChoiceSuggestions options={suggestions} />}
       {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
 
       {/* ── the bar itself ── */}

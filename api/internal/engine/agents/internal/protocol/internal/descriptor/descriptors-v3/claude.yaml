@@ -298,10 +298,12 @@ events:
       # claude's own machine name for a broader grant, never shown as itself.
       suggestion_type:        type
       suggestion_description: { first_present: [mode, destination] }
-      # Labels only — claude declares no reply template for a suggestion.
+      # A label for <type>.<description> names the grant exactly, in place of claude's word.
       suggestion_label.addRules:       "Add a permanent rule for this"
       suggestion_label.addDirectories: "Allow this directory from now on"
       suggestion_label.setMode:        "Switch to a more permissive mode"
+      suggestion_label.setMode.acceptEdits: "Allow edits for the rest of this session"
+      suggestion_label.setMode.plan:   "Switch to plan mode"
       suggestion_label.default:        "A broader permission than this one"
       questions:              tool_input.questions
       question_title:         header
@@ -314,6 +316,8 @@ events:
       allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
+      # Allows this call and applies the grants picked from permission_suggestions.
+      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":{suggestions_json}}}}'
 
   elicitation:
     required: [session_id]

@@ -364,22 +364,26 @@ func TestAnswer_RefusesPicksOfDifferentKinds(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
-func TestAnswer_RefusesADecisionTheProviderCannotExpress(t *testing.T) {
+// A suggestion picked from Crowbar reaches the CLI as the grant it offered.
+func TestAnswer_ASuggestionReachesTheCLIAsTheGrantOffered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	suggestion := ""
 	for _, option := range choice.Options {
 		if option.Kind == domain.ChoiceOptionSuggestion {
 			suggestion = option.ID
-			break
 		}
 	}
 	require.NotEmpty(t, suggestion, "claude's permission carries suggestions")
 
-	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion}, "", nil)
-	require.ErrorIs(t, err, problem.ErrInvalidArgument)
+	printed := await(f, ask)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion}, "", nil))
+	f.wait()
+
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, <-printed)
 }
 
 func TestAnswer_RefusesAnUnknownChatOrPrompt(t *testing.T) {

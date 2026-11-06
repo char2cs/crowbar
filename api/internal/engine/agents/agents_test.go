@@ -863,7 +863,7 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 
 	capability, ok := a.AnswerCapability(agents.HookPermission)
 	require.True(t, ok, "claude declares an answer channel for its permission hook")
-	assert.Equal(t, []string{"allow", "answer", "deny"}, capability.Keys)
+	assert.Equal(t, []string{"allow", "answer", "deny", "suggestion"}, capability.Keys)
 	assert.Positive(t, capability.Wait)
 	assert.Less(t, capability.Wait, 300*time.Second,
 		"the daemon's budget must expire BEFORE the 300s timeout injected on the hook, "+
@@ -929,11 +929,18 @@ func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 	assert.JSONEq(t, `{"decision":"accept"}`, string(stdout))
 }
 
-func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
-	_, err := get(t, "claude").RenderAnswer(agents.HookPermission, nil,
-		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion})
+// Picking claude's own "always" grant allows the call and hands the grant back as
+// updatedPermissions, the shape its PermissionRequest hook applies.
+func TestAgent_ClaudeGrantsTheSuggestionPicked(t *testing.T) {
+	raw, err := os.ReadFile("internal/protocol/testdata/fixtures/claude/PermissionRequest.Edit.json")
+	require.NoError(t, err)
 
-	assert.ErrorIs(t, err, agents.ErrUnsupportedDecision)
+	out, err := get(t, "claude").RenderAnswer(agents.HookPermission, raw,
+		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion, Picked: []string{"suggestion-0"}})
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, string(out))
 }
 
 func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {

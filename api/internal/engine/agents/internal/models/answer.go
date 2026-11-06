@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"strconv"
+	"strings"
+	"time"
+)
 
 type AnswerCapability struct {
 	Wait time.Duration
@@ -25,4 +29,22 @@ type AnswerDecision struct {
 	Reason string
 
 	Content []byte
+
+	// Picked are the option ids a suggestion decision grants.
+	Picked []string
+}
+
+const suggestionPrefix = "suggestion-"
+
+// SuggestionOptionID is the option id of a permission's i-th suggestion.
+func SuggestionOptionID(i int) string { return suggestionPrefix + strconv.Itoa(i) }
+
+// SuggestionIndex is the suggestion an option id names.
+func SuggestionIndex(optionID string) (int, bool) {
+	n, ok := strings.CutPrefix(optionID, suggestionPrefix)
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(n)
+	return i, err == nil && i >= 0
 }

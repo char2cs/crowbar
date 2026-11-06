@@ -331,6 +331,7 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 		"{reason_json}":     `"denied by a human"`,
 		"{content_json}":    `{"field":"value"}`,
 		"{tool_input_json}": `{"command":"ls"}`,
+		"{suggestions_json}": `[{"type":"setMode","mode":"acceptEdits"}]`,
 	}
 
 	var checked int
