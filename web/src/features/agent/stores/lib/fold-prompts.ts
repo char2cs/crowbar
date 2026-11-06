@@ -23,18 +23,25 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
     origin,
     requestId,
   })
+  // Its fact first: where it is placed depends on how it waits.
+  if (requestId) {
+    const running = fold.facts.running
+    // A prompt steered into the running turn is delivered by its own row.
+    const steered = row.turnId && running?.turnId === row.turnId
+    setPrompt(
+      fold,
+      requestId,
+      steered
+        ? { state: 'delivered', turnId: row.turnId! }
+        : {
+            state: 'pending',
+            seq: row.seq,
+            ...(delivery === 'restart' && { launch: true }),
+            ...(delivery === 'steer' && { steer: true }),
+          },
+    )
+  }
   fold.place(id, '')
-  if (!requestId) return
-  const running = fold.facts.running
-  // A prompt steered into the running turn is delivered by its own row.
-  const steered = row.turnId && running?.turnId === row.turnId
-  setPrompt(
-    fold,
-    requestId,
-    steered
-      ? { state: 'delivered', turnId: row.turnId! }
-      : { state: 'pending', seq: row.seq, ...(delivery === 'restart' && { launch: true }) },
-  )
 }
 
 // A retracted prompt went back to the composer, so its row leaves the transcript.

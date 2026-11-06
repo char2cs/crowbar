@@ -137,8 +137,9 @@ export type TranscriptItem =
   | PlanSnapshotItem
 
 export type PromptFact =
-  /** `launch` when a CLI launch carries it: that launch's dividers read above it. */
-  | { state: 'pending'; seq: number; launch?: true }
+  /** `launch` when a CLI launch carries it: that launch's dividers read above it.
+   *  `steer` when the running turn's end takes it: that turn's output reads above it. */
+  | { state: 'pending'; seq: number; launch?: true; steer?: true }
   | { state: 'delivered'; turnId: string }
   | { state: 'settled' }
   | { state: 'refused'; reason: string }

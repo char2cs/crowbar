@@ -148,11 +148,20 @@ export class FeedFold {
       reviveTurn(this, turn)
     }
     this.order ??= [...this.base.order]
-    // What a provider flushes after its turn ended still reads above that end.
+    // What a provider flushes after its turn ended still reads above that end,
+    // and the running turn's output above a steer its end has yet to take.
     let at = this.order.length
     while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
+    while (!this.isParked(id) && at > 0 && this.isParked(this.order[at - 1]!)) at--
     this.order.splice(at, 0, id)
     if (item && isUnsettled(item)) this.setOpen(turn, [...this.openIn(turn), id])
+  }
+
+  private isParked(id: string) {
+    const item = this.item(id)
+    if (item?.kind !== 'user' || !item.requestId) return false
+    const fact = this.facts.prompts[item.requestId]
+    return fact?.state === 'pending' && fact.steer === true
   }
 
   private isEndOf(id: string, turn: string) {
