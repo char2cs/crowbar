@@ -205,6 +205,32 @@ describe('handleCreateHomeThread', () => {
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'home-ws-1', 'claude', '', 'chat')
   })
 
+  // One default: with Terminal preferred, the home New thread starts on the terminal at once.
+  it("starts on the user's default terminal surface, opened in the pane", async () => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'claude', enabled: true, hasTerminal: true, terminalStartHere: true },
+      ] as never,
+    })
+    setActiveWorkspaceId('home-ws-1')
+
+    await openHomeDraft('p1', 'home-ws-1', vi.fn())
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'home-ws-1',
+      'claude',
+      '',
+      'terminal',
+    )
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(mintedChatId())
+  })
+
   it('opens straight into a pane when the home workspace is already active', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
