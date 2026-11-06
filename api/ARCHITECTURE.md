@@ -199,7 +199,10 @@ deletes the legacy databases (`agent_activity*`, `agent_runner*`, `node*` under
 `state/events` and `state/store`), `state/upgrades/`, `chats/*/prompt-requests/` and
 the old `<home>/bin/crowbar` copy, only once a run has completed at layout 1, step 6
 owes no chat, and each file is byte-identical to its copy in the newest backup; a file
-that is not is kept and noted. See `docs/plans/2026-11-06-home-tidy.md`.
+that is not is kept and noted. Step 8 `chat-attachments` moves each chat's
+attachments to `<home>/chats/<chat-id>/attachments`, their one home. Step 11
+`owner-only` narrows, once, what an older build left with the umask to 0600 files
+and 0700 directories, outside users' checkouts. See `docs/plans/2026-11-06-home-tidy.md`.
 
 **Backup.** When a pending plan sets `RewritesState` and `state/` holds files,
 the run first writes `<home>/migrate/backups/<run-id>.tar.gz` (built as a
