@@ -8,6 +8,7 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import type { ReviewCodeViewHandle } from './review-code-view'
 import type { PatchState } from './review-patch-header'
 import { toAnnotationSide } from './use-review-annotations'
+import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 import type { ReviewAnnotation } from './use-review-annotations'
 
 // Threads are the surface's only annotation, so CodeView's `LAnnotation` is ReviewThread.
@@ -289,6 +290,17 @@ export function useReviewPatchWindow({
     heldRef.current.clear()
     setPatchStates((prev) => (Object.keys(prev).length === 0 ? prev : {}))
   }, [signature])
+
+  // A shown patch is the worktree as it was when fetched: a git-status change re-fetches it in
+  // place (it stays on screen until the new one lands). A commit's patch never changes.
+  useEffect(() => {
+    if (commit) return
+    return onGitStatusChanged(wsId, () => {
+      for (const [path, held] of heldRef.current) {
+        if (held.state === 'ready') void materialize(path)
+      }
+    })
+  }, [wsId, commit, materialize])
 
   // Same files, new geometry (± counts moved on a git-status tick) is no remount: republish
   // files still on a placeholder; a materialised file's height is measured, not estimated.
