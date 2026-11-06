@@ -37,4 +37,23 @@ describe('usePromptHistory', () => {
     expect(result.current.recallOlder('edited since')).toBe('only one')
     expect(result.current.recallNewer()).toBe('edited since')
   })
+
+  it('searches back through earlier prompts for the words typed, as the terminal does on ctrl+r', () => {
+    const { result } = renderHook(() =>
+      usePromptHistory(['run the tests', 'fix lint', 'run the tests again', 'deploy']),
+    )
+
+    expect(result.current.searchOlder('tests')).toBe('run the tests again')
+    // Again: the next older match for the same words, whatever the box now shows.
+    expect(result.current.searchOlder('run the tests again')).toBe('run the tests')
+    expect(result.current.searchOlder('run the tests')).toBeUndefined()
+    // Down walks back toward the draft that started the search.
+    expect(result.current.recallNewer()).toBe('fix lint')
+  })
+
+  it('finds nothing for words no earlier prompt has', () => {
+    const { result } = renderHook(() => usePromptHistory(['one', 'two']))
+    expect(result.current.searchOlder('three')).toBeUndefined()
+    expect(result.current.recallNewer()).toBeUndefined()
+  })
 })

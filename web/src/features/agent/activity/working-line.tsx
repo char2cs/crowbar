@@ -24,6 +24,8 @@ export interface WorkingLineProps {
   reasoning?: string
   /** Answer text is streaming: it is the signal, so the line names nothing. */
   streaming?: boolean
+  /** The CLI the chat is moving onto is still connecting. */
+  connecting?: string
 }
 
 const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatElapsed(seconds)}` : '')
@@ -33,6 +35,7 @@ function headingOf(p: WorkingLineProps, thought: string | undefined): string | n
   if (p.stopping) return 'Stopping…'
   if (p.asking) return 'Waiting for your answer'
   if (p.compacting) return 'Compacting…'
+  if (p.connecting && !p.working) return p.connecting
   if (p.activeTodo) return p.activeTodo
   if (p.toolLabel) return p.toolLabel
   if (p.agents) return `Waiting for ${p.agents} ${p.agents === 1 ? 'agent' : 'agents'}`
@@ -42,7 +45,7 @@ function headingOf(p: WorkingLineProps, thought: string | undefined): string | n
 }
 
 export function WorkingLine(props: WorkingLineProps) {
-  const { working, compacting = false, asking = false } = props
+  const { working, compacting = false, asking = false, connecting } = props
   const [tick, setTick] = useState(0)
   const thought = props.reasoning ? reasoningHeadline(props.reasoning) : null
   const heading = headingOf(props, thought?.headline || undefined)
@@ -58,7 +61,7 @@ export function WorkingLine(props: WorkingLineProps) {
     return () => window.clearInterval(timer)
   }, [rotating])
 
-  if (!working && !compacting && !asking) return null
+  if (!working && !compacting && !asking && !connecting) return null
 
   return (
     <div className="activity" data-testid="agent-activity-strip">

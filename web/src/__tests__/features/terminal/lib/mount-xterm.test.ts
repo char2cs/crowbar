@@ -74,6 +74,35 @@ describe('mountXterm', () => {
     mounted.dispose()
   })
 
+  it('Ctrl+Shift+C copies the selection and Ctrl+Shift+V pastes, as Linux terminals do', async () => {
+    const { mounted } = mount()
+    const { terminal } = mounted
+    if (!terminal.textarea) throw new Error('xterm opened without its textarea')
+    const sent: string[] = []
+    terminal.onData((data) => sent.push(data))
+    const execCommand = vi.fn(() => true)
+    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true })
+    await writeTo(terminal, 'hello')
+    terminal.select(0, 0, 5)
+
+    for (const code of ['KeyC', 'KeyV']) {
+      const key = code.slice(3)
+      const down = new KeyboardEvent('keydown', {
+        key,
+        code,
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      })
+      terminal.textarea.dispatchEvent(down)
+    }
+
+    expect(sent).toEqual([])
+    expect(execCommand).toHaveBeenCalledExactlyOnceWith('copy')
+    mounted.dispose()
+  })
+
   it('dispose releases every textarea listener it added', () => {
     const { mounted, write } = mount()
     const textarea = mounted.terminal.textarea

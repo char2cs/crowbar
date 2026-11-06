@@ -242,6 +242,9 @@ function placesOf(
       if (firstTurn && !firstReply) firstReply = id
       lastText = id
       places.set(id, { firstReply: id === firstReply, turnbar: false, precedingUserAt: lastUserAt })
+    } else if (item?.kind !== 'marker') {
+      // A call (or run of them) after the words: those words did not hand back.
+      lastText = undefined
     }
   }
   closeRun(!working)

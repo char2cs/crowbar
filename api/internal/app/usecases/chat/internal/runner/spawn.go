@@ -76,6 +76,9 @@ func (rs *Runners) spawnRunner(
 	providerID string,
 	in spawnInput,
 ) (_ string, err error) {
+	// A spawn is the chat's, not the request's: a reload must not strand a half-
+	// started CLI. Each provider call stays bounded by the connection's own timeout.
+	ctx = context.WithoutCancel(ctx)
 	runnerID := newRunnerID(in.runnerID)
 	defer rs.recordSpawnFailure(ctx, chatID, runnerID, &err)
 	pre, err := rs.spawnPreflight(ctx, chatID, providerID, in.selection)

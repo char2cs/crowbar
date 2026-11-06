@@ -147,6 +147,21 @@ describe('AgentTranscript', () => {
     expect(screen.getAllByTestId('message-turn-actions')).toHaveLength(2)
   })
 
+  it('draws no turn actions above a call the turn ran after its last words', () => {
+    const l = ledger()
+    seedFeed('chat-1', [
+      l.prompt('r1', 'touch it'),
+      l.start('turn-1', 'r1'),
+      l.text('turn-1', 'm1', 0, 'I will run it.', true),
+      l.tool('turn-1', 'c1', 'pre', 'Bash'),
+      l.tool('turn-1', 'c1', 'post', 'Bash'),
+      l.end('turn-1'),
+    ])
+    draw()
+
+    expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+  })
+
   it('symptom 6: rows are visible on the first render', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'first'), l.start('turn-1', 'r1'), l.prompt('r2', 'last')])

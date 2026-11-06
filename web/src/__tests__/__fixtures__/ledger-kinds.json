@@ -10,7 +10,8 @@
     "provider_switched",
     "session_changed",
     "session_conflict",
-    "stopped"
+    "stopped",
+    "warning"
   ],
   "rowKinds": [
     "ask",

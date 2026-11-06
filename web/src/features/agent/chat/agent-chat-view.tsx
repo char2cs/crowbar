@@ -67,6 +67,8 @@ export interface AgentChatViewProps {
   canSend: boolean
   /** How the conversation continues (why it is dormant, or from what). */
   sessionNote?: string
+  /** The CLI the chat is moving onto is still connecting. */
+  connecting?: string
   active: boolean
   visible: boolean
   isActivePane: boolean
@@ -109,6 +111,7 @@ export function AgentChatView({
   live,
   canSend,
   sessionNote,
+  connecting,
   active,
   visible,
   isActivePane,
@@ -351,6 +354,7 @@ export function AgentChatView({
         reasoning: facts.reasoning,
         streaming: facts.streaming,
         stopping: facts.stopping,
+        connecting,
       }}
       suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}

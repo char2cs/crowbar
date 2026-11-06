@@ -51,3 +51,27 @@ func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
 	assert.True(t, h.rs.HasLiveAPIConnection("runner-1"))
 	assert.Empty(t, h.term.created, "the answered connection is the runner")
 }
+
+// The request that started a spawn may go away (a reload) while serve is still
+// starting; the connection is the chat's, not the request's, so it still comes up.
+func TestRegression_ASpawnOutlivesTheRequestThatStartedIt(t *testing.T) {
+	h := helperServeSpawn(t, "answer", false)
+	gate := filepath.Join(t.TempDir(), "gate")
+	require.NoError(t, syscall.Mkfifo(gate, 0o600))
+	t.Setenv(helperServeGate, gate)
+	request, leave := context.WithCancel(t.Context())
+
+	spawned := make(chan error, 1)
+	go func() {
+		_, err := h.rs.spawnRunner(request, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
+		spawned <- err
+	}()
+	release, err := os.OpenFile(gate, os.O_WRONLY, 0) // returns once serve opens its end
+	require.NoError(t, err)
+	leave()
+	require.NoError(t, release.Close())
+
+	require.NoError(t, <-spawned)
+	assert.True(t, h.rs.HasLiveAPIConnection("runner-1"), "the reload cost the chat its connection")
+	assert.Empty(t, h.term.created)
+}

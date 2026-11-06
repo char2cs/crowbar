@@ -406,15 +406,16 @@ func TestMap_ALateTurnStopIsWrittenToItsTurn(t *testing.T) {
 	assert.Equal(t, turnID, fx.Ended)
 }
 
-func TestMap_ANotificationIsAMarker(t *testing.T) {
-	c := liveChatRows(t)
-	turnID := c.typed("go")
-
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookNotification, Message: "look"}, hooksSource())
-
-	require.Equal(t, []ledger.Kind{ledger.KindMarker}, kinds(rows))
-	assert.Equal(t, turnID, rows[0].TurnID)
-	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerNotification, Detail: "look"}, bodyOf[ledger.Marker](t, rows[0]))
+func TestMap_ANotificationOrAWarningIsAMarker(t *testing.T) {
+	said := map[string]string{engineagents.HookNotification: ledger.MarkerNotification, engineagents.HookWarning: ledger.MarkerWarning}
+	for hook, marker := range said {
+		c := liveChatRows(t)
+		turnID := c.typed("go")
+		rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: hook, Message: "look"}, hooksSource())
+		require.Equal(t, []ledger.Kind{ledger.KindMarker}, kinds(rows))
+		assert.Equal(t, turnID, rows[0].TurnID)
+		assert.Equal(t, ledger.Marker{Kind: marker, Detail: "look"}, bodyOf[ledger.Marker](t, rows[0]))
+	}
 }
 
 func TestMap_AnEventItDoesNotRecordWritesNothing(t *testing.T) {

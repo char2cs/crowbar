@@ -94,6 +94,8 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
+  /** A launch's switches (provider, model, effort) drawn as this one divider. */
+  parts?: { marker: MarkerName; detail?: string }[]
 }
 
 export type SubagentStatus =
@@ -175,6 +177,10 @@ export interface TurnFacts {
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */
   providers: Record<string, string>
+  /** The model the live CLI runs: its launch model, or the newest change. */
+  model: string
+  /** turnId → the model it ran on, where one was named. */
+  models: Record<string, string>
   /** turnId → its main-scope calls since its last message. */
   calls: Record<string, CallRound>
 }
