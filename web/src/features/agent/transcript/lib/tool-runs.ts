@@ -10,10 +10,11 @@ export interface DisplayRow {
 const FOLDS = new Set<ToolItem['family']>(['read', 'search', 'fetch'])
 const HIDDEN = new Set<ToolItem['family']>(['meta', 'plan'])
 
-const sameRow = (a: DisplayRow | undefined, b: DisplayRow) =>
-  a?.id === b.id &&
-  a.members?.length === b.members?.length &&
-  (a.members ?? []).every((id, i) => id === b.members![i])
+function sameRow(a: DisplayRow | undefined, b: DisplayRow): boolean {
+  if (a?.id !== b.id) return false
+  const [x, y] = [a.members ?? [], b.members ?? []]
+  return x.length === y.length && x.every((id, i) => id === y[i])
+}
 
 const foldable = (item: TranscriptItem | undefined): item is ToolItem =>
   item?.kind === 'tool' && FOLDS.has(item.family)
