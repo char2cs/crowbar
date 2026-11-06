@@ -224,6 +224,17 @@ describe('SidebarSplitPane retained layout and keyboard behavior', () => {
     expect(screen.getByTestId('sidebar-child')).toBe(sidebarBefore)
   })
 
+  // In a window too narrow to share, the open sidebar lies over the content; a tap beside it
+  // closes it, as a drawer does.
+  it('offers a scrim that closes the sidebar while it is open, and none once closed', () => {
+    const { props, rerender, onOpenChange } = renderSplit()
+    fireEvent.click(screen.getByRole('button', { name: 'Close sidebar' }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(<SidebarSplitPane {...props} open={false} />)
+    expect(screen.queryByRole('button', { name: 'Close sidebar' })).not.toBeInTheDocument()
+  })
+
   it('supports physical arrow keys on either side and Enter to collapse', () => {
     const left = renderSplit()
     fireEvent.keyDown(left.handle, { key: 'ArrowRight' })

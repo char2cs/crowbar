@@ -40,7 +40,6 @@
     "src/components/ui/search.tsx": ["types"],
     "src/components/ui/select.tsx": ["exports"],
     "src/components/ui/separator.tsx": ["exports"],
-    "src/components/ui/sheet.tsx": ["exports"],
     "src/components/ui/sidebar.tsx": ["exports"],
     "src/components/ui/switch.tsx": ["exports"],
     "src/components/ui/tabs.tsx": ["types"],

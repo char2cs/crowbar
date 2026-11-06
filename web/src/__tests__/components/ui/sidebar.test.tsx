@@ -1,6 +1,40 @@
-import { render } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
-import { SidebarHeader, SidebarFooter } from '@/components/ui/sidebar'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { SidebarHeader, SidebarFooter, SidebarProvider, useSidebar } from '@/components/ui/sidebar'
+
+const realMatchMedia = window.matchMedia
+afterEach(() => {
+  window.matchMedia = realMatchMedia
+})
+
+function Toggle() {
+  const { toggleSidebar } = useSidebar()
+  return <button onClick={toggleSidebar}>Hide sidebar</button>
+}
+
+describe('SidebarProvider', () => {
+  // The shell renders only `open`; a phone-width window must still hide the sidebar.
+  it('toggles the one open state at every window width', () => {
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia
+    const onOpenChange = vi.fn()
+    render(
+      <SidebarProvider open onOpenChange={onOpenChange}>
+        <Toggle />
+      </SidebarProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
 
 describe('SidebarHeader', () => {
   it('keeps backdrop-blur-sm for the frosted glass effect', () => {
