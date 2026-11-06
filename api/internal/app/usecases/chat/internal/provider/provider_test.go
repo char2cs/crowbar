@@ -213,6 +213,24 @@ func TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor(t *testing.T
 		"codex's terminal surface rides the hooks channel: spawnable from birth, no session to resume")
 }
 
+// TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor: a turn the provider
+// refused for want of a login names the command that signs its CLI in.
+func TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor(t *testing.T) {
+	t.Parallel()
+
+	table := newTable(t, func(engineagents.Agent) bool { return false })
+
+	providers, err := table.ResolveProviders(t.Context())
+
+	require.NoError(t, err)
+	byID := map[string]domain.AgentProvider{}
+	for _, p := range providers {
+		byID[p.ID] = p
+	}
+	assert.Equal(t, "claude auth login", byID["claude"].SignIn)
+	assert.Equal(t, "codex login", byID["codex"].SignIn)
+}
+
 // TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey pins the wire
 // contract resolveEfforts implements (provider.go): Efforts has a key for
 // every model in Models, PLUS "" for the provider's own default model — a

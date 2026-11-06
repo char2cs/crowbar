@@ -6,7 +6,7 @@ import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { compactChat, resumeChat } from '@/features/agent/api/agent-chat-commands'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { declaredModel } from '@/features/agent/lib/staged-selection'
-import { sendPrompt, stopTurn } from '@/features/agent/stores/chat-outbox'
+import { stopTurn } from '@/features/agent/stores/chat-outbox'
 import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
 import type { AgentTerminalAnswer, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
@@ -34,7 +34,7 @@ import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
 import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
-import { useChatTelemetry, limitResetsAt } from '@/features/agent/hooks/use-chat-entity'
+import { useChatTelemetry } from '@/features/agent/hooks/use-chat-entity'
 import { useNativeContext } from '@/features/agent/hooks/use-native-context'
 import {
   getScrollPosition,
@@ -193,14 +193,13 @@ export function AgentChatView({
   const rowActions = useMemo<RowActions>(
     () => ({
       ...prompts.actions,
-      resend: (text) => void sendPrompt(wsId, chatId, { text, steer }),
       openTerminal: onOpenTerminal,
       newConversation: () =>
         void resumeChat(wsId, chatId).catch((err: unknown) =>
           toastSpawnFailure(err, providerLabel, 'start'),
         ),
     }),
-    [prompts.actions, wsId, chatId, steer, onOpenTerminal, providerLabel],
+    [prompts.actions, wsId, chatId, onOpenTerminal, providerLabel],
   )
   // The picker shows a staged pick at once; labels and the catalogue stay on the live CLI.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
@@ -210,7 +209,6 @@ export function AgentChatView({
   const terminalWait = terminalWaiting
     ? { kind: terminalWaitKind ?? '', answers: terminalWaitAnswers }
     : undefined
-  const halted = facts.halted
   // The pick wins: the chip says what the next message runs as. Unpicked, the
   // report's display name wins over the last confirmed raw launch id.
   const shownModel =
@@ -311,8 +309,6 @@ export function AgentChatView({
       terminalWait,
       compacting,
       asks: facts.asks,
-      haltedMessage: halted?.text,
-      haltedResetsAt: limitResetsAt(telemetry),
       feedError: unfollowed,
     })
   useTypeToFocus({
@@ -356,7 +352,6 @@ export function AgentChatView({
         stopping: facts.stopping,
         connecting,
       }}
-      suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}
       promptActions={rowActions}
       dockHeight={dock.dockHeight}
@@ -440,8 +435,6 @@ export function AgentChatView({
                 sending={prompts.sending}
                 submitUnavailable={prompts.unsupported}
                 terminalWait={terminalWait}
-                haltedMessage={halted?.text}
-                haltedResetsAt={limitResetsAt(telemetry)}
                 feedError={unfollowed}
                 canStop={live}
                 slashOpen={slash.open}

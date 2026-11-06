@@ -192,6 +192,7 @@ func (p *Providers) ResolveProviders(
 			ID:                d.ID(),
 			DisplayName:       display.Name,
 			Icon:              display.Icon,
+			SignIn:            display.SignIn,
 			Connected:         p.installed(d),
 			Enabled:           !pref.Disabled,
 			MCPEnabled:        !pref.MCPDisabled,

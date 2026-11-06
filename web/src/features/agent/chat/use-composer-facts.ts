@@ -41,22 +41,12 @@ export interface ComposerFacts {
   stopping: boolean
   /** Pending asks of every scope, oldest first. */
   asks: AskItem[]
-  /** The provider's last word on why the chat stopped, while nothing follows it. */
-  halted?: { id: string; text: string }
   /** The person's own prompts, oldest first, for history recall. */
   userTexts: string[]
   /** The effort the newest finished turn reported. */
   latestEffort: string
   /** Nothing has been said in this chat yet. */
   empty: boolean
-}
-
-function haltOf(item: TranscriptItem | undefined): ComposerFacts['halted'] {
-  if (item?.kind === 'user' && item.origin === 'note') return { id: item.id, text: item.text }
-  if (item?.kind === 'marker' && item.marker === 'turn_failed') {
-    return { id: item.id, text: item.detail || 'The provider stopped this turn.' }
-  }
-  return undefined
 }
 
 /** How far back from the newest row a running main tool is looked for. */
@@ -129,7 +119,6 @@ export function useComposerFacts(chatId: string): ComposerFacts {
     const last = items?.[order.at(-1) ?? '']
     return {
       userTexts,
-      halted: haltOf(last),
       toolLabel: running ? runningTool(order, items, running.turnId) : undefined,
       textStreaming: last?.kind === 'text' && !last.settled,
     }
@@ -153,7 +142,6 @@ export function useComposerFacts(chatId: string): ComposerFacts {
     streaming: liveTail.length > 0 || fromOrder.textStreaming,
     stopping: running != null && facts?.stopping === running.turnId,
     asks,
-    halted: fromOrder.halted,
     userTexts: fromOrder.userTexts,
     latestEffort: Object.values(facts?.efforts ?? {}).at(-1) ?? '',
     empty: order.length === 0 && liveTail.length === 0,

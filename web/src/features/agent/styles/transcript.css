@@ -832,6 +832,30 @@
 .agent-chat .tools li[data-status='awaiting_approval'] .tool-call-state {
   color: var(--warn-text);
 }
+/* Why a turn failed and the way on, under its pill, in the provider's own words. */
+.agent-chat .marker-failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.agent-chat .marker-reason,
+.agent-chat .marker-hint {
+  margin: 0;
+  max-width: 100%;
+  font-size: var(--ui-text-xs);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.agent-chat .marker-reason {
+  color: var(--warn-text);
+}
+.agent-chat .marker-hint {
+  color: var(--muted-foreground);
+}
+.agent-chat .marker-hint code {
+  font-family: var(--font-mono);
+}
 /* What a failure or a lost session offers, under its pill. */
 .agent-chat .marker-actions {
   display: flex;

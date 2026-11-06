@@ -160,6 +160,18 @@ describe('send outcomes', () => {
     }
     expect(retryRow([], feed.facts, feed.items['p:r3'] as UserItem, fresh)).toEqual([])
   })
+
+  it('Retry on the prompt of a failed turn sends it again, never while that turn runs', () => {
+    const l = ledger()
+    const started = applyRows(emptyFeed(), [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
+    const row = started.items['p:r1'] as UserItem
+    const fresh = item('fresh')
+    expect(retryRow([], started.facts, row, fresh)).toEqual([])
+    const failed = applyRows(started, [
+      l.row('turn_failed', { reason: 'turn_failed' }, { turnId: 'turn-1' }),
+    ])
+    expect(retryRow([], failed.facts, row, fresh)).toEqual([{ ...fresh, retryOf: 'r1' }])
+  })
 })
 
 describe('onRowsApplied', () => {

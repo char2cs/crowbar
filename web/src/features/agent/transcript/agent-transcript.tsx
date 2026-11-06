@@ -57,8 +57,6 @@ interface AgentTranscriptProps {
   working: boolean
   /** What the working line at the tail says. */
   line: WorkingLineProps
-  /** A row the composer already shows (the provider's halt notice): said once. */
-  suppressId?: string
   onOpenTerminal: () => void
   /** Stable for the view's life: every prompt row holds it. */
   promptActions: RowActions
@@ -321,10 +319,8 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     [display],
   )
   const rows = useMemo(() => {
-    const all =
-      liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
-    return props.suppressId ? all.filter((id) => id !== props.suppressId) : all
-  }, [order, liveTail, unsent, props.suppressId])
+    return liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
+  }, [order, liveTail, unsent])
   const itemOf = useCallback((id: string) => items?.[id] ?? unsent.get(id), [items, unsent])
 
   // Place objects keep their identity while unchanged, so memoized rows skip.

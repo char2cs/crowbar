@@ -7,7 +7,6 @@ import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-termina
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
-import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
@@ -59,8 +58,6 @@ interface AgentComposerProps {
   sending: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
-  haltedMessage?: string
-  haltedResetsAt?: string
   /** Why the chat's feed failed, while it has. */
   feedError?: string
   canStop: boolean
@@ -193,8 +190,6 @@ export function AgentComposer(props: AgentComposerProps) {
     terminalWait: props.terminalWait,
     compacting: props.compacting,
     asks: props.asks,
-    haltedMessage: props.haltedMessage,
-    haltedResetsAt: props.haltedResetsAt,
     feedError: props.feedError,
   })
   const document = props.placement === 'document'
@@ -375,8 +370,6 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
           ))}
         </div>
       )
-    case 'halted':
-      return <ComposerHalted message={state.message} resetsAt={state.resetsAt} />
     default:
       return null
   }
