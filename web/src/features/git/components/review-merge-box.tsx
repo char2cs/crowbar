@@ -48,10 +48,8 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
   const threads = useReviewThreads(wsId)
   const openThreads = threads.filter((t) => !t.isResolved).length
   const parentBranch = ws?.parentBranch
-  const { strategy, selectStrategy, strategyError, merge, merging } = useBranchMerge(
-    wsId,
-    parentBranch,
-  )
+  const { strategy, selectStrategy, strategyError, merge, merging, working, stopAndMerge } =
+    useBranchMerge(wsId, parentBranch)
   // Default ON: merging a child usually means it is done; the label says what goes with it.
   const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
 
@@ -122,6 +120,14 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
 
           {reason && <p className="ui-text-xs min-w-0 text-muted-foreground">{reason}</p>}
           {strategyError && <p className="ui-text-xs text-destructive">{strategyError}</p>}
+          {working && !merging && (
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <p className="ui-text-xs min-w-0 text-destructive">{working}</p>
+              <Button size="sm" variant="outline" onClick={() => void stopAndMerge()}>
+                Stop and merge
+              </Button>
+            </div>
+          )}
         </CardContent>
       )}
     </Card>
