@@ -134,6 +134,8 @@ func (f *fakeHierarchy) RenameBranch(
 	return f.renamed, nil
 }
 
+func (*fakeHierarchy) GuardMergeFold(context.Context, string) error { return nil }
+
 func (f *fakeHierarchy) MergeIntoParent(
 	_ context.Context,
 	childID string,

@@ -14,11 +14,14 @@ import { forgetEntities } from '@/core/entities/entity-store'
 import { resetOperations, streamOperation } from '@/__tests__/__fixtures__/operations'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
+import { seedChats } from '@/__tests__/__fixtures__/agent-chat'
+import { ApiError } from '@/lib/errors/api-error'
 
 const mocks = vi.hoisted(() => ({
   setMergeStrategy: vi.fn(),
   mergeIntoParent: vi.fn(),
   navigate: vi.fn(),
+  stopChat: vi.fn(),
 }))
 vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -26,6 +29,10 @@ vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
   mergeIntoParent: mocks.mergeIntoParent,
 }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mocks.navigate }))
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  stopChat: mocks.stopChat,
+}))
 
 const WS = 'ws-merge'
 const PARENT_ROUTE = {
@@ -225,6 +232,30 @@ describe('ReviewMergeBox', () => {
     await waitFor(() => expect(settledOp()).toBe('failed'))
     expect(mocks.navigate).not.toHaveBeenCalled()
     expect(mergeButton().disabled).toBe(false)
+  })
+
+  it('says why a merge that would delete a working chat was refused, and can stop it and merge', async () => {
+    mocks.stopChat.mockResolvedValue(undefined)
+    mocks.mergeIntoParent.mockRejectedValueOnce(
+      new ApiError('the chat is working: stop it first', 409, 'chat_busy'),
+    )
+    const user = userEvent.setup()
+    setup({})
+    seedChats([
+      { id: 'chat-busy', workspaceId: WS, working: true },
+      { id: 'chat-elsewhere', workspaceId: 'parent-ws', working: true },
+    ])
+    await user.click(mergeButton())
+
+    expect(await screen.findByText('the chat is working: stop it first')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Stop and merge' }))
+
+    await waitFor(() => expect(mocks.mergeIntoParent).toHaveBeenCalledTimes(2))
+    expect(mocks.stopChat.mock.calls).toEqual([[WS, 'chat-busy']])
+    expect(mocks.stopChat.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.mergeIntoParent.mock.invocationCallOrder[1],
+    )
+    expect(mocks.mergeIntoParent.mock.calls[1].slice(0, 3)).toEqual([WS, 'merge', true])
   })
 
   it('is blocked by open threads, but resolved ones do not count', () => {

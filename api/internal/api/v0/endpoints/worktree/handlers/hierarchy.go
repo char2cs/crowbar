@@ -71,8 +71,20 @@ func (h *Handlers) ChatMergeIntoParent(
 	if !ok {
 		return
 	}
+	// Refused before any merge, and again as the merge starts: nothing is left half-done.
+	if body.DeleteSource {
+		if err := h.hierarchy.GuardMergeFold(c.Request.Context(), ws.ID); err != nil {
+			libs.Fail(c, err)
+			return
+		}
+	}
 	label := h.relLabel(c.Request.Context(), "Merge "+ws.Branch, "into", ws.ParentID)
 	h.startOn(c, ws, domain.OpWorkspaceMergeIntoParent, label, func(ctx context.Context) error {
+		if body.DeleteSource {
+			if err := h.hierarchy.GuardMergeFold(ctx, ws.ID); err != nil {
+				return err
+			}
+		}
 		result, mergeErr := h.hierarchy.MergeIntoParent(ctx, ws.ID, body.Strategy)
 		if mergeErr != nil {
 			return mergeErr
