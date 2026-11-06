@@ -10,6 +10,14 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
   fetch: ['Fetching', 'Fetched', 'Fetch'],
 }
 
+const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']
+
+/** A diff whose one hunk starts from nothing writes a file that was not there. */
+const writesNewFile = (diff = '') => {
+  const hunks = diff.match(/^@@ .*$/gm) ?? []
+  return hunks.length === 1 && hunks[0]!.startsWith('@@ -0,0 ')
+}
+
 export interface ToolLabel {
   verb: string
   subject?: { full: string; display: string }
@@ -105,7 +113,7 @@ export function toolLabel(item: ToolItem): ToolLabel {
     const tool = mcpTool(body)
     return { verb: body.mcpServer || 'MCP', subject: { full: tool, display: tool } }
   }
-  const verbs = VERBS[family]
+  const verbs = family === 'edit' && writesNewFile(body.diff) ? CREATE : VERBS[family]
   const verb = verbs
     ? verbs[status === 'running' ? 0 : done ? 1 : 2]
     : humanizeToolName(body.name ?? '') || 'Tool'

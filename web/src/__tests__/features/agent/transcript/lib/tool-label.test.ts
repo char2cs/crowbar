@@ -41,6 +41,19 @@ describe('tool labels', () => {
     expect(commandProgramName('')).toBe('')
   })
 
+  it('names an edit that writes a new file a create, whatever became of it', () => {
+    const write = tool({
+      kind: 'edit',
+      target: '/home/me/repo/d1.txt',
+      diff: '--- a/home/me/repo/d1.txt\n+++ b/home/me/repo/d1.txt\n@@ -0,0 +1,1 @@\n+x\n',
+    })
+    expect(liveLabel(write)).toBe('Creating me/repo/d1.txt')
+    expect(labelText({ ...write, status: 'ok' })).toBe('Created me/repo/d1.txt')
+    expect(labelText({ ...write, status: 'declined' })).toBe('Create me/repo/d1.txt')
+    const edit = tool({ kind: 'edit', target: '/r/a.ts', diff: '@@ -3,1 +3,1 @@\n-a\n+b\n' }, 'ok')
+    expect(labelText(edit)).toBe('Edited r/a.ts')
+  })
+
   it('labels a read live and settled with its file and line', () => {
     const read = tool({
       kind: 'read',
