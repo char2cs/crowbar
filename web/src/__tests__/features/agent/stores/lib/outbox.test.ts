@@ -221,6 +221,19 @@ describe('deliveryPending', () => {
     expect(deliveryPending([], pending.facts)).toBe(true)
     expect(deliveryPending([item('a')], applyRows(pending, [l.start('t', 'r1')]).facts)).toBe(false)
   })
+
+  // Every store change re-asks it, and a long chat holds thousands of prompts.
+  it('reads the prompts once until one of them changes', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [l.prompt('r1', 'one'), l.start('t', 'r1')])
+    let reads = 0
+    const prompts = new Proxy(feed.facts.prompts, {
+      ownKeys: (target) => (reads++, Reflect.ownKeys(target)),
+    })
+    const facts = { ...feed.facts, prompts }
+    for (let i = 0; i < 3; i++) expect(deliveryPending([], facts)).toBe(false)
+    expect(reads).toBe(1)
+  })
 })
 
 describe('refusal', () => {

@@ -192,8 +192,17 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
   return running ? { kind: 'stop' } : null
 }
 
-/** A prompt is on its way: sending, or held by the daemon until a turn takes it. */
+const held = new WeakMap<TurnFacts['prompts'], boolean>()
+
+/** A prompt is on its way: sending, or held by the daemon until a turn takes it.
+ *  The fold copies `prompts` only to change it, so the scan is cached on it. */
 export function deliveryPending(items: OutboxItem[] | undefined, facts: TurnFacts | undefined) {
   if (items?.some((item) => item.state === 'sending')) return true
-  return Object.values(facts?.prompts ?? {}).some((fact) => fact.state === 'pending')
+  if (!facts) return false
+  let pending = held.get(facts.prompts)
+  if (pending === undefined) {
+    pending = Object.values(facts.prompts).some((fact) => fact.state === 'pending')
+    held.set(facts.prompts, pending)
+  }
+  return pending
 }
