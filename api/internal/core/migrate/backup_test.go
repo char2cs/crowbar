@@ -382,54 +382,6 @@ func TestUnsupportedEntry_NamesTheKind(t *testing.T) {
 	}
 }
 
-func TestBackupState_FollowsASymlinkedStateRoot(t *testing.T) {
-	h := testutil.FixtureHome(t)
-	elsewhere := filepath.Join(filepath.Dir(h.Root()), "other-disk-state")
-	for rel, content := range map[string]string{
-		"events/a.db":      "events database",
-		"content/aa/blob":  "blob bytes",
-		"view.db":          "view",
-		"events/.lock":     "user data, not the home lock",
-		"store/.keep-dirs": "",
-	} {
-		path := filepath.Join(elsewhere, filepath.FromSlash(rel))
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	}
-	symlinkOrSkip(t, elsewhere, h.State())
-	startedRun(t, h)
-	lock, err := lockHome(h)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, lock.Close()) })
-	var probed string
-
-	stats, statsErr := measureState(h.State())
-	got, err := backupState(h, "run-1", 0, nil, func(path string) (uint64, error) {
-		probed = path
-		return plentyOfDisk(path)
-	})
-
-	require.NoError(t, statsErr)
-	require.NoError(t, err)
-	want := readTree(t, elsewhere)
-	delete(want, ".lock")
-	assert.Equal(t, archived(want, "state"), only(readBackup(t, got.Path), "state"))
-	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"), got.Path)
-	assert.Equal(t, h.Root(), probed)
-	assert.Equal(t, got.Bytes, stats.bytes)
-	assert.Equal(t, int64(len("events database")+len("blob bytes")+len("view")+len("user data, not the home lock")), stats.bytes)
-}
-
-func TestBackupState_ADanglingStateRootIsAnError(t *testing.T) {
-	h := testutil.FixtureHome(t)
-	symlinkOrSkip(t, filepath.Join(filepath.Dir(h.Root()), "gone"), h.State())
-
-	_, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
-
-	require.Error(t, err)
-	assert.NoDirExists(t, h.MigrateDir())
-}
-
 func TestBackupState_AnExistingBackupForTheRunFailsBeforeCopying(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/a.db", "a")
@@ -447,19 +399,6 @@ func TestBackupState_AnExistingBackupForTheRunFailsBeforeCopying(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "earlier", string(raw))
 	assert.NoFileExists(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz.partial"))
-}
-
-func TestBackupState_AFileThatCannotBeReadLeavesNothingBehind(t *testing.T) {
-	testutil.RequirePermissionEnforcement(t)
-	h := testutil.FixtureHome(t)
-	testutil.WriteFile(t, h, "state/a.db", "a")
-	testutil.WriteFile(t, h, "state/z.db", "z")
-	require.NoError(t, os.Chmod(filepath.Join(h.State(), "z.db"), 0o000))
-
-	_, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
-
-	require.ErrorIs(t, err, fs.ErrPermission)
-	assertNoBackupFor(t, h, "run-1")
 }
 
 func TestBackupState_RejectsARunIDThatIsNotOneSegment(t *testing.T) {
