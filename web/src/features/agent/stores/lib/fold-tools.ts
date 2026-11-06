@@ -28,7 +28,7 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
   // A spawning call is its subagent's card, which takes the call's place.
   if (spawns) {
     markOutput(fold, row)
-    openSpawn(fold, row)
+    openSpawn(fold, row, toolId, row.body.title)
     return
   }
   if (row.body.addressesScope) addressSubagent(fold, row)
