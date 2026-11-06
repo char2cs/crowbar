@@ -340,13 +340,15 @@ func (rs *Runners) detachNativeView(
 	if _, err := rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, ""); err != nil {
 		slog.WarnContext(ctx, "agent: switch to native: re-establish the api session", "runner_id", live.ID, "err", err)
 	}
+	// The view is gone, so the surface moves first: a runner still on the terminal
+	// surface reads as kept alive by a native view.
+	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
 	// A PTY-less runner just swapped processes: the re-established connection is its
 	// process, and if none came back it has none.
 	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	if live.TerminalSession == "" && !rs.watchAPIConnExit(live.ID, view.tctx.CrowbarHome, view.tctx.Tmp) {
 		rs.exitProcesslessRunner(ctx, live.ID)
 	}
-	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
 	return nil
 }
 
