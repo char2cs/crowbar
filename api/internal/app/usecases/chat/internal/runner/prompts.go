@@ -155,13 +155,15 @@ func (rs *Runners) replayPriorPrompt(
 	return domain.AgentPromptSubmission{RunnerID: prior.RunnerID, TerminalSessionID: carrier.TerminalSession}, true, nil
 }
 
-// settleOrphanedPrompts settles the chat's pending prompts whose carrier is not
-// its live runner, then returns the State. A departure that never settled its
-// prompt would otherwise hold the chat busy for good.
+// settleOrphanedPrompts settles the chat's pending prompts whose carrier is
+// neither its live runner nor still being launched, then returns the State. A
+// departure that never settled its prompt would otherwise hold the chat busy for good.
 func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (ledger.State, error) {
 	live, _ := rs.live.byChat(chatID)
 	_, st, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.SettleOrphaned(st, func(runnerID string) bool { return runnerID == live.ID })
+		return ledger.SettleOrphaned(st, func(runnerID string) bool {
+			return runnerID == live.ID || rs.live.isLaunching(runnerID)
+		})
 	})
 	if err != nil {
 		return ledger.State{}, fmt.Errorf("pending prompts: ledger: %w", err)

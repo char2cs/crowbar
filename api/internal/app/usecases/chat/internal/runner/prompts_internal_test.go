@@ -189,6 +189,37 @@ func TestReplayPriorPrompt_ACarrierItCannotReadIsAnError(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoLiveRunner)
 }
 
+// A prompt whose carrier is still being launched by its own submission is not
+// orphaned: a second send in that window waits behind it, never displaces it.
+func TestReplayPriorPrompt_APromptWhoseCarrierIsStillLaunchingKeepsTheChatBusy(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	defer h.rs.live.launch("runner-launching")()
+	appendPrompt(t, h.rs.ledger, "req-1", "runner-launching")
+
+	_, done, err := h.rs.replayPriorPrompt(t.Context(), "chat-1", "req-2", "next")
+
+	assert.True(t, done)
+	require.ErrorIs(t, err, ErrPromptBusy)
+	assert.Equal(t, ledger.PromptStatusPending, promptReceipt(t, h.rs.ledger, "req-1").Status,
+		"the first prompt is still owed its delivery")
+}
+
+// Once its launch is over, a carrier that is not the chat's live runner can
+// deliver nothing: its prompt is settled so it holds the chat busy for nobody.
+func TestReplayPriorPrompt_APromptWhoseCarrierLeftIsSettled(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	h.rs.live.launch("runner-gone")()
+	appendPrompt(t, h.rs.ledger, "req-1", "runner-gone")
+
+	_, done, err := h.rs.replayPriorPrompt(t.Context(), "chat-1", "req-2", "next")
+
+	assert.False(t, done, "the new request goes ahead")
+	require.NoError(t, err)
+	got := promptReceipt(t, h.rs.ledger, "req-1")
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonRunnerExited, got.Reason)
+}
+
 // appendPrompt records a pending prompt on chat-1, carried by carrier, straight into l.
 func appendPrompt(t *testing.T, l *ledgerstore.Store, requestID, carrier string) {
 	t.Helper()

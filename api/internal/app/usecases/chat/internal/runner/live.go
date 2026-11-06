@@ -17,6 +17,9 @@ type liveTable struct {
 	mu      sync.Mutex
 	chats   map[string]*liveEntry
 	runners map[string]*liveEntry
+	// launching is each carrier a submission has minted and not yet placed or
+	// given up: its prompt is owed by that submission, so it is no orphan.
+	launching map[string]bool
 }
 
 type liveEntry struct {
@@ -49,8 +52,27 @@ type liveView struct {
 
 func newLiveTable() *liveTable {
 	return &liveTable{
-		chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{},
+		chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{}, launching: map[string]bool{},
 	}
+}
+
+// launch marks runnerID as being launched until the returned done runs.
+func (t *liveTable) launch(runnerID string) (done func()) {
+	t.mu.Lock()
+	t.launching[runnerID] = true
+	t.mu.Unlock()
+	return func() {
+		t.mu.Lock()
+		delete(t.launching, runnerID)
+		t.mu.Unlock()
+	}
+}
+
+// isLaunching reports whether a submission is launching runnerID.
+func (t *liveTable) isLaunching(runnerID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.launching[runnerID]
 }
 
 // add registers r on r.CurrentChatID, refusing while that chat has an entry.
