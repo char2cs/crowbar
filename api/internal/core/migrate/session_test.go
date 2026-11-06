@@ -442,9 +442,7 @@ func TestBegin_AFinishedDanglingRunRetiresItsBackup(t *testing.T) {
 	backups := ofKind(b.records(), kindBackup)
 	require.Len(t, backups, 2, "the finished run's backup is not the image a later migration starts from")
 	assert.NotEqual(t, old, backups[1].Path)
-	raw, err := os.ReadFile(filepath.Join(backups[1].Path, "state", "view.db"))
-	require.NoError(t, err)
-	assert.Equal(t, "the rows now", string(raw))
+	assert.Equal(t, "the rows now", backedUpView(t, backups[1].Path))
 }
 
 func TestBegin_RemovesHalfWrittenBackups(t *testing.T) {

@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -167,14 +168,14 @@ func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	}
 	assert.Equal(t, []migrate.Counts{{"chats": 4, "folders": 0, "nodes": 0}},
 		applied[migrations.StepPlacementTree])
-	backups, err := os.ReadDir(filepath.Join(homeAt(t, home).MigrateDir(), "backups"))
+	backups, err := filepath.Glob(filepath.Join(homeAt(t, home).MigrateDir(), "backups", "*.tar.gz"))
 	require.NoError(t, err)
 	assert.Len(t, backups, 1)
 }
 
-// A backup restored as the upgrade notes say (quit, then put the backup's state/,
-// LAYOUT and ledger.jsonl back) rewinds the ledger with the data: the next boot
-// runs the steps again on what was restored, instead of serving it as migrated.
+// A backup restored as the upgrade notes say (quit, then `rm -rf state && tar -xzf`
+// the backup in the home) rewinds the ledger with the data: the next boot runs the
+// steps again on what was restored, instead of serving it as migrated.
 func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -192,15 +193,14 @@ func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testin
 	upgraded := newHarnessAt(t, home)
 	upgraded.Quiesce()
 	upgraded.shutdown()
-	backups, err := os.ReadDir(filepath.Join(home, "migrate", "backups"))
+	backups, err := filepath.Glob(filepath.Join(home, "migrate", "backups", "*.tar.gz"))
 	require.NoError(t, err)
 	require.Len(t, backups, 1)
 
-	backup := filepath.Join(home, "migrate", "backups", backups[0].Name())
 	require.NoError(t, os.RemoveAll(filepath.Join(home, "state")))
-	require.NoError(t, os.CopyFS(filepath.Join(home, "state"), os.DirFS(filepath.Join(backup, "state"))))
-	copyFile(t, filepath.Join(backup, "LAYOUT"), filepath.Join(home, "LAYOUT"))
-	copyFile(t, filepath.Join(backup, "ledger.jsonl"), filepath.Join(home, "migrate", "ledger.jsonl"))
+	restore := exec.CommandContext(t.Context(), "tar", "-xzf", backups[0], "-C", home)
+	out, err := restore.CombinedOutput()
+	require.NoError(t, err, string(out))
 	assert.Empty(t, migratetest.Applied(t, homeAt(t, home)), "the ledger is back to before the run")
 
 	restored := newHarnessAt(t, home)
@@ -293,18 +293,6 @@ func messageTexts(t *testing.T, h *harness, imported importedRepo, chatID string
 		texts = append(texts, m.Text)
 	}
 	return texts
-}
-
-// copyFile replaces dst with src's bytes, as a person restoring by hand would.
-func copyFile(
-	t *testing.T,
-	src string,
-	dst string,
-) {
-	t.Helper()
-	raw, err := os.ReadFile(src)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(dst, raw, 0o600))
 }
 
 // forgetMigrations leaves dir as a home no migration ever ran in, as base did.
