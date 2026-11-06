@@ -7,10 +7,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// createImportedWorktreeChat is CreateChat's WorktreeImport branch: mint the chat, place it, then attach the
-// worktree, so a branch never lands on disk owned by nothing. A failure after the mint returns the minted
-// chat; the caller decides its fate (a single create discards it, a batch keeps it). open opens providerID
-// on it; otherwise the provider is only recorded.
+// createImportedWorktreeChat is CreateChat's WorktreeImport branch: mint and place the chat, then
+// attach the worktree, so a branch never lands on disk unowned. A failure after the mint returns
+// the chat for the caller to discard or keep. open opens providerID on it, else it is recorded.
 func (u *chatFolderUsecase) createImportedWorktreeChat(
 	ctx context.Context,
 	chatID string,

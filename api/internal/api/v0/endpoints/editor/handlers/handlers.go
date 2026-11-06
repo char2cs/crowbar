@@ -1,9 +1,6 @@
-// Package handlers holds the gin handlers backing the editor endpoint: git
-// blame, the synchronous LSP feature requests, the document-sync notifications,
-// the language-server status/restart lifecycle, and the diagnostics snapshot.
-//
-// A missing language server is not an error: feature methods return empty
-// results with a 200. A nil LSP or git engine yields a 503.
+// Package handlers backs the editor endpoint: git blame, LSP feature requests, document sync,
+// the language-server lifecycle and diagnostics. A missing language server is not an error
+// (empty results, 200); a nil LSP or git engine yields a 503.
 package handlers
 
 import (

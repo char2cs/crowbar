@@ -3,11 +3,9 @@ import { join } from 'node:path'
 
 export const STUB_PROVIDER_ID = 'e2estub'
 
-// `cat` stays alive on its PTY, so a chat keeps a live runner while the test
-// plays the provider's hooks at the daemon by hand: no login, no network, and
-// the same hook route a real CLI posts to, with the runner token the spawn
-// writes under the home. The symlink gives the process a name the
-// suite can count with `ps` without ever matching the user's own `cat`.
+// `cat` stays alive on its PTY, so a chat keeps a live runner while the test plays the
+// provider's hooks by hand over the real hook route and runner token: no login, no network.
+// The symlinked name lets the suite count it with `ps` without matching the user's own `cat`.
 export const STUB_BIN_NAME = 'e2e-stub-provider'
 
 function descriptor(bin) {

@@ -1,7 +1,5 @@
-// Package fanout turns repository lifecycle announcements into chat snapshots.
-//
-// Each event, carrying the aggregate as of it, goes to the one snapshot owner,
-// which versions and publishes it: one lifecycle change, exactly one versioned frame.
+// Package fanout turns repository lifecycle announcements, each carrying the aggregate as of it,
+// into chat snapshots through the one snapshot owner: one lifecycle change, one versioned frame.
 package fanout
 
 import (

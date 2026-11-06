@@ -1,7 +1,6 @@
-// Package descriptorcheck validates a provider descriptor before Crowbar runs
-// it: static rules over the document (Validate) and a live conformance run
-// against the real CLI (Conform). A descriptor with an error-severity finding
-// is never enabled.
+// Package descriptorcheck validates a provider descriptor before Crowbar runs it: static rules
+// over the document (Validate) and a live conformance run against the real CLI (Conform). A
+// descriptor with an error-severity finding is never enabled.
 package descriptorcheck
 
 import (

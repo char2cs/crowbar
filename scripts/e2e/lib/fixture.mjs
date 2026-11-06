@@ -116,10 +116,8 @@ export async function hook(daemon, fx, chat, event, payload) {
   return res.text
 }
 
-/**
- * Posts a hook that opens an ask. The daemon holds it open until the ask is
- * decided, so this resolves with the CLI's answer and is not awaited to see the card.
- */
+/** Posts a hook that opens an ask. The daemon holds it open until the ask is decided, so
+ *  this resolves with the CLI's answer and is not awaited to see the card. */
 export function askHook(daemon, fx, chat, event, payload) {
   return postHook(daemon, fx, chat, event, payload).catch((err) => ({
     status: 0,

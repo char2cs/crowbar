@@ -1,10 +1,6 @@
-// Package promptsigil keeps Crowbar's own attachment encoding from reading as a CLI's control gesture,
-// and undoes that on the way back.
-//
-// A vendor CLI reads a message's first character as a mode switch (e.g. `!` opens a shell). An image
-// attachment written as `![alt](chats/<chatID>/attachments/<file>)` at the front of a message would be
-// run as a shell command and never reach the model. Which characters are sigils, and what escapes one,
-// comes from the descriptor (presentation.prompt_submit.leading_sigils); nothing here knows `!`.
+// Package promptsigil escapes a message's leading CLI sigil (`!` opens a shell) so an attachment
+// written as `![alt](chats/<chatID>/attachments/<file>)` reaches the model, and undoes it on the
+// way back. The sigils and their escape come from presentation.prompt_submit.leading_sigils.
 package promptsigil
 
 import (

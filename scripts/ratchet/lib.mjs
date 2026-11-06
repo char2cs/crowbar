@@ -77,11 +77,9 @@ const writeBaseline = (path, measured) => {
   writeFileSync(path, JSON.stringify(sorted, null, 2) + '\n')
 }
 
-/**
- * `init` is the only way to create a baseline, so a lost or misnamed file can never be
- * silently re-recorded at today's numbers.
- * @returns {number} the process exit code.
- */
+/** `init` is the only way to create a baseline, so a lost or misnamed file can never be
+ *  silently re-recorded at today's numbers.
+ *  @returns {number} the process exit code. */
 export function runGate({ name, baselinePath, measured, init, update, summary, hint, log = console.log }) {
   const exists = existsSync(baselinePath)
   if (init && exists) {

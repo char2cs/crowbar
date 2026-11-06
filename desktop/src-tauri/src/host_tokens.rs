@@ -162,12 +162,9 @@ mod tests {
         }
     }
 
-    /// Exercises the REAL OS keychain, not the fake — `keyring = "3"` has no
-    /// default backend feature and silently falls back to an in-memory mock
-    /// if the platform-native feature is missing from Cargo.toml, so a
-    /// round-trip against `FakeStore` alone cannot catch that. `#[ignore]`d
-    /// because it prompts/differs across CI runners; run manually with
-    /// `cargo test host_tokens -- --ignored`.
+    /// Hits the real OS keychain: without its platform feature `keyring` silently falls back to an
+    /// in-memory mock, which a `FakeStore` round-trip cannot catch. Ignored because it prompts or
+    /// differs across CI runners; run with `cargo test host_tokens -- --ignored`.
     #[test]
     #[ignore]
     fn keyring_token_store_roundtrips_against_the_real_os_keychain() {

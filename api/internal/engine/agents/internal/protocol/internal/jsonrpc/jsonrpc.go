@@ -1,9 +1,6 @@
-// Package jsonrpc is a JSON-RPC2 client over a child process's stdio, one message
-// per line (ndjson). It knows nothing of descriptors or canonical events.
-//
-// Nothing blocks the read loop: responses to our calls are routed inline,
-// notifications go to a bounded mailbox, every write has a deadline and every
-// call a timeout.
+// Package jsonrpc is a descriptor-agnostic JSON-RPC2 client over a child's stdio, one message per
+// line. Nothing blocks the read loop: responses route inline, notifications go to a bounded
+// mailbox, every write has a deadline and every call a timeout.
 package jsonrpc
 
 import (

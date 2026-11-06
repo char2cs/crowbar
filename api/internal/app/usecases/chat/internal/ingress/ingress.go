@@ -1,7 +1,6 @@
-// Package ingress places every hook a CLI sends, over any channel, on the chat
-// it belongs to. It resolves the runner through the live table, parses through
-// the runner's descriptor and records under the chat's lock, answering only once
-// the rows are in. What it cannot place is refused and dead-lettered.
+// Package ingress places every hook a CLI sends, over any channel, on its chat: it resolves the
+// runner through the live table, parses via the runner's descriptor and records under the chat's
+// lock, answering once the rows are in. What it cannot place is refused and dead-lettered.
 package ingress
 
 import (

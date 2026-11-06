@@ -1,8 +1,6 @@
-// Package protocol is how Crowbar speaks one provider's language.
-//
-// It is the single face over reading a descriptor, translating payloads both ways
-// and driving the api transport; everything under internal/ is reached only
-// through this file. It holds no conversation lifecycle: that belongs to the runner.
+// Package protocol is the single face over a provider's descriptor, translating payloads both ways
+// and driving the api transport; internal/ is reached only through this file. It holds no
+// conversation lifecycle: that belongs to the runner.
 package protocol
 
 import (

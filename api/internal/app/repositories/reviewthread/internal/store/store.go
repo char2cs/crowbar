@@ -1,7 +1,6 @@
-// Package store owns the reviewthread read model at state/store/review_thread.db.
-// Two projections derive from the same stream: the save-only durable subscriber
-// here and the live hub projection (hub.go). Boot does no eager reconcile; List
-// heals a lost model on first access by replaying every id in the event log.
+// Package store owns the reviewthread read model (state/store/review_thread.db): the save-only
+// durable projection beside the live hub one (hub.go). Boot does no eager reconcile; List heals
+// a lost model on first access by replaying every id in the event log.
 package store
 
 import (

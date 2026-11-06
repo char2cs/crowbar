@@ -31,13 +31,9 @@ import (
 	worktreePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree"
 )
 
-// Register mounts the v0 REST and WebSocket routes on nested gin groups, each defining
-// its wildcard once (gin requires one name per tree position):
-//
-//	rg            → /v0                                    (health, system, profiles, projects)
-//	projectScoped → /v0/projects/:projectId               (repos)
-//	repoScoped    → /v0/projects/:projectId/repos/:repoId (chats, threads, workspace placement)
-//	chatScoped    → /v0/chats/:chatId                     (worktree-scoped surfaces)
+// Register mounts the v0 REST and WebSocket routes on nested groups that each define their
+// wildcard once (gin allows one name per tree position): /v0, /v0/projects/:projectId,
+// .../repos/:repoId, and /v0/chats/:chatId for worktree-scoped surfaces.
 //
 //nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(

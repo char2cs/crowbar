@@ -7,18 +7,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The chat-first primitive for creation paths that do their own git work (a repo's folder, a locked
-// worktree, a placeholder, a project home): the owner is minted before the workspace and discarded with it,
-// so no workspace exists unowned, while the git work and its rollback stay with the caller:
-//
-//	chatID, err := chats.MintOwningChat(ctx, "", parentWorkspaceID)
-//	ws, err := <git work + workspace row>          // fails → DiscardOwningChat
-//	err := chats.AttachOwningWorkspace(ctx, chatID, ws)
+// Creation paths that do their own git work (repo folder, locked worktree, placeholder, project
+// home) call MintOwningChat before the workspace, DiscardOwningChat if the git work fails and
+// AttachOwningWorkspace after, so no workspace exists unowned while rollback stays theirs.
 
-// MintOwningChat mints the chat about to own a workspace, placed under parentWorkspaceID's own Node row
-// (every workspace has one, keyed by its id). An empty or unknown parent places it at the panel root;
-// chatID names the chat, or "" mints one. It records the default provider: a workspace's row is prompted
-// without the user ever picking an agent for it.
+// MintOwningChat mints the chat about to own a workspace under parentWorkspaceID's Node row (an
+// empty or unknown parent places it at the root); chatID "" mints a fresh id. It records the
+// default provider: a workspace's row is prompted without the user ever picking an agent.
 func (u *chatFolderUsecase) MintOwningChat(
 	ctx context.Context,
 	chatID string,

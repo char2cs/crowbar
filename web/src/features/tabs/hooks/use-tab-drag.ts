@@ -9,10 +9,9 @@ interface UseTabDragOptions {
   onReorderBuffers: (oldIndex: number, newIndex: number) => void
 }
 
-/** dnd-kit drag state and handlers for one tab bar. A dropped tab never creates a split: a pane
- *  group groups chats, never tabs. Each TabBar mounts its own DndContext, so
- *  `event.over` only ever names this pane's tabs; never resolve a drop target past that (e.g. by
- *  DOM hit-testing), or tabs could cross into another pane. */
+/** dnd-kit drag state and handlers for one tab bar; a drop never creates a split (pane groups
+ *  group chats, not tabs). Each TabBar mounts its own DndContext, so `event.over` only names this
+ *  pane's tabs: never resolve a drop past that (e.g. DOM hit-testing) or tabs cross panes. */
 export function useTabDrag({
   sortedBuffers,
   onTabSelect,

@@ -39,12 +39,9 @@ async fn daemon_initiated_close_retires_the_connection() {
     let _ = std::fs::remove_file(&sock);
 }
 
-/// The production bug, as a regression test: 215 of these closes in one window is what
-/// a pre-crash daemon log shows, against an app whose descriptor limit was 256.
-///
-/// This is the one test that has to count descriptors. A stranded writer still lets its
-/// reader finish, so nothing local to the connection reveals it — only the process's
-/// descriptor table does.
+/// Daemon-initiated closes must not leak descriptors (215 in one window broke a 256 limit). Only
+/// the descriptor table can show it: a stranded writer still lets its reader finish, so nothing
+/// local to the connection reveals the leak.
 #[tokio::test]
 async fn daemon_initiated_closes_do_not_leak_file_descriptors() {
     let name = "ws_bridge::connection::tests::daemon_initiated_closes_do_not_leak_file_descriptors";
@@ -95,14 +92,9 @@ async fn daemon_initiated_closes_do_not_leak_file_descriptors() {
     let _ = std::fs::remove_file(&sock);
 }
 
-/// The reader parks on `read.next()`. Against a daemon that has stopped reading, the
-/// half-close that retiring performs is never noticed and never answered, so nothing but
-/// explicit cancellation can end the reader — and this test hangs.
-///
-/// The reader finishing IS the assertion: it awaits the writer, so by the time it returns
-/// both split halves are dropped and the socket is closed by ownership. Counting
-/// descriptors here would add nothing and would only make the test race every other test
-/// that opens one.
+/// Against a daemon that stopped reading, the retire half-close is never answered, so only explicit
+/// cancellation ends the reader parked on `read.next()`, or this hangs. The reader finishing is the
+/// assertion: it awaits the writer, so both halves are dropped (no racy descriptor count needed).
 #[tokio::test]
 async fn explicit_close_releases_the_socket_against_a_daemon_that_never_reacts() {
     let _serialised = crate::test_support::fd_tests().await;
@@ -132,10 +124,8 @@ async fn explicit_close_releases_the_socket_against_a_daemon_that_never_reacts()
     let _ = std::fs::remove_file(&sock);
 }
 
-/// A page load orphans every connection the old page owned: its JS is gone and will never
-/// call `ws_close` for ids it no longer remembers. Nothing else can notice — a `Channel`
-/// keeps working across a reload — so `close_for_window` is all that stands between a
-/// reload and a permanently stranded socket.
+/// A page load orphans every connection the old page owned, and a `Channel` keeps working across
+/// a reload, so `close_for_window` is all that stops a reload stranding a socket for good.
 #[tokio::test]
 async fn a_page_load_retires_the_connections_a_reloaded_page_abandoned() {
     let _serialised = crate::test_support::fd_tests().await;
@@ -262,10 +252,9 @@ async fn binary_frames_are_forwarded_as_raw_bytes() {
     let _ = std::fs::remove_file(&sock);
 }
 
-/// A socket that goes HALF-OPEN delivers nothing — not a frame, not a ping — while
-/// the daemon still lists the session as live. With a read-idle timeout the
-/// connection is judged dead, retired, and announced like a daemon close, so the
-/// frontend re-attaches instead of typing into a corpse.
+/// A HALF-OPEN socket delivers nothing while the daemon still lists the session as live; the
+/// read-idle timeout retires it and announces it like a daemon close, so the frontend
+/// re-attaches instead of typing into a corpse.
 #[tokio::test]
 async fn a_silent_half_open_socket_is_retired_and_announced() {
     let _serialised = crate::test_support::fd_tests().await;

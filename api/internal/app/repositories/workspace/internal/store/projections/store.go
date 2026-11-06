@@ -1,7 +1,6 @@
-// Package projections holds the workspace read-side projections. store.go is the
-// save-only durable projection into state/store/workspace.db (Forget deletes the
-// row); once a hub is registered it announces each event after saving it, so no
-// frame reaches a client before the read model holds it.
+// Package projections holds the workspace read-side projections. store.go saves each event into
+// state/store/workspace.db (Forget deletes the row) before announcing it to a registered hub, so
+// no frame reaches a client before the read model holds it.
 package projections
 
 import (

@@ -1,8 +1,6 @@
-// Package modeldiscovery is the generic "run a command, decode its JSON,
-// keep/order/map rows into models" primitive model.discover: descriptors
-// declare. Every field name it reads (item ids, the keep_when/order_by
-// paths) is DATA carried in from the descriptor — this package never
-// hardcodes a provider's own wire vocabulary.
+// Package modeldiscovery is the generic model.discover: primitive: run a command, decode its JSON,
+// keep/order/map rows into models. Every field name it reads is data from the descriptor, so it
+// never hardcodes a provider's own wire vocabulary.
 package modeldiscovery
 
 import (

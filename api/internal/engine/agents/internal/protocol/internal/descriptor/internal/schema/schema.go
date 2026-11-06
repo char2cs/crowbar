@@ -1,8 +1,6 @@
-// Package schema loads Crowbar's canonical conversation vocabulary and validates a
-// provider descriptor's event table against it.
-//
-// The vocabulary is data (vocabulary.yaml) rather than Go constants so adding a
-// PROVIDER needs no Go. Adding an EVENT is a Crowbar capability change and does.
+// Package schema loads Crowbar's canonical conversation vocabulary and validates a provider
+// descriptor's event table against it. The vocabulary is data (vocabulary.yaml) so adding a
+// provider needs no Go; adding an event is a Crowbar capability change and does.
 package schema
 
 import (

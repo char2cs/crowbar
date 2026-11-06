@@ -2,10 +2,9 @@ import { createWorkspaceChat } from '../lib/fixture.mjs'
 import { openChat } from '../lib/ui.mjs'
 import { assert, assertEqual } from '../lib/wait.mjs'
 
-// Recents: with many views open, switching rows only changes which retained
-// workspace is shown. Nothing may mount or unmount, and each switch must paint
-// quickly. Mounts are counted with a MutationObserver over the structural
-// nodes the plan names.
+// Recents: with many views open, switching rows only changes which retained workspace is shown.
+// Nothing may mount or unmount (a MutationObserver counts the plan's structural nodes), and each
+// switch must paint quickly.
 
 const VIEWS = 9
 const ROUNDS = 3

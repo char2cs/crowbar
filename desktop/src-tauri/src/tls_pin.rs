@@ -158,10 +158,9 @@ mod tests {
 
     #[test]
     fn fingerprint_of_has_the_go_side_format() {
-        // Format contract with api/internal/core/tlsid/tlsid.go's FingerprintOf:
-        // "SHA256:" + six groups of 4 lowercase hex chars, space-separated —
-        // the first 24 hex chars (12 bytes) of the SHA-256 digest, truncated
-        // the same way on both sides so a human can visually compare them.
+        // Format contract with api/internal/core/tlsid/tlsid.go's FingerprintOf: "SHA256:" + six
+        // space-separated groups of 4 lowercase hex chars (the first 12 digest bytes), truncated the
+        // same way on both sides so a human can visually compare them.
         let fp = fingerprint_of(b"anything");
         assert!(fp.starts_with("SHA256:"));
         let groups: Vec<&str> = fp["SHA256:".len()..].trim().split(' ').collect();

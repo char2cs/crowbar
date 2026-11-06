@@ -88,10 +88,9 @@ var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to 
 // the process mid-turn; a process that serves both surfaces moves any time.
 var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", problem.ErrConflict)
 
-// SwitchToTerminal moves chatID onto its provider's TUI and returns its terminal
-// session: an own PTY just moves surface, a turned api session hands over to an `attach`
-// of it, else the TUI is relaunched. A dormant chat records the move, and launches
-// there only if no CLI ever ran on it.
+// SwitchToTerminal moves chatID onto its provider's TUI and returns its terminal session: an own
+// PTY just moves surface, a turned api session hands over to an `attach` of it, else the TUI is
+// relaunched. A dormant chat records the move and launches only if no CLI ever ran on it.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {

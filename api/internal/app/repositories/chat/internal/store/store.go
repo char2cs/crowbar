@@ -1,10 +1,6 @@
-// Package store owns the agentchat read model at state/store/agent_chat.db. Two
-// projections derive from the same stream: the save-only durable subscriber
-// here and the live hub projection (hub.go).
-//
-// Boot does no eager reconcile; repair is lazy. Every read, per-id ones
-// included, goes through this store and heals a lost model on first access by
-// replaying from the event log.
+// Package store owns the agentchat read model (state/store/agent_chat.db): the save-only durable
+// projection beside the live hub one (hub.go). Boot does no eager reconcile; every read heals a
+// lost model on first access by replaying the event log.
 package store
 
 import (

@@ -1,11 +1,9 @@
 import { createChat, createWorkspaceChat, getChat } from '../lib/fixture.mjs'
 import { assertEqual, until } from '../lib/wait.mjs'
 
-// Rename from a sidebar row's context menu keeps its inline input: the menu
-// closing must not hand focus back to the row (that blur would commit and
-// unmount the editor at once). Enter, Escape and blur keep their meaning, and
-// double-click still opens the same editor. The rendered menu exists only on
-// the browser target (Tauri pops the native one), so there only double-click runs.
+// Rename from a row's context menu keeps its inline input: the closing menu must not refocus the
+// row (that blur would commit and unmount the editor). Only the browser target renders the menu
+// (Tauri pops a native one), so elsewhere only double-click runs.
 
 const openMenuRename = (id) => {
   const row = document.querySelector(`[role="treeitem"][data-sidebar-row-id="${id}"]`)

@@ -1,9 +1,6 @@
-// Package seam declares the ports the chat feature reaches the rest of the daemon through: the PTY it
-// starts vendor CLIs on, the workspace layout it runs them in, and the chat ancestry a thread inherits.
-//
-// They are declared by the consumer and narrowly, so a change on the other side that this feature does
-// not use cannot reach it. The package has no tests: implementations assert satisfaction at compile time
-// where they live.
+// Package seam declares the narrow, consumer-side ports the chat feature reaches the daemon
+// through (the PTY, the workspace layout, chat ancestry), so changes it does not use cannot reach
+// it. No tests: implementations assert satisfaction at compile time where they live.
 package seam
 
 import (

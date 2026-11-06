@@ -182,7 +182,6 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
 /** Deletes a chat and the threads hanging off it (a thread without its parent reads a context
  *  that is gone); resolves with the chats its git cascade also took. `init` carries `keepalive`
  *  for the removal tray's pagehide flush, so an undo window cut short by a reload still deletes. */
-/** Deletes a chat; resolves with the chats its git cascade took beyond it. */
 export async function deleteChat(wsId: string, id: string, init?: RequestInit): Promise<string[]> {
   const raw = await apiFetch<{ takenChatIds?: unknown } | undefined>(
     `${chatBase(wsId)}/${encodeURIComponent(id)}`,

@@ -41,10 +41,8 @@ export function daemonClient(socket) {
         return null
       }
     },
-    /**
-     * Waits until the daemon serves its API: a migrating daemon answers health
-     * too. A halted one never will, so it fails at once with the reason.
-     */
+    /** Waits until the daemon serves its API (a migrating daemon answers health too);
+     *  a halted one never will, so it fails at once with the reason. */
     waitHealthy(timeout = 60_000) {
       return until(
         'the daemon to report ok on /v0/health',

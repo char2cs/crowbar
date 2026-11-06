@@ -17,12 +17,9 @@ const top = (map, n) =>
     .sort((a, b) => b[1] - a[1])
     .slice(0, n)
 
-/**
- * Process identity across the whole trace: pid -> executable, from each
- * interposer `load` line and each exec. A PATH shim's exec of the real binary
- * is a hop of the exec that started the shim, not a second spawn. An exec is
- * `interposed` when the image it started logged its own `load`.
- */
+/** Process identity across the trace: pid -> executable, from each interposer `load` line and
+ *  exec. A PATH shim's exec of the real binary is a hop of the shim's exec, not a second spawn;
+ *  an exec is `interposed` when the image it started logged its own `load`. */
 export function processImages(trace, shimDir) {
   const images = new Map()
   const hops = new Set()

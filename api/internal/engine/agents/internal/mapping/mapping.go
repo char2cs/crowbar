@@ -1,10 +1,6 @@
-// Package mapping is the one path grammar a descriptor writes.
-//
-// A path is dot-separated. Every accessor takes an Expr, an alternation of branches: the
-// first resolving to a present, non-empty value wins. A single-path caller passes one.
-//
-// Every accessor is total: a missing path yields the zero value, never a panic, because
-// a descriptor mapping a field a payload does not carry is the normal case.
+// Package mapping is the one dot-separated path grammar a descriptor writes. Every accessor takes
+// an Expr whose first present, non-empty branch wins, and is total (a missing path yields the zero
+// value): a descriptor mapping a field a payload does not carry is the normal case.
 package mapping
 
 import (

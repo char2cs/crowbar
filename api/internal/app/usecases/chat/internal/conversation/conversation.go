@@ -1,9 +1,6 @@
-// Package conversation owns the chat record: the aggregate's identity, title and
-// model selection, and every read served off the conversation it accumulates.
-//
-// It starts no processes: a chat is readable whether or not a CLI ever ran on it.
-// The one thing it owes the processes is the hard delete, which retires a chat's
-// CLIs through the Runners port rather than reaching for the runner lifecycle.
+// Package conversation owns the chat record: identity, title, model selection and every read off
+// its conversation. It starts no processes; its hard delete retires a chat's CLIs through the
+// Runners port rather than reaching for the runner lifecycle.
 package conversation
 
 import (

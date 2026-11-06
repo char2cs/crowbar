@@ -63,17 +63,9 @@ function onceExited(child) {
   })
 }
 
-/**
- * One isolated dev instance of THIS checkout: its own CROWBAR_HOME (so its own
- * daemon, projects and logs), its own Vite origin (so its own localStorage and
- * IndexedDB) and a real UI to drive. It never reads or writes the production
- * ~/.crowbar.
- *
- * target 'tauri'   the real desktop app (debug build) with its daemon sidecar,
- *                  driven through the app's in-process bridge.
- * target 'browser' the same web bundle in a Chrome the suite launches, talking
- *                  to a daemon the suite launches on loopback TCP, driven over CDP.
- */
+/** One isolated dev instance of this checkout: its own CROWBAR_HOME and Vite origin, never the
+ *  production ~/.crowbar. target 'tauri' drives the debug desktop app and its daemon sidecar via the
+ *  in-process bridge; 'browser' drives the same bundle in a launched Chrome over CDP (loopback TCP). */
 export class Instance {
   constructor(target) {
     this.target = target

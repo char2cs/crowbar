@@ -1,7 +1,6 @@
-// Package telemetry holds the last usage report each chat's provider sent.
-//
-// It optionally persists that report across restarts: the report carries ObservedAt, so a timestamped
-// last-known value beats losing it. A chat nothing has ever reported for stays unknown, never zero.
+// Package telemetry holds the last usage report each chat's provider sent, optionally persisted:
+// the report carries ObservedAt, so a timestamped last-known value beats losing it. A chat nothing
+// ever reported for stays unknown, never zero.
 package telemetry
 
 import (

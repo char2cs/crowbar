@@ -1,8 +1,6 @@
-// Package tools is the agent-facing capability surface: the tools an agent in a Crowbar chat may call,
-// the authority model deciding what each caller can see, and the rendering of results.
-//
-// It is reached through one seam (the chat usecase's DispatchMCP), so authorization happens in one place
-// and the MCP relay transport never self-authorizes.
+// Package tools is the agent-facing capability surface: the tools a chat's agent may call, the
+// authority model over what each caller sees, and result rendering. It is reached only through
+// DispatchMCP, so authorization happens in one place and the MCP relay never self-authorizes.
 package tools
 
 import (

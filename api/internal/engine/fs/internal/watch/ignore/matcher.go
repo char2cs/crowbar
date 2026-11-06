@@ -1,7 +1,6 @@
-// Package ignore is an in-process gitignore matcher the file watcher uses to exclude
-// directories from recursive watching without forking `git check-ignore`. It honours
-// root and nested .gitignore files and .git/info/exclude, but not core.excludesFile,
-// which lists per-file editor/OS noise rather than directories.
+// Package ignore is an in-process gitignore matcher that lets the watcher skip directories without
+// forking `git check-ignore`. It honours root and nested .gitignore and .git/info/exclude, but not
+// core.excludesFile, which lists per-file editor/OS noise rather than directories.
 package ignore
 
 import (

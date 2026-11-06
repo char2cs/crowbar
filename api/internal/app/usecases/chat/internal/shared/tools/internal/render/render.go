@@ -1,8 +1,6 @@
-// Package render turns the records the tool surface serves into the plain text an agent reads.
-//
-// It is pure (values in, a string out) and knows nothing about tools, stores or callers, so rendering
-// caps live here beside the code that applies them. Nothing truncates silently: every cap that bites
-// says so in the output, so a model knows a list is shortened and can ask for the rest.
+// Package render turns tool-surface records into the plain text an agent reads. It is pure, so the
+// rendering caps live beside the code applying them; every cap that bites says so in the output,
+// so a model knows a list is shortened and can ask for the rest.
 package render
 
 const (

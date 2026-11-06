@@ -1,8 +1,6 @@
-// Package answerdesk holds provider prompts parked on a human decision.
-//
-// A vendor CLI asking permission holds its hook's HTTP request open; the answer is that request's
-// response body. The desk registers the held hook so the UI can decide for it and hand back exactly the
-// bytes the provider expects, and releases one nobody answers in time.
+// Package answerdesk holds provider prompts parked on a human decision. A CLI asking permission
+// holds its hook's HTTP request open; the desk lets the UI answer with exactly the response bytes
+// the provider expects, and releases a hook nobody answers in time.
 package answerdesk
 
 import (

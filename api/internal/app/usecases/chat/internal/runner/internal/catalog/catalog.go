@@ -1,8 +1,6 @@
-// Package catalog bounds the slash-command probes Crowbar runs against a vendor CLI.
-//
-// A probe forks the provider's binary, so a newer probe supersedes an older one per
-// chat and the daemon caps how many run at once. Results are never cached: a stale
-// list (the user edited their command files) is worse than a slow one.
+// Package catalog bounds the slash-command probes run against a vendor CLI. A probe forks the
+// provider's binary, so a newer one supersedes an older one per chat and the daemon caps how many
+// run. Results are never cached: a stale list (edited command files) is worse than a slow one.
 package catalog
 
 import (

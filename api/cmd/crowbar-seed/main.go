@@ -1,10 +1,6 @@
-// Command crowbar-seed fills a running Crowbar DEV daemon with usable state: a
-// generated throwaway git repo, a project and repo importing it, a feature
-// workspace with a real diff, and two review threads on that diff.
-//
-// It is its own binary rather than a `crowbar` subcommand because dev tooling must
-// not ship; run it through `make seed`, which exports the dev CROWBAR_HOME.
-// Every step is idempotent: a second run reuses what the first one created.
+// Command crowbar-seed fills a running DEV daemon with a throwaway git repo, a project, a feature
+// workspace with a real diff and two review threads on it. It is its own binary so dev tooling
+// never ships; run it via `make seed` (dev CROWBAR_HOME). Every step is idempotent.
 package main
 
 import (

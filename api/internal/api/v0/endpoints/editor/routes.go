@@ -1,7 +1,6 @@
-// Package editor mounts the v0 editor REST routes: git blame, the synchronous
-// LSP feature requests, the document-sync notifications, and the diagnostics
-// snapshot. Blame takes its path in ?path= because GET has no body; the LSP
-// routes take it in the JSON body. Live diagnostics ride the stream's lsp: scope.
+// Package editor mounts the v0 editor routes: blame, LSP features, document sync, diagnostics.
+// Blame takes its path in ?path= because GET has no body; the LSP routes take it in the JSON
+// body. Live diagnostics ride the stream's lsp: scope.
 package editor
 
 import (

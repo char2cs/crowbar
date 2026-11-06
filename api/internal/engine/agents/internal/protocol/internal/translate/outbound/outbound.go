@@ -1,7 +1,6 @@
-// Package outbound turns a Crowbar intent into the call a provider expects.
-//
-// It mirrors inbound: an `out:` event names the wire call and `send:` builds its
-// payload from {braced} canonical values. Pure functions, no IO or state.
+// Package outbound turns a Crowbar intent into the call a provider expects, mirroring inbound: an
+// `out:` event names the wire call and `send:` builds its payload from {braced} canonical values.
+// Pure functions, no IO or state.
 package outbound
 
 import (

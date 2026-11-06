@@ -1,9 +1,6 @@
-// Package exec runs git commands in a working directory and captures output.
-//
-// Every invocation sets GIT_OPTIONAL_LOCKS=0 so read-only commands never take
-// .git/index.lock, which would race user mutations on every watcher recompute.
-// Mutations that hit a held lock are retried with bounded backoff, and a provably
-// stale lock is removed (see lock_retry.go).
+// Package exec runs git in a working directory. Every call sets GIT_OPTIONAL_LOCKS=0 so reads never
+// take .git/index.lock and race user mutations; a mutation hitting a held lock retries with bounded
+// backoff, and a provably stale lock is removed (lock_retry.go).
 package exec
 
 import (

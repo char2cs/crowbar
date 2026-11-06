@@ -1,7 +1,6 @@
-// Package lineage answers which chats a chat reads: a chat whose ParentID names another chat is a thread
-// of it and reads that chat's turns and its chat ancestors'. Folders hold no turns, so the walk steps
-// through them and filing a thread never changes what it reads. The answer is ids, never turns: nothing is
-// copied, so a thread reads its parent as it stands when the agent asks.
+// Package lineage answers which chats a chat reads: a thread (ParentID names a chat) reads its chat
+// ancestors' turns, stepping through folders, which hold none. It returns ids, never copied turns,
+// so a thread reads its parent as it stands when the agent asks.
 package lineage
 
 // Walk returns the chat ancestors of id, nearest first: parentOf is followed through every row, and isChat

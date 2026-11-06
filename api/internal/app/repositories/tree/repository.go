@@ -1,7 +1,6 @@
-// Package tree stores the Tree aggregate: one per project (aggregate id = the
-// project id), holding where every sidebar row of that project hangs. Every
-// write is one command against the whole project tree, sent with SendWait, and
-// Get is the only read.
+// Package tree stores the Tree aggregate, one per project (aggregate id = project id), holding
+// where every sidebar row of that project hangs. Every write is one SendWait command against the
+// whole tree, and Get is the only read.
 package tree
 
 import (

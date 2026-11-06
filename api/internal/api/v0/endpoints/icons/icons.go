@@ -1,9 +1,6 @@
-// Package icons holds the entity-agnostic half of a sidebar icon: reading an
-// upload, validating it, storing it, serving it back, and deciding what counts
-// as a single emoji.
-//
-// Repos and projects differ only in where the bytes live, so the caller supplies
-// the path and the size cap, content sniffing and SVG special case live here once.
+// Package icons is the entity-agnostic half of a sidebar icon: reading, validating, storing and
+// serving an upload, and deciding what counts as a single emoji. Repos and projects differ only
+// in where the bytes live, so the caller supplies the path.
 package icons
 
 import (
@@ -160,10 +157,9 @@ func readFromMultipart(
 // paths cannot disagree about what the limit is called.
 const oversizeMessage = "icon must be under 2 MB"
 
-// Validate rejects anything that is not an image of an acceptable size, writing
-// the response on failure. It sniffs content rather than trusting the extension
-// or Content-Type, so a .png-named arbitrary host file is never stored. SVG sniffs
-// as text and is refused: it can carry script, and the picker offers raster only.
+// Validate rejects anything but an acceptably sized image, writing the response on failure. It
+// sniffs content rather than trusting the extension or Content-Type, and refuses SVG: it can
+// carry script, and the picker offers raster only.
 func Validate(
 	c *gin.Context,
 	data []byte,

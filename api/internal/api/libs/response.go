@@ -1,7 +1,6 @@
-// Package libs provides the uniform response envelope every v0 handler returns:
-// { success, error, data }, quiver.core's shape minus its namespace field, since
-// Crowbar addresses entities by UUID path params. Queries carry their payload in
-// data, mutations carry data: { "id": "<uuid>" }, errors set success:false and omit data.
+// Package libs provides the { success, error, data } envelope every v0 handler returns: queries
+// carry their payload in data, mutations carry data: { "id": "<uuid>" }, and errors set
+// success:false and omit data.
 package libs
 
 import (

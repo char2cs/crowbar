@@ -1,11 +1,8 @@
-// Package tree owns the sidebar's organisation layer: folder rows, where every row hangs, and the one
-// dense sibling order all row kinds share within a ParentID. A folder is a dtree.Folder (identity) plus a
-// dtree.Node (position); a chat's position is Node-backed too, its identity stays on domain.Chat.
-//
-// Deleting a folder promotes its contents to its parent (a folder holds no conversation); deleting a chat
-// takes its subtree (a thread reads its parent's turns). Every operation reads once, plans in memory and
-// writes only rows that moved: the chat read model is an async projection, so a re-read between writes
-// could serve the pre-write list.
+// Package tree owns the sidebar's organisation layer: folder rows, where every row hangs, and the
+// one dense sibling order all row kinds share within a ParentID. Deleting a folder promotes its
+// contents (it holds no conversation); deleting a chat takes its subtree (threads read its turns).
+// Every operation reads once, plans in memory and writes only moved rows: the chat read model is
+// an async projection, so a re-read between writes could serve the pre-write list.
 package tree
 
 import (
