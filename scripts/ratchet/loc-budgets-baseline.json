@@ -18,7 +18,7 @@
   "go.wiring": 2165,
   "web.app-shell": 1924,
   "web.browser": 1018,
-  "web.chat-surface": 16835,
+  "web.chat-surface": 16831,
   "web.core": 7329,
   "web.editor": 11134,
   "web.extensions": 582,
@@ -29,7 +29,7 @@
   "web.settings": 6005,
   "web.sidebar": 13180,
   "web.terminal": 3927,
-  "web.tests": 118416,
-  "web.total": 98045,
+  "web.tests": 118374,
+  "web.total": 98041,
   "web.workspace-panes": 12728
 }
