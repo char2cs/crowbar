@@ -1021,6 +1021,19 @@ func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
 	assert.Empty(t, prompt.Kind)
 }
 
+// On the unviewed 80x24 grid the dialog is cut above its footer; its tab row
+// (captured on 2.1.319 at that size) still reads as blocking.
+func TestMatchTerminalPrompt_ClaudeCommandDialogBlocksOnASmallGrid(t *testing.T) {
+	screen := "       Help       General      Commands   Custom commands\n" +
+		"   Claude understands your codebase, makes edits with your permission, and\n" +
+		"   Shortcuts\n   ! for shell mode     double tap esc to clear     ctrl + shift + _ to"
+
+	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
+
+	require.True(t, ok)
+	assert.Empty(t, prompt.Kind)
+}
+
 // The trust dialog as the real CLI paints it (2.1.319, through our emulator) preselects
 // "No, exit": accepting must move the cursor onto the trust option before confirming.
 func TestMatchTerminalPrompt_ClaudeAimsItsTrustAnswerAtTheTrustOption(t *testing.T) {
