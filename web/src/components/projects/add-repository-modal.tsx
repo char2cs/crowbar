@@ -101,7 +101,7 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
           kind: 'repo.create',
           subject: { kind: 'project', id: projectId },
           projectId,
-          label: `Add ${repoName}`,
+          label: `Add “${repoName}”`,
         },
         (opId) => postRepo(projectId, repoName, trimmedPath, opId),
       )

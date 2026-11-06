@@ -14,7 +14,7 @@ Build and test with `-tags noEmbed` (the default build embeds `web/dist`, see
 | Binary | Role |
 | --- | --- |
 | `cmd/crowbar` | `serve` (the daemon), plus the in-PTY callbacks a vendor CLI runs: `mcp` (stdio MCP server exposing review tools), `handoff dump`. Hooks are not a subcommand: the CLI posts them to the daemon's hook server. `web_embed.go` / `web_noembed.go` select the embedded bundle. |
-| `crowbar migrate --plan` | Read-only preview of what the next boot would migrate: layout, pending steps with their actions and counts, the `state/` backup decision. It has no apply path; the daemon migrates as it boots. Exits non-zero with the halt reason where the boot would halt. |
+| `crowbar migrate --plan` | Read-only preview of what the next boot would migrate: layout, pending steps with their actions and counts, the `state/` backup decision, and the backups on disk. It has no apply path; the daemon migrates as it boots. Exits non-zero with the halt reason where the boot would halt. |
 | `crowbar paths` | Prints `{"home","socket"}` as JSON: the one answer to "where is the Crowbar home and the daemon socket". The desktop shell and the e2e helper ask it instead of computing either. |
 | `cmd/crowbar-seed`, `cmd/crowbar-seed-chat` | Dev-only fixture fillers for a running dev daemon (`make seed`). Never shipped. `seed-chat` takes the home lock and refuses a home that still has pending migration steps: boot the daemon once first. |
 
@@ -55,9 +55,7 @@ Process-level plumbing with no domain knowledge:
   `crowbar pair` works on the daemon's own host), `ipc` (the socket
   client the in-PTY callbacks use), `terminal` (the PTY session engine — spawn,
   resize, screen model, reap), `shellenv`/`binpath` (login-shell PATH and CLI
-  lookup for a GUI-launched daemon), `selfinstall` (copies the binary to
-  `<home>/bin` so a vendor CLI can launch `crowbar mcp` by absolute path),
-  `safego` (panic-safe goroutines).
+  lookup for a GUI-launched daemon), `safego` (panic-safe goroutines).
 
 ### `engine/`
 Each engine is a facade over one capability, with its implementation in
@@ -193,17 +191,31 @@ as ledger rows, checkpointed per chat: a chat whose ledger already has rows is
 counted `skipped_chats`, and a CLI the old daemon never saw exit is left live for
 the boot reconcile to end.
 
+Step 9 `ledger-layout` bumps `LAYOUT` to 1, the first layout that may lose the
+legacy files: a build that knows only layout 0 halts on it (`layout_newer`) instead
+of re-creating them empty. Step 6 and the post-open steps sit at layout 1, so step 6
+still recurs after the bump. Step 10 `retire-legacy` (pre-open, layout 1, recurring)
+deletes the legacy databases (`agent_activity*`, `agent_runner*`, `node*` under
+`state/events` and `state/store`), `state/upgrades/`, `chats/*/prompt-requests/` and
+the old `<home>/bin/crowbar` copy, only once a run has completed at layout 1, step 6
+owes no chat, and each file is byte-identical to its copy in the newest backup; a file
+that is not is kept and noted. Step 8 `chat-attachments` moves each chat's
+attachments to `<home>/chats/<chat-id>/attachments`, their one home. Step 11
+`owner-only` narrows, once, what an older build left with the umask to 0600 files
+and 0700 directories, outside users' checkouts. See `docs/plans/2026-11-06-home-tidy.md`.
+
 **Backup.** When a pending plan sets `RewritesState` and `state/` holds files,
-the run first writes `<home>/migrate/backups/<run-id>/` (built as
-`<run-id>.partial`, renamed when whole) after checking free space for the copy
-plus 64 MiB. It holds `state/`, the `LAYOUT` value and a copy of
-`migrate/ledger.jsonl`, all as they stood before the run: restoring all three
-rewinds the data and the record of what was done to it together, so the next
-boot runs the steps again on the restored data. A retry after a halt keeps the
-earlier attempt's backup rather than copying the half-migrated state over it.
-A halt's message names the backup in force. Crowbar never prunes backups;
-restoring is manual (quit Crowbar, put the three back), as the upgrade notes
-describe.
+the run first writes `<home>/migrate/backups/<run-id>.tar.gz` (built as a
+`.partial`, renamed once it reads back as written) after checking free space
+for the raw size plus 64 MiB. It holds, under their home-relative names,
+`state/`, `LAYOUT`, `migrate/ledger.jsonl` and the paths a plan names in
+`Plan.BacksUp` (step 6 names `chats/*/prompt-requests`), all as they stood before
+the run: restoring them together rewinds the data and the record of what was done
+to it, so the next boot runs the steps again. A retry after a halt keeps the
+earlier attempt's backup. A halt's message names the backup in force. At `Begin`,
+once the ledger's latest run completed, every backup but the newest is deleted;
+`migrate/backups/README.txt` and `crowbar migrate --plan` say how to restore
+(quit Crowbar; `rm -rf state && tar -xzf migrate/backups/<run-id>.tar.gz` in the home).
 
 **Halt, not exit.** A failure or refusal (`layout_newer`, `layout_unreadable`,
 `ledger_corrupt`, `io_failed`, `plan_failed`, `preflight_failed`,

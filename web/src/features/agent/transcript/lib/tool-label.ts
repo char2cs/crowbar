@@ -10,6 +10,10 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
   fetch: ['Fetching', 'Fetched', 'Fetch'],
 }
 
+/** An edit whose diff has no old side writes a new file. */
+const NEW_FILE = '--- /dev/null\n'
+const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']
+
 export interface ToolLabel {
   verb: string
   subject?: { full: string; display: string }
@@ -105,7 +109,7 @@ export function toolLabel(item: ToolItem): ToolLabel {
     const tool = mcpTool(body)
     return { verb: body.mcpServer || 'MCP', subject: { full: tool, display: tool } }
   }
-  const verbs = VERBS[family]
+  const verbs = family === 'edit' && body.diff?.startsWith(NEW_FILE) ? CREATE : VERBS[family]
   const verb = verbs
     ? verbs[status === 'running' ? 0 : done ? 1 : 2]
     : humanizeToolName(body.name ?? '') || 'Tool'

@@ -1,13 +1,9 @@
 import { apiFetch, apiFetchRaw } from '@/lib/api/fetch'
-import { reviewBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { reviewBaseForWorkspace as reviewBase } from '@/lib/workspace-scope-url'
 
 // The windowed branch-review client, each read bounded by what the reader sees: outline (hunk
 // geometry, no content), one file's patch, contents for expansion, and server-side search (the
 // client holds only a window). JSON envelopes like review-api.ts, except the patch.
-
-function reviewBase(wsId: string): string {
-  return reviewBaseForWorkspace(wsId)
-}
 
 /** Narrows a windowed read from the whole branch (the default when absent) to one commit. */
 const SCOPE_COMMIT_PARAM = 'sha'

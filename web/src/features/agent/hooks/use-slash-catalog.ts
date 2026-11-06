@@ -105,9 +105,8 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     return () => controller.abort()
   }, [active, cached, probe])
 
-  // Reopening asks again, still silently — whatever is cached rides until the
-  // refresh lands, debounced so a `/` typed and immediately deleted never
-  // fires a probe at all.
+  // Reopening asks again, still silently — whatever is cached rides until the refresh lands,
+  // debounced so a `/` typed and immediately deleted never fires a probe at all.
   useEffect(() => {
     if (!open || !active) return
     const controller = new AbortController()

@@ -12,16 +12,14 @@ import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// codex's tool items are a sum type and each variant keeps its target, its output
-// and its duration in a DIFFERENT field. The descriptor mapped `tool_result:
-// item.content`, a field that exists on no codex item at all, and mapped no
-// tool_target and no duration_ms.
+// codex's tool items are a sum type and each variant keeps its target, its output and its duration
+// in a DIFFERENT field. The descriptor mapped `tool_result: item.content`, a field that exists on
+// no codex item at all, and mapped no tool_target and no duration_ms.
 //
-// The visible effect: `describeTool` renders `name · target`, so a codex turn that
-// ran three commands and edited two files drew the literal word list
-// "commandExecution / commandExecution / commandExecution / fileChange / fileChange"
-// — no command line, no path, no output, no duration. Claude, mapping the same
-// canonical fields, renders "Bash · rg --files -g '*.go'".
+// The visible effect: `describeTool` renders `name · target`, so a codex turn that ran three
+// commands and edited two files drew the literal word list "commandExecution / commandExecution /
+// commandExecution / fileChange / fileChange" — no command line, no path, no output, no duration.
+// Claude, mapping the same canonical fields, renders "Bash · rg --files -g '*.go'".
 //
 // Payload shapes are from codex's own generated schema, ThreadItem in
 // codex-rs/app-server-protocol/schema/json/ServerNotification.json.
@@ -193,10 +191,9 @@ func TestAgent_ReasoningAndMessageDeltasAreDistinctEvents(t *testing.T) {
 	require.Error(t, err, "claude declares no reasoning stream, and must not claim one")
 }
 
-// A long command emits one of these per line and nothing else for its whole
-// duration, so with it unmapped the tool row sat static with no sign of
-// progress. Payload shape is a LIVE capture against codex-cli 0.149.1
-// (testdata/fixtures/codex/item_commandExecution_outputDelta.json).
+// A long command emits one of these per line and nothing else for its whole duration, so with it
+// unmapped the tool row sat static with no sign of progress. Payload shape is a LIVE capture
+// against codex-cli 0.149.1 (testdata/fixtures/codex/item_commandExecution_outputDelta.json).
 func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
 	raw := []byte(`{"threadId":"01a081af-73bf-7fd1-bc4b-efd041f46edc",
 	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88",
@@ -212,13 +209,11 @@ func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
 	assert.Equal(t, "call_PQbUMzNNrlEGDg3Y4zc7JwNW", ev.Delta.MessageID)
 }
 
-// The agent's own to-do list, restated wholesale on each update. Payload is a
-// LIVE capture against codex-cli 0.149.1
-// (testdata/fixtures/codex/turn_plan_updated.json).
+// The agent's own to-do list, restated wholesale on each update. Payload is a LIVE capture against
+// codex-cli 0.149.1 (testdata/fixtures/codex/turn_plan_updated.json).
 //
-// The statuses asserted here are CROWBAR'S words, not codex's: the descriptor's
-// steps.status_map translates them, so Go never learns that codex spells the
-// middle state "inProgress".
+// The statuses asserted here are CROWBAR'S words, not codex's: the descriptor's steps.status_map
+// translates them, so Go never learns that codex spells the middle state "inProgress".
 func TestRegression_CodexReportsItsPlan(t *testing.T) {
 	raw := []byte(`{"threadId":"01a081af-73bf-7fd1-bc4b-efd041f46edc",
 	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88","explanation":null,
@@ -249,8 +244,7 @@ func TestAgent_AnUnmappedPlanStatusPassesThrough(t *testing.T) {
 	assert.Equal(t, "somethingCodexAddedLater", ev.Plan[0].Status)
 }
 
-// A codex prompt names the turn it opens, so only that turn's own
-// turn/completed closes it.
+// A codex prompt names the turn it opens, so only that turn's own turn/completed closes it.
 func TestRegression_CodexUserPromptNamesItsTurn(t *testing.T) {
 	raw := []byte(`{"item":{"type":"userMessage","id":"u1","content":[{"type":"text","text":"hi"}]},
 	  "threadId":"thread-1","turnId":"turn-1"}`)

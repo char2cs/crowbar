@@ -37,6 +37,16 @@ type Report struct {
 	Backup BackupPlan
 	// Last is the newest run the ledger records, nil while it records none.
 	Last *RunSummary
+	// Backups are the backups on disk, oldest first, and RestoreNote the file
+	// beside them that says how to restore one.
+	Backups     []BackupFile
+	RestoreNote string
+}
+
+// BackupFile is one backup on disk and the bytes it takes.
+type BackupFile struct {
+	Path  string
+	Bytes int64
 }
 
 // Inspect previews, for a build that implements the steps implemented reports,
@@ -58,7 +68,7 @@ func Inspect(
 	halt := func(f *fault) *Halt {
 		return haltAt(h, cat, read.layout, view, f.reason, haltMessage(f.reason, f.step, opts.plain(f.cause))).at(f.step)
 	}
-	env := Env{Home: h, Log: opts.Log}
+	env := Env{Home: h, Log: opts.Log, History: History{home: h, view: view}}
 	pending := cat.pending(read.layout, view, cat.recurring(ctx, env, read.layout, view))
 	// In the boot's order: RunPreOpen admits its steps before the preflight, and
 	// RunPostOpen admits the rest after it.
@@ -89,6 +99,14 @@ func Inspect(
 	if last, ok := read.view.lastRun(); ok {
 		report.Last = &last
 	}
+	backups, err := listBackups(h)
+	if err != nil {
+		return Report{}, err
+	}
+	for _, path := range backups {
+		report.Backups = append(report.Backups, BackupFile{Path: path, Bytes: treeSize(path)})
+	}
+	report.RestoreNote = filepath.Join(h.MigrateDir(), backupsDirName, restoreNoteName)
 	return report, nil
 }
 

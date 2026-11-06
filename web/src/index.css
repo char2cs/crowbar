@@ -60,7 +60,10 @@
 }
 
 /* The daemon names a repo's tile colour by token (avatar.go palette); without
-   a class behind each token the tile has no fill and its letter vanishes. */
+   a class behind each token the tile has no fill and its letter vanishes. The
+   tokens arrive at runtime, so the scanner never sees them: emit all eight. */
+@source inline('avatar-{rose,amber,emerald,cyan,indigo,violet,slate,pink}');
+
 @utility avatar-rose {
   background-color: var(--color-rose-700);
 }

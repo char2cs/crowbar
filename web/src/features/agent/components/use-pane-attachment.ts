@@ -55,8 +55,7 @@ function attachmentOf(
     return { state: 'reviving', message: `Starting ${providerName}…` }
   }
   // A new chat's CLI starts with its first message: not yet started is no ended session.
-  if (neverStarted)
-    return { state: 'idle', message: `${providerName} starts with your first message.` }
+  if (neverStarted) return { state: 'idle', message: `Your first message starts ${providerName}.` }
   return { state: 'idle', message: describeDormant(exitReason) }
 }
 

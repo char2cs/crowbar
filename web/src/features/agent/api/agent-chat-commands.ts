@@ -152,9 +152,8 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// killChat force-ends the chat's live vendor CLI on hostId, mid-turn included —
-// unlike stopChat, which interrupts a turn in place. The chat entry stays,
-// dormant and resumable.
+// killChat force-ends the chat's live vendor CLI on hostId, mid-turn included — unlike stopChat,
+// which interrupts a turn in place. The chat entry stays, dormant and resumable.
 export async function killChat(hostId: string, chatId: string): Promise<void> {
   await apiFetch<unknown>(`${chatBaseOn(hostId, chatId)}/kill`, { method: 'POST' })
 }

@@ -24,6 +24,7 @@ func (r Report) Render(
 		r.renderSteps(p)
 		r.renderBackup(p)
 	}
+	r.renderBackups(p)
 	return errors.Join(p.err, tw.Flush())
 }
 
@@ -97,6 +98,19 @@ func (r Report) renderBackup(
 		p.linef("\nstate backup  required   %s to copy, %s free", byteSize(size), byteSize(b.FreeBytes))
 	default:
 		p.linef("\nstate backup  not needed")
+	}
+}
+
+// renderBackups lists the backups on disk a person could restore from.
+func (r Report) renderBackups(
+	p *printer,
+) {
+	if len(r.Backups) == 0 {
+		return
+	}
+	p.linef("\nbackups on disk, newest kept   restore: see %s", r.RestoreNote)
+	for _, b := range r.Backups {
+		p.linef("  %s\t%s", b.Path, byteSize(uint64(b.Bytes))) //nolint:gosec // G115: Bytes sums file lengths, so it is never negative
 	}
 }
 

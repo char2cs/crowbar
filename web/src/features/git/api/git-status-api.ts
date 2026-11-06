@@ -27,16 +27,22 @@ function hunkIdOf(hunk: GitHunk): string | undefined {
   return h.hunkId ?? h.id
 }
 
-export const getGitStatus = async (wsId: string): Promise<GitStatus | null> => {
+/** The worktree's status, or why git could not read it (a moved or deleted repo). */
+export async function readGitStatus(
+  wsId: string,
+): Promise<{ status: GitStatus | null; error: string | null }> {
   try {
     const status = await apiFetch<GitStatus>(`${gitBaseForWorkspace(wsId)}/status`)
     // The backend serialises a clean working tree as `files: null`; normalise
     // here so downstream consumers can rely on `files` being an array.
-    return { ...status, files: status.files ?? [] }
-  } catch {
-    return null
+    return { status: { ...status, files: status.files ?? [] }, error: null }
+  } catch (err) {
+    return { status: null, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+export const getGitStatus = async (wsId: string): Promise<GitStatus | null> =>
+  (await readGitStatus(wsId)).status
 
 export const unstagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
   gitPost(wsId, 'unstage', { paths })

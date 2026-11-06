@@ -35,7 +35,7 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	require.NoError(t, err)
 	rs := &Runners{ledger: l}
 
-	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2")
+	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2", false)
 	require.NoError(t, err)
 	assert.Equal(t, announcedConflict, got)
 	c, _ := chatState(t, l).Conversation("claude")
@@ -46,6 +46,20 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	last, err := ledger.DecodeBody[ledger.Marker](rows[len(rows)-1])
 	require.NoError(t, err)
 	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerSessionConflict, Detail: "S2"}, last)
+}
+
+// A session the person's clear started is a change the conversation starts over at.
+func TestAnnounceSession_AClearedSessionStartsTheConversationOver(t *testing.T) {
+	l := turnedTestLedger(t, "claude", "S1")
+	rs := &Runners{ledger: l}
+
+	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2", true)
+	require.NoError(t, err)
+	assert.Equal(t, announcedChange, got)
+	st := chatState(t, l)
+	c, _ := st.Conversation("claude")
+	assert.Equal(t, ledger.CauseCleared, c.Cause)
+	assert.Equal(t, c.BoundAt, st.ClearedAt())
 }
 
 // Only the exit the descriptor recognises as the CLI's refusal loses the
@@ -239,7 +253,7 @@ func TestEstablishAPISession_ARefusedResumeLosesTheSession(t *testing.T) {
 func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	rs := &Runners{
 		ledger: turnedTestLedger(t, apiLoseProvider, "S1"), apiConns: newAPIConnRegistry(), live: apiLoseLive(t),
-		ws: fakeWSReader{chatsDir: t.TempDir()}, conversations: stubConversationsForPromptRestart{},
+		ws: fakeWSReader{chatsDir: t.TempDir()}, home: homeAt(t.TempDir()), conversations: stubConversationsForPromptRestart{},
 	}
 	_, asked := apiLoseConn(t, rs, refusedResume)
 

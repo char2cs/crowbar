@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 )
 
 // State is a chat's ledger folded: what a decision about the next row needs.
@@ -15,6 +16,7 @@ type State struct {
 
 	conversations []Conversation // every (provider, session) bound, by first binding
 	current       map[string]int // provider → its conversation's index in conversations
+	clearedAt     time.Time      // the newest binding the person's clear made
 
 	live     RunnerStarted // the runner started and not exited, while hasLive
 	hasLive  bool

@@ -23,14 +23,13 @@ type Apply<K extends RowKind> = (fold: FeedFold, row: LedgerRow<K>) => void
 function putCard(fold: FeedFold, card: SubagentItem) {
   fold.put(card)
   const ids = fold.facts.liveSubagents
-  const listed = ids.includes(card.id)
-  if (live(card.status) && !listed) fold.set('liveSubagents', [...ids, card.id])
-  if (!live(card.status) && listed) {
-    fold.set(
-      'liveSubagents',
-      ids.filter((id) => id !== card.id),
-    )
-  }
+  if (!live(card.status)) dropLive(fold, card.id)
+  else if (!ids.includes(card.id)) fold.set('liveSubagents', [...ids, card.id])
+}
+
+function dropLive(fold: FeedFold, id: string) {
+  const kept = fold.facts.liveSubagents.filter((other) => other !== id)
+  if (kept.length !== fold.facts.liveSubagents.length) fold.set('liveSubagents', kept)
 }
 
 function moveTo(fold: FeedFold, card: SubagentItem, to: SubagentStatus, at: string) {
@@ -65,8 +64,7 @@ const cardOf = (fold: FeedFold, scope: string) => {
 }
 
 /** The card a spawning call opens, in the call's own place and scope. */
-export function openSpawn(fold: FeedFold, row: LedgerRow<'tool_call'>) {
-  const { toolId, title } = row.body
+export function openSpawn(fold: FeedFold, row: LedgerRow, toolId: string, title?: string) {
   const known = fold.item<SubagentItem>(subagentItemId(toolId))
   if (known) {
     if (!known.title && title) fold.put({ ...known, title })
@@ -81,15 +79,6 @@ export function addressSubagent(fold: FeedFold, row: LedgerRow<'tool_call'>) {
   const card = cardOf(fold, row.body.addressesScope ?? '')
   const waiting = row.body.phase === 'pre'
   if (card && card.parentWaiting !== waiting) fold.put({ ...card, parentWaiting: waiting })
-}
-
-function dropLive(fold: FeedFold, id: string) {
-  const ids = fold.facts.liveSubagents
-  if (ids.includes(id))
-    fold.set(
-      'liveSubagents',
-      ids.filter((other) => other !== id),
-    )
 }
 
 function bind(fold: FeedFold, row: LedgerRow<'subagent'>, scope: string, spawnToolId: string) {
@@ -175,14 +164,7 @@ export const applySubagent: Apply<'subagent'> = (fold, row) => {
   const { phase, spawnToolId } = row.body
   const scope = row.scope ?? ''
   if (phase === 'start' && !scope && spawnToolId) {
-    const known = fold.item<SubagentItem>(subagentItemId(spawnToolId))
-    if (!known) {
-      putCard(
-        fold,
-        newCard(row, spawnToolId, 'starting', { spawnToolId, title: row.body.title ?? '' }),
-      )
-      fold.place(subagentItemId(spawnToolId), '')
-    } else if (!known.title && row.body.title) fold.put({ ...known, title: row.body.title })
+    openSpawn(fold, row, spawnToolId, row.body.title)
   } else if (phase === 'start' && scope) {
     if (spawnToolId) bind(fold, row, scope, spawnToolId)
     else announce(fold, row, scope)

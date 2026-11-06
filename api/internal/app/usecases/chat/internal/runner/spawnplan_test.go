@@ -90,17 +90,12 @@ func TestRenderSpawnContext_NoPublishedHookServerLeavesHooksUnpointed(t *testing
 	}
 }
 
-// The binary the descriptors run for the MCP bridge is the one the daemon was
-// built with, and else the one installed under the home.
-func TestRenderSpawnContext_RunsTheInjectedCrowbarBinElseTheHomes(t *testing.T) {
-	injected, _ := (&Runners{crowbarBin: "/opt/crowbar"}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
-	installed, _ := (&Runners{}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
+// The binary the descriptors run for the MCP bridge is the one the daemon runs.
+func TestRenderSpawnContext_RunsTheInjectedCrowbarBin(t *testing.T) {
+	got, _ := (&Runners{crowbarBin: "/opt/crowbar"}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
 
-	if injected.CrowbarBin != "/opt/crowbar" {
-		t.Fatalf("TemplateCtx.CrowbarBin = %q, want the injected binary", injected.CrowbarBin)
-	}
-	if want := filepath.Join("/tmp/h", "bin", "crowbar"); installed.CrowbarBin != want {
-		t.Fatalf("TemplateCtx.CrowbarBin = %q, want %q", installed.CrowbarBin, want)
+	if got.CrowbarBin != "/opt/crowbar" {
+		t.Fatalf("TemplateCtx.CrowbarBin = %q, want the injected binary", got.CrowbarBin)
 	}
 }
 

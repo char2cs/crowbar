@@ -255,14 +255,8 @@ export function EditorSurface({
       <EditorStylesheet />
 
       <div className="absolute inset-0 flex flex-col overflow-hidden">
-        {/* `bufferId` passed explicitly — see EditorHostRegistry's own doc:
-            this EditorSurface can now be the pane's RETAINED editor while a
-            non-editor tab (branch review, ...) is the pane's actual active
-            tab. Breadcrumb's own `paneId`-only fallback resolves via
-            `pane.activeEditorTabId`, which would then name the OTHER tab —
-            live-caught as the breadcrumb reading "branch-review://..." while
-            still showing this file's content. `bufferId` is always the
-            buffer THIS surface is actually showing, active tab or not. */}
+        {/* `bufferId` explicitly: a retained editor may sit behind a non-editor active tab,
+            and the pane's active tab would then name the wrong buffer. */}
         {showToolbar && (
           <Breadcrumb
             {...breadcrumbProps}

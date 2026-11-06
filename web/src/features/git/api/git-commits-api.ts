@@ -11,3 +11,17 @@ export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<Git
     return []
   }
 }
+
+/** Stages every change, then commits it; a message's first paragraph is the subject. Throws the
+ *  daemon's reason. */
+export async function commitAll(wsId: string, message: string): Promise<void> {
+  const [subject, ...body] = message.trim().split(/\n\s*\n/)
+  const post = (action: string, payload: object) =>
+    apiFetch(`${gitBaseForWorkspace(wsId)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  await post('stage', { paths: ['.'] })
+  await post('commit', { subject: subject.trim(), body: body.join('\n\n').trim() })
+}

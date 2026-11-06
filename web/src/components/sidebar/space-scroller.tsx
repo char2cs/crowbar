@@ -157,9 +157,8 @@ export function SpaceScroller({
       isUserGesture.current = false
       const index = projects.findIndex((p) => p.id === activeProjectId)
       if (index === -1) return
-      // A collapsed sidebar has zero width: no offset identifies a panel, and
-      // the browser has already clamped scrollLeft to 0. Leave it - the
-      // resize that reopens the sidebar re-aligns it.
+      // A collapsed sidebar has zero width and no panel offset; the resize that reopens it
+      // re-aligns.
       if (el.clientWidth === 0) return
       settlingToIndex.current = null
       el.scrollLeft = index * el.clientWidth
@@ -176,8 +175,7 @@ export function SpaceScroller({
     if (index === -1) return
     isUserGesture.current = false
     const left = index * el.clientWidth
-    // Already there: scrollTo fires no scroll event, so arming would leave the
-    // re-align disarmed for good.
+    // Already there: scrollTo fires no scroll event, so arming would disarm re-align for good.
     if (el.scrollLeft === left) {
       settlingToIndex.current = null
       return
@@ -186,8 +184,7 @@ export function SpaceScroller({
     el.scrollTo({ left, behavior: 'smooth' })
   }, [activeProjectId, projects])
 
-  // Sync activeProjectId when the user swipes/wheels — and hold the settled
-  // panel and the active project together when anything else scrolls us.
+  // A swipe picks the active project; any other scroll is held to the active project's panel.
   function handleScroll() {
     const el = containerRef.current
     if (!el || el.clientWidth === 0) return

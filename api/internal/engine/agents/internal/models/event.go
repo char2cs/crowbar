@@ -103,6 +103,10 @@ type ToolEvent struct {
 	// when the descriptor maps them; a new file has an empty EditBefore.
 	EditBefore string
 	EditAfter  string
+	// Output is what a finished call printed, when the descriptor maps it.
+	Output string
+	// Cwd is the session's directory when the call ran: a diff names its files from there.
+	Cwd string
 	// Diff is a unified preview of this tool call's own changed files.
 	Diff string
 	// Patch is the provider's own hunks for the change a completed tool made,

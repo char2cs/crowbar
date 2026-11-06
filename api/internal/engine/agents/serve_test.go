@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,12 +94,11 @@ spawn:
 	assert.Equal(t, []string{"acme", "resume", "sess-1"}, attachArgv)
 }
 
-// TestAgent_APIAttachArgvCarriesConfigInjection pins the sibling gap: the
-// attached process is an ORDINARY hooks-transport CLI from the instant it
-// starts, and config_injection is where session_start/user_prompt/turn_stop/
-// etc. all get wired to the hook server — without this, the one process a
-// non-hotswap provider hands a live turn over to would report nothing back
-// to Crowbar's ledger at all.
+// TestAgent_APIAttachArgvCarriesConfigInjection pins the sibling gap: the attached process is an
+// ORDINARY hooks-transport CLI from the instant it starts, and config_injection is where
+// session_start/user_prompt/turn_stop/ etc. all get wired to the hook server — without this, the
+// one process a non-hotswap provider hands a live turn over to would report nothing back to
+// Crowbar's ledger at all.
 func TestAgent_APIAttachArgvCarriesConfigInjection(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "api-attach-hooks", `
@@ -126,18 +126,15 @@ config_injection:
 	}, attachArgv, "the attached TUI must be wired with the SAME hooks a normal hooks-transport spawn gets")
 }
 
-// TestAgent_APIAttachArgvCarriesSpawnArgs pins a live-confirmed gap: codex's
-// switch-to-terminal forks `codex resume {id}` via APIAttachArgv, which never
-// applied spawn.args — unlike a normal interactive spawn (spawn.Plan), which
-// always puts them right after the executable. Codex's spawn.args carries
-// --dangerously-bypass-hook-trust, the only thing that makes codex skip its
-// interactive per-hash hook-trust confirmation screen; config_injection (see
-// the sibling test above) gives every attached resume a fresh per-segment
-// hash, so without this the attached TUI parks on that confirmation screen
-// forever instead of reaching the composer. spawn.args are a fact about any
-// interactive invocation of the provider's own executable, not about which
-// entry point is building the argv — the attach path must carry them exactly
-// as the primary spawn path does.
+// TestAgent_APIAttachArgvCarriesSpawnArgs pins a live-confirmed gap: codex's switch-to-terminal
+// forks `codex resume {id}` via APIAttachArgv, which never applied spawn.args — unlike a normal
+// interactive spawn (spawn.Plan), which always puts them right after the executable. Codex's
+// spawn.args carries --dangerously-bypass-hook-trust, the only thing that makes codex skip its
+// interactive per-hash hook-trust confirmation screen; config_injection (see the sibling test
+// above) gives every attached resume a fresh per-segment hash, so without this the attached TUI
+// parks on that confirmation screen forever instead of reaching the composer. spawn.args are a fact
+// about any interactive invocation of the provider's own executable, not about which entry point is
+// building the argv — the attach path must carry them exactly as the primary spawn path does.
 func TestAgent_APIAttachArgvCarriesSpawnArgs(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "api-attach-spawn-args", `
@@ -160,22 +157,20 @@ spawn:
 	assert.Equal(t, []string{"acme", "--trust-workaround", "resume", "sess-1"}, attachArgv,
 		"spawn.args must land right after the executable, before the attach subcommand's own args")
 
-	// serve is a genuinely different subcommand (app-server, not an
-	// interactive TUI) — spawn.args are interactive-only flags and must NOT
-	// leak onto it.
+	// serve is a genuinely different subcommand (app-server, not an interactive TUI) — spawn.args
+	// are interactive-only flags and must NOT leak onto it.
 	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{})
 	require.True(t, ok)
 	assert.Equal(t, []string{"acme", "app-server"}, serveArgv,
 		"spawn.args are interactive-TUI-only and must not appear on the serve argv")
 }
 
-// TestAgent_APIServeArgvCarriesMCPInjection pins the fix for a live-confirmed
-// gap: codex's api-transport serve process was never told Crowbar's MCP
-// server exists, because forkServeProcess's argv skipped MCPInject/
-// ConfigInjection entirely. What a provider needs injected is a fact about
-// the provider, not about which of its processes is talking right now — see
-// spawn.Inject's own doc comment — so the SAME steps a hooks-attached CLI
-// gets via SpawnPlan must also land on the serve argv.
+// TestAgent_APIServeArgvCarriesMCPInjection pins the fix for a live-confirmed gap: codex's
+// api-transport serve process was never told Crowbar's MCP server exists, because
+// forkServeProcess's argv skipped MCPInject/ ConfigInjection entirely. What a provider needs
+// injected is a fact about the provider, not about which of its processes is talking right now —
+// see spawn.Inject's own doc comment — so the SAME steps a hooks-attached CLI gets via SpawnPlan
+// must also land on the serve argv.
 func TestAgent_APIServeArgvCarriesMCPInjection(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "api-mcp", `
@@ -204,6 +199,31 @@ mcp_injection:
 	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
 }
 
+// argv is world-readable through ps: the relay reads the token from a 0600 file.
+func TestShippedAgents_KeepTheRunnerTokenOffArgv(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		t.Run(id, func(t *testing.T) {
+			tmp := t.TempDir()
+			ctx := agents.TemplateCtx{
+				Tmp: tmp, Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "SECRET-RUNNER-TOKEN",
+				ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarBin: "/bin/crowbar", HookBase: "http://127.0.0.1:4242",
+			}
+			plan, err := get(t, id).SpawnPlan(ctx, nil, nil)
+			require.NoError(t, err)
+
+			argv := strings.Join(plan.Argv, " ")
+			assert.NotContains(t, argv, "SECRET-RUNNER-TOKEN")
+			assert.Contains(t, argv, `"--token-file","`+filepath.Join(tmp, "mcp.token")+`"`)
+			raw, err := os.ReadFile(filepath.Join(tmp, "mcp.token"))
+			require.NoError(t, err)
+			assert.Equal(t, "SECRET-RUNNER-TOKEN", strings.TrimSpace(string(raw)))
+			info, err := os.Stat(filepath.Join(tmp, "mcp.token"))
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		})
+	}
+}
+
 func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
 	a := get(t, "codex")
 	ctx := agents.TemplateCtx{Cwd: `/work/tree "a"`, CrowbarBin: "/bin/crowbar", Tmp: t.TempDir()}
@@ -220,10 +240,9 @@ func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
 	assert.Contains(t, plan.Argv, `tui.resume_cwd="current"`)
 }
 
-// TestAgent_APIServeArgvCarriesTheSelection pins the api channel's own
-// carrier for a chat's model/effort choice. An api-transport spawn whose
-// connection comes up forks NO PTY, so the argv model.apply/effort.apply
-// render into never exists; api_apply is the same choice declared onto the
+// TestAgent_APIServeArgvCarriesTheSelection pins the api channel's own carrier for a chat's
+// model/effort choice. An api-transport spawn whose connection comes up forks NO PTY, so the argv
+// model.apply/effort.apply render into never exists; api_apply is the same choice declared onto the
 // serve process instead. Without it the choice is built and thrown away.
 func TestAgent_APIServeArgvCarriesTheSelection(t *testing.T) {
 	home := t.TempDir()
@@ -308,7 +327,7 @@ model:
 // second copy of the TUI's own.
 func TestRegression_ACodexChatsChosenModelReachesItsServeProcess(t *testing.T) {
 	serveArgv, ok := get(t, "codex").APIServeArgv(agents.TemplateCtx{
-		Model: "gpt-5.4-codex", Effort: "high",
+		Model: "gpt-5.4-codex", Effort: "high", Tmp: t.TempDir(),
 	})
 
 	require.True(t, ok)

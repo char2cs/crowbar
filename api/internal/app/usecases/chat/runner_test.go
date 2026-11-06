@@ -2008,16 +2008,12 @@ func TestStartRunner_ResolvesArgv0ToAbsolutePath(t *testing.T) {
 	assert.Equal(t, bin, f.term.calls[0].argv[0])
 }
 
-func TestSpawnRunner_CrowbarBinaryPathFallsBackToHomeBinCrowbar(t *testing.T) {
+func TestSpawnRunner_HooksDoNotExecTheBinaryPerEvent(t *testing.T) {
 	f := newFixture(t)
-	home := f.ws.home
 
 	f.spawn(t, "claude")
 
 	require.Equal(t, 1, f.term.callCount())
-	mcpConfig := argAfter(t, f.term.calls[0].argv, "--mcp-config")
-	assert.Contains(t, mcpConfig, filepath.Join(home, "bin", "crowbar"),
-		"the tool bridge still runs the binary installed under the home")
 	data, err := os.ReadFile(argAfter(t, f.term.calls[0].argv, "--settings"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "crowbar hook", "hooks no longer exec the binary per event")

@@ -106,14 +106,25 @@ func (s *Blobs) Collect(ref string, inUse func(string) (bool, error)) error {
 }
 
 func (s *Blobs) remove(ref string) error {
-	path, _ := s.pathFor(ref)
+	path, dir := s.pathFor(ref)
 	if path == "" {
 		return nil
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("ledger blobs: delete: %w", err)
 	}
+	s.pruneShard(dir)
 	return nil
+}
+
+// pruneShard removes the blob's two shard levels once they are empty. Safe
+// under the collection lock: no Put is between its mkdir and its write.
+func (s *Blobs) pruneShard(dir string) {
+	for _, d := range []string{dir, filepath.Dir(dir)} {
+		if d == s.root || os.Remove(d) != nil {
+			return
+		}
+	}
 }
 
 // ValidRef reports whether ref is spelled as Put spells one: RefPrefix and the

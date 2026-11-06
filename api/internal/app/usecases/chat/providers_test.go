@@ -331,10 +331,8 @@ func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 }
 
 // TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts closes the loop the
-// descriptor tests can only render half of: the token baked into the CLI's argv at
-// spawn must be one THIS daemon's minter verifies. A spawn path that minted from a
-// different secret — or shipped the segment id twice — would render argv that looks
-// perfectly right and authenticate nothing.
+// descriptor tests can only render half of: the token written for the relay at
+// spawn must be one THIS daemon's minter verifies, or it authenticates nothing.
 func TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts(
 	t *testing.T,
 ) {
@@ -351,7 +349,9 @@ func TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts(
 
 	args := config.MCPServers["crowbar"].Args
 	require.Equal(t, runnerID, args[slices.Index(args, "--segment")+1])
-	token := args[slices.Index(args, "--token")+1]
+	written, err := os.ReadFile(args[slices.Index(args, "--token-file")+1])
+	require.NoError(t, err)
+	token := strings.TrimSpace(string(written))
 	require.NotEmpty(t, token)
 	require.NotEqual(t, runnerID, token, "the token must not be the segment id the agent can already read")
 

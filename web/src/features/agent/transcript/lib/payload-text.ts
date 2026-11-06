@@ -1,6 +1,7 @@
 // eslint-disable-next-line no-control-regex -- ESC is exactly what this matches
 const ANSI = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[@-Z\\-_])/g
-const plain = (text: string) => text.replace(ANSI, '')
+/** `text` without the terminal colour and cursor codes it was printed with. */
+export const plain = (text: string) => text.replace(ANSI, '')
 const isFilled = (value: unknown): value is object =>
   value !== null && typeof value === 'object' && Object.keys(value).length > 0
 

@@ -133,11 +133,10 @@ func TestAgent_PromptStepsPlaceTheMessageExactlyOnceAfterEndOfOptions(t *testing
 	}
 }
 
-// TestAgent_ContextStepsDifferBetweenFreshAndResume covers claude: a fresh spawn
-// rides silent config (--append-system-prompt), a resume rides a real positional
-// user turn instead — --append-system-prompt on an already-native-resumed CLI is
-// background config a model carrying its own restored history is free to
-// deprioritize (confirmed live), which a positional turn is not.
+// TestAgent_ContextStepsDifferBetweenFreshAndResume covers claude: a fresh spawn rides silent
+// config (--append-system-prompt), a resume rides a real positional user turn instead —
+// --append-system-prompt on an already-native-resumed CLI is background config a model carrying its
+// own restored history is free to deprioritize (confirmed live), which a positional turn is not.
 func TestAgent_ContextStepsDifferBetweenFreshAndResume(t *testing.T) {
 	claude := get(t, "claude")
 
@@ -185,10 +184,9 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	assert.Equal(t, "done", ev.Message)
 }
 
-// subagent_pre stays hooks-only (no per-event transport override AND no
-// api-transport equivalent at all), so an api-transport delivery can never
-// reach it — the guard is unconditional here regardless of how it treats
-// dual-shape events.
+// subagent_pre stays hooks-only (no per-event transport override AND no api-transport equivalent at
+// all), so an api-transport delivery can never reach it — the guard is unconditional here
+// regardless of how it treats dual-shape events.
 func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	a := get(t, "codex")
 
@@ -199,17 +197,15 @@ func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrForeignConversation)
 }
 
-// TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat pins the
-// exact live capture from the original chat-theft bug against the REAL,
-// shipped codex.yaml (not a synthetic stand-in), through the same ParseHook
-// entry point production uses.
+// TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat pins the exact live capture
+// from the original chat-theft bug against the REAL, shipped codex.yaml (not a synthetic stand-in),
+// through the same ParseHook entry point production uses.
 //
-// user_prompt has no per-event transport override, so it inherits the
-// runtime's api default — but codex's spawn config still ALSO fires it
-// hooks-shaped for its internal memory-consolidation session, which is
-// exactly what a transport-wide skip (rather than a per-field presence
-// check) let through: the event is classified "api", so the guard was
-// skipped outright even though THIS delivery is hooks-shaped and foreign.
+// user_prompt has no per-event transport override, so it inherits the runtime's api default — but
+// codex's spawn config still ALSO fires it hooks-shaped for its internal memory-consolidation
+// session, which is exactly what a transport-wide skip (rather than a per-field presence check) let
+// through: the event is classified "api", so the guard was skipped outright even though THIS
+// delivery is hooks-shaped and foreign.
 func TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat(t *testing.T) {
 	a := get(t, "codex")
 
@@ -225,17 +221,15 @@ func TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat(t *testin
 			"user_prompt's declared transport is api")
 }
 
-// TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload sweeps
-// every codex.yaml event sharing session_start/user_prompt/turn_stop's own
-// hazard: no per-event transport override (so it inherits runtime.transport:
-// api) AND a config_injection hooks.* entry that fires it, unconditionally,
-// off the disconnected companion PTY (grep -n '||' codex.yaml plus
-// config_injection's hooks.* pass_args names exactly this set).
-// ownsConversation (hooks.go) is keyed only on RequiredPayloadFields, never on
-// the canonical event name, so the fix that closed the memory-consolidation
-// chat-theft bug for user_prompt must reject a foreign hooks-shaped delivery
-// of every one of these the same way — proven here against the REAL,
-// shipped codex.yaml rather than asserted from reading the mechanism.
+// TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload sweeps every codex.yaml event
+// sharing session_start/user_prompt/turn_stop's own hazard: no per-event transport override (so it
+// inherits runtime.transport: api) AND a config_injection hooks.* entry that fires it,
+// unconditionally, off the disconnected companion PTY (grep -n '||' codex.yaml plus
+// config_injection's hooks.* pass_args names exactly this set). ownsConversation (hooks.go) is
+// keyed only on RequiredPayloadFields, never on the canonical event name, so the fix that closed
+// the memory-consolidation chat-theft bug for user_prompt must reject a foreign hooks-shaped
+// delivery of every one of these the same way — proven here against the REAL, shipped codex.yaml
+// rather than asserted from reading the mechanism.
 func TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload(t *testing.T) {
 	a := get(t, "codex")
 	for _, event := range []string{
@@ -262,15 +256,13 @@ func TestAgent_ParseHookReportsAnUndeclaredEvent(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrHookUndeclared)
 }
 
-// TestRegression_ParseHookReadsAChannelScopedEventsOwnBlock is the chat-theft
-// class proven through the SAME public entry point production uses
-// (Agent.ParseHook — ingest.go's own call), not just the internal translate/
-// inbound package underneath it: the SAME canonical event, the SAME
-// descriptor, two payloads shaped for two DIFFERENT channels, each read
-// through its own channel's block. See translate/inbound/hooks.go's doc
-// comment on Parse, and docs/plans/2026-09-22-descriptor-channel-split.md
-// 1.1, for the live bug (transport-keyed rather than channel-keyed
-// resolution) this design replaces.
+// TestRegression_ParseHookReadsAChannelScopedEventsOwnBlock is the chat-theft class proven through
+// the SAME public entry point production uses (Agent.ParseHook — ingest.go's own call), not just
+// the internal translate/ inbound package underneath it: the SAME canonical event, the SAME
+// descriptor, two payloads shaped for two DIFFERENT channels, each read through its own channel's
+// block. See translate/inbound/hooks.go's doc comment on Parse, and
+// docs/plans/2026-09-22-descriptor-channel-split.md 1.1, for the live bug (transport-keyed rather
+// than channel-keyed resolution) this design replaces.
 func TestRegression_ParseHookReadsAChannelScopedEventsOwnBlock(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "channel-split", `
@@ -318,13 +310,12 @@ runtime:
 	require.NotNil(t, hooksEv.Tool)
 	assert.Equal(t, "hooks-tool", hooksEv.Tool.ID)
 
-	// The isolation half: the api-shaped payload read through the HOOKS
-	// channel must resolve nothing — never fall back to the api block's
-	// threadId/item.id, which is exactly the cross-shape leak the old
-	// transport-keyed resolution allowed. tool_pre declares session_id
-	// required:, so isolation now surfaces as a RequiredFieldError rather
-	// than a hollow success (design spec 2.3) — a stronger proof than an
-	// empty field: the mismatch is REJECTED, not merely unfilled.
+	// The isolation half: the api-shaped payload read through the HOOKS channel must resolve
+	// nothing — never fall back to the api block's threadId/item.id, which is exactly the
+	// cross-shape leak the old transport-keyed resolution allowed. tool_pre declares session_id
+	// required:, so isolation now surfaces as a RequiredFieldError rather than a hollow success
+	// (design spec 2.3) — a stronger proof than an empty field: the mismatch is REJECTED, not
+	// merely unfilled.
 	_, err = a.ParseHook(agents.HookToolPre,
 		[]byte(`{"threadId":"api-session","item":{"type":"commandExecution","id":"api-tool"}}`),
 		agents.ChannelHooks)
@@ -379,15 +370,14 @@ func TestRegression_CodexTelemetryReachesTheContextGauge(t *testing.T) {
 	assert.InDelta(t, 6.55, *got.Context.UsedPercent, 0.1)
 }
 
-// TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal: tokenUsage.total
-// is a lifetime counter that only grows turn over turn (codex's own TUI draws the
-// identical distinction against the same wire shape — codex-rs/tui/src/token_usage.rs,
-// tokens_in_context_window's doc comment). Mapping it into context.used_tokens divided
-// a number that keeps climbing forever by the fixed context window, so a chat well
-// past its first couple of turns rendered percentages over 1000% — observed live as
-// "2519% of context used" on an ordinary long-running codex chat, nothing to do with
-// a provider switch. tokenUsage.last — the current turn's own context size — is what
-// must drive the gauge instead.
+// TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal: tokenUsage.total is a lifetime
+// counter that only grows turn over turn (codex's own TUI draws the identical distinction against
+// the same wire shape — codex-rs/tui/src/token_usage.rs, tokens_in_context_window's doc comment).
+// Mapping it into context.used_tokens divided a number that keeps climbing forever by the fixed
+// context window, so a chat well past its first couple of turns rendered percentages over 1000% —
+// observed live as "2519% of context used" on an ordinary long-running codex chat, nothing to do
+// with a provider switch. tokenUsage.last — the current turn's own context size — is what must
+// drive the gauge instead.
 func TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal(t *testing.T) {
 	raw := []byte(`{"threadId":"t1","turnId":"tn9","tokenUsage":{
 	  "total":{"totalTokens":6512000,"inputTokens":6500000,"outputTokens":12000},
@@ -448,8 +438,7 @@ func hookCtx(tmp, provider, repo string) agents.TemplateCtx {
 	}
 }
 
-// A project home has no repo id: its hooks must take the home route, never a
-// dangling /repos//.
+// A project home has no repo id: its hooks must take the home route, never a dangling /repos//.
 func TestShippedAgents_RenderHookURLsThatSurviveAnEmptyRepoID(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		for repo, scope := range map[string]string{"": "/v0/projects/P/home", "R": "/v0/projects/P/repos/R"} {
@@ -765,13 +754,12 @@ func TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor(t *testing.T) {
 	assert.True(t, codex.Capabilities().EffortSelect)
 }
 
-// TestAgent_CodexModelsAreDiscoveredNotDeclared pins codex.yaml's own switch
-// to model.discover: with no `codex` binary in this test environment (and
-// homeDir "" — get's own helper — failing Probe's own cwd check outright),
-// nothing ever resolves, so Models/Efforts read as "not yet known" (empty),
-// never the stale hand-maintained list this replaced. The actual
-// filter/order/per-model-effort mapping is modeldiscovery's own table-driven
-// tests against a real trimmed capture; the cache-to-Agent wiring itself is
+// TestAgent_CodexModelsAreDiscoveredNotDeclared pins codex.yaml's own switch to model.discover:
+// with no `codex` binary in this test environment (and homeDir "" — get's own helper — failing
+// Probe's own cwd check outright), nothing ever resolves, so Models/Efforts read as "not yet known"
+// (empty), never the stale hand-maintained list this replaced. The actual
+// filter/order/per-model-effort mapping is modeldiscovery's own table-driven tests against a real
+// trimmed capture; the cache-to-Agent wiring itself is
 // TestAgent_ModelsAndEffortsReadTheDiscoveryCacheWhenDeclared below.
 func TestAgent_CodexModelsAreDiscoveredNotDeclared(t *testing.T) {
 	codex := get(t, "codex")
@@ -966,9 +954,8 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 	}
 }
 
-// A daemon started inside a Claude Code session inherits that session's
-// identity; passed on, every chat's CLI would adopt the one session id
-// (found by the live conformance run).
+// A daemon started inside a Claude Code session inherits that session's identity; passed on, every
+// chat's CLI would adopt the one session id (found by the live conformance run).
 func TestAgent_ClaudeNeverInheritsASessionIdentity(t *testing.T) {
 	tmp := t.TempDir()
 	inherited := []string{
@@ -1000,6 +987,18 @@ func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
 		_, ok := get(t, "claude").MatchTerminalPrompt(screen)
 		assert.True(t, ok, "not recognised as blocking: %q", screen)
 	}
+}
+
+// A command that opens a dialog (/help) holds the CLI until the person closes it
+// in the terminal; its screen (captured on 2.1.319) reads as blocking.
+func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
+	screen := " Help General Commands Custom commands\n Shortcuts ! for shell mode\n" +
+		" For more help: https://code.claude.com/docs/en/overview\n Esc to cancel"
+
+	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
+
+	require.True(t, ok)
+	assert.Empty(t, prompt.Kind)
 }
 
 // The trust dialog as the real CLI paints it (2.1.319, through our emulator) preselects
@@ -1198,11 +1197,10 @@ runtime:
 	assert.True(t, declared.Capabilities().Hotswap)
 }
 
-// TestCapabilities_TerminalStartHereReadsTheSurfacesBlock proves design spec
-// 2.5's `surfaces.terminal.start_here` reaches Capabilities — absent by
-// default (no surfaces: block at all, or a terminal surface that omits it),
-// true only when declared, same conservative direction as every other
-// capability key.
+// TestCapabilities_TerminalStartHereReadsTheSurfacesBlock proves design spec 2.5's
+// `surfaces.terminal.start_here` reaches Capabilities — absent by default (no surfaces: block at
+// all, or a terminal surface that omits it), true only when declared, same conservative direction
+// as every other capability key.
 func TestCapabilities_TerminalStartHereReadsTheSurfacesBlock(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "no-surfaces", `
@@ -1262,12 +1260,11 @@ surfaces:
 		"terminal declared but start_here omitted must not offer the CLI-start affordance")
 }
 
-// TestSurfaceNames_MatchTheDescriptorVocabulary pins the two spellings of the
-// same two surfaces together: the descriptor schema's (this package, from
-// spec) and persistence's (domain.Chat.Surface). The string crosses both
-// layers and goes out on the wire, and the layers deliberately do not import
-// each other — so this is the only thing standing between them and a silent
-// divergence that would make every gate read the wrong surface.
+// TestSurfaceNames_MatchTheDescriptorVocabulary pins the two spellings of the same two surfaces
+// together: the descriptor schema's (this package, from spec) and persistence's
+// (domain.Chat.Surface). The string crosses both layers and goes out on the wire, and the layers
+// deliberately do not import each other — so this is the only thing standing between them and a
+// silent divergence that would make every gate read the wrong surface.
 func TestSurfaceNames_MatchTheDescriptorVocabulary(t *testing.T) {
 	assert.Equal(t, domain.SurfaceChat, agents.SurfaceChat)
 	assert.Equal(t, domain.SurfaceTerminal, agents.SurfaceTerminal)

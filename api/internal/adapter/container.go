@@ -98,13 +98,13 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("adapter: home: %w", err)
 	}
-	// Root first, owner-only; events and store sit under state, so this creates all three.
-	for _, d := range []struct {
-		dir  string
-		perm os.FileMode
-	}{{h.Root(), 0o700}, {h.Events(), 0o750}, {h.Store(), 0o750}} {
-		if mkErr := os.MkdirAll(d.dir, d.perm); mkErr != nil {
-			return nil, fmt.Errorf("adapter: create %s: %w", d.dir, mkErr)
+	// Owner-only, and narrowed when an older build made them looser.
+	for _, dir := range []string{h.Root(), h.State(), h.Events(), h.Store()} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("adapter: create %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a directory needs its search bit; 0700 is owner-only
+			return nil, fmt.Errorf("adapter: restrict %s: %w", dir, err)
 		}
 	}
 

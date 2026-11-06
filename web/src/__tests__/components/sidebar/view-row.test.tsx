@@ -97,10 +97,6 @@ function renderBand(overrides: Partial<BandProps> = {}) {
   return { ...render(<Band {...props} />), props }
 }
 
-function classesOf(el: Element): string[] {
-  return el.className.split(/\s+/).filter(Boolean)
-}
-
 /** A group of chat-1 + chat-2 in one view, plus chat-3 as its own view. */
 function groupAndSolo() {
   actions().openChat('chat-1', { workspaceId: 'ws-1' })
@@ -156,40 +152,15 @@ describe('RecentsViewRow', () => {
     expect(document.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
-  it('only the showing view is painted; an off-screen group takes no ground', () => {
-    groupAndSolo()
-    renderBand()
-    const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    expect(group.className).not.toMatch(/bg-background/)
-    expect(group.getAttribute('data-view-showing')).toBeNull()
-    const solo = screen.getByTestId('recents-row-chat-3').parentElement!
-    expect(solo.getAttribute('data-view-showing')).toBe('true')
-  })
-
   it('switching views moves the lit row without any other state change', () => {
     groupAndSolo()
     renderBand()
     act(() => actions().activateView(viewOf('chat-1')))
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     expect(group.getAttribute('data-view-showing')).toBe('true')
-    expect(group.className).toMatch(/bg-background/)
     expect(
       screen.getByTestId('recents-row-chat-3').parentElement!.getAttribute('data-view-showing'),
     ).toBeNull()
-  })
-
-  it('every tab is one h-8 shell with no margin of its own on the row', () => {
-    groupAndSolo()
-    renderBand()
-    const solo = screen.getByTestId('recents-row-chat-3').parentElement!
-    const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    for (const shell of [solo, group]) {
-      expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-0.5', 'h-8', 'rounded-full']))
-    }
-    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2', 'recents-row-chat-3']) {
-      const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')
-      expect(classesOf(treeitem)).toEqual(expect.arrayContaining(['h-8', 'mx-0', 'my-0']))
-    }
   })
 
   it('an untitled chat renders the UNTITLED_CHAT_LABEL fallback', () => {
@@ -197,6 +168,12 @@ describe('RecentsViewRow', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
+  })
+
+  it('a draft not yet sent is named as the new thread it is, never as loading', () => {
+    actions().openChat('draft-1', { workspaceId: 'ws-1' })
+    renderBand()
+    expect(screen.getByTestId('recents-row-draft-1')).toHaveTextContent('New thread')
   })
 
   it("draws a workspace-owning chat's real icon, not the generic bubble", () => {

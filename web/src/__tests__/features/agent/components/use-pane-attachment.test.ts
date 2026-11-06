@@ -5,12 +5,18 @@ import { usePaneAttachment } from '@/features/agent/components/use-pane-attachme
 import { resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 
-function attachmentOn(chatId: string, presentation: 'chat' | 'terminal' = 'terminal') {
+function attachmentOn(
+  chatId: string,
+  {
+    providerName = 'Claude',
+    presentation = 'terminal',
+  }: { providerName?: string; presentation?: 'chat' | 'terminal' } = {},
+) {
   return renderHook(() =>
     usePaneAttachment({
       wsId: 'w1',
       chatId,
-      providerName: 'Claude',
+      providerName,
       presentation,
       promptReplacing: false,
     }),
@@ -31,9 +37,20 @@ describe('usePaneAttachment', () => {
 
     expect(result.current.attachment).toEqual({
       state: 'idle',
-      message: 'Claude starts with your first message.',
+      message: 'Your first message starts Claude.',
     })
     expect(result.current.canSend).toBe(true)
+  })
+
+  // A chat with no provider chosen yet names "the agent", which must not open a sentence.
+  it('names an unchosen provider mid-sentence in the not-yet-started line', () => {
+    seedChats([{ id: 'c1' }])
+    seedFeed('c1')
+
+    expect(attachmentOn('c1', { providerName: 'the agent' }).current.attachment).toEqual({
+      state: 'idle',
+      message: 'Your first message starts the agent.',
+    })
   })
 
   it('starts a new chat through the same resume a dormant one takes', () => {
@@ -61,13 +78,15 @@ describe('usePaneAttachment', () => {
     seedChats([{ id: 'c1', liveRunnerId: 'r1', phase: 'switching' }])
     seedFeed('c1')
 
-    expect(attachmentOn('c1', 'chat').current.connecting).toBe('Connecting to Claude…')
+    expect(attachmentOn('c1', { presentation: 'chat' }).current.connecting).toBe(
+      'Connecting to Claude…',
+    )
   })
 
   it('says nothing about connecting once the switch has landed', () => {
     seedChats([{ id: 'c1', liveRunnerId: 'r1', phase: 'live' }])
     seedFeed('c1')
 
-    expect(attachmentOn('c1', 'chat').current.connecting).toBeUndefined()
+    expect(attachmentOn('c1', { presentation: 'chat' }).current.connecting).toBeUndefined()
   })
 })

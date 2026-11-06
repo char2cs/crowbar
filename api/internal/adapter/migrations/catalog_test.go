@@ -20,7 +20,7 @@ func TestCatalog_IsValid(t *testing.T) {
 	cat, err := Catalog()
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, cat.Known(), "the legacy steps change no layout")
+	assert.Equal(t, 1, cat.Known(), "the ledger layout is the one bump")
 }
 
 func TestPlan_MarkerPresentIsAnAdoptionNotAWork(t *testing.T) {
@@ -118,6 +118,7 @@ func TestPlan_LegacyRecordsAreOneConversionPerChat(t *testing.T) {
 	assert.Equal(t, migrate.Plan{
 		Actions:       []migrate.Action{{Kind: migrate.Convert, Subject: "legacy chats → chat ledger", Count: 2}},
 		RewritesState: true,
+		BacksUp:       []string{"chats/*/" + chatledger.PromptsDir},
 	}, planOf(t, h, StepChatLedger))
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "a plan writes nothing")
 }

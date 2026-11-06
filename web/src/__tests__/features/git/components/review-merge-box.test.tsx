@@ -74,6 +74,7 @@ function setup(opts: {
   const store = getOrCreateWorkspaceStore(WS)
   store.setState({
     gitStatus: { branch: 'feature', ahead: 0, behind: 0, files: [], ...opts.git },
+    reviewFiles: null,
   })
   store.setState((s) => ({ branchReview: { ...s.branchReview, mergeStrategy: 'merge' } }))
   for (const thread of opts.threads ?? []) putReviewThread(WS, thread)
@@ -112,10 +113,27 @@ describe('ReviewMergeBox', () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith(PARENT_ROUTE))
   })
 
+  it('a branch with uncommitted changes can be committed right where merge asks for it', () => {
+    setup({ git: { files: [{ path: 'a.ts', status: 'modified', staged: false }] } })
+
+    expect(mergeButton().disabled).toBe(true)
+    expect(screen.getByText('1 uncommitted change — commit them first.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Commit 1 change' })).toBeTruthy()
+  })
+
+  // Merging a branch with no changes merges nothing but would still delete the workspace.
+  it('offers no merge while the branch has no changes against its parent', () => {
+    const { store } = setup({})
+    act(() => store.setState({ reviewFiles: [] }))
+
+    expect(mergeButton().disabled).toBe(true)
+    expect(screen.getByText('Nothing to merge yet — this branch has no changes.')).toBeTruthy()
+  })
+
   it('keeps the workspace and stays put when delete-after-merge is unticked', async () => {
     const user = userEvent.setup()
     setup({})
-    await user.click(screen.getByText('Delete workspace after merging'))
+    await user.click(screen.getByText('Delete this branch and its chats after merging'))
     await user.click(mergeButton())
 
     expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', false, expect.any(String))

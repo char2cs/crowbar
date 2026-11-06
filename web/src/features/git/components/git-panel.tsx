@@ -27,6 +27,7 @@ export function GitPanel() {
 
   // Narrow selectors: pull only the fields we need from each store.
   const gitStatus = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatus)
+  const gitError = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatusError)
 
   // Active workspace metadata from the entity store (branch, parentBranch).
   const activeWs = useSelect((s) => (wsId ? (selectWorkspace(s, wsId) ?? null) : null))
@@ -78,23 +79,24 @@ export function GitPanel() {
         </div>
       )}
 
-      {wsId && activeWs && <ReviewMergeBox wsId={wsId} />}
+      {wsId && gitError && (
+        <div role="alert" className="mx-3 my-2 flex min-w-0 flex-col gap-1">
+          <p className="ui-text-sm font-medium">Git can't read this workspace</p>
+          <p className="ui-text-xs break-words text-muted-foreground">{gitError}</p>
+        </div>
+      )}
 
-      {/* No workspace to show git for at all (project home, or the route/pane
-          hasn't resolved one yet) — never fall through to the sections below,
-          which would otherwise render `useSidebarChangedFiles`'s stale-status
-          fallback: a workspace-scoped git store with no wsId to key its
-          "which workspace is this?" question against just keeps whatever
-          OTHER workspace's status/branch/changed-files it last fetched,
-          cross-chat and cross-project. Git has no meaning without a repo,
-          so it shows nothing instead of stale data. */}
+      {wsId && activeWs && !gitError && <ReviewMergeBox wsId={wsId} />}
+
+      {/* No workspace resolved: show nothing, since the git store would otherwise keep
+          another workspace's status and changed files. */}
       {!wsId && (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
           No repository open
         </div>
       )}
 
-      {wsId && (
+      {wsId && !gitError && (
         <>
           {/* Spec 6.3 #3 — "Changed — n files", then the changed list. */}
           <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">

@@ -34,6 +34,9 @@ type snapshotStore struct {
 func NewSnapshotStore(
 	path string,
 ) (models.SnapshotStore, error) {
+	if err := storesqlite.OwnerOnly(path); err != nil {
+		return nil, fmt.Errorf("snapshotstore: %w", err)
+	}
 	db, err := gorm.Open(sqlite.Open(storesqlite.DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

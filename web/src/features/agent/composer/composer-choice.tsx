@@ -106,9 +106,8 @@ export function ComposerChoice({
   const expanded = expandedId === choice.id
   const view = request && choice.kind === 'tool_permission' ? requestView(request) : null
   const hiddenCue = view && !expanded ? foldedCue(foldCode(view.code)) : ''
-  // Read through the stamp rather than resetting in an effect: an effect runs
-  // AFTER the paint, so there would be one frame in which the previous prompt's
-  // picks were on screen and pressable.
+  // Read through the stamp rather than resetting in an effect: an effect runs AFTER the paint, so
+  // there would be one frame in which the previous prompt's picks were on screen and pressable.
   const card = stored.choiceId === choice.id ? stored : freshCard(choice.id)
   const update = (patch: Partial<CardState>) =>
     setStored((current) => ({

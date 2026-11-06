@@ -48,9 +48,8 @@ export function useCurrentIdentity(wsId: string): IdentityDTO | null {
     // rather than firing a call that can only resolve to null.
     if (owningChatId === null || !hostResolved) return
     let cancelled = false
-    // Share the cache + in-flight request used by resolveIdentity, so the
-    // identity always lands here even when a sibling (e.g. a comment submit)
-    // populated it first.
+    // Share the cache + in-flight request used by resolveIdentity, so the identity always lands
+    // here even when a sibling (e.g. a comment submit) populated it first.
     void resolveIdentity(wsId).then((result) => {
       if (!cancelled && result) setIdentity(result)
     })

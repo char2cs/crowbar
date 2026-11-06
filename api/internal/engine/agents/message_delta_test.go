@@ -81,11 +81,10 @@ func TestAgent_ParseHookToleratesAFailedTurnWithNoDetail(t *testing.T) {
 	assert.Empty(t, ev.Failure.Detail)
 }
 
-// This test used to assert the opposite — "codex still declares no failure hook
-// at all — turn_failed has no wire event on either transport". That claim was
-// wrong against codex's own generated protocol schema
-// (codex-rs/app-server-protocol/schema/json/ServerNotification.json): turn/completed
-// is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
+// This test used to assert the opposite — "codex still declares no failure hook at all —
+// turn_failed has no wire event on either transport". That claim was wrong against codex's own
+// generated protocol schema (codex-rs/app-server-protocol/schema/json/ServerNotification.json):
+// turn/completed is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
 // plus a turn.error, and `failed` is the failure signal.
 //
 // While it went unmapped, a failed codex turn was ingested as an ordinary stop
@@ -147,4 +146,16 @@ func TestAgent_ParseHookTellsACompletedMessageFromACompletedTool(t *testing.T) {
 	_, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
 
 	require.ErrorIs(t, err, agents.ErrHookVariantMismatch)
+}
+
+// A session claude started for /clear reads as cleared; any other start does not.
+func TestAgent_ClaudeTellsAClearedSessionStartApart(t *testing.T) {
+	for source, want := range map[string]string{"clear": "cleared", "startup": "startup", "resume": "resume"} {
+		raw := []byte(`{"session_id":"s","hook_event_name":"SessionStart","source":"` + source + `"}`)
+
+		ev, err := get(t, "claude").ParseHook(agents.HookSessionStart, raw, agents.ChannelHooks)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, ev.Reason, source)
+	}
 }

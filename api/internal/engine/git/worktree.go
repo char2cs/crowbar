@@ -2,7 +2,10 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -122,6 +125,9 @@ func (e *engine) WorktreeAdd(
 	worktreePath string,
 	branch string,
 ) error {
+	if err := makeWorktreeParent(worktreePath); err != nil {
+		return err
+	}
 	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	if rawErr := gitexec.RequireSuccess("worktree add", r); rawErr != nil && isStaleWorktreeConflict(rawErr) {
@@ -288,4 +294,16 @@ func parseWorktreeList(
 		entries = append(entries, current)
 	}
 	return entries
+}
+
+// makeWorktreeParent creates the directories above a new checkout owner-only
+// before git runs, since git would make them with the umask. The checkout
+// itself is the user's and git creates it.
+func makeWorktreeParent(
+	worktreePath string,
+) error {
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o700); err != nil {
+		return fmt.Errorf("worktree add: create parent of %s: %w", worktreePath, err)
+	}
+	return nil
 }
