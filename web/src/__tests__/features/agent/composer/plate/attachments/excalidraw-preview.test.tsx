@@ -145,13 +145,8 @@ describe('ExcalidrawPreview', () => {
   })
 
   it('resolves and shows the persisted PNG once a pngRef and asset context are present', async () => {
-    // A real `new Response(blob)` is avoided here: this repo's jsdom test
-    // environment does not round-trip a jsdom `Blob` through Node/undici's
-    // `Response` body handling (it silently stringifies the Blob instead of
-    // reading its bytes) — see chat-asset-resolver.test.ts for the same note.
-    // A minimal fetch-result stub with a real `blob()` resolver exercises the
-    // same `response.ok` / `await response.blob()` path without hitting that
-    // mismatch.
+    // A stub, not `new Response(blob)`: jsdom's Blob does not survive undici's body
+    // handling (see chat-asset-resolver.test.ts).
     const blob = new Blob(['x'], { type: 'image/png' })
     vi.stubGlobal(
       'fetch',
@@ -167,6 +162,7 @@ describe('ExcalidrawPreview', () => {
     const img = await screen.findByRole('img', { name: /excalidraw diagram/i })
     await waitFor(() => expect(img.getAttribute('src')).toMatch(/^data:image\/png;base64,/))
     expect(screen.queryByText(/2 elements/i)).not.toBeInTheDocument()
+    expect(img.style.filter).toBe('')
     vi.unstubAllGlobals()
   })
 
@@ -215,18 +211,8 @@ describe('ExcalidrawPreview', () => {
     expect(document.querySelector('script')).not.toBeInTheDocument()
   })
 
-  // Unmount safety is deliberately NOT covered by a separate test. React
-  // invokes the exact same effect-cleanup closure (`cancelled = true`) on
-  // unmount as it does before re-running the effect for a dependency change
-  // — there is no distinct "unmount branch" in the implementation, so the
-  // test above already exercises the guard that protects both triggers.
-  // A black-box unmount test can't independently discriminate guarded from
-  // unguarded behaviour here either way: React 19 removed the "state update
-  // on an unmounted component" warning, and a setState call on an already-
-  // unmounted fiber is a silent no-op with no rerender, no throw, and no
-  // console output regardless of whether `cancelled` was set — so a test
-  // that unmounts, settles the stale promise, and asserts "nothing observable
-  // happened" would pass identically with the guard deleted.
+  // No unmount test: unmount runs the same cleanup the test above covers, and
+  // React 19 makes a set on an unmounted fiber a silent no-op either way.
 })
 
 // Excalidraw's dark mode is a CSS filter on its own canvas, never baked into exportToSvg /
@@ -248,24 +234,6 @@ describe('ExcalidrawPreview dark mode', () => {
 
     const img = await screen.findByRole('img', { name: /excalidraw diagram/i })
     expect(img.style.filter).toBe('invert(93%) hue-rotate(180deg)')
-    vi.unstubAllGlobals()
-  })
-
-  it('applies no filter to the persisted PNG in light mode', async () => {
-    const blob = new Blob(['x'], { type: 'image/png' })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
-    )
-
-    render(
-      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
-        <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/diagram.png" />
-      </ChatMarkdownAssetProvider>,
-    )
-
-    const img = await screen.findByRole('img', { name: /excalidraw diagram/i })
-    expect(img.style.filter).toBe('')
     vi.unstubAllGlobals()
   })
 
