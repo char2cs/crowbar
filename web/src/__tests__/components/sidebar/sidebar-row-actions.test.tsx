@@ -87,7 +87,7 @@ describe('SidebarRowActions', () => {
   // A branch row reads as its owning chat's title, but its × deletes the branch's workspace.
   it("names a branch row's removal as the branch and its worktree, not the chat", () => {
     const { getByRole } = renderActions({ ...provisioned, locked: false, label: 'Add div' })
-    expect(getByRole('button', { name: 'Delete branch main and its worktree' })).toBeTruthy()
+    expect(getByRole('button', { name: 'Remove branch main and its worktree' })).toBeTruthy()
   })
 
   // Explicit product spec: repo-menu, Remove, Thread, Branch, Dropdown — left

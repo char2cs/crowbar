@@ -239,6 +239,6 @@ export function SidebarRowActions({
 // A branch row is titled by its owning chat, but removing it deletes the branch's worktree.
 function removeLabel(row: SidebarRowType): string {
   if (row.kind === 'branch' && row.ownsWorktree && row.branchName)
-    return `Delete branch ${row.branchName} and its worktree`
+    return `Remove branch ${row.branchName} and its worktree`
   return `Remove ${row.label}`
 }
