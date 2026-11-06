@@ -46,6 +46,8 @@ type AgentProviderDTO struct {
 	// client can't misread "" as a fact.
 	DefaultModel string              `json:"defaultModel,omitempty"`
 	Efforts      map[string][]string `json:"efforts,omitempty"`
+	// DefaultEfforts is each model's stated default effort, absent for a model stating none.
+	DefaultEfforts map[string]string `json:"defaultEfforts,omitempty"`
 
 	// PermissionLevels mirrors Models/Efforts' own "omitted, not empty" rule:
 	// absent says this provider's picker offers nothing, where an empty array

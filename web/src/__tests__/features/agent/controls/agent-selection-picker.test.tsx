@@ -182,6 +182,25 @@ describe('AgentSelectionPicker', () => {
     expect(screen.getByRole('button', { name: 'Low' })).toBeInTheDocument()
   })
 
+  // '' is "the provider's default": with that default stated, the slider shows the level it is.
+  it("places the thumb on the model's stated default effort when none is chosen", () => {
+    const onSelectionChange = vi.fn()
+    const withDefault: AgentProvider = { ...codex, defaultEfforts: { 'gpt-5.6-sol': 'medium' } }
+    draw({
+      provider: withDefault,
+      providers: [claude, withDefault],
+      model: 'gpt-5.6-sol',
+      effort: '',
+      onSelectionChange,
+    })
+    openMenu()
+    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
+    expect(slider).toHaveAttribute('aria-valuenow', '1')
+    expect(slider).toHaveAttribute('aria-valuetext', 'Medium (default)')
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(onSelectionChange).toHaveBeenLastCalledWith('codex', 'gpt-5.6-sol', 'high')
+  })
+
   // Tracking rides `window` pointer listeners, not Pointer Capture, which throws
   // in WKWebView; so moves fire on `window` and capture is never stubbed.
   it('is an actually-draggable slider, not just a click-to-jump bar', () => {
