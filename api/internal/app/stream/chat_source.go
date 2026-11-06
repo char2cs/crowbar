@@ -78,7 +78,7 @@ func unreadable(ctx context.Context, chatID string, err error) error {
 func chatFrame(f agentusecase.FeedFrame) stream.Frame {
 	switch {
 	case f.Row != nil:
-		return stream.Frame{T: stream.FrameRow, Row: f.Row}
+		return stream.Frame{T: stream.FrameRow, Row: f.Row, From: f.From}
 	case f.Delta != nil:
 		return stream.Frame{T: stream.FrameDelta, Delta: f.Delta}
 	case f.Type == agentusecase.FeedReady:
