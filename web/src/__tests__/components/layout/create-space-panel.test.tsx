@@ -181,7 +181,7 @@ describe('CreateSpacePanel — daemon picker', () => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     remoteFolders.h1 = { '/': ['later'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /homelab-prox/i)
     await waitFor(() => expect(daemonTrigger()).toHaveTextContent('homelab-prox'))
@@ -205,7 +205,7 @@ describe('CreateSpacePanel — daemon picker', () => {
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     remoteFolders.h1 = { '/': ['tmp'], '/tmp': ['my-space'] }
     const onCreate = vi.fn()
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
 
     render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
 
@@ -281,7 +281,7 @@ describe('CreateSpacePanel — folder', () => {
 
   it("a remote daemon's folder is browsed on that host, never through the OS dialog", async () => {
     remoteFolders.h2 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /office-vm/i)
 
@@ -294,7 +294,7 @@ describe('CreateSpacePanel — folder', () => {
 
   it('a remote space needs a folder: Create waits for one and says so', async () => {
     remoteFolders.h1 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /homelab-prox/i)
 
@@ -309,7 +309,7 @@ describe('CreateSpacePanel — folder', () => {
   it('a folder belongs to the daemon it was picked on, whichever way the daemon changes', async () => {
     vi.mocked(openNativeDialog).mockResolvedValue('/Users/me/code')
     remoteFolders.h1 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     fireEvent.click(folderButton())
     await waitFor(() => expect(createButton()).toBeEnabled())
@@ -328,7 +328,7 @@ describe('CreateSpacePanel — folder', () => {
   it('an OS dialog that answers after the daemon changed never lands on the new daemon', async () => {
     let answer!: (path: string) => void
     vi.mocked(openNativeDialog).mockReturnValue(new Promise((resolve) => (answer = resolve)))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     fireEvent.click(folderButton())
 
@@ -343,7 +343,7 @@ describe('CreateSpacePanel — folder', () => {
 
   it('a selected host that is removed never leaves its folder to be created anywhere', async () => {
     remoteFolders.h1 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /homelab-prox/i)
     await pickRemoteFolder(user, '/srv')
@@ -401,7 +401,7 @@ describe('CreateSpacePanel — the created project', () => {
 
   it('is the remote project the operation names when a local one has the same path', async () => {
     const onCreate = vi.fn()
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
     await createOn(user)
 
@@ -412,7 +412,7 @@ describe('CreateSpacePanel — the created project', () => {
   })
 
   it('applies a staged icon to the project on the host it was created on', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: /edit space icon/i }))
     await user.click(await screen.findByRole('button', { name: /emoji/i }))
@@ -430,7 +430,7 @@ describe('CreateSpacePanel — the created project', () => {
   })
 
   it('sends a staged image to the host as its bytes, never its path on this computer', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
     await createOn(user)
@@ -447,7 +447,7 @@ describe('CreateSpacePanel — the created project', () => {
 
   it('says why a staged image could not be sent to the host: its only clue', async () => {
     const toasts = watchToasts()
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user, 3 * 1024 * 1024)
     await createOn(user)
@@ -462,7 +462,7 @@ describe('CreateSpacePanel — the created project', () => {
     vi.mocked(fetchApi.apiFetch).mockImplementation((url, ...rest) =>
       url.endsWith('/icon') ? Promise.reject(refusal('too big')) : serveApi(url, ...rest),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
     vi.mocked(openNativeDialog).mockResolvedValueOnce('/tmp/mine')
