@@ -144,7 +144,7 @@ test('a refused create reports the daemon’s reason', async () => {
   const toasts = watchToasts()
   await refuseCreate(refusal('a space already uses that folder'))
   await waitFor(() =>
-    expectReported(toasts, 'Add space failed', 'a space already uses that folder'),
+    expectReported(toasts, 'Add “space” failed', 'a space already uses that folder'),
   )
 })
 

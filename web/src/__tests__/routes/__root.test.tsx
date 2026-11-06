@@ -111,10 +111,10 @@ describe('the root route', () => {
     await waitFor(() => expect(next).not.toBeDisabled(), { timeout: 3000 })
     fireEvent.click(next)
     fireEvent.click(await screen.findByRole('button', { name: /choose a folder/i }))
-    fireEvent.change(screen.getByLabelText('Project folder'), { target: { value: '/srv/app' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    fireEvent.change(screen.getByLabelText('Space folder'), { target: { value: '/srv/app' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add space' }))
 
-    expect(await screen.findByText('Add app failed')).toBeTruthy()
+    expect(await screen.findByText('Add “app” failed')).toBeTruthy()
     expect(screen.getByText('/srv/app is already a project')).toBeTruthy()
   })
 })

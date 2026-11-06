@@ -63,20 +63,20 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Import project</DialogTitle>
+          <DialogTitle>Add a space</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 px-6 py-5">
           <div className="space-y-2">
             <label htmlFor="import-project-path" className="text-sm font-medium text-foreground">
-              Project folder
+              Space folder
             </label>
             <div className="flex gap-2">
               <Input
                 id="import-project-path"
                 value={selectedPath}
                 onChange={(e) => setSelectedPath(e.target.value)}
-                placeholder="/absolute/path/to/project"
+                placeholder="/absolute/path/to/folder"
                 className="font-mono text-[12px]"
               />
               {isTauri() && (
@@ -94,13 +94,13 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
 
           <div className="space-y-2">
             <label htmlFor="import-project-name" className="text-sm font-medium text-foreground">
-              Project name
+              Space name
             </label>
             <Input
               id="import-project-name"
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder="My project"
+              placeholder="My space"
             />
           </div>
         </div>
@@ -110,7 +110,7 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
             Cancel
           </Button>
           <Button onClick={handleImport} disabled={!pathLooksAbsolute || loading}>
-            {loading ? 'Importing…' : 'Import'}
+            {loading ? 'Adding…' : 'Add space'}
           </Button>
         </DialogFooter>
       </DialogContent>

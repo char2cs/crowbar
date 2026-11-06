@@ -45,8 +45,8 @@ const project: Project = {
   lastActivity: new Date(0),
   hostId: 'local',
 }
-const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/project')
-const importButton = () => screen.getByRole('button', { name: /import/i })
+const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/folder')
+const importButton = () => screen.getByRole('button', { name: 'Add space' })
 
 beforeEach(() => {
   vi.mocked(api.postProject).mockReset()
@@ -91,7 +91,7 @@ test('import waits on the operation and hands over the project from the store', 
 test('uses the typed project name over the path fallback', async () => {
   render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/test-proj' } })
-  fireEvent.change(screen.getByPlaceholderText('My project'), { target: { value: 'Nice Name' } })
+  fireEvent.change(screen.getByPlaceholderText('My space'), { target: { value: 'Nice Name' } })
   fireEvent.click(importButton())
   await waitFor(() =>
     expect(vi.mocked(api.postProject)).toHaveBeenCalledWith(
@@ -137,7 +137,7 @@ async function refuseImport(error: unknown) {
 test('a refused import reports the daemon’s reason', async () => {
   const toasts = watchToasts()
   await refuseImport(refusal('path does not exist', 'invalid_argument'))
-  await waitFor(() => expectReported(toasts, 'Add test-proj failed', 'path does not exist'))
+  await waitFor(() => expectReported(toasts, 'Add “test-proj” failed', 'path does not exist'))
 })
 
 test('an import refused while the daemon migrates shows the migrating state, not a toast', async () => {
