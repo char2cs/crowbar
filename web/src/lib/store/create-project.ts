@@ -13,7 +13,8 @@ export async function createProject(name: string, path: string, hostId: string):
       kind: 'project.create',
       subject: { kind: 'project', id: '' },
       projectId: '',
-      label: `Add ${name}`,
+      // Quoted: a folder name alone ("missing") reads as part of the sentence.
+      label: `Add “${name}”`,
     },
     (opId) => postProject(name, path, opId, hostId),
   )
