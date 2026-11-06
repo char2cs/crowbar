@@ -303,3 +303,21 @@ function liveGenerations(editor: ReturnType<typeof createPlateEditor>): number[]
   }
   return [...out]
 }
+
+// Every line of a replaced block mounts again, and each code line re-decorates.
+describe('a code fence streaming in', () => {
+  it('keeps the lines it already drew and adds only the new one', () => {
+    const fence = (lines: number) =>
+      ['```ts', ...Array.from({ length: lines }, (_, i) => `const v${i} = ${i}`)].join('\n')
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(fence(3)),
+    })
+    const block = () => editor.children[0] as { children: unknown[] }
+    const drawn = block().children.slice(0, 2)
+    applyStreamedValue(editor, chatMarkdownToValue(fence(4)))
+    expect(block().children.slice(0, 2)).toEqual(drawn)
+    drawn.forEach((line, i) => expect(block().children[i]).toBe(line))
+    expect(withoutIds(editor.children)).toEqual(withoutIds(chatMarkdownToValue(fence(4))))
+  })
+})

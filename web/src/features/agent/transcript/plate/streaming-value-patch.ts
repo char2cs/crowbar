@@ -9,6 +9,7 @@ import {
   leafDivergences,
   markKeys,
   nodesEqual,
+  ownPropsEqual,
   stableBlockCount,
   trailingTextDivergence,
   type LeafDiff,
@@ -314,6 +315,32 @@ function recordBlockRuns(
   })
 }
 
+/** A block that only grew or changed at its end (a code fence gaining lines, a
+ *  table gaining rows) keeps the children it already drew: a whole-block replace
+ *  remounts and re-decorates every one. False when no leading child agrees. */
+function replaceChildTail(editor: PlateEditor, prevBlock: Node, nextBlock: Node, at: Path) {
+  const prev = prevBlock.children
+  const next = nextBlock.children
+  if (!prev || !next || !ownPropsEqual(prevBlock, nextBlock)) return false
+  let kept = 0
+  while (kept < Math.min(prev.length, next.length) && nodesEqual(prev[kept], next[kept])) kept++
+  if (kept === 0) return false
+  for (let i = prev.length - 1; i >= kept; i--) editor.tf.removeNodes({ at: [...at, i] })
+  const added = next.slice(kept)
+  if (added.length === 0) return true
+  editor.tf.insertNodes(added as Value, { at: [...at, kept] })
+  const prevText = prev.slice(kept).map(flattenText).join('')
+  const nextText = added.map(flattenText).join('')
+  const skip = { remaining: commonPrefixLength(prevText, nextText) }
+  const total = splitIntoWords(nextText.slice(skip.remaining)).length
+  const generation = nextFreshGeneration(editor)
+  const wordIndex = { current: 0 }
+  added.forEach((child, i) => {
+    recordBlockRuns(editor, child, [...at, kept + i], generation, wordIndex, total, skip)
+  })
+  return true
+}
+
 /** Applies `next` touching only the blocks that differ — `setValue` would tear
  *  down and rebuild every settled paragraph per token. A growing tail becomes
  *  one `insert_text`, and the fade is recorded as runs, not document marks. */
@@ -378,8 +405,9 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
           patchLeavesInPlace(editor, leafDiffs)
           return
         }
-        // Shape changed: replace the block, fading only the genuinely new text.
         pruneRuns(editor, stable)
+        if (replaceChildTail(editor, prevBlock, nextBlock, [stable])) return
+        // Shape changed: replace the block, fading only the genuinely new text.
         editor.tf.removeNodes({ at: [stable] })
         editor.tf.insertNodes([nextBlock] as Value, { at: [stable] })
         const prevText = flattenText(prevBlock)
