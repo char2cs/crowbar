@@ -1,69 +1,33 @@
-# Long chats: open on a window of the ledger
+# Long chats: what is left after the windowed open
 
-## Problem
+## Where it stands
 
-A chat's feed replays its whole ledger on every attach (`attachFeed` reads rows
-`since` to the head; the web attaches with `since=0` after any detach or
-reload). For a heavy daily chat that is the dominant cost of opening it.
+A chat opens on a window of its ledger: the scope's `since` is negative, the
+daemon replays about the newest `-since` rows widened to whole turns (and to
+every turn with open work: the running turn, a pending ask, a live subagent, a
+held prompt), and the first row says the seq it follows (`from`). Scrolling to
+the top replays a wider window behind the shown feed (`loadOlder`). Facts stay
+derived from the rows the feed holds plus the snapshot.
 
-Measured on a seeded chat of 1,520 turns, 42,836 rows (tool calls with real
-sized diffs and outputs by ref, 227 subagent launches, long markdown replies), on a
-shared 4-core host under load:
+On the seeded chat (3,200 turns, ~89k rows) a cold open sends ~2.3k frames
+(~0.9 MB) instead of 43k–100k frames (56–80 MB); `chat.open` is 1.2–1.8 s and
+first rows paint at 2.3–3.9 s on a loaded shared host.
 
-| | |
-|---|---|
-| bytes on the socket per open | 56 MB, 42,836 frames |
-| daemon CPU per open | ~1.3 s (40% JSON re-compaction of row bodies, 30% SQLite reads) |
-| web CPU to fold the replay | ~0.4–0.9 s (`applyFeedFrame`, socket `onmessage`) |
-| `chat.open` (attach → ready) | 5.3 / 6.7 / 10.0 s (three cold opens) |
+## Remaining
 
-The 1.5 s cold-open budget cannot be met by making the fold faster: the
-replay itself is linear in the chat's whole life, and so are reload,
-reconnect after a daemon restart, and a second tab.
-
-## Who owns what
-
-- The **chat ledger** (daemon) owns the rows. It is append-only and already
-  folds a `ledger.State` per chat (head, plan, open asks, compaction, live
-  runs). That state is derived from rows, not a second copy.
-- The **chat feed** (web `chatStore.feeds[chatId]`, folded by `FeedFold`) owns
-  what the transcript draws. Its `facts` are also derived from rows.
-
-A window must keep both derived: the web may not invent facts the rows it
-holds do not imply, and the daemon may not keep a per-client copy.
-
-## Plan
-
-1. **Turn-aligned window on attach.** The chat scope takes an optional
-   `window` (turns). `attachFeed` finds the seq of the first row of the
-   `window`-th newest turn (an index on `(chat_id, kind, seq)` for
-   `turn_started`/`user_message` rows, or a `turn_starts` side table the
-   ledger writer maintains) and replays from there. The first frame says
-   where history starts: `{t:"window", from: <seq>, olderTurns: <n>}`.
-2. **Carried facts come from the daemon's fold.** What the web needs from
-   before the window is exactly what `ledger.State` already folds (plan of
-   the main scope, open asks, compaction, live subagents, running turn). The
-   window frame carries `State`'s projection for `from - 1`, so the web seeds
-   `facts` from it instead of from rows it does not hold. No new state.
-3. **Older turns on demand.** `GET /v0/.../chats/{id}/rows?before=<seq>&turns=<k>`
-   returns whole turns. `FeedFold` gains a `prepend(rows)` that folds them
-   into a fresh draft and splices `order` in front; items are keyed by id, so
-   `ItemMap` already shares every untouched bucket. The transcript asks for
-   a page when the reader nears the top (the virtualizer's first index), and
-   keeps its anchor through the prepend the way it does through history
-   loading today (`loadingHistory`).
-4. **Prompt history and search** read the loaded window; recall already
-   says "never reaches past what has been paged in". Jump-to-turn asks the
-   rows endpoint for the turn's page first.
-5. **Cheaper replay frames.** Row bodies are stored compact; send them as
+1. **Cheaper replay frames.** Row bodies are stored compact; send them as
    `json.RawMessage` that skips `encoding/json`'s re-compaction (about 40% of
-   the daemon's replay CPU), and batch replay rows into one socket message per
-   page instead of one per row.
+   the daemon's replay CPU), and batch a replay page into one socket message
+   instead of one per row.
+2. **A wider window re-replays what the feed holds.** `loadOlder` asks for the
+   newest `rows + 3000` rows again. Once replay frames are batched, a page
+   `before=<from>` folded into a fresh draft ahead of the held rows would cost
+   only the older rows; the fold must then accept rows older than its head.
+3. **Jump to an old turn** (none exists in the web yet) would ask for the
+   window that holds it first.
 
 ## Tests
 
-- Go: `attachFeed` with `window=k` replays from the first row of the k-th
-  newest turn, and its window frame's facts equal `State` folded to `from-1`.
-- Web: a feed opened on a window then prepended with the older page equals
-  the feed folded from all rows (order, items, facts), and a long chat's open
-  folds a number of rows independent of its length.
+- Go: a page `before=<from>` returns whole turns ending at `from`.
+- Web: a feed widened by a page equals the feed folded from all its rows
+  (order, items, facts).
