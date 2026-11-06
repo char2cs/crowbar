@@ -34,10 +34,10 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
 // reads as a rename from a/x to b/x; the daemon's per-edit diffs are written that way.
 function withoutGitPrefixes(file: FileDiffMetadata): FileDiffMetadata {
   if (!file.prevName?.startsWith('a/') || !file.name.startsWith('b/')) return file
-  const name = file.name.slice(2)
-  const prevName = file.prevName.slice(2)
-  if (prevName !== name) return { ...file, name, prevName }
-  return { ...file, name, prevName: undefined, type: 'change' }
+  const [name, prevName] = [file.name.slice(2), file.prevName.slice(2)]
+  return prevName === name
+    ? { ...file, name, prevName: undefined, type: 'change' }
+    : { ...file, name, prevName }
 }
 
 function fingerprint(text: string): number {

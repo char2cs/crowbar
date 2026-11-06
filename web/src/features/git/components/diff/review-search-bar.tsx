@@ -58,9 +58,8 @@ export function ReviewSearchBar({
   useEffect(() => {
     const gen = ++generation.current
 
-    // An empty box is the state this opens in. The daemon answers it with an
-    // empty result rather than an error, but there is nothing to ask about, so
-    // it costs no request at all.
+    // An empty box is the state this opens in. The daemon answers it with an empty result rather
+    // than an error, but there is nothing to ask about, so it costs no request at all.
     if (query === '') {
       setResult(EMPTY_RESULT)
       setError(null)

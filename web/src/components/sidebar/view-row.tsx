@@ -17,8 +17,7 @@ import { selectRepos, useSelect } from '@/core/entities/select'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
-// A draft has no chat until its first prompt, so there is nothing to wait for.
-const DRAFT_CHAT_LABEL = 'New thread'
+const pendingLabel = (chatId: string) => (isDraftChatId(chatId) ? 'New thread' : LOADING_CHAT_LABEL)
 
 // A chat as a sidebar row: the workspace store's live title and spinner when mounted, else the
 // sidebar's chat record. With no chat data yet it still draws, as loading.
@@ -44,10 +43,6 @@ export function useMemberRow(
     ownsWorktree: false,
     ...icon,
   }
-}
-
-function pendingLabel(chatId: string): string {
-  return isDraftChatId(chatId) ? DRAFT_CHAT_LABEL : LOADING_CHAT_LABEL
 }
 
 // One view as a tab: a bare row for a lone chat, or one shell around a split's members. Each tab

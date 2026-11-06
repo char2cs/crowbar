@@ -43,7 +43,7 @@ function blockedReason(
 export function ReviewMergeBox({ wsId }: { wsId: string }) {
   const ws = useSelect((s) => selectWorkspace(s, wsId) ?? null)
   const gitStatus = useWorkspaceStoreById(wsId, (s) => s.gitStatus)
-  const changedFiles = useWorkspaceStoreById(wsId, (s) => s.reviewFiles?.length ?? null)
+  const noChanges = useWorkspaceStoreById(wsId, (s) => s.reviewFiles?.length === 0)
   const threads = useReviewThreads(wsId)
   const openThreads = threads.filter((t) => !t.isResolved).length
   const parentBranch = ws?.parentBranch
@@ -62,7 +62,7 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
     status: ws?.status ?? 'new',
   })
   const merged = ws?.status === 'pr-merged'
-  const unchanged = changedFiles === 0 && uncommitted === 0
+  const unchanged = noChanges && uncommitted === 0
   const reason = merged
     ? null
     : blockedReason(action.kind, parentBranch, uncommitted, openThreads, unchanged)

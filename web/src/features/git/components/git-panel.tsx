@@ -80,14 +80,8 @@ export function GitPanel() {
 
       {wsId && activeWs && <ReviewMergeBox wsId={wsId} />}
 
-      {/* No workspace to show git for at all (project home, or the route/pane
-          hasn't resolved one yet) — never fall through to the sections below,
-          which would otherwise render `useSidebarChangedFiles`'s stale-status
-          fallback: a workspace-scoped git store with no wsId to key its
-          "which workspace is this?" question against just keeps whatever
-          OTHER workspace's status/branch/changed-files it last fetched,
-          cross-chat and cross-project. Git has no meaning without a repo,
-          so it shows nothing instead of stale data. */}
+      {/* No workspace resolved: show nothing, since the git store would otherwise keep
+          another workspace's status and changed files. */}
       {!wsId && (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
           No repository open

@@ -291,8 +291,7 @@ export function useReviewPatchWindow({
     setPatchStates((prev) => (Object.keys(prev).length === 0 ? prev : {}))
   }, [signature])
 
-  // A shown patch is the worktree as it was when fetched: a git-status change re-fetches it in
-  // place (it stays on screen until the new one lands). A commit's patch never changes.
+  // A worktree patch is stale after any git change, so it re-fetches in place; a commit's never.
   useEffect(() => {
     if (commit) return
     return onGitStatusChanged(wsId, () => {
@@ -342,9 +341,8 @@ export function useReviewPatchWindow({
     }
   }, [annotationsByPath])
 
-  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff,
-  // so the header's ± counts survive, and only the paths whose flag moved are
-  // touched.
+  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff, so the header's ±
+  // counts survive, and only the paths whose flag moved are touched.
   const collapsedRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
     const handle = handleRef.current

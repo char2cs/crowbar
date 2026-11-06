@@ -55,9 +55,9 @@ export function buildPlaceholderFileDiff(
   const shapes = outline?.hunks ?? []
   const additions = countOf(file.additions)
   const deletions = countOf(file.deletions)
-  const known = typeof file.deletions === 'number' && file.deletions >= 0
-  const context = distributeContext(shapes, known ? deletions : undefined)
-  const hunks = trimToPatchCap(buildPlaceholderHunks(shapes, context))
+  const hunks = trimToPatchCap(
+    buildPlaceholderHunks(shapes, distributeContext(shapes, file.deletions)),
+  )
 
   // A capped outline is a lower bound on the file; every changed line is one unified row, so
   // the summary's ± counts are the floor it is topped up to.
@@ -135,12 +135,11 @@ function reserveAtMost(hunk: Hunk, room: number): Hunk {
   }
 }
 
-/** Per-hunk context-line estimate; see `buildPlaceholderFileDiff`. Zero deletions is a count (a
- *  pure addition, all old lines context); only an unknown count leaves the context at zero. */
-function distributeContext(shapes: readonly HunkShape[], deletions: number | undefined): number[] {
+/** Per-hunk context estimate (see `buildPlaceholderFileDiff`); only an unknown count gives 0. */
+function distributeContext(shapes: readonly HunkShape[], deletions = -1): number[] {
   const caps = shapes.map((s) => Math.min(s.oldLines, s.newLines))
   const capTotal = sumBy(caps, (c) => c)
-  if (capTotal === 0 || deletions === undefined) return caps.map(() => 0)
+  if (capTotal === 0 || deletions < 0) return caps.map(() => 0)
 
   const oldTotal = sumBy(shapes, (s) => s.oldLines)
   const contextTotal = Math.min(Math.max(oldTotal - deletions, 0), capTotal)
