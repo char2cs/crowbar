@@ -150,6 +150,27 @@ describe('MarkerRow', () => {
     expect(screen.getByRole('button', { name: 'Open terminal' })).toBeInTheDocument()
   })
 
+  it('reads a switch of provider, model and effort as one divider', () => {
+    const l = ledger()
+    const feed = seed([
+      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
+      l.row('marker', { kind: 'model_changed', detail: 'gpt-big' }),
+      l.row('marker', { kind: 'effort_changed', detail: 'low' }),
+    ])
+    render(
+      <TranscriptRow
+        actions={noRowActions}
+        chatId="chat-1"
+        id={markerOf(feed)!}
+        providers={[{ id: 'codex', displayName: 'Codex' } as never]}
+      />,
+    )
+
+    expect(screen.getByTestId('agent-switch-divider')).toHaveTextContent(
+      'Switched to Codex · gpt-big · low effort',
+    )
+  })
+
   it('says, in the daemon’s words, how many legacy records an upgrade could not convert', () => {
     const l = ledger()
     const feed = seed([

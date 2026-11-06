@@ -33,7 +33,23 @@ function interruptPill(reason: string | undefined) {
   }
 }
 
+function switchedTo(providers: AgentProvider[], id: string | undefined) {
+  const name = providers.find((p) => p.id === id)?.displayName ?? id
+  return `Switched to ${name || 'a different provider'}`
+}
+
+/** One launch's switches, in one line. */
+function launchPill(parts: NonNullable<MarkerItem['parts']>, providers: AgentProvider[]) {
+  const said = parts.map(({ marker, detail }) => {
+    if (marker === 'provider_switched') return switchedTo(providers, detail)
+    if (marker === 'model_changed') return detail || 'default model'
+    return `${detail || 'default'} effort`
+  })
+  return { label: said.join(' · '), testId: 'agent-switch-divider' }
+}
+
 function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; testId: string } {
+  if (item.parts) return launchPill(item.parts, providers)
   switch (item.marker) {
     case 'compaction_ended':
       return { label: 'Compacted', testId: 'agent-compaction-divider' }
@@ -55,9 +71,8 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
         testId: 'agent-exit-divider',
       }
     case 'provider_switched': {
-      const name = providers.find((p) => p.id === item.detail)?.displayName ?? item.detail
       return {
-        label: `Switched to ${name || 'a different provider'}`,
+        label: switchedTo(providers, item.detail),
         testId: 'agent-provider-switch-divider',
       }
     }

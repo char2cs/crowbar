@@ -94,6 +94,8 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
+  /** A launch's switches (provider, model, effort) drawn as this one divider. */
+  parts?: { marker: MarkerName; detail?: string }[]
 }
 
 export type SubagentStatus =

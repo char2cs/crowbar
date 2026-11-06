@@ -469,7 +469,7 @@ describe('applyRow', () => {
       l.start('turn-1', 'r1'),
       l.row('marker', { kind: 'compaction_ended' }),
     ])
-    expect(feed.order).toEqual(['p:r0', 'k:5', 'k:6', 'p:r1', 'k:8'])
+    expect(feed.order).toEqual(['p:r0', 'k:5', 'p:r1', 'k:8'])
   })
 
   it('leaves a queued prompt above a selection change made while it waits', () => {

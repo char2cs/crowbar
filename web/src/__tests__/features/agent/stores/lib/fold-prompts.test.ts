@@ -12,8 +12,41 @@ describe('divider', () => {
       l.row('marker', { kind: 'provider_switched', detail: 'claude' }),
       l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
     ])
-    expect(feed.order).toEqual(['k:2', 'k:4'])
-    expect(feed.items['k:4']).toMatchObject({ marker: 'provider_switched', detail: 'codex' })
+    expect(feed.order).toEqual(['k:1'])
+    expect(feed.items['k:1']).toMatchObject({
+      parts: [
+        { marker: 'provider_switched', detail: 'codex' },
+        { marker: 'model_changed', detail: 'big' },
+      ],
+    })
+  })
+
+  it('draws a switch of provider, model and effort as one divider above the prompt it carries', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.row('user_message', {
+        requestId: 'r1',
+        text: 'go',
+        origin: 'crowbar',
+        delivery: 'restart',
+      }),
+      l.row('marker', { kind: 'effort_changed', detail: 'low' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'claude' }),
+      l.row('marker', { kind: 'model_changed', detail: 'sonnet' }),
+      l.start('turn-1', 'r1'),
+      l.end('turn-1'),
+      l.row('marker', { kind: 'model_changed', detail: 'opus' }),
+    ])
+    const kinds = feed.order.map((id) => feed.items[id]?.kind)
+    expect(kinds).toEqual(['marker', 'user', 'marker'])
+    expect(feed.items[feed.order[0]!]).toMatchObject({
+      parts: [
+        { marker: 'provider_switched', detail: 'claude' },
+        { marker: 'model_changed', detail: 'sonnet' },
+        { marker: 'effort_changed', detail: 'low' },
+      ],
+    })
+    expect(feed.items[feed.order[2]!]).toMatchObject({ marker: 'model_changed', detail: 'opus' })
   })
 
   it('shows what the CLI warned its user about as a notice in the transcript', () => {

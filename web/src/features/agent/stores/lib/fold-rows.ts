@@ -273,6 +273,7 @@ function marker(
     reason,
   })
   fold.place(id, '')
+  return id
 }
 
 /** Settles the texts of `turnId` (every turn when null) and ends its running

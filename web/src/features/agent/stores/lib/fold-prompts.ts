@@ -3,6 +3,7 @@ import type { FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import {
   markerItemId,
   userItemId,
+  type MarkerItem,
   type PromptFact,
 } from '@/features/agent/stores/lib/transcript-items'
 
@@ -89,24 +90,29 @@ export function warningShown(fold: FeedFold, detail: string | undefined) {
   })
 }
 
-/** A switch made with nothing said since the last of its kind supersedes that
- *  one: back-and-forth switches on a quiet chat read as where it landed. */
-function dropSupersededDivider(fold: FeedFold, kind: string) {
+const LAUNCH_ORDER = ['provider_switched', 'model_changed', 'effort_changed']
+
+/** One launch's switches read as one divider, and a switch made with nothing
+ *  said since replaces the earlier one of its kind: a quiet chat reads as where
+ *  it landed. `drawn` joins the launch divider placed just before it, if any. */
+function joinLaunch(fold: FeedFold, drawn: string) {
   const order = fold.placedOrder
-  for (let i = order.length - 1; i >= 0; i--) {
-    const item = fold.item(order[i]!)
-    if (item?.kind !== 'marker' || !LAUNCH_DIVIDERS.has(item.marker)) return
-    if (item.marker === kind) {
-      fold.unplace(item.id)
-      return
-    }
-  }
+  const at = order.lastIndexOf(drawn)
+  const head = fold.item<MarkerItem>(order[at - 1] ?? '')
+  const item = fold.item<MarkerItem>(drawn)
+  if (!item || head?.kind !== 'marker' || !LAUNCH_DIVIDERS.has(head.marker)) return
+  const parts = (head.parts ?? [{ marker: head.marker, detail: head.detail }])
+    .filter((part) => part.marker !== item.marker)
+    .concat({ marker: item.marker, detail: item.detail })
+    .sort((a, b) => LAUNCH_ORDER.indexOf(a.marker) - LAUNCH_ORDER.indexOf(b.marker))
+  fold.put({ ...head, parts })
+  fold.unplace(drawn)
 }
 
 /** Draws a pill marker; a launch's lands above the prompt it carries, which
  *  the ledger records first so the new CLI can find it. A selection change
  *  takes no busy guard, so a queued prompt stays where it is. */
-export function divider(fold: FeedFold, kind: string, draw: () => void) {
+export function divider(fold: FeedFold, kind: string, draw: () => string) {
   if (!PILL_MARKERS.has(kind)) return
   let carried: string | undefined
   let newest = -1
@@ -115,9 +121,10 @@ export function divider(fold: FeedFold, kind: string, draw: () => void) {
     newest = fact.seq
     carried = userItemId(requestId, fact.seq)
   }
-  if (LAUNCH_DIVIDERS.has(kind)) dropSupersededDivider(fold, kind)
-  const move = LAUNCH_DIVIDERS.has(kind) && carried !== undefined && fold.placed(carried)
+  const launch = LAUNCH_DIVIDERS.has(kind)
+  const move = launch && carried !== undefined && fold.placed(carried)
   if (move) fold.unplace(carried!)
-  draw()
+  const drawn = draw()
+  if (launch) joinLaunch(fold, drawn)
   if (move) fold.place(carried!, '')
 }
