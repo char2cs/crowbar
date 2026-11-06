@@ -27,6 +27,8 @@ export interface TextItem extends ItemBase {
   text: string
   settled: boolean
   phase: '' | 'commentary'
+  /** The turn reply this message joins, as its first row naming one said. */
+  reply?: string
 }
 
 export type ToolStatus = 'running' | 'ok' | 'error' | 'declined' | 'interrupted' | 'abandoned'

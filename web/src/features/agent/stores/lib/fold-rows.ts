@@ -152,20 +152,27 @@ export class FeedFold {
       reviveTurn(this, turn)
     }
     this.order ??= [...this.base.order]
-    // What a provider flushes after its turn ended still reads above that end.
     let at = before ? this.order.lastIndexOf(before) : -1
     const above = at >= 0
     if (!above) at = this.order.length
-    while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
+    while (item && turn !== '' && at > 0 && this.readsBelow(item, this.order[at - 1]!)) at--
     this.order.splice(at, 0, id)
     const open = this.openIn(turn)
     if (item && isUnsettled(item) && !open.includes(id)) this.setOpen(turn, [...open, id])
     return above
   }
 
-  private isEndOf(id: string, turn: string) {
-    const item = this.item(id)
-    return turn !== '' && item?.kind === 'marker' && item.turnId === turn
+  /** Whether `item` was said before the already placed `above`, though it landed after. */
+  private readsBelow(item: TranscriptItem, above: string): boolean {
+    const prev = this.item(above)
+    if (!prev || prev.turnId === undefined) return false
+    if (prev.turnId !== item.turnId) {
+      // A prompt not yet delivered follows everything its predecessor still says.
+      const fact = prev.kind === 'user' && prev.requestId && this.facts.prompts[prev.requestId]
+      return item.kind !== 'user' && !!fact && fact.state === 'pending'
+    }
+    // What a provider flushes after its turn ended still reads above that end.
+    return prev.kind === 'marker' && item.kind !== 'marker'
   }
 
   /** Moves `turn`'s streamed text into the order, above the turn's end, holding
@@ -337,15 +344,17 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
   if (!row.scope) divider(fold, kind, () => marker(fold, row, kind, detail))
 }
 
-/** A message naming the reply its turn closed on is shown as that reply. */
-function joinedReply(fold: FeedFold, row: LedgerRow<'assistant_text'>): TextItem | undefined {
-  const { reply, messageId } = row.body
-  if (!reply || reply === messageId) return undefined
-  return fold.item<TextItem>(textItemId(row.turnId, reply))
+/** The reply its turn closed on that `item` is shown as: the one its message named,
+ *  on whichever chunk, once their texts agree. */
+function joinedReply(fold: FeedFold, turnId: string | undefined, item: TextItem) {
+  if (!item.reply || item.reply === item.messageId) return undefined
+  const target = fold.item<TextItem>(textItemId(turnId, item.reply))
+  const agree = target && (target.text.startsWith(item.text) || item.text.startsWith(target.text))
+  return agree ? target : undefined
 }
 
 const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
-  const { messageId, index, final, text, phase } = row.body
+  const { messageId, index, final, text, phase, reply } = row.body
   const id = textItemId(row.turnId, messageId)
   const known = fold.item<TextItem>(id)
   const item: TextItem = known
@@ -362,6 +371,7 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
         settled: false,
         phase: '',
       }
+  item.reply ??= reply
   if (index === -1) {
     item.complete = fuller(item.complete ?? '', text)
     item.phase = phase || item.phase
@@ -379,8 +389,13 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
   }
   fold.put(item)
   markOutput(fold, row)
-  const target = joinedReply(fold, row)
-  if (target && (target.text.startsWith(item.text) || item.text.startsWith(target.text))) {
+  const target = joinedReply(fold, row.turnId, item)
+  if (target) {
+    fold.unplace(id)
+    fold.setOpen(
+      row.turnId ?? '',
+      fold.openIn(row.turnId ?? '').filter((other) => other !== id),
+    )
     if (item.settled) fold.put({ ...target, text: fuller(target.text, item.text) })
     return
   }

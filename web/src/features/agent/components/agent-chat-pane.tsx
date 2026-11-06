@@ -230,7 +230,9 @@ export function AgentChatPaneBody({
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
     setSwitchInFlight(true)
     try {
-      await switchProvider(wsId, shownChatId, providerId)
+      // Split keeps the chat's own surface; a single view starts the new CLI where it is shown.
+      const surface = presentation === 'split' ? undefined : presentation
+      await switchProvider(wsId, shownChatId, providerId, surface)
       // Only enterTerminal knows whether this provider needs a native view forked.
       if (presentation === 'terminal') escort.enterTerminal(providerId)
       return true

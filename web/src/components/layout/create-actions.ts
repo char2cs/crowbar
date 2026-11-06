@@ -1,5 +1,7 @@
 import { readSelect, selectRepos } from '@/core/entities/select'
 import { createChatWithOwnWorktree } from '@/features/agent/api/agent-chat-creates'
+import { createSurfaceFor } from '@/features/agent/api/agent-providers-api'
+import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
@@ -148,6 +150,7 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
   if (createInFlight.has(inFlightKey)) return
   createInFlight.add(inFlightKey)
   const chatId = crypto.randomUUID()
+  const surface = createSurfaceFor(provider)
   const label = name || 'New workspace'
   const chat = (state: OperationItem['state']): OperationItem => ({
     ref: { kind: 'chat', id: chatId },
@@ -164,8 +167,18 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
       items: [chat('accepted')],
     },
     (opId) =>
-      createChatWithOwnWorktree(chatId, opId, projectId, repoId, provider.id, parentId, name)
+      createChatWithOwnWorktree(
+        chatId,
+        opId,
+        projectId,
+        repoId,
+        provider.id,
+        parentId,
+        name,
+        surface,
+      )
         .then((created) => {
+          if (surface) presetChatLandingPresentation(chatId, surface)
           const workspace: OperationItem = {
             ref: { kind: 'workspace', id: created.workspaceId },
             label,

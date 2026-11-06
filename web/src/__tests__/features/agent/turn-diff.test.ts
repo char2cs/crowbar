@@ -38,6 +38,14 @@ describe('parseTurnDiff', () => {
     expect(second[0]?.version).not.toBe(first[0]?.version)
   })
 
+  it('reads a tool edit’s bare unified diff as a change to its file, not a rename', () => {
+    const edit =
+      '--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n--- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+one\n'
+    const files = parseTurnDiff(edit, 't').map((i) => i.type === 'diff' && i.fileDiff)
+    expect(files).toMatchObject([{ name: 'app.py', type: 'change' }, { name: 'n.md' }])
+    expect(files.map((f) => f && f.prevName)).toEqual([undefined, undefined])
+  })
+
   it('declines oversized input before parsing', () => {
     expect(parseTurnDiff('x'.repeat(MAX_TURN_DIFF_PREVIEW_CHARS + 1), 'turn-1')).toEqual([])
   })

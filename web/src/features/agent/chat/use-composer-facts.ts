@@ -9,10 +9,12 @@ import {
   useTurnFacts,
 } from '@/features/agent/hooks/use-chat-feed'
 import { useChatStore } from '@/features/agent/stores/chat-store'
-import type {
-  AskItem,
-  ChatFeed,
-  TranscriptItem,
+import {
+  userItemId,
+  type AskItem,
+  type ChatFeed,
+  type TranscriptItem,
+  type TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
 import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
 
@@ -81,6 +83,20 @@ function runningTool(
   return undefined
 }
 
+/** When the oldest prompt the daemon holds for a CLI that has not taken it yet was said. */
+function heldSince(
+  facts: TurnFacts | undefined,
+  items: Record<string, TranscriptItem> | undefined,
+): string | undefined {
+  let since: string | undefined
+  for (const [requestId, fact] of Object.entries(facts?.prompts ?? {})) {
+    if (fact.state !== 'pending') continue
+    const at = items?.[userItemId(requestId, fact.seq)]?.at
+    if (at && (!since || at < since)) since = at
+  }
+  return since
+}
+
 /** What the chat's feed says about the turn, read once for the view's parts. */
 export function useComposerFacts(chatId: string): ComposerFacts {
   const facts = useTurnFacts(chatId)
@@ -121,11 +137,13 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   const plan = facts?.plan['']
   const agents = facts?.liveSubagents.length ?? 0
   const working = running != null || liveTail.length > 0 || agents > 0
+  // A send that launches a CLI lands its row long before the turn starts; it is still on its way.
+  const held = running ? undefined : heldSince(facts, items)
   return {
     status,
     working,
-    active: working || enteredAt !== undefined,
-    since: running?.startedAt ?? enteredAt,
+    active: working || enteredAt !== undefined || held !== undefined,
+    since: running?.startedAt ?? enteredAt ?? held,
     compacting: facts?.compacting ?? false,
     reasoning,
     plan,

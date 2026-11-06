@@ -28,14 +28,16 @@ export function endCall(fold: FeedFold, turn: string, toolId: string) {
   fold.record('calls')[turn] = { ...round, open, ended: true }
 }
 
-/** A message reported whole, in one final chunk, was reported when its
- *  response ended: it reads above that response's calls. If they had all
- *  ended it may be the closing reply instead, which the turn's end tells. */
+/** A model says nothing while its calls run, so text landing then was said
+ *  before them. claude also reports a one-chunk message only when its response
+ *  ended, maybe after all its calls ended: then it may instead be the closing
+ *  reply, which the turn's end tells. */
 export function placeMessage(fold: FeedFold, row: LedgerRow<'assistant_text'>, id: string) {
   const turn = row.turnId ?? ''
   const round = row.scope ? undefined : fold.facts.calls[turn]
   const whole = row.body.index === 0 && row.body.final === true
-  const above = fold.place(id, row.scope ?? '', whole ? round?.first : undefined)
+  const said = whole || !!round?.open.length
+  const above = fold.place(id, row.scope ?? '', said ? round?.first : undefined)
   if (!round) return
   const closing = above && round.open.length === 0 ? id : undefined
   fold.record('calls')[turn] = { open: [], ended: false, closing }
