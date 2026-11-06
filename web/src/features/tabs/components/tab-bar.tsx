@@ -29,6 +29,7 @@ import { SplitToggleButton } from './split-toggle-button'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
 import { ChatTabItem } from './chat-tab-item'
 import { PaneTopRow } from './pane-top-row'
+import { TabOverflowMenu } from './tab-overflow-menu'
 import { usePaneNewTabActions } from '../hooks/use-pane-new-tab-actions'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
@@ -222,6 +223,18 @@ const TabBar = ({
 
   const getBufferDisplayName = useBufferDisplayName({ buffers })
 
+  const overflowTabs = useMemo(
+    () => sortedBuffers.map((buffer) => ({ id: buffer.id, name: getBufferDisplayName(buffer) })),
+    [sortedBuffers, getBufferDisplayName],
+  )
+  const handleOverflowSelect = useCallback(
+    (id: string) => {
+      const buffer = sortedBuffers.find((b) => b.id === id)
+      if (buffer) handleTabSelect(buffer)
+    },
+    [sortedBuffers, handleTabSelect],
+  )
+
   // Auto-scroll active tab into view
   useEffect(() => {
     const activeIndex = sortedBuffers.findIndex((buffer) => buffer.id === activeBufferId)
@@ -360,60 +373,68 @@ const TabBar = ({
               (spec §7.1) — the second view is reached through open files or
               `+`, never a tab standing for the idea of one. */}
           {hasEditorTabs && (
-            <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-              {/* The empty area of this scroll container is a window drag handle.
+            <>
+              <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
+                {/* The empty area of this scroll container is a window drag handle.
                   Tauri only drags on the exact element with the attribute, so the
                   tab children remain interactive and reorderable. */}
-              <div
-                ref={scrollRef}
-                data-testid="editor-tab-scroller"
-                role="tablist"
-                aria-label="Open files"
-                data-tauri-drag-region
-                onWheel={handleWheel}
-                className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
-              >
-                {/* The chat as "just another tab" (spec redesign) — first in
+                <div
+                  ref={scrollRef}
+                  data-testid="editor-tab-scroller"
+                  role="tablist"
+                  aria-label="Open files"
+                  data-tauri-drag-region
+                  onWheel={handleWheel}
+                  className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
+                >
+                  {/* The chat as "just another tab" (spec redesign) — first in
                     the strip, outside the sortable list: never draggable,
                     never closable, no reason to reorder the one entry that
                     isn't an editor tab at all. */}
-                {showChatTab && pane?.chatId && (
-                  <ChatTabItem
-                    chatId={pane.chatId}
-                    isActive={chatIsSelected}
-                    onSelect={handleChatTabSelect}
-                  />
-                )}
-                {sortedBuffers.map((buffer, index) => (
-                  <SortableEditorTab
-                    key={buffer.id}
-                    id={buffer.id}
-                    tabRef={getTabRefCallback(index)}
-                  >
-                    <TabBarItem
-                      buffer={buffer}
-                      displayName={getBufferDisplayName(buffer)}
-                      index={index}
-                      isActive={buffer.id === activeBufferId && !chatIsSelected}
-                      isDraggedTab={buffer.id === draggedBufferId}
-                      onSelect={handleTabSelect}
-                      onDoubleClick={handleDoubleClick}
-                      onContextMenu={handleContextMenu}
-                      onKeyDown={handleTabKeyDown}
-                      handleTabClose={closeTab}
-                      handleTabPin={handleTabPin}
+                  {showChatTab && pane?.chatId && (
+                    <ChatTabItem
+                      chatId={pane.chatId}
+                      isActive={chatIsSelected}
+                      onSelect={handleChatTabSelect}
                     />
-                  </SortableEditorTab>
-                ))}
+                  )}
+                  {sortedBuffers.map((buffer, index) => (
+                    <SortableEditorTab
+                      key={buffer.id}
+                      id={buffer.id}
+                      tabRef={getTabRefCallback(index)}
+                    >
+                      <TabBarItem
+                        buffer={buffer}
+                        displayName={getBufferDisplayName(buffer)}
+                        index={index}
+                        isActive={buffer.id === activeBufferId && !chatIsSelected}
+                        isDraggedTab={buffer.id === draggedBufferId}
+                        onSelect={handleTabSelect}
+                        onDoubleClick={handleDoubleClick}
+                        onContextMenu={handleContextMenu}
+                        onKeyDown={handleTabKeyDown}
+                        handleTabClose={closeTab}
+                        handleTabPin={handleTabPin}
+                      />
+                    </SortableEditorTab>
+                  ))}
 
-                {/* Flows immediately after the last tab and shifts as tabs
+                  {/* Flows immediately after the last tab and shifts as tabs
                     open/close — NOT a SortableEditorTab, so it never joins
                     sortedBufferIds and is never draggable. Last child inside
                     the scroller (spec §7.1). Opens a New Tab page, where
                     what lands in this pane is chosen. */}
-                {paneId && <TabAddButton isBottomPane={isBottomPane} onNewTab={onNewTab} />}
-              </div>
-            </SortableContext>
+                  {paneId && <TabAddButton isBottomPane={isBottomPane} onNewTab={onNewTab} />}
+                </div>
+              </SortableContext>
+              <TabOverflowMenu
+                scrollRef={scrollRef}
+                tabs={overflowTabs}
+                activeId={chatIsSelected ? null : activeBufferId}
+                onSelect={handleOverflowSelect}
+              />
+            </>
           )}
 
           {/* Shortcut into GitPanel's own "Review this branch" action
