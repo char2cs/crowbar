@@ -11,6 +11,7 @@ import (
 
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // handoffCap discovers the live defaultChatLogTurns cap through the real
@@ -109,4 +110,28 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 		"the oldest turn OF THE GAP must be trimmed once the gap itself exceeds the cap")
 	assert.Contains(t, blob, fmt.Sprintf("gap-%d", total-1), "the newest gap turn must survive")
 	assert.Contains(t, blob, "get_chat_log")
+}
+
+// A person's clear ends the conversation the next CLI is told about: what was said
+// before it was discarded on purpose, so no handoff carries it.
+func TestAssembleConversation_ACarriesNothingFromBeforeTheConversationWasCleared(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
+	require.NoError(t, err)
+	say(t, f, chatID, "before-clear")
+	st, err := f.ledger.State(t.Context(), chatID)
+	require.NoError(t, err)
+	cleared, err := ledger.AnnounceCleared(st, "claude", "S2")
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), chatID, cleared...)
+	require.NoError(t, err)
+	say(t, f, chatID, "after-clear")
+
+	blob, err := f.conversations.AssembleHandoff(t.Context(), chatID)
+
+	require.NoError(t, err)
+	assert.NotContains(t, blob, "before-clear")
+	assert.Contains(t, blob, "after-clear")
 }

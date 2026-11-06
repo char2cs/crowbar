@@ -22,7 +22,7 @@ events:
   session_start:
     direction: in
     required: [session_id]
-    optional: [model]
+    optional: [model, reason]
 
   user_prompt:
     direction: in

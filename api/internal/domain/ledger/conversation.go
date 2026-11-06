@@ -11,6 +11,7 @@ const (
 	CauseAnnounced = "announced" // the CLI announced an id of its own
 	CauseFresh     = "fresh"     // Crowbar minted the id to replace a lost session
 	CauseMoved     = "moved"     // the CLI resumed a session another chat held, which gave it up
+	CauseCleared   = "cleared"   // the CLI started over on the person's command, leaving the old one behind
 )
 
 // SessionBound is the body of a session_bound row: from now on the chat's
@@ -18,7 +19,7 @@ const (
 type SessionBound struct {
 	Provider  string `json:"provider"`
 	SessionID string `json:"sessionId"`
-	Cause     string `json:"cause"` // CauseAssigned | CauseAnnounced | CauseFresh | CauseMoved
+	Cause     string `json:"cause"` // CauseAssigned | CauseAnnounced | CauseFresh | CauseMoved | CauseCleared
 	Previous  string `json:"previous,omitempty"`
 	From      string `json:"from,omitempty"` // CauseMoved: the chat that gave the session up
 }
@@ -84,6 +85,9 @@ func (s State) Conversation(provider string) (Conversation, bool) {
 	return s.conversations[i], true
 }
 
+// ClearedAt is when the person last cleared the chat's conversation; zero if never.
+func (s State) ClearedAt() time.Time { return s.clearedAt }
+
 // Conversations is every (provider, session) ever bound, oldest first. A
 // session the chat moved off reads unbound, unless it was lost.
 func (s State) Conversations() []Conversation {
@@ -106,6 +110,9 @@ func (s *State) applySessionBound(r Row) {
 		i = len(s.conversations) - 1
 	}
 	s.conversations[i].State, s.conversations[i].BoundAt, s.conversations[i].Cause = ConversationBound, r.At, body.Cause
+	if body.Cause == CauseCleared {
+		s.clearedAt = r.At
+	}
 	if s.current == nil {
 		s.current = map[string]int{}
 	}
@@ -151,6 +158,16 @@ func Assign(st State, provider, sessionID string) (Row, error) {
 // binding, a change, or a move/conflict when owner (another chat) holds it. Only leaving
 // a session that turned is a change; an unturned one takes owner's session.
 func Announce(st State, provider, sessionID, owner string) ([]Row, error) {
+	return announce(st, provider, sessionID, owner, CauseAnnounced)
+}
+
+// AnnounceCleared is Announce for a session the CLI started because the person
+// cleared the conversation: what was said before it is no conversation of its.
+func AnnounceCleared(st State, provider, sessionID string) ([]Row, error) {
+	return announce(st, provider, sessionID, "", CauseCleared)
+}
+
+func announce(st State, provider, sessionID, owner, cause string) ([]Row, error) {
 	c, ok := st.Conversation(provider)
 	if ok && c.SessionID == sessionID && c.State == ConversationBound {
 		return nil, nil
@@ -160,7 +177,7 @@ func Announce(st State, provider, sessionID, owner string) ([]Row, error) {
 		r, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionConflict, Detail: sessionID})
 		return []Row{r}, err
 	}
-	bound := SessionBound{Provider: provider, SessionID: sessionID, Cause: CauseAnnounced}
+	bound := SessionBound{Provider: provider, SessionID: sessionID, Cause: cause}
 	if owner != "" {
 		bound.Cause, bound.From = CauseMoved, owner
 	}
