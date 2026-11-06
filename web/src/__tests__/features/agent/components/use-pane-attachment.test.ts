@@ -5,12 +5,12 @@ import { usePaneAttachment } from '@/features/agent/components/use-pane-attachme
 import { resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 
-function attachmentOn(chatId: string) {
+function attachmentOn(chatId: string, providerName = 'Claude') {
   return renderHook(() =>
     usePaneAttachment({
       wsId: 'w1',
       chatId,
-      providerName: 'Claude',
+      providerName,
       presentation: 'terminal',
       promptReplacing: false,
     }),
@@ -34,6 +34,17 @@ describe('usePaneAttachment', () => {
       message: 'Claude starts with your first message.',
     })
     expect(result.current.canSend).toBe(true)
+  })
+
+  // A chat with no provider chosen yet names "the agent", which opens the sentence.
+  it('opens the not-yet-started sentence with a capital when no provider is named', () => {
+    seedChats([{ id: 'c1' }])
+    seedFeed('c1')
+
+    expect(attachmentOn('c1', 'the agent').current.attachment).toEqual({
+      state: 'idle',
+      message: 'The agent starts with your first message.',
+    })
   })
 
   it('starts a new chat through the same resume a dormant one takes', () => {
