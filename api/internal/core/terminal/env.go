@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 	"runtime"
@@ -60,6 +61,15 @@ func defaultLocale(
 		return "en_US.UTF-8"
 	}
 	return "C.UTF-8"
+}
+
+// FormatHexColor is c in ParseHexColor's "#rrggbb" form, "" for nil.
+func FormatHexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
 }
 
 // ParseHexColor converts the frontend's "#rgb"/"#rrggbb"/"#rrggbbaa" into a color.Color, or nil (a safe

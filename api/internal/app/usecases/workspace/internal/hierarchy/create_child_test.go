@@ -54,17 +54,19 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 // TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
 // row fails to persist after the worktree + branch were created on disk, both are
 // cleaned up best-effort so a fresh-wsID retry is not blocked by the orphaned
-// branch and the worktree dir does not dangle.
+// branch and the worktree dir does not dangle; even when the caller hung up.
 func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
+	ctx, hangUp := context.WithCancel(t.Context())
 	g := &fakeGit{addStartSha: "sha"}
 	ws := &fakeWorkspace{
 		CreateFn: func(_ context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			hangUp()
 			return domain.Workspace{}, errBoom
 		},
 	}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
+	_, err := uc.CreateChild(ctx, hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",

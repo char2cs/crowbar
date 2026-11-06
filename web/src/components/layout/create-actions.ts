@@ -26,6 +26,7 @@ import {
   createInFlight,
   enabledProvider,
   readUnreadHostProviders,
+  startingProvider,
   startThread,
 } from './thread-create'
 
@@ -114,8 +115,10 @@ export async function handleCreate(
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
     return
   }
-  // A plain new thread on a workspace is a draft: no chat exists until its first send.
-  if (!chatRow && subject.kind === 'workspace' && presentation === undefined) {
+  // A plain new thread on a workspace is a draft: no chat exists until its first send. A draft
+  // is a Chat composer, so with Terminal the default it starts on the terminal like a fork.
+  const landsOnTerminal = createSurfaceFor(startingProvider(projectId)) === 'terminal'
+  if (!chatRow && subject.kind === 'workspace' && presentation === undefined && !landsOnTerminal) {
     const draftId = newDraftChatId()
     if (!openChatInOwnView(draftId, wsId)) {
       await navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, draftId)

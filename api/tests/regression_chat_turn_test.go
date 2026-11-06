@@ -220,7 +220,7 @@ func TestRegression_HooksAfterChatDeleteAreRefusedNotResurrected(t *testing.T) {
 		argAfter(c.launch.Argv, "--session-id"))
 	resp := c.launch.PostHook(t, c.h.url+repoBase(c.imported), "claude", "tool_pre", []byte(payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "a deleted chat's runner is unknown")
-	assert.Equal(t, before+1, chatDeadLetters(t, c.h), "and its hook is dead-lettered")
+	assert.Equal(t, before, chatDeadLetters(t, c.h), "and its hook is expected, not a dead letter")
 	_ = c.h.raw(http.MethodGet, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusNotFound).Body.Close()
 }
 

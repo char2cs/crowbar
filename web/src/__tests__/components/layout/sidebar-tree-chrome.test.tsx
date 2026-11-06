@@ -37,7 +37,7 @@ describe('the leftover "New Project" row is gone', () => {
 
   it('does not mount ImportProjectModal itself', () => {
     renderChrome()
-    expect(screen.queryByText('Import project')).not.toBeInTheDocument()
+    expect(screen.queryByText('Add a space')).not.toBeInTheDocument()
   })
 })
 

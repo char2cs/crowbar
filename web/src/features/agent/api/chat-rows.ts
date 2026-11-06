@@ -48,6 +48,8 @@ export interface ToolCallBody {
   error?: string
   durationMs?: number
   diff?: string
+  /** What a finished call printed, when short enough to read inline. */
+  output?: string
   mcpServer?: string
   mcpTool?: string
   exitCode?: number
@@ -94,6 +96,8 @@ export interface RowBodies {
     delivery?: 'restart' | 'steer' | 'api'
     runnerId?: string
     dispatch?: string
+    /** The refused prompt this one sends again. */
+    retryOf?: string
   }
   turn_started: {
     requestId?: string

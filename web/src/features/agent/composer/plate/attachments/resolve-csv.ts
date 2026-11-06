@@ -20,8 +20,7 @@ export function resolveCsv(bytes: Uint8Array): CsvResolution {
 
   const rows = result.data
   if (rows.length === 0) return { kind: 'file' }
-  // Row count first, and no spread over rows: spreading a huge CSV into a call
-  // overflows the stack.
+  // Row count first, and no spread over rows: spreading a huge CSV into a call overflows the stack.
   if (rows.length > CSV_MAX_ROWS) return { kind: 'file' }
 
   const columnCount = rows[0].length

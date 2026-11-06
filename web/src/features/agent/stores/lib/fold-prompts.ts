@@ -11,7 +11,7 @@ export function setPrompt(fold: FeedFold, requestId: string, fact: PromptFact) {
 }
 
 export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>) {
-  const { requestId, text, origin, delivery } = row.body
+  const { requestId, text, origin, delivery, retryOf } = row.body
   const id = userItemId(requestId, row.seq)
   fold.put({
     kind: 'user',
@@ -25,6 +25,9 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
   })
   fold.place(id, '')
   if (!requestId) return
+  if (retryOf && fold.facts.prompts[retryOf]?.state === 'refused') {
+    setPrompt(fold, retryOf, { state: 'retried', by: requestId })
+  }
   const running = fold.facts.running
   // A prompt steered into the running turn is delivered by its own row.
   const steered = row.turnId && running?.turnId === row.turnId

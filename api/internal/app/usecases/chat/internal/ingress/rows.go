@@ -429,8 +429,8 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 }
 
 // mapIdle is the provider saying it is idle: its running turn ends as any end
-// does, any other end is late. With no turn, a hooks CLI's report means the
-// prompts it carried were never taken; an api connection's, nothing.
+// does; it ends no other, so a compaction's idle records no turn it never began.
+// With no turn, a hooks CLI's report means the prompts it carried were never taken.
 func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 	turnID, rows, closes, err := ledger.EndTurnOf(st, src.RunnerID, "", ledger.TurnEnded{
 		Status: string(ledger.TurnStatusDone), Reason: ledger.ReasonProviderIdle,
@@ -447,12 +447,12 @@ func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 		return append(append(closing, rows...), settled...), Effects{Ended: turnID}, err
 	}
 	if _, running := st.RunningTurn(); running || src.Channel == engineagents.ChannelAPI {
-		return rows, Effects{}, nil
+		return nil, Effects{}, nil
 	}
 	settled, err := ledger.SettleUntaken(st, func(p ledger.Prompt) bool {
 		return p.RunnerID == src.RunnerID && p.Delivery != ledger.DeliverySteer
 	}, src.Command)
-	return append(rows, settled...), Effects{}, err
+	return settled, Effects{}, err
 }
 
 // Salvage is what a runner's exit records of the answers it streamed with no

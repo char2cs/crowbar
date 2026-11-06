@@ -372,22 +372,22 @@ func TestMap_AnIdleThatEndsTheTurnKeepsWhatItSaid(t *testing.T) {
 	assert.Empty(t, c.st.PendingAsks())
 }
 
-// An idle with nothing running is recorded late: on hooks it also says the prompts the CLI
-// carried were never taken, bar a command it ran itself; on an api connection, nothing more.
-func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
+// An idle with nothing running (a compaction is no turn) ends none; on hooks it settles what the CLI carried, its own commands as run.
+func TestMap_AnIdleWithNothingRunningEndsNoTurn(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart), crowbarPrompt(t, "req-2", "/context", ledger.DeliveryRestart))
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookCompactPre, TurnID: "compact-1"}, hooksSource())
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookCompactPost, TurnID: "compact-1"}, hooksSource())
 	src := hooksSource()
 	src.Channel = engineagents.ChannelAPI
 	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
-	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows))
+	assert.Empty(t, rows)
 	assert.Empty(t, fx.Ended)
-
 	src = hooksSource()
 	src.Command = func(text string) bool { return text == "/context" }
 	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
-	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled, ledger.KindPromptSettled}, kinds(rows))
-	assert.Equal(t, []string{ledger.ReasonProviderBuiltin, ledger.ReasonNotAcknowledged}, []string{bodyOf[ledger.PromptSettled](t, rows[1]).Reason, bodyOf[ledger.PromptSettled](t, rows[2]).Reason})
+	require.Equal(t, []ledger.Kind{ledger.KindPromptSettled, ledger.KindPromptSettled}, kinds(rows))
+	assert.Equal(t, []string{ledger.ReasonProviderBuiltin, ledger.ReasonNotAcknowledged}, []string{bodyOf[ledger.PromptSettled](t, rows[0]).Reason, bodyOf[ledger.PromptSettled](t, rows[1]).Reason})
 }
 
 // A late turn_stop closes its turn no second time; what it said lands in it,

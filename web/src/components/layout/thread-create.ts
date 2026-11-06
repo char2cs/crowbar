@@ -99,8 +99,7 @@ export function enabledProvider(projectId: string, preferred = ''): AgentProvide
     toastUnresolvedHost(hostUnavailability({ projectId }))
     return null
   }
-  const enabled = providersOf(useAgentProvidersStore.getState(), hostId).filter((p) => p.enabled)
-  const provider = enabled.find((p) => p.id === preferred) ?? enabled[0]
+  const provider = startingProvider(projectId, preferred)
   if (provider) return provider
   if (hostId === LOCAL_HOST.id) {
     toast.error(
@@ -117,6 +116,14 @@ export function enabledProvider(projectId: string, preferred = ''): AgentProvide
     )
   }
   return null
+}
+
+/** {@link enabledProvider} without a word: what a create would start with, or undefined. */
+export function startingProvider(projectId: string, preferred = ''): AgentProvider | undefined {
+  const hostId = resolvedHostOf({ projectId })
+  if (hostId === null) return undefined
+  const enabled = providersOf(useAgentProvidersStore.getState(), hostId).filter((p) => p.enabled)
+  return enabled.find((p) => p.id === preferred) ?? enabled[0]
 }
 
 /** Reads the provider list of a remote host nobody has asked yet; null when there is

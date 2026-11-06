@@ -72,6 +72,8 @@ func (stubEngine) ListSessionsForChat(
 // tests) and at the endpoint, by the recording engine in hosttheme_test.go.
 func (stubEngine) SetHostTheme(_, _ color.Color) {}
 
+func (stubEngine) HostTheme() (bg, fg color.Color) { return nil, nil }
+
 func (stubEngine) StateOf(_ string) (string, bool) {
 	return "active", true
 }

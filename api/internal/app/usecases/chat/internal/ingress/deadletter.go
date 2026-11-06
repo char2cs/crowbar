@@ -25,9 +25,9 @@ const (
 )
 
 // refusals are the reasons a hook was refused to its sender; a hook kept for any
-// other was acknowledged, as its channel expects.
+// other was acknowledged, as its channel expects, or its sender hung up first.
 var refusals = []string{
-	reasonUnknownRunner, reasonUnknownChat, reasonUnmappable, reasonNoDescriptor, reasonWriteFailed, reasonSenderGone,
+	reasonUnknownRunner, reasonUnknownChat, reasonUnmappable, reasonNoDescriptor, reasonWriteFailed,
 }
 
 // Refusals is how many hooks were refused to their senders and kept.
@@ -62,6 +62,9 @@ func (i *Ingress) deadLetter(ctx context.Context, h hook, chatID, reason string)
 // refuse dead-letters h and answers its sender with refused. A dead letter that
 // fails is only logged: the sender is refused either way.
 func (i *Ingress) refuse(ctx context.Context, h hook, chatID, reason string, refused error) error {
+	if ctx.Err() != nil {
+		reason = reasonSenderGone // its hanging up is why whatever failed after failed
+	}
 	if err := i.deadLetter(ctx, h, chatID, reason); err != nil {
 		slog.ErrorContext(ctx, "ingress: refuse a hook", "runner_id", h.runnerID, "event", h.event, "err", err)
 	}

@@ -285,8 +285,7 @@ export function AgentSelectionPicker({
     [providers],
   )
 
-  // Decides whether the trigger renders, independent of a query that may
-  // filter every row out.
+  // Decides whether the trigger renders, independent of a query that may filter every row out.
   const catalogueProviders = useMemo(
     () =>
       offered.filter((candidate) => candidate.modelSelect && (candidate.models?.length ?? 0) > 0),

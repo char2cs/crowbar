@@ -72,6 +72,11 @@ export function useWorkspaceGit(
       scheduleStatusReload()
     })
     const release = holdScope(hostId, scope)
+    // The daemon re-sends a status only when it differs, so an edit to a file already modified
+    // sends none: the worktree's file change (gitignored paths never arrive) is what says so.
+    const files = `files:${wsId}`
+    const stopFileChanges = onSignal(hostId, files, 'file_change', scheduleStatusReload)
+    const releaseFiles = holdScope(hostId, files)
     // Local actions that know THIS workspace's status is stale (an editor save,
     // push/pull) request a refresh without waiting for the backend watcher.
     const stopRefreshRequests = onGitRefreshRequested(wsId, scheduleStatusReload)
@@ -86,6 +91,8 @@ export function useWorkspaceGit(
       if (timer) clearTimeout(timer)
       stopRefreshRequests()
       stopChanged()
+      releaseFiles()
+      stopFileChanges()
       release()
       stopSignals()
     }

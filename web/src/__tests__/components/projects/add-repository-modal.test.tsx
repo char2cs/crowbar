@@ -93,7 +93,7 @@ function addOp(opId: string, version: number, over: Partial<Operation> = {}): Op
     kind: 'repo.create',
     subject: { kind: 'project', id: 'proj-1' },
     projectId: 'proj-1',
-    label: 'Add my-repo',
+    label: 'Add “my-repo”',
     state: 'running',
     items: [repoItem],
     dismissed: false,
@@ -158,7 +158,7 @@ test('posts the repo under its own project with the folder-name fallback', async
   expect(vi.mocked(api.postRepo)).toHaveBeenCalledWith('proj-1', 'my-repo', '/tmp/my-repo', opId)
   expect(operationsState().ops[opId]).toMatchObject({
     kind: 'repo.create',
-    label: 'Add my-repo',
+    label: 'Add “my-repo”',
   })
 })
 
@@ -201,7 +201,7 @@ test('a failed add re-enables the dialog; the reason comes from the operation', 
   expect(onOpenChange).not.toHaveBeenCalled()
   expect(add).toHaveBeenCalledTimes(1)
   expect(add).toHaveBeenCalledWith(
-    expect.objectContaining({ title: 'Add my-repo failed', description: 'not a git repository' }),
+    expect.objectContaining({ title: 'Add “my-repo” failed', description: 'not a git repository' }),
   )
   add.mockRestore()
 })
@@ -260,7 +260,7 @@ test('a refused add re-enables the dialog and reports the daemon’s reason', as
 
   await waitFor(() => expect(addButton()).not.toBeDisabled())
   expect(navigateMock).not.toHaveBeenCalled()
-  await waitFor(() => expectReported(toasts, 'Add my-repo failed', 'path does not exist'))
+  await waitFor(() => expectReported(toasts, 'Add “my-repo” failed', 'path does not exist'))
 })
 
 test('an add refused while the daemon migrates shows the migrating state, not a toast', async () => {

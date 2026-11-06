@@ -16,11 +16,8 @@ import { browserApi } from '@/lib/browser-bridge'
 const postProject = vi.fn()
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  fetchPrerequisites: async () => ({
-    git: { installed: true, version: 'git 2.0' },
-    gh: { installed: true, authed: true },
-    glab: { installed: true, authed: true },
-  }),
+  fetchPrerequisite: async (tool: string) =>
+    tool === 'git' ? { installed: true, version: 'git 2.0' } : { installed: true, authed: true },
   postProject: (...a: unknown[]) => postProject(...a),
 }))
 
@@ -111,10 +108,10 @@ describe('the root route', () => {
     await waitFor(() => expect(next).not.toBeDisabled(), { timeout: 3000 })
     fireEvent.click(next)
     fireEvent.click(await screen.findByRole('button', { name: /choose a folder/i }))
-    fireEvent.change(screen.getByLabelText('Project folder'), { target: { value: '/srv/app' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    fireEvent.change(screen.getByLabelText('Space folder'), { target: { value: '/srv/app' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add space' }))
 
-    expect(await screen.findByText('Add app failed')).toBeTruthy()
+    expect(await screen.findByText('Add “app” failed')).toBeTruthy()
     expect(screen.getByText('/srv/app is already a project')).toBeTruthy()
   })
 })

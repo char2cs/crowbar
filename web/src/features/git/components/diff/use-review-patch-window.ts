@@ -8,6 +8,7 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import type { ReviewCodeViewHandle } from './review-code-view'
 import type { PatchState } from './review-patch-header'
 import { toAnnotationSide } from './use-review-annotations'
+import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 import type { ReviewAnnotation } from './use-review-annotations'
 
 // Threads are the surface's only annotation, so CodeView's `LAnnotation` is ReviewThread.
@@ -290,6 +291,16 @@ export function useReviewPatchWindow({
     setPatchStates((prev) => (Object.keys(prev).length === 0 ? prev : {}))
   }, [signature])
 
+  // A worktree patch is stale after any git change, so it re-fetches in place; a commit's never.
+  useEffect(() => {
+    if (commit) return
+    return onGitStatusChanged(wsId, () => {
+      for (const [path, held] of heldRef.current) {
+        if (held.state === 'ready') void materialize(path)
+      }
+    })
+  }, [wsId, commit, materialize])
+
   // Same files, new geometry (± counts moved on a git-status tick) is no remount: republish
   // files still on a placeholder; a materialised file's height is measured, not estimated.
   useEffect(() => {
@@ -330,9 +341,8 @@ export function useReviewPatchWindow({
     }
   }, [annotationsByPath])
 
-  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff,
-  // so the header's ± counts survive, and only the paths whose flag moved are
-  // touched.
+  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff, so the header's ±
+  // counts survive, and only the paths whose flag moved are touched.
   const collapsedRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
     const handle = handleRef.current

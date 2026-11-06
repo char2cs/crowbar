@@ -2,7 +2,9 @@ import type { LandingChatPresentation } from '@/features/settings/lib/chat-prese
 import { openHomeChat, type NavigateFn } from './open-actions'
 import { newDraftChatId } from '@/features/agent/lib/draft-chat'
 import { draftLanding, finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
-import { startThread } from './thread-create'
+import { createSurfaceFor } from '@/features/agent/api/agent-providers-api'
+import { IS_MOBILE } from '@/utils/platform'
+import { startThread, startingProvider } from './thread-create'
 
 // Creates in a project's home: it rides no repo, so its rows live in
 // the entity store; the operation's row stands in until the chat lands there.
@@ -24,13 +26,24 @@ export function startHomeRowThread(
 }
 
 // The tree foot's "New thread" in the project home workspace, which `handleCreate` cannot reach
-// (home is in no repo): opens a fresh draft chat there. The caller resolves `homeWorkspaceId`.
+// (home is in no repo): opens a fresh draft chat there, or with Terminal the default, starts on
+// the terminal like a fork (a draft is a Chat composer). The caller resolves `homeWorkspaceId`.
 export function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,
   navigate: NavigateFn,
 ): Promise<void> {
-  return openHomeChat(projectId, homeWorkspaceId, newDraftChatId(), navigate)
+  if (IS_MOBILE || createSurfaceFor(startingProvider(projectId)) !== 'terminal') {
+    return openHomeChat(projectId, homeWorkspaceId, newDraftChatId(), navigate)
+  }
+  return startThread({
+    inFlightKey: `thread:home:${homeWorkspaceId}`,
+    projectId,
+    workspaceId: homeWorkspaceId,
+    parentId: '',
+    presentation: 'terminal',
+    onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
+  })
 }
 
 /** Creates the chat a project-home draft was waiting to become, with its first prompt. */

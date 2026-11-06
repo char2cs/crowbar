@@ -16,11 +16,13 @@ const (
 	ToolFail = "fail" // it failed or was declined
 )
 
-// The tool kinds the ledger reads: a call into an MCP server, and a call that
-// spawns a subagent.
+// The tool kinds the ledger reads: a call into an MCP server, one that spawns
+// a subagent, and one whose target is the file it reads or edits.
 const (
 	ToolKindMCP      = "mcp"
 	ToolKindSubagent = "subagent"
+	ToolKindRead     = "read"
+	ToolKindEdit     = "edit"
 )
 
 // ToolCall is the body of a tool_call row: one phase of one tool call.
@@ -38,6 +40,8 @@ type ToolCall struct {
 	Error      string         `json:"error,omitempty"`
 	DurationMS int            `json:"durationMs,omitempty"`
 	Diff       string         `json:"diff,omitempty"`
+	// Output is what a finished call printed, when it is short enough to read inline.
+	Output string `json:"output,omitempty"`
 	// MCPServer and MCPTool name a call of kind ToolKindMCP; the server is
 	// absent where its channel does not say it.
 	MCPServer   string `json:"mcpServer,omitempty"`

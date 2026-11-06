@@ -4,7 +4,6 @@
 package ingress
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -99,8 +98,12 @@ func (i *Ingress) Hook(
 ) (Reply, error) {
 	h := hook{runnerID: runnerID, provider: provider, event: event, raw: raw}
 	runner, ok, err := i.resolve(ctx, runnerID)
-	if err != nil || !ok {
-		return Reply{}, i.refuse(ctx, h, "", reasonUnknownRunner, cmp.Or(err, ErrUnknownRunner))
+	if err != nil {
+		return Reply{}, i.refuse(ctx, h, "", reasonUnknownRunner, err)
+	}
+	if !ok { // the door admits only runners this daemon minted: this one's chat was erased
+		slog.DebugContext(ctx, "ingress: drop a hook of an erased chat's runner", "runner_id", runnerID, "event", event)
+		return Reply{}, ErrUnknownRunner
 	}
 	chatID := runner.CurrentChatID
 	if provider != "" && provider != runner.ProviderID {

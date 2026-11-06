@@ -349,10 +349,12 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 
 		EditBefore: mapping.String(decoded, fields["edit_before"]),
 		EditAfter:  mapping.String(decoded, fields["edit_after"]),
+		Cwd:        mapping.String(decoded, fields["cwd"]),
 		Diff:       buildDiffFiles(diffFiles, decoded),
 		Patch:      buildPatch(patch, decoded),
 
 		Result:         mapping.JSON(decoded, fields["tool_result"]),
+		Output:         mapping.String(decoded, fields["tool_output"]),
 		Error:          mapping.String(decoded, fields["tool_error"]),
 		Status:         status,
 		DurationMS:     duration,

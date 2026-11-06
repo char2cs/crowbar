@@ -44,6 +44,8 @@ type UserMessage struct {
 	// Dispatch is the text the CLI is handed, when it is not Text: attachments
 	// resolved and leading sigils escaped. A steered prompt is delivered from it.
 	Dispatch string `json:"dispatch,omitempty"`
+	// RetryOf is the refused prompt this one sends again: that prompt is then retried.
+	RetryOf string `json:"retryOf,omitempty"`
 }
 
 // TurnStarted is the body of a turn_started row: the provider took the turn,
