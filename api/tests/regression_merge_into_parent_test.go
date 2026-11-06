@@ -3,9 +3,14 @@
 package tests
 
 import (
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -30,4 +35,27 @@ func TestRegression_MergeStrategyCreatesAMergeCommit(t *testing.T) {
 	parents := strings.Fields(runGitOut(t, rows["feature/a"].Worktree.LocalPath, "log", "-1", "--format=%P"))
 	require.Len(t, parents, 2, "the parent's tip must be a merge commit")
 	require.Equal(t, childTip, parents[1], "the merge commit's second parent is the child's tip")
+}
+
+// A merge asked to delete a child whose chat is mid-turn is refused before
+// anything merges, with the reason, so nothing is left half-done.
+func TestRegression_AMergeThatWouldDeleteAWorkingChildIsRefusedFirst(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	var child chatRow
+	c.h.get(repoBase(c.imported)+"/chats/"+c.imported.chatID, &child)
+	require.NotNil(t, child.Worktree)
+	require.NoError(t, os.WriteFile(filepath.Join(child.Worktree.LocalPath, "child.txt"), []byte("c\n"), 0o600))
+	runGit(t, child.Worktree.LocalPath, "add", ".")
+	runGit(t, child.Worktree.LocalPath, "commit", "-m", "child")
+	parentTip := runGitOut(t, c.imported.repoPath, "rev-parse", "HEAD")
+	c.startTurn(t, c.launch, "A")
+
+	resp := c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.imported.chatID+"/merge-into-parent",
+		map[string]any{"strategy": "merge", "deleteSource": true}, http.StatusConflict)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.Contains(t, string(body), "the chat is working: stop it first")
+	assert.Equal(t, parentTip, runGitOut(t, c.imported.repoPath, "rev-parse", "HEAD"), "nothing merged")
 }

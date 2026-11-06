@@ -69,3 +69,7 @@ var ErrBranchHeldByManagedWorkspace = problem.New(problem.Conflict,
 // ErrWorkspaceWorking is returned when a reparent's subtree owns a working chat (the chat tree's
 // guardNotWorking rule), before any git work, so a turn is never displaced.
 var ErrWorkspaceWorking = problem.New(problem.Conflict, "usecases: workspace has a working chat")
+
+// ErrMergeSourceWorking refuses a merge that would delete its child while a chat
+// there works, before any git: a merge is never left half-done.
+var ErrMergeSourceWorking = problem.New(problem.ChatBusy, "the chat is working: stop it first")
