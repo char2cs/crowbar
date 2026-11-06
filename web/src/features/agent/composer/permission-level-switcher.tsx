@@ -4,6 +4,7 @@ import {
   type PermissionLevel,
 } from '@/features/agent/api/agent-providers-api'
 import { setChatPermissionLevel } from '@/features/agent/api/agent-chat-commands'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import {
@@ -14,12 +15,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-// The last confirmed pick per chat, so it survives the remount between prompts.
-// Not backend truth: there is no GET for a chat's level.
-const lastPickedLevel = new Map<string, PermissionLevel>()
-
-/** Write-only: it never shows a level the backend cannot confirm, and offers only
- *  levels the provider declares — the server rejects the rest. */
+/** Shows the level the chat is pinned to, and offers only levels the provider
+ *  declares — the server rejects the rest. */
 export function PermissionLevelSwitcher({
   wsId,
   chatId,
@@ -29,32 +26,29 @@ export function PermissionLevelSwitcher({
   chatId: string
   availableLevels?: PermissionLevel[]
 }) {
-  const [level, setLevel] = useState<PermissionLevel | ''>(() => lastPickedLevel.get(chatId) ?? '')
+  const pinned = useChatField(chatId, (c) => c?.permissionLevel ?? '')
+  // The person's pick shows from the moment it is made; a failed one falls back.
+  const [picked, setPicked] = useState<PermissionLevel | null>(null)
+  const level = picked ?? pinned
   // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
   const handleChange = useCallback(
     (value: PermissionLevel | '' | null) => {
       if (!value) return
-      const previous = level
       const generation = ++writeGeneration.current
-      setLevel(value)
-      setChatPermissionLevel(wsId, chatId, value)
-        .then(() => {
-          if (writeGeneration.current !== generation) return // superseded by a later pick
-          lastPickedLevel.set(chatId, value)
-        })
-        .catch((err: unknown) => {
-          if (writeGeneration.current !== generation) return
-          setLevel(previous)
-          if (toastHostFailure(err)) return
-          toast.error(
-            'Could not set permission level',
-            'Crowbar could not reach the daemon — try again.',
-          )
-        })
+      setPicked(value)
+      setChatPermissionLevel(wsId, chatId, value).catch((err: unknown) => {
+        if (writeGeneration.current !== generation) return // superseded by a later pick
+        setPicked(null)
+        if (toastHostFailure(err)) return
+        toast.error(
+          'Could not set permission level',
+          'Crowbar could not reach the daemon — try again.',
+        )
+      })
     },
-    [level, wsId, chatId],
+    [wsId, chatId],
   )
 
   const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => availableLevels?.includes(opt.value))

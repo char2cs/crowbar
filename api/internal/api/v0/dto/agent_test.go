@@ -292,3 +292,13 @@ func TestTerminalWaitDTOFrom_AnswersExposeIDAndLabelOnly(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, []dto.AgentTerminalAnswerDTO{{ID: "accept", Label: "Trust workspace"}}, got.Answers)
 }
+
+// A chat's own level rides the chat; an inherited one is the default's, not the chat's.
+func TestAgentChatDTOFrom_CarriesOnlyAPinnedPermissionLevel(t *testing.T) {
+	pinned := dto.AgentChatDTOFrom(domain.Chat{ID: "c1", PermissionLevel: "trusted", PermissionLevelExplicit: true},
+		dto.ChatRuntime{}, nil)
+	assert.Equal(t, "trusted", pinned.PermissionLevel)
+
+	inherited := dto.AgentChatDTOFrom(domain.Chat{ID: "c2", PermissionLevel: "guarded"}, dto.ChatRuntime{}, nil)
+	assert.Empty(t, inherited.PermissionLevel)
+}
