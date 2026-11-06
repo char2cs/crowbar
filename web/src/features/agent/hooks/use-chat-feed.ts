@@ -6,7 +6,6 @@ import {
   liveKey,
   type ChatFeed,
   type TranscriptItem,
-  type TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
 import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import { displayRows, type DisplayRow } from '@/features/agent/transcript/lib/tool-runs'
@@ -22,10 +21,6 @@ export function useChatFeed(chatId: string | undefined) {
 
 const feedOf = (feeds: Record<string, ChatFeed>, chatId: string | undefined) =>
   chatId ? feeds[chatId] : undefined
-
-export function useChatOrder(chatId: string | undefined): string[] {
-  return useChatStore((s) => feedOf(s.feeds, chatId)?.order ?? EMPTY_IDS)
-}
 
 const NO_ROWS: DisplayRow[] = []
 // An order array is replaced whenever an item joins it, and the grouping reads
@@ -76,10 +71,6 @@ export function useLiveReasoning(chatId: string | undefined): string | undefined
     const feed = feedOf(s.feeds, chatId)
     return feed?.liveReasoning ? feed.live[feed.liveReasoning] : undefined
   })
-}
-
-export function useTurnFacts(chatId: string | undefined): TurnFacts | undefined {
-  return useChatStore((s) => feedOf(s.feeds, chatId)?.facts)
 }
 
 export function useFeedStatus(chatId: string | undefined): ChatFeed['status'] | undefined {
