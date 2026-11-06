@@ -73,7 +73,8 @@ export const defaultSettings: Settings = {
     breadcrumbs: true,
   },
   // Advanced
-  showBuildReadout: true,
+  // A developer's diagnostic: a shipped build starts without it.
+  showBuildReadout: import.meta.env.DEV,
   buildBadgeOverride: 'auto',
   // Other
   maxOpenTabs: 100,
