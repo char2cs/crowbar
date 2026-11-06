@@ -197,7 +197,7 @@ func toolLocations(tool *engineagents.ToolEvent) []ledger.ToolLocation {
 	}
 	out := make([]ledger.ToolLocation, 0, len(tool.Locations))
 	for _, l := range tool.Locations {
-		out = append(out, ledger.ToolLocation{Path: l.Path, Line: l.Line})
+		out = append(out, ledger.ToolLocation{Path: sessionPath(l.Path, tool.Cwd), Line: l.Line})
 	}
 	return out
 }

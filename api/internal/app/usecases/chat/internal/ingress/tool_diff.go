@@ -27,10 +27,15 @@ func toolResultDiff(tool *engineagents.ToolEvent) string {
 // diffName is how a diff names path: from cwd, the session's directory, when
 // the file is inside it; else the path itself.
 func diffName(path, cwd string) string {
+	return strings.TrimLeft(sessionPath(path, cwd), "/")
+}
+
+// sessionPath is path relative to cwd when it lies inside it, else path as given.
+func sessionPath(path, cwd string) string {
 	if rel, err := filepath.Rel(cwd, path); err == nil && cwd != "" && filepath.IsAbs(path) && filepath.IsLocal(rel) {
 		return filepath.ToSlash(rel)
 	}
-	return strings.TrimLeft(path, "/")
+	return path
 }
 
 // editDiff renders one edit's before/after text as a single-hunk unified diff.
