@@ -61,16 +61,13 @@ function CheckRow({
 
 // ─── Prerequisites step ──────────────────────────────────────────────────────
 
+// git is required; a forge CLI only adds GitHub/GitLab features, so missing one is a warning.
 function prereqStatus(
   check: { installed: boolean; authed?: boolean } | undefined,
-  isProvider: boolean,
-  otherProviderOk: boolean,
+  isForge: boolean,
 ): CheckStatus {
   if (check === undefined) return 'loading'
-  if (isProvider) {
-    if (check.authed) return 'ok'
-    return otherProviderOk ? 'warn' : 'error'
-  }
+  if (isForge) return check.authed ? 'ok' : 'warn'
   return check.installed ? 'ok' : 'error'
 }
 
@@ -84,23 +81,15 @@ function PrerequisitesStep({
   onRetry: () => void
 }) {
   const checked = prereqs !== null
-  const ghOk = !!prereqs?.gh.authed
-  const glabOk = !!prereqs?.glab.authed
 
-  const gitStatus = prereqStatus(prereqs?.git, false, false)
-  const ghStatus = prereqStatus(prereqs?.gh, true, glabOk)
-  const glabStatus = prereqStatus(prereqs?.glab, true, ghOk)
+  const gitStatus = prereqStatus(prereqs?.git, false)
+  const ghStatus = prereqStatus(prereqs?.gh, true)
+  const glabStatus = prereqStatus(prereqs?.glab, true)
 
-  const canContinue =
-    prereqs !== null && prereqs.git.installed && (prereqs.gh.authed || prereqs.glab.authed)
+  const canContinue = prereqs !== null && prereqs.git.installed
 
-  const blockedReason = !checked
-    ? null
-    : !prereqs?.git.installed
-      ? 'Git is required. Install it from git-scm.com.'
-      : !prereqs?.gh.authed && !prereqs?.glab.authed
-        ? 'Authenticate with at least one provider: run gh auth login or glab auth login.'
-        : null
+  const blockedReason =
+    checked && !prereqs?.git.installed ? 'Git is required. Install it from git-scm.com.' : null
 
   return (
     <div className="flex flex-col gap-2">
