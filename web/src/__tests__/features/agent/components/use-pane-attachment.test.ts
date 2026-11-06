@@ -83,6 +83,15 @@ describe('usePaneAttachment', () => {
     )
   })
 
+  it('says it is connecting while a dormant chat with history starts its CLI', () => {
+    seedChats([{ id: 'c1', liveRunnerId: '', phase: 'starting' }])
+    seedFeed('c1')
+
+    expect(attachmentOn('c1', { presentation: 'chat' }).current.connecting).toBe(
+      'Connecting to Claude…',
+    )
+  })
+
   it('says nothing about connecting once the switch has landed', () => {
     seedChats([{ id: 'c1', liveRunnerId: 'r1', phase: 'live' }])
     seedFeed('c1')

@@ -92,9 +92,9 @@ export function usePaneAttachment({
       ? { state: 'reviving', message: attachment.message }
       : undefined
   const sessionNote = chatSide && attachment.state === 'idle' ? attachment.message : undefined
-  // A live CLI being moved onto the chat surface: sends queue, but nothing answers yet.
+  // A CLI starting or moving onto the chat surface: sends queue, but nothing answers yet.
   const connecting =
-    chatSide && attachment.state === 'attached' && (phase === 'starting' || phase === 'switching')
+    chatSide && (phase === 'starting' || phase === 'switching')
       ? `Connecting to ${providerName}…`
       : undefined
 

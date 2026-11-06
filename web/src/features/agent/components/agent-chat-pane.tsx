@@ -356,7 +356,7 @@ export function AgentChatPaneBody({
               live={attachment.state === 'attached' || deliveryPending}
               canSend={canSend}
               sessionNote={sessionNote}
-              connecting={connecting}
+              connecting={revivingBannerShown ? undefined : connecting}
               // In split the chat is in front of the user, so it is active.
               active={presentation === 'chat' || splitting}
               visible={isVisible && (known || (!listSeeded && placed))}
