@@ -1,5 +1,6 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { MarkerKind, PlanItem, RowBodies, ToolCallBody } from '@/features/agent/api/chat-rows'
+import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
 
 interface ItemBase {
@@ -182,7 +183,7 @@ export interface ChatFeed {
   order: string[]
   /** Ids known only from deltas, after the order. */
   liveTail: string[]
-  items: Record<string, TranscriptItem>
+  items: ItemMap
   /** `<stream>:<delta id>` → live text; each stream numbers its own frames. */
   live: Record<string, string>
   liveN: Record<string, number>

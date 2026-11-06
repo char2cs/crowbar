@@ -14,6 +14,7 @@ import type {
   ChatFeed,
   TranscriptItem,
 } from '@/features/agent/stores/lib/transcript-items'
+import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
 
 export interface ComposerFacts {
@@ -60,13 +61,9 @@ function haltOf(item: TranscriptItem | undefined): ComposerFacts['halted'] {
 /** How far back from the newest row a running main tool is looked for. */
 const TOOL_LOOKBACK = 50
 
-function runningTool(
-  order: string[],
-  items: Record<string, TranscriptItem> | undefined,
-  turn?: string,
-) {
+function runningTool(order: string[], items: ItemMap | undefined, turn?: string) {
   for (let i = order.length - 1; i >= Math.max(0, order.length - TOOL_LOOKBACK); i--) {
-    const item = items?.[order[i]!]
+    const item = items?.get(order[i]!)
     if (item?.kind === 'user') continue
     if (item?.turnId !== turn) break
     if (
@@ -97,7 +94,7 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   const asks = useMemo(
     () =>
       (openAsks ?? [])
-        .map((id) => items?.[id])
+        .map((id) => items?.get(id))
         .filter((item): item is AskItem => item?.kind === 'ask' && item.choice.pending),
     [openAsks, items],
   )
@@ -105,12 +102,12 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   const fromOrder = useMemo(() => {
     const userTexts: string[] = []
     for (const id of order) {
-      const item = items?.[id]
+      const item = items?.get(id)
       if (item?.kind === 'user' && (item.origin === 'crowbar' || item.origin === 'provider')) {
         userTexts.push(item.text)
       }
     }
-    const last = items?.[order.at(-1) ?? '']
+    const last = items?.get(order.at(-1) ?? '')
     return {
       userTexts,
       halted: haltOf(last),

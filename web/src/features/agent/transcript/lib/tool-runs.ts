@@ -1,3 +1,4 @@
+import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolItem, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 
 /** One transcript line: an item, or a run of read-only calls keyed by its first. */
@@ -15,11 +16,11 @@ const foldable = (item: TranscriptItem | undefined): item is ToolItem =>
 /** The order as drawn: meta and plan calls hidden, consecutive read-only calls
  *  of one turn folded into a run whose key stays as it grows. Depends only on
  *  each item's kind, family and turn, which never change. */
-export function displayRows(order: string[], items: Record<string, TranscriptItem>): DisplayRow[] {
+export function displayRows(order: string[], items: ItemMap): DisplayRow[] {
   const rows: DisplayRow[] = []
   let run: (DisplayRow & { members: string[]; turn?: string }) | null = null
   for (const id of order) {
-    const item = items[id]
+    const item = items.get(id)
     if (item?.kind === 'tool' && HIDDEN.has(item.family)) continue
     if (!foldable(item)) {
       run = null

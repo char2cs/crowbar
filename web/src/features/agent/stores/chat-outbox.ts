@@ -312,7 +312,7 @@ export function stopTurn(wsId: string, chatId: string): Promise<void> {
 export function retryPrompt(wsId: string, chatId: string, requestId: string, steer: boolean) {
   const freshId = mintRequestId()
   const feed = chatStore.getState().feeds[chatId]
-  const row = feed?.items[`p:${requestId}`]
+  const row = feed?.items.get(`p:${requestId}`)
   watch()
   update(chatId, (items) => {
     const retried = retryFailed(items, requestId, freshId)

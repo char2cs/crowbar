@@ -77,7 +77,9 @@ function useNewestFailure(chatId: string, id: string): boolean {
     const feed = s.feeds[chatId]
     if (!feed || (s.outbox[chatId]?.length ?? 0) > 0) return false
     const at = feed.order.indexOf(id)
-    return at >= 0 && feed.order.slice(at + 1).every((later) => feed.items[later]?.kind !== 'user')
+    return (
+      at >= 0 && feed.order.slice(at + 1).every((later) => feed.items.get(later)?.kind !== 'user')
+    )
   })
 }
 
@@ -87,7 +89,7 @@ function usePromptOf(chatId: string, turnId: string | undefined): string | undef
     const feed = s.feeds[chatId]
     if (!feed || !turnId) return undefined
     for (const id of feed.order) {
-      const item = feed.items[id]
+      const item = feed.items.get(id)
       if (item?.kind === 'user' && item.turnId === turnId) return item.text
     }
     return undefined

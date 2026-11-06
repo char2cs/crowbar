@@ -40,7 +40,7 @@ export function SubagentShelf({ chatId }: { chatId: string }) {
   const running = useChatStore(
     useShallow((s) => {
       const feed = s.feeds[chatId]
-      return (feed?.facts.liveSubagents ?? []).map((id) => feed?.items[id] as SubagentItem)
+      return (feed?.facts.liveSubagents ?? []).map((id) => feed?.items.get(id) as SubagentItem)
     }),
   )
 

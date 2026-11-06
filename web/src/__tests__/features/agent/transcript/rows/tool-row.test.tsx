@@ -297,7 +297,7 @@ describe('ToolRow', () => {
     draw('t:tool-1')
     expect(status()).toBe('interrupted')
     expect(screen.getByText('Stopped')).toBeInTheDocument()
-    expect(chatStore.getState().feeds['chat-1']?.items['t:tool-2']).toMatchObject({
+    expect(chatStore.getState().feeds['chat-1']?.items.get('t:tool-2')).toMatchObject({
       status: 'abandoned',
     })
   })

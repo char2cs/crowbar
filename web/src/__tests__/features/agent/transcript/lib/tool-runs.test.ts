@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCallBody } from '@/features/agent/api/chat-rows'
+import { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolItem, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 import { toolFamily } from '@/features/agent/transcript/lib/tool-family'
 import { displayRows, runSentence } from '@/features/agent/transcript/lib/tool-runs'
@@ -40,10 +41,11 @@ const text = (id: string): TranscriptItem => ({
 })
 
 function rowsOf(list: TranscriptItem[]) {
-  const items = Object.fromEntries(list.map((item) => [item.id, item]))
+  const items = ItemMap.empty.edit()
+  for (const item of list) items.set(item)
   return displayRows(
     list.map((item) => item.id),
-    items,
+    items.finish(),
   )
 }
 

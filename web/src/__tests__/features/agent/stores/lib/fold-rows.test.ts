@@ -24,7 +24,7 @@ describe('applyRow', () => {
       l.tool('turn-1', 'tool-1', 'post'),
     ])
     expect(feed.order).toEqual(['p:r1', 'm:turn-1:m1', 't:tool-1'])
-    expect(feed.items['m:turn-1:m1']?.seq).toBe(3)
+    expect(feed.items.get('m:turn-1:m1')?.seq).toBe(3)
   })
 
   it('keeps the p:<requestId> id from user_message through settle', () => {
@@ -89,10 +89,10 @@ describe('applyRow', () => {
     const turn = prompt.turnId!
     const feed = applyRows(feedAt(prompt.seq - 1), rows)
 
-    const reply = feed.order.find((id) => feed.items[id]?.kind === 'text')
-    const thought = feed.order.find((id) => feed.items[id]?.kind === 'reasoning')
+    const reply = feed.order.find((id) => feed.items.get(id)?.kind === 'text')
+    const thought = feed.order.find((id) => feed.items.get(id)?.kind === 'reasoning')
     expect(feed.order).toEqual([`p:${prompt.body.requestId}`, thought, reply, 'k:54'])
-    expect(feed.items[reply!]?.turnId).toBe(turn)
+    expect(feed.items.get(reply!)?.turnId).toBe(turn)
   })
 
   it('folds a reply that streamed before its rows into the item a replay folds', () => {
@@ -101,7 +101,7 @@ describe('applyRow', () => {
     const rows = [l.text('turn-1', 'm1', 0, 'one\ntwo', true), l.end('turn-1')]
     const replayed = applyRows(emptyFeed(), [...head, ...rows])
     const streamed = applyRows(applyLive(applyRows(emptyFeed(), head), delta('m1', 1, 'one')), rows)
-    expect(streamed.items['m:turn-1:m1']).toEqual(replayed.items['m:turn-1:m1'])
+    expect(streamed.items.get('m:turn-1:m1')).toEqual(replayed.items.get('m:turn-1:m1'))
   })
 
   it('streams a stopped turn above its marker at every moment (recorded codex Stop)', () => {
@@ -119,7 +119,7 @@ describe('applyRow', () => {
       const reasoned = row.seq >= 57 ? [thought] : []
       expect(shown(feed)).toEqual([`p:${prompt.body.requestId}`, ...reasoned, text, 'k:54'])
       // A settled text stops following its stream, so it must hold the words itself.
-      const item = feed.items[text] as TextItem
+      const item = feed.items.get(text) as TextItem
       if (item.settled) expect(item.text).toMatch(/^1\. Apple/)
     }
   })
@@ -197,10 +197,10 @@ describe('applyRow', () => {
       l.text('turn-1', 'm1', 1, 'lo'),
       l.text('turn-1', 'm1', 0, 'Hel'),
     ])
-    let item = feed.items['m:turn-1:m1'] as TextItem
+    let item = feed.items.get('m:turn-1:m1') as TextItem
     expect(item).toMatchObject({ text: 'Hello', settled: false })
     feed = applyRow(feed, l.text('turn-1', 'm1', 2, '!', true))
-    item = feed.items['m:turn-1:m1'] as TextItem
+    item = feed.items.get('m:turn-1:m1') as TextItem
     expect(item).toMatchObject({ text: 'Hello!', settled: true })
   })
 
@@ -211,13 +211,13 @@ describe('applyRow', () => {
       l.text('turn-1', 'm1', 2, 'xx'),
       l.text('turn-1', 'm1', -1, 'Hello world'),
     ])
-    expect(feed.items['m:turn-1:m1']).toMatchObject({ text: 'Hello world', settled: true })
+    expect(feed.items.get('m:turn-1:m1')).toMatchObject({ text: 'Hello world', settled: true })
   })
 
   it('settles every text of a turn when the turn ends', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [l.text('turn-1', 'm1', 0, 'Hel'), l.end('turn-1')])
-    expect(feed.items['m:turn-1:m1']).toMatchObject({ text: 'Hel', settled: true })
+    expect(feed.items.get('m:turn-1:m1')).toMatchObject({ text: 'Hel', settled: true })
   })
 
   it('reads a tool still running when its turn was interrupted as interrupted', () => {
@@ -229,11 +229,11 @@ describe('applyRow', () => {
       l.tool('turn-1', 'open', 'pre'),
       l.end('turn-1', 'interrupted'),
     ])
-    expect((feed.items['t:done'] as ToolItem).status).toBe('ok')
-    expect((feed.items['t:open'] as ToolItem).status).toBe('interrupted')
+    expect((feed.items.get('t:done') as ToolItem).status).toBe('ok')
+    expect((feed.items.get('t:open') as ToolItem).status).toBe('interrupted')
     expect(feed.facts.running).toBeNull()
     expect(feed.order.at(-1)).toBe('k:5')
-    expect(feed.items['k:5']).toMatchObject({ kind: 'marker', marker: 'turn_interrupted' })
+    expect(feed.items.get('k:5')).toMatchObject({ kind: 'marker', marker: 'turn_interrupted' })
   })
 
   it('applies a row once when it arrives in replay and live', () => {
@@ -253,8 +253,8 @@ describe('applyRow', () => {
       l.text('turn-1', 'm1', 0, 'a'),
     ])
     const after = applyRow(before, l.text('turn-1', 'm1', 1, 'b'))
-    expect(after.items['p:r1']).toBe(before.items['p:r1'])
-    expect(after.items['m:turn-1:m1']).not.toBe(before.items['m:turn-1:m1'])
+    expect(after.items.get('p:r1')).toBe(before.items.get('p:r1'))
+    expect(after.items.get('m:turn-1:m1')).not.toBe(before.items.get('m:turn-1:m1'))
     expect(after.order).toBe(before.order)
     expect(after.facts).toBe(before.facts)
     expect(after.scoped).toBe(before.scoped)
@@ -293,7 +293,7 @@ describe('applyRow', () => {
       ),
     )
     expect(feed.facts.openAsks).toEqual(['a:q1'])
-    expect((feed.items['a:q1'] as AskItem).choice).toMatchObject({
+    expect((feed.items.get('a:q1') as AskItem).choice).toMatchObject({
       id: 'q1',
       pending: true,
       answerable: true,
@@ -303,7 +303,7 @@ describe('applyRow', () => {
       l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['y'] }),
     )
     expect(feed.facts.openAsks).toEqual([])
-    expect((feed.items['a:q1'] as AskItem).choice).toMatchObject({
+    expect((feed.items.get('a:q1') as AskItem).choice).toMatchObject({
       pending: false,
       answeredOptionIds: ['y'],
     })
@@ -370,7 +370,7 @@ describe('applyRow', () => {
       ),
     ])
     expect(feed.order).toEqual(['m:turn-1:final-turn-1'])
-    expect(feed.items['m:turn-1:final-turn-1']).toMatchObject({ text: 'Hello there' })
+    expect(feed.items.get('m:turn-1:final-turn-1')).toMatchObject({ text: 'Hello there' })
   })
 })
 
@@ -418,9 +418,52 @@ describe('FeedFold', () => {
       fold.apply(row)
     const { items } = fold.finish()
 
-    expect((items['m:turn-a:ma'] as TextItem).settled).toBe(true)
-    expect((items['t:tool-a'] as ToolItem).status).toBe('abandoned')
-    expect((items['m:turn-b:mb'] as TextItem).settled).toBe(false)
-    expect((items['t:tool-b'] as ToolItem).status).toBe('running')
+    expect((items.get('m:turn-a:ma') as TextItem).settled).toBe(true)
+    expect((items.get('t:tool-a') as ToolItem).status).toBe('abandoned')
+    expect((items.get('m:turn-b:mb') as TextItem).settled).toBe(false)
+    expect((items.get('t:tool-b') as ToolItem).status).toBe('running')
+  })
+})
+
+describe('a long chat', () => {
+  /** A replayed chat of `turns` turns, each a prompt, ten tool calls and a reply. */
+  function chatOf(turns: number) {
+    const l = ledger()
+    const fold = new FeedFold(emptyFeed())
+    for (let t = 0; t < turns; t++) {
+      const turn = `turn-${t}`
+      fold.apply(l.prompt(`r${t}`, 'go'))
+      fold.apply(l.start(turn, `r${t}`))
+      for (let i = 0; i < 10; i++) {
+        fold.apply(l.tool(turn, `${turn}-tool-${i}`, 'pre', 'Bash'))
+        fold.apply(l.tool(turn, `${turn}-tool-${i}`, 'post', 'Bash'))
+      }
+      fold.apply(l.text(turn, 'm', -1, 'done'))
+      fold.apply(l.end(turn))
+    }
+    return { feed: fold.finish(), l }
+  }
+
+  /** The fastest of a few runs of `rows` tool calls folded live, one row at a time. */
+  function liveFold(turns: number, rows: number): number {
+    const { feed, l } = chatOf(turns)
+    let best = Infinity
+    for (let run = 0; run < 3; run++) {
+      const live = ledger('chat-1', l.seq + 1)
+      let next = applyRow(feed, live.start('live', undefined))
+      const started = performance.now()
+      for (let i = 0; i < rows; i++)
+        next = applyRow(next, live.tool('live', `live-${i}`, 'pre', 'Bash'))
+      best = Math.min(best, performance.now() - started)
+    }
+    return best
+  }
+
+  it('folds a live row in a time that does not grow with the chat', () => {
+    const short = liveFold(30, 300)
+    const long = liveFold(3000, 300)
+    // 100× the items. The order is still copied per placed row (a flat array);
+    // copying every item per row made it over 100× slower.
+    expect(long).toBeLessThan(Math.max(short, 1) * 40)
   })
 })

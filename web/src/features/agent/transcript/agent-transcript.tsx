@@ -306,7 +306,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     const byId = new Map<string, UserItem>()
     for (const item of outbox) {
       const id = `p:${item.requestId}`
-      if (!items?.[id]) byId.set(id, asUser(item))
+      if (!items?.has(id)) byId.set(id, asUser(item))
     }
     return byId
   }, [outbox, items])
@@ -320,7 +320,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
     return props.suppressId ? all.filter((id) => id !== props.suppressId) : all
   }, [order, liveTail, unsent, props.suppressId])
-  const itemOf = useCallback((id: string) => items?.[id] ?? unsent.get(id), [items, unsent])
+  const itemOf = useCallback((id: string) => items?.get(id) ?? unsent.get(id), [items, unsent])
 
   // Place objects keep their identity while unchanged, so memoized rows skip.
   const placeCache = useRef(new Map<string, RowPlace>())
@@ -359,7 +359,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         // taken back has no row, so its pin has no offset and reserves nothing.
         const waiting = pendingPin.current
         pendingPin.current = null
-        if (waiting && items?.[waiting]) pin(waiting)
+        if (waiting && items?.has(waiting)) pin(waiting)
         return
       }
       pendingPin.current = `p:${newestUnsent}`

@@ -22,6 +22,7 @@ import {
   notePlan,
   endPlan,
 } from '@/features/agent/stores/lib/fold-subagents'
+import { ItemMap, type ItemDraft } from '@/features/agent/stores/lib/item-map'
 import {
   liveKey,
   markerItemId,
@@ -59,7 +60,7 @@ export function emptyFeed(): ChatFeed {
     seq: 0,
     order: [],
     liveTail: [],
-    items: {},
+    items: ItemMap.empty,
     live: {},
     liveN: {},
     liveReasoning: null,
@@ -77,7 +78,7 @@ type FactRecord =
  *  write, so what the rows leave alone keeps its identity, and a replay of
  *  n rows copies each part once instead of n times. */
 export class FeedFold {
-  private items: Record<string, TranscriptItem> | null = null
+  private items: ItemDraft | null = null
   private order: string[] | null = null
   private liveTail: string[] | null = null
   private scoped: Record<string, string[]> | null = null
@@ -101,12 +102,12 @@ export class FeedFold {
   }
 
   item<T extends TranscriptItem>(id: string): T | undefined {
-    return (this.items ?? this.base.items)[id] as T | undefined
+    return (this.items ?? this.base.items).get(id) as T | undefined
   }
 
   put(item: TranscriptItem) {
-    this.items ??= { ...this.base.items }
-    this.items[item.id] = item
+    this.items ??= this.base.items.edit()
+    this.items.set(item)
   }
 
   get facts(): TurnFacts {
@@ -213,7 +214,7 @@ export class FeedFold {
     return {
       ...this.base,
       seq: this.seq,
-      items: this.items ?? this.base.items,
+      items: this.items?.finish() ?? this.base.items,
       order: this.order ?? this.base.order,
       liveTail: this.liveTail ?? this.base.liveTail,
       scoped: this.scoped ?? this.base.scoped,

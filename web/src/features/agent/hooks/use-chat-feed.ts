@@ -8,6 +8,7 @@ import {
   type TranscriptItem,
   type TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
+import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import { displayRows, type DisplayRow } from '@/features/agent/transcript/lib/tool-runs'
 
 const EMPTY_IDS: string[] = []
@@ -49,9 +50,7 @@ export function useLiveTail(chatId: string | undefined): string[] {
   return useChatStore((s) => feedOf(s.feeds, chatId)?.liveTail ?? EMPTY_IDS)
 }
 
-export function useChatItems(
-  chatId: string | undefined,
-): Record<string, TranscriptItem> | undefined {
+export function useChatItems(chatId: string | undefined): ItemMap | undefined {
   return useChatStore((s) => feedOf(s.feeds, chatId)?.items)
 }
 
@@ -59,7 +58,7 @@ export function useChatItem<T extends TranscriptItem = TranscriptItem>(
   chatId: string | undefined,
   id: string,
 ): T | undefined {
-  return useChatStore((s) => feedOf(s.feeds, chatId)?.items[id] as T | undefined)
+  return useChatStore((s) => feedOf(s.feeds, chatId)?.items.get(id) as T | undefined)
 }
 
 /** The live text of one delta stream: `answer`/`reasoning` by message id,

@@ -155,10 +155,10 @@ describe('send outcomes', () => {
     ])
     const fresh = item('fresh')
     for (const id of ['p:r1', 'p:r2']) {
-      const row = feed.items[id] as UserItem
+      const row = feed.items.get(id) as UserItem
       expect(retryRow([], feed.facts, row, fresh)).toEqual([{ ...fresh, retryOf: row.requestId }])
     }
-    expect(retryRow([], feed.facts, feed.items['p:r3'] as UserItem, fresh)).toEqual([])
+    expect(retryRow([], feed.facts, feed.items.get('p:r3') as UserItem, fresh)).toEqual([])
   })
 })
 

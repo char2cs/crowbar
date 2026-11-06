@@ -153,7 +153,7 @@ export type Retractable =
 /** Whether `turnId` showed output: its rows, or a reply streaming ahead of them. */
 const spoke = (feed: ChatFeed, turnId: string) =>
   feed.facts.output[turnId] === true ||
-  feed.liveTail.some((id) => feed.items[id]?.turnId === turnId)
+  feed.liveTail.some((id) => feed.items.get(id)?.turnId === turnId)
 
 /** Whether the turn `requestId` started showed output: then its row is the record. */
 export function promptSpoke(feed: ChatFeed | undefined, requestId: string) {
@@ -178,7 +178,7 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
   const { running, prompts } = feed.facts
   let item: UserItem | undefined
   for (let at = feed.order.length - 1; at >= 0 && !item; at--) {
-    const candidate = feed.items[feed.order[at]!]
+    const candidate = feed.items.get(feed.order[at]!)
     if (candidate?.kind === 'user' && candidate.origin === 'crowbar') item = candidate
   }
   const fact = item?.requestId ? prompts[item.requestId] : undefined
