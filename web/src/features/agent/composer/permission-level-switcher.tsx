@@ -26,10 +26,10 @@ export function PermissionLevelSwitcher({
   chatId: string
   availableLevels?: PermissionLevel[]
 }) {
-  const pinned = useChatField(chatId, (c) => c?.permissionLevel ?? '')
+  const pinned = useChatField<PermissionLevel | ''>(chatId, (c) => c?.permissionLevel ?? '')
   // The person's pick shows from the moment it is made; a failed one falls back.
   const [picked, setPicked] = useState<PermissionLevel | null>(null)
-  const level = picked ?? pinned
+  const level: PermissionLevel | '' = picked ?? pinned
   // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
