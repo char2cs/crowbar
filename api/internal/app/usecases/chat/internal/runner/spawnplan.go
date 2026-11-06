@@ -96,7 +96,10 @@ func (rs *Runners) spawnPaths(
 	// boot reap. It holds the CLI's hook config for the CLI's whole life (removed on PTY
 	// death) and never a credential: a provider owns those, and Crowbar never copies them.
 	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+	rs.runnerDirs.Lock()
+	err = os.MkdirAll(tmpDir, 0o700)
+	rs.runnerDirs.Unlock()
+	if err != nil {
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
 	}
 	return spawnPaths{
@@ -160,7 +163,7 @@ func (rs *Runners) renderSpawnContext(
 	tctx := engineagents.TemplateCtx{
 		Tmp:         in.tmpDir,
 		Cwd:         canonicalDir(in.worktree),
-		CrowbarBin:  rs.crowbarBinPath(in.crowbarHome),
+		CrowbarBin:  rs.crowbarBin,
 		CrowbarHome: in.crowbarHome,
 		DaemonHost:  rs.daemonHost,
 		Segid:       in.runnerID,
@@ -182,7 +185,8 @@ func (rs *Runners) renderSpawnContext(
 		Effort: in.selection.Effort,
 		// The resolved permission level's named values, looked up by the caller
 		// against the SAME descriptor SpawnPlan renders.
-		PermissionVars: in.permissionVars,
+		PermissionVars:  in.permissionVars,
+		PermissionLevel: in.selection.PermissionLevel,
 		// The prior session id, if any — applyAPITransport overwrites this with
 		// whatever EstablishSession actually confirmed (a resumed id unchanged,
 		// or a freshly minted one) before attach's argv is ever rendered.
@@ -203,13 +207,4 @@ func (rs *Runners) renderSpawnContext(
 	// thus also loses the preamble on a gapless revive; its tools are still registered.
 	inject := in.conversation != "" || !in.resuming
 	return tctx, inject
-}
-
-// crowbarBinPath is the crowbar binary the descriptors run: the injected one,
-// else the one installed under home.
-func (rs *Runners) crowbarBinPath(home string) string {
-	if rs.crowbarBin != "" {
-		return rs.crowbarBin
-	}
-	return filepath.Join(home, "bin", "crowbar")
 }

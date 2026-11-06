@@ -546,9 +546,11 @@ hooks_injection:
 # bare positional must NEVER follow it. Pinned by
 # TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
 mcp_injection:
+  # The relay's token rides a 0600 file in the runner's tmp dir: argv is readable by ps.
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
   - pass_arg:
       arg: "--mcp-config"
-      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
+      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 # NOT --append-system-prompt on resume: confirmed live, a resumed session's
@@ -605,10 +607,15 @@ injected_prompts:
 terminal_prompts:
   - kind: workspace_trust
     needle: "I trust this folder"
-    # The dialog opens with "Yes, I trust this folder" selected; Enter takes it.
+    # Which row the dialog preselects varies by version (2.1.319: "No, exit"), so
+    # the answer aims at its option's text from the cursor's row.
+    cursor: "❯"
+    down: "\e[B"
+    up: "\e[A"
     answers:
       - id: accept
         label: "Trust workspace"
+        option: "Yes, I trust this folder"
         keys: "\r"
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".

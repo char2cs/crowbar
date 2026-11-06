@@ -8,6 +8,7 @@ import {
   type FolderShift,
 } from '@/features/agent/api/agent-chat-reads'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { chatBaseOn } from '@/lib/workspace-scope-url'
 
 export interface AgentPromptResult {
@@ -94,12 +95,18 @@ export async function setChatPermissionLevel(
 
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
-// runner's id — the chat is unchanged, the process is not.
-export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
+// runner's id — the chat is unchanged, the process is not. `surface` is the view
+// the new runner starts on; omitted keeps the chat's own.
+export async function switchProvider(
+  wsId: string,
+  id: string,
+  provider: string,
+  surface?: LandingChatPresentation,
+): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({ provider, ...(surface && { surface }) }),
   })
   return res.id
 }

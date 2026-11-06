@@ -932,10 +932,12 @@ hooks_injection:
       arg: "-c"
       value: 'hooks.SessionEnd=[{hooks=[{type="command",command="{hook_curl} {hook_url}/session_end"}]}]'
 mcp_injection:
+  # The relay's token rides a 0600 file in the runner's tmp dir: argv is readable by ps.
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:
       arg: "-c"
-      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]'
+      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]'
   # codex starts an MCP server with a SCRUBBED environment; --host above names the
   # daemon, and CROWBAR_HOME is FORWARDED (an unset one stays unset) for the
   # relay's home, which picks the socket when no host is handed over.

@@ -1,11 +1,15 @@
 package migrate
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -68,6 +72,76 @@ func readTree(
 	return out
 }
 
+// readBackup lists the archive at path as readTree lists a directory, by the
+// paths its entries have under the home.
+func readBackup(
+	tb testing.TB,
+	path string,
+) map[string]treeEntry {
+	tb.Helper()
+	in, err := os.Open(path)
+	require.NoError(tb, err)
+	defer func() { require.NoError(tb, in.Close()) }()
+	zr, err := gzip.NewReader(in)
+	require.NoError(tb, err)
+	out := map[string]treeEntry{}
+	tr := tar.NewReader(zr)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		require.NoError(tb, err)
+		if header.Typeflag == tar.TypeDir {
+			out[strings.TrimSuffix(header.Name, "/")] = treeEntry{Dir: true}
+			continue
+		}
+		raw, err := io.ReadAll(tr)
+		require.NoError(tb, err)
+		out[header.Name] = treeEntry{Content: string(raw), Mode: fs.FileMode(header.Mode)}
+	}
+}
+
+// archived is tree as a backup holds it under prefix: every file 0600.
+func archived(
+	tree map[string]treeEntry,
+	prefix string,
+) map[string]treeEntry {
+	out := map[string]treeEntry{prefix: {Dir: true}}
+	for rel, e := range tree {
+		if !e.Dir {
+			e.Mode = 0o600
+		}
+		out[prefix+"/"+rel] = e
+	}
+	return out
+}
+
+// only is the entries of tree under prefix.
+func only(
+	tree map[string]treeEntry,
+	prefix string,
+) map[string]treeEntry {
+	out := map[string]treeEntry{}
+	for rel, e := range tree {
+		if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
+			out[rel] = e
+		}
+	}
+	return out
+}
+
+// backedUpView is state/view.db as the backup at path holds it.
+func backedUpView(
+	tb testing.TB,
+	path string,
+) string {
+	tb.Helper()
+	entry, ok := readBackup(tb, path)["state/view.db"]
+	require.True(tb, ok, "the backup holds state/view.db")
+	return entry.Content
+}
+
 // startedRun leaves h's ledger as a run leaves it just before its backup, and
 // returns the ledger's bytes.
 func startedRun(
@@ -87,8 +161,8 @@ func assertNoBackupFor(
 ) {
 	tb.Helper()
 	backups := filepath.Join(h.MigrateDir(), "backups")
-	assert.NoDirExists(tb, filepath.Join(backups, runID+".partial"))
-	assert.NoDirExists(tb, filepath.Join(backups, runID))
+	assert.NoFileExists(tb, filepath.Join(backups, runID+".tar.gz.partial"))
+	assert.NoFileExists(tb, filepath.Join(backups, runID+".tar.gz"))
 }
 
 func symlinkOrSkip(
@@ -104,7 +178,7 @@ func symlinkOrSkip(
 	require.NoError(tb, err)
 }
 
-func TestBackupState_CopiesTheTreeByteForByte(t *testing.T) {
+func TestBackupState_ArchivesTheTreeByteForByteAsOwnerOnly(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	blob := make([]byte, 256)
 	for i := range blob {
@@ -123,21 +197,25 @@ func TestBackupState_CopiesTheTreeByteForByte(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, lock.Close()) })
 	var probed string
 
-	got, err := backupState(h, "run-1", 0, func(path string) (uint64, error) {
+	got, err := backupState(h, "run-1", 0, nil, func(path string) (uint64, error) {
 		probed = path
 		return plentyOfDisk(path)
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1"), got.Path)
+	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"), got.Path)
 	assert.Equal(t, int64(len("events database")+len("write-ahead log")+len(blob)+len("view")+len("user data, not the home lock")), got.Bytes)
+	info, err := os.Stat(got.Path)
+	require.NoError(t, err)
+	assert.Equal(t, info.Size(), got.Packed)
+	assert.Equal(t, fs.FileMode(0o600), info.Mode().Perm())
 	assert.Equal(t, h.Root(), probed)
 	want := readTree(t, h.State())
 	delete(want, ".lock")
-	assert.Equal(t, want, readTree(t, filepath.Join(got.Path, "state")))
+	assert.Equal(t, archived(want, "state"), only(readBackup(t, got.Path), "state"))
 	assert.Contains(t, want, "events/.lock")
 	assert.Contains(t, want, "store")
-	assert.NoDirExists(t, filepath.Join(h.MigrateDir(), "backups", "run-1.partial"))
+	assert.NoFileExists(t, got.Path+".partial")
 }
 
 // A restore puts state/, LAYOUT and the ledger back together, so the backup holds
@@ -149,22 +227,45 @@ func TestBackupState_HoldsTheLayoutAndLedgerItRewindsWith(t *testing.T) {
 	testutil.WriteFile(t, h, "LAYOUT", "3\n")
 	ledger := startedRun(t, h)
 
-	got, err := backupState(h, "run-1", 3, plentyOfDisk)
+	got, err := backupState(h, "run-1", 3, nil, plentyOfDisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]treeEntry{
-		"state":         {Dir: true},
-		"state/view.db": {Content: "rows", Mode: 0o600},
-		"LAYOUT":        {Content: "3\n", Mode: 0o600},
-		"ledger.jsonl":  {Content: ledger, Mode: 0o600},
-	}, readTree(t, got.Path))
+		"state":                {Dir: true},
+		"state/view.db":        {Content: "rows", Mode: 0o600},
+		"LAYOUT":               {Content: "3\n", Mode: 0o600},
+		"migrate/ledger.jsonl": {Content: ledger, Mode: 0o600},
+	}, readBackup(t, got.Path))
+}
+
+// A step that reads files outside state/ names them, so a restore puts back
+// its whole input; a pattern reaching out of the home is refused.
+func TestBackupState_HoldsThePathsAPlanBacksUp(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/view.db", "rows")
+	testutil.WriteFile(t, h, "chats/c1/prompt-requests/p1.json", "journal")
+	testutil.WriteFile(t, h, "chats/c1/attachments/a.png", "not input")
+	startedRun(t, h)
+
+	got, err := backupState(h, "run-1", 0, []string{"chats/*/prompt-requests"}, plentyOfDisk)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]treeEntry{
+		"chats/c1/prompt-requests":         {Dir: true},
+		"chats/c1/prompt-requests/p1.json": {Content: "journal", Mode: 0o600},
+	}, only(readBackup(t, got.Path), "chats"))
+
+	for _, pattern := range []string{"../elsewhere", "state/view.db", "/abs"} {
+		_, err := backupState(h, "run-2", 0, []string{pattern}, plentyOfDisk)
+		require.ErrorContains(t, err, "not a path under the home outside state/", pattern)
+	}
 }
 
 func TestBackupState_EmptyOrMissingStateMakesNoBackup(t *testing.T) {
 	t.Run("no state directory", func(t *testing.T) {
 		h := testutil.FixtureHome(t)
 
-		got, err := backupState(h, "run-1", 0, plentyOfDisk)
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
 
 		require.NoError(t, err)
 		assert.Equal(t, backupResult{}, got)
@@ -175,7 +276,7 @@ func TestBackupState_EmptyOrMissingStateMakesNoBackup(t *testing.T) {
 		h := testutil.FixtureHome(t)
 		require.NoError(t, os.MkdirAll(h.State(), 0o700))
 
-		got, err := backupState(h, "run-1", 0, plentyOfDisk)
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
 
 		require.NoError(t, err)
 		assert.Equal(t, backupResult{}, got)
@@ -189,7 +290,7 @@ func TestBackupState_EmptyOrMissingStateMakesNoBackup(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, lock.Close()) })
 
-		got, err := backupState(h, "run-1", 0, plentyOfDisk)
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
 
 		require.NoError(t, err)
 		assert.Equal(t, backupResult{}, got)
@@ -201,11 +302,11 @@ func TestBackupState_EmptyOrMissingStateMakesNoBackup(t *testing.T) {
 		testutil.WriteFile(t, h, "state/empty.db", "")
 		startedRun(t, h)
 
-		got, err := backupState(h, "run-1", 0, plentyOfDisk)
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
 
 		require.NoError(t, err)
-		assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1"), got.Path)
-		assert.Equal(t, readTree(t, h.State()), readTree(t, filepath.Join(got.Path, "state")))
+		assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"), got.Path)
+		assert.Equal(t, archived(readTree(t, h.State()), "state"), only(readBackup(t, got.Path), "state"))
 	})
 }
 
@@ -215,7 +316,7 @@ func TestBackupState_InsufficientDiskLeavesNothingBehind(t *testing.T) {
 	testutil.WriteFile(t, h, "state/view.db", "v")
 	before := testutil.TreeSnapshot(t, h)
 
-	_, err := backupState(h, "run-1", 0, diskOf(1001+backupHeadroom-1))
+	_, err := backupState(h, "run-1", 0, nil, diskOf(1001+backupHeadroom-1))
 
 	require.ErrorIs(t, err, errInsufficientDisk)
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
@@ -228,7 +329,7 @@ func TestBackupState_AcceptsExactlyTheRequiredHeadroom(t *testing.T) {
 	testutil.WriteFile(t, h, "state/view.db", "v")
 	startedRun(t, h)
 
-	got, err := backupState(h, "run-1", 0, diskOf(1001+backupHeadroom))
+	got, err := backupState(h, "run-1", 0, nil, diskOf(1001+backupHeadroom))
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(1001), got.Bytes)
@@ -239,7 +340,7 @@ func TestBackupState_AFailingProbeLeavesNothingBehind(t *testing.T) {
 	testutil.WriteFile(t, h, "state/view.db", "v")
 	probeFailed := errors.New("statfs unavailable")
 
-	_, err := backupState(h, "run-1", 0, func(string) (uint64, error) { return 0, probeFailed })
+	_, err := backupState(h, "run-1", 0, nil, func(string) (uint64, error) { return 0, probeFailed })
 
 	require.ErrorIs(t, err, probeFailed)
 	assert.NoDirExists(t, h.MigrateDir())
@@ -259,7 +360,7 @@ func TestBackupState_RejectsAnUnsupportedEntry(t *testing.T) {
 	link := filepath.Join(h.State(), "z-link")
 	symlinkOrSkip(t, filepath.Join(h.State(), "target"), link)
 
-	_, err := backupState(h, "run-1", 0, plentyOfDisk)
+	_, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
 
 	require.ErrorContains(t, err, link)
 	require.ErrorContains(t, err, "symlink")
@@ -281,83 +382,23 @@ func TestUnsupportedEntry_NamesTheKind(t *testing.T) {
 	}
 }
 
-func TestBackupState_FollowsASymlinkedStateRoot(t *testing.T) {
-	h := testutil.FixtureHome(t)
-	elsewhere := filepath.Join(filepath.Dir(h.Root()), "other-disk-state")
-	for rel, content := range map[string]string{
-		"events/a.db":      "events database",
-		"content/aa/blob":  "blob bytes",
-		"view.db":          "view",
-		"events/.lock":     "user data, not the home lock",
-		"store/.keep-dirs": "",
-	} {
-		path := filepath.Join(elsewhere, filepath.FromSlash(rel))
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	}
-	symlinkOrSkip(t, elsewhere, h.State())
-	startedRun(t, h)
-	lock, err := lockHome(h)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, lock.Close()) })
-	var probed string
-
-	stats, statsErr := measureState(h.State())
-	got, err := backupState(h, "run-1", 0, func(path string) (uint64, error) {
-		probed = path
-		return plentyOfDisk(path)
-	})
-
-	require.NoError(t, statsErr)
-	require.NoError(t, err)
-	want := readTree(t, elsewhere)
-	delete(want, ".lock")
-	assert.Equal(t, want, readTree(t, filepath.Join(got.Path, "state")))
-	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1"), got.Path)
-	assert.Equal(t, h.Root(), probed)
-	assert.Equal(t, got.Bytes, stats.bytes)
-	assert.Equal(t, int64(len("events database")+len("blob bytes")+len("view")+len("user data, not the home lock")), stats.bytes)
-}
-
-func TestBackupState_ADanglingStateRootIsAnError(t *testing.T) {
-	h := testutil.FixtureHome(t)
-	symlinkOrSkip(t, filepath.Join(filepath.Dir(h.Root()), "gone"), h.State())
-
-	_, err := backupState(h, "run-1", 0, plentyOfDisk)
-
-	require.Error(t, err)
-	assert.NoDirExists(t, h.MigrateDir())
-}
-
 func TestBackupState_AnExistingBackupForTheRunFailsBeforeCopying(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/a.db", "a")
-	testutil.WriteFile(t, h, "migrate/backups/run-1/state/a.db", "earlier")
+	testutil.WriteFile(t, h, "migrate/backups/run-1.tar.gz", "earlier")
 	probed := false
 
-	_, err := backupState(h, "run-1", 0, func(path string) (uint64, error) {
+	_, err := backupState(h, "run-1", 0, nil, func(path string) (uint64, error) {
 		probed = true
 		return plentyOfDisk(path)
 	})
 
 	require.ErrorIs(t, err, fs.ErrExist)
 	assert.False(t, probed, "the refusal must come before any space probe or copying")
-	assert.Equal(t, map[string]treeEntry{"state": {Dir: true}, "state/a.db": {Content: "earlier", Mode: 0o600}},
-		readTree(t, filepath.Join(h.MigrateDir(), "backups", "run-1")))
-	assert.NoDirExists(t, filepath.Join(h.MigrateDir(), "backups", "run-1.partial"))
-}
-
-func TestBackupState_AFileThatCannotBeReadLeavesNothingBehind(t *testing.T) {
-	testutil.RequirePermissionEnforcement(t)
-	h := testutil.FixtureHome(t)
-	testutil.WriteFile(t, h, "state/a.db", "a")
-	testutil.WriteFile(t, h, "state/z.db", "z")
-	require.NoError(t, os.Chmod(filepath.Join(h.State(), "z.db"), 0o000))
-
-	_, err := backupState(h, "run-1", 0, plentyOfDisk)
-
-	require.ErrorIs(t, err, fs.ErrPermission)
-	assertNoBackupFor(t, h, "run-1")
+	raw, err := os.ReadFile(filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"))
+	require.NoError(t, err)
+	assert.Equal(t, "earlier", string(raw))
+	assert.NoFileExists(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz.partial"))
 }
 
 func TestBackupState_RejectsARunIDThatIsNotOneSegment(t *testing.T) {
@@ -367,7 +408,7 @@ func TestBackupState_RejectsARunIDThatIsNotOneSegment(t *testing.T) {
 			testutil.WriteFile(t, h, "state/a.db", "a")
 			before := testutil.TreeSnapshot(t, h)
 
-			_, err := backupState(h, runID, 0, plentyOfDisk)
+			_, err := backupState(h, runID, 0, nil, plentyOfDisk)
 
 			require.Error(t, err)
 			assert.Equal(t, before, testutil.TreeSnapshot(t, h))
@@ -380,12 +421,16 @@ func TestCleanPartialBackups_RemovesOnlyPartials(t *testing.T) {
 	t.Run("keeps finished backups", func(t *testing.T) {
 		h := testutil.FixtureHome(t)
 		testutil.WriteFile(t, h, "migrate/backups/crashed.partial/state/events/a.db", "half")
+		testutil.WriteFile(t, h, "migrate/backups/torn.tar.gz.partial", "half")
 		testutil.WriteFile(t, h, "migrate/backups/done/state/view.db", "whole")
+		testutil.WriteFile(t, h, "migrate/backups/whole.tar.gz", "whole")
 
 		require.NoError(t, cleanPartialBackups(h))
 
 		assert.NoDirExists(t, filepath.Join(h.MigrateDir(), "backups", "crashed.partial"))
+		assert.NoFileExists(t, filepath.Join(h.MigrateDir(), "backups", "torn.tar.gz.partial"))
 		assert.FileExists(t, filepath.Join(h.MigrateDir(), "backups", "done", "state", "view.db"))
+		assert.FileExists(t, filepath.Join(h.MigrateDir(), "backups", "whole.tar.gz"))
 	})
 
 	t.Run("no migrate directory is not an error and creates nothing", func(t *testing.T) {

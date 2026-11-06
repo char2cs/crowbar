@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
@@ -20,6 +21,18 @@ func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
 	tctx, _ := rs.renderSpawnContext(in)
 	if tctx.CrowbarHome != "/tmp/some-dev-home" {
 		t.Fatalf("TemplateCtx.CrowbarHome = %q, want %q", tctx.CrowbarHome, "/tmp/some-dev-home")
+	}
+}
+
+// A forked terminal view renders the level through permission_levels.<level>.apply.
+func TestRenderSpawnContext_CarriesThePermissionLevel(t *testing.T) {
+	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{
+		crowbarHome: "/tmp/h", runnerID: "run1",
+		selection: engineagents.Selection{PermissionLevel: "trusted"},
+	})
+
+	if tctx.PermissionLevel != "trusted" {
+		t.Fatalf("TemplateCtx.PermissionLevel = %q, want the chat's level", tctx.PermissionLevel)
 	}
 }
 
@@ -77,17 +90,12 @@ func TestRenderSpawnContext_NoPublishedHookServerLeavesHooksUnpointed(t *testing
 	}
 }
 
-// The binary the descriptors run for the MCP bridge is the one the daemon was
-// built with, and else the one installed under the home.
-func TestRenderSpawnContext_RunsTheInjectedCrowbarBinElseTheHomes(t *testing.T) {
-	injected, _ := (&Runners{crowbarBin: "/opt/crowbar"}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
-	installed, _ := (&Runners{}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
+// The binary the descriptors run for the MCP bridge is the one the daemon runs.
+func TestRenderSpawnContext_RunsTheInjectedCrowbarBin(t *testing.T) {
+	got, _ := (&Runners{crowbarBin: "/opt/crowbar"}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
 
-	if injected.CrowbarBin != "/opt/crowbar" {
-		t.Fatalf("TemplateCtx.CrowbarBin = %q, want the injected binary", injected.CrowbarBin)
-	}
-	if want := filepath.Join("/tmp/h", "bin", "crowbar"); installed.CrowbarBin != want {
-		t.Fatalf("TemplateCtx.CrowbarBin = %q, want %q", installed.CrowbarBin, want)
+	if got.CrowbarBin != "/opt/crowbar" {
+		t.Fatalf("TemplateCtx.CrowbarBin = %q, want the injected binary", got.CrowbarBin)
 	}
 }
 

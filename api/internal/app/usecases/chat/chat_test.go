@@ -569,7 +569,7 @@ func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
 	thread(t, f, threadID, parentID)
 	cs.failListByWorkspace = errors.New("folder table unreadable")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, threadID, "claude")
+	_, err := f.usecase.SwitchProvider(f.ctx, threadID, "claude", "")
 	require.ErrorContains(t, err, "folder table unreadable")
 	require.Len(t, f.term.calls, 2, "and no CLI was started")
 }
@@ -626,10 +626,10 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	require.NoError(t, f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}))
 	f.wait()
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 	assert.Equal(t, -1, slices.Index(f.term.calls[2].argv, "--resume"), "claude never spoke in sid-claude")
@@ -827,7 +827,7 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 	f.announce(t, claudeRunner, "sid-claude")
 	exchange(t, f, claudeRunner, "claude", "claude said this before leaving")
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	// codexTurnStop delivers codex's real api-shaped turn_stop (threadId/
@@ -837,7 +837,7 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 	f.announce(t, codexRunner, "sid-codex-away")
 	codexTurnStop(t, f, codexRunner, "sid-codex-away", "codex spoke while claude was away")
 
-	claudeRunnerID, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	claudeRunnerID, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1889,7 +1889,7 @@ func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCL
 
 	chatID, outgoing := f.spawn(t, "claude") // t0: spawned, and it announces NOTHING yet
 
-	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex") // t2
+	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "") // t2
 	require.NoError(t, err)
 	f.wait()
 
@@ -1924,7 +1924,7 @@ func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T)
 	var g errgroup.Group
 	for _, target := range []string{"codex", "claude"} {
 		g.Go(func() error {
-			_, err := f.usecase.SwitchProvider(f.ctx, chatID, target)
+			_, err := f.usecase.SwitchProvider(f.ctx, chatID, target, "")
 			return err
 		})
 	}
@@ -1972,7 +1972,7 @@ func TestRegression_InvalidSwitchTarget_PreservesTheOutgoingRunner(t *testing.T)
 
 	// Descriptor resolution is deterministic target planning and therefore happens
 	// before teardown. An invalid target must not turn a healthy chat dormant.
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider", "")
 	require.Error(t, err)
 	f.wait()
 
@@ -1998,7 +1998,7 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 		})
 	}
 
-	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	require.NoError(t, <-hookDone)
 	f.wait()

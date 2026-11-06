@@ -110,7 +110,7 @@ func TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 		RepoID:      "", // ← project-home: WorktreeDir resolves no repo
 		WorkspaceID: "WS",
 	}
-	command := engineagents.Expand("{crowbar} mcp {scope_flags} --segment {segid} --token T", ctx)
+	command := engineagents.Expand("{crowbar} mcp {scope_flags} --segment {segid} --token-file T", ctx)
 
 	got := parseThroughCobra(t, argvThroughShell(t, command))
 

@@ -21,6 +21,9 @@ func (e *engine) WorktreeAddBranch(
 	if err != nil {
 		return "", fmt.Errorf("worktree add branch: resolve start: %w", err)
 	}
+	if err := makeWorktreeParent(worktreePath); err != nil {
+		return "", err
+	}
 	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, "-b", branch, startSha)
@@ -60,6 +63,9 @@ func (e *engine) WorktreeAddAtRef(
 	startSha, err := e.revParse(ctx, repoPath, startRef)
 	if err != nil {
 		return "", fmt.Errorf("worktree add at ref: resolve start: %w", err)
+	}
+	if err := makeWorktreeParent(worktreePath); err != nil {
+		return "", err
 	}
 	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()

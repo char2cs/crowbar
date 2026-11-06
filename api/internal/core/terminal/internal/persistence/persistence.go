@@ -32,7 +32,7 @@ var createTemp = func(dir, pattern string) (tempFile, error) {
 // temp file, fsync, rename, fsync of the parent. On error the temp file is removed (a
 // failed removal is reported too), and an existing .buf is never corrupted.
 func WriteBuf(dir, sessionID string, data []byte) (err error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: the terminal-buffer dir lives under the user's own ~/.crowbar home; 0755 intentional and matches the rest of the tree.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("persistence: mkdir %s: %w", dir, err)
 	}
 

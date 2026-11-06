@@ -107,6 +107,33 @@ func TestBlobsCollect_RemovesABlobNoRowNames(t *testing.T) {
 	assert.NoError(t, s.Collect(ref, inUse(false)), "a missing blob is a no-op")
 }
 
+func TestBlobsCollect_LeavesNoEmptyShardBehind(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "content")
+	s, err := ledgerstore.OpenBlobs(root)
+	require.NoError(t, err)
+	gone, err := s.Put([]byte("collected"))
+	require.NoError(t, err)
+	kept, err := s.Put([]byte("kept"))
+	require.NoError(t, err)
+
+	require.NoError(t, s.Collect(gone, inUse(false)))
+
+	var dirs []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && path != root {
+			dirs = append(dirs, path)
+		}
+		return err
+	}))
+	assert.Len(t, dirs, 2, "only the kept blob's two shard levels remain: %v", dirs)
+	_, err = s.Get(kept)
+	require.NoError(t, err)
+	require.NoError(t, s.Collect(kept, inUse(false)))
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "the root stays, empty")
+}
+
 func TestBlobsCollect_IsANoOpOnAnEmptyOrMalformedRef(t *testing.T) {
 	s := newBlobs(t)
 	assert.NoError(t, s.Collect("", inUse(false)))

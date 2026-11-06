@@ -4,12 +4,14 @@ import type { LedgerRow, RowKind } from '@/features/agent/api/chat-rows'
 import type { FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import {
   askItemId,
+  subagentItemId,
   toolItemId,
   toolStatus,
   type AskItem,
   type ToolItem,
 } from '@/features/agent/stores/lib/transcript-items'
 import { addressSubagent, openSpawn } from '@/features/agent/stores/lib/fold-subagents'
+import { endCall, noteCall } from '@/features/agent/stores/lib/fold-rounds'
 import { toolFamily } from '@/features/agent/transcript/lib/tool-family'
 
 type Apply<K extends RowKind> = (fold: FeedFold, row: LedgerRow<K>) => void
@@ -20,10 +22,13 @@ export const markOutput = (fold: FeedFold, row: LedgerRow) => {
 }
 
 export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
+  const spawns = toolFamily(row.body) === 'subagent'
+  const { toolId } = row.body
+  noteCall(fold, row, spawns ? subagentItemId(toolId) : toolItemId(toolId))
   // A spawning call is its subagent's card, which takes the call's place.
-  if (toolFamily(row.body) === 'subagent') {
+  if (spawns) {
     markOutput(fold, row)
-    openSpawn(fold, row)
+    openSpawn(fold, row, toolId, row.body.title)
     return
   }
   if (row.body.addressesScope) addressSubagent(fold, row)
@@ -116,6 +121,7 @@ export const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
     if (tool) {
       const status = denied && tool.status === 'running' ? 'declined' : tool.status
       fold.put({ ...tool, status, askId: undefined, askNote: askNote(choice) })
+      if (status === 'declined' && !tool.scope) endCall(fold, tool.turnId ?? '', tool.toolId)
     }
   }
   const openAsks = fold.facts.openAsks.filter((other) => other !== id)

@@ -50,8 +50,9 @@ func TestApply_DeclaringNoTerminalPromptsIsValid(t *testing.T) {
 
 func TestApply_RejectsAnIncompleteOrDuplicateTerminalPromptAnswer(t *testing.T) {
 	for name, answers := range map[string][]spec.TerminalPromptAnswerSpec{
-		"missing keys": {{ID: "accept", Label: "Trust"}},
-		"duplicate id": {{ID: "a", Label: "A", Keys: "\r"}, {ID: "a", Label: "B", Keys: "\r"}},
+		"missing keys":      {{ID: "accept", Label: "Trust"}},
+		"duplicate id":      {{ID: "a", Label: "A", Keys: "\r"}, {ID: "a", Label: "B", Keys: "\r"}},
+		"option, no cursor": {{ID: "a", Label: "A", Keys: "\r", Option: "Yes"}},
 	} {
 		d := valid()
 		d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "x", Answers: answers}}

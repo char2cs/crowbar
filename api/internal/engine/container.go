@@ -33,9 +33,8 @@ type Container struct {
 	// DaemonAddress is the address the daemon bound (unix:// or tcp://). Callbacks
 	// are handed it, never one derived from the home (see WithDaemonAddress).
 	DaemonAddress string
-	// CrowbarBin is the crowbar binary a spawned CLI runs; empty is the one
-	// installed under the home. A daemon run from a build that is not installed
-	// there sets it before the app layer is built.
+	// CrowbarBin is the crowbar binary a spawned CLI runs for `crowbar mcp`: the
+	// daemon's own executable, resolved once at New.
 	CrowbarBin string
 	// NoAPITransport runs every provider over hooks alone: no spawn forks a
 	// provider's serve process.
@@ -84,8 +83,13 @@ func New(
 	for _, o := range opts {
 		o(&cfg)
 	}
+	self, err := selfExecutable()
+	if err != nil {
+		return nil, err
+	}
 	return &Container{
 		DaemonAddress: cfg.daemonAddress,
+		CrowbarBin:    self,
 		Agents: engineagents.New(engineagents.WithLifecycle(ctx),
 			engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Git:      enginegit.New(),

@@ -448,6 +448,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
       'claude',
       'c-owner',
       'typed-branch',
+      undefined,
     )
   })
 
@@ -486,6 +487,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
       'claude',
       'home-1',
       'typed-branch',
+      undefined,
     )
   })
 })

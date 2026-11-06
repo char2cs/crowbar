@@ -401,7 +401,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	newRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
+	newRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunnerID)
 

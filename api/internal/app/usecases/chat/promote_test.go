@@ -81,7 +81,7 @@ func TestPromote_ADormantProviderThatNeverBoundAConversationRespawnsTheRightVend
 	f.announce(t, claudeRunnerID, "sid-claude-native")
 	waitForClockTick(t)
 
-	codexRunnerID, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex")
+	codexRunnerID, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	// No f.announce for codex: it never binds a conversation row.
