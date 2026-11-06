@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -141,6 +142,7 @@ func (rs *Runners) startAPIConn(
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
 		serve.kill()
+		rs.noteNoConnection(ctx, tctx.ChatID, agent, err)
 		return nil, false
 	}
 	connCtx, cancel := context.WithCancel(context.Background())
@@ -165,7 +167,11 @@ func (rs *Runners) applyAPITransport(
 	}
 	session, err := rs.establishAPISession(ctx, conn, runnerID, providerID, tctx)
 	if err != nil {
-		return nil, refusedSession(err)
+		if refused := refusedSession(err); refused != nil {
+			return nil, refused
+		}
+		rs.noteNoConnection(ctx, tctx.ChatID, agent, err)
+		return nil, nil
 	}
 	tctx.Session = session
 	// The only channel that reaches an already-resumed session with the gap
@@ -191,6 +197,14 @@ func (rs *Runners) applyAPITransport(
 	}
 	rs.pumpAPIConn(runnerID, providerID, agent, conn)
 	return attach, nil
+}
+
+// noteNoConnection tells the chat its CLI's connection never came up, so the
+// chat it falls back to is not mistaken for the one the user asked for.
+func (rs *Runners) noteNoConnection(ctx context.Context, chatID string, agent engineagents.Agent, err error) {
+	rs.divide(ctx, chatID, ledger.MarkerWarning, fmt.Sprintf(
+		"Crowbar could not connect to %s (%v). Stop the chat and send again to retry.",
+		agent.Display().Name, err))
 }
 
 // refusedSession is err when it is the provider refusing the session; any other
