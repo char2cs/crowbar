@@ -52,7 +52,6 @@ export interface ToolCallBody {
   mcpTool?: string
   exitCode?: number
   interrupted?: boolean
-  inputKey?: string
   spawnsScope?: string
   addressesScope?: string
 }
@@ -61,7 +60,6 @@ interface AskBody {
   askId: string
   event: string
   kind?: string
-  promptId?: string
   toolId?: string
   toolName?: string
   title?: string
@@ -82,7 +80,6 @@ interface AskBody {
   toolInput?: unknown
   toolInputTruncated?: boolean
   mcpServer?: string
-  inputKey?: string
   answerable: boolean
 }
 
@@ -93,15 +90,12 @@ export interface RowBodies {
     origin: 'crowbar' | 'provider' | 'harness' | 'note'
     delivery?: 'restart' | 'steer' | 'api'
     runnerId?: string
-    dispatch?: string
   }
   turn_started: {
     requestId?: string
-    providerTurnId?: string
     runnerId?: string
     provider?: string
     sessionId?: string
-    persists?: 'turn_start' | 'turn_end'
   }
   prompt_settled: { requestId: string; consumed: boolean; reason: string }
   turn_ended: {
@@ -112,25 +106,9 @@ export interface RowBodies {
     diff?: string
   }
   turn_failed: { reason: string; detail?: string }
-  session_bound: {
-    provider: string
-    sessionId: string
-    cause: 'assigned' | 'announced' | 'fresh' | 'moved'
-    previous?: string
-    /** `moved`: the chat that gave the session up. */
-    from?: string
-  }
-  /** `movedTo`: the chat that resumed the session and took it. */
-  session_lost: { provider: string; sessionId: string; reason: string; movedTo?: string }
-  runner_started: {
-    runnerId: string
-    provider: string
-    terminalSession: string
-    launchModel: string
-    launchEffort: string
-    launchPermissionLevel: string
-    resumeSessionId: string
-  }
+  session_bound: { provider: string; sessionId: string; cause: string }
+  session_lost: { provider: string; sessionId: string; reason: string }
+  runner_started: { runnerId: string; provider: string }
   runner_exited: { runnerId: string; reason: string; exitCode: number }
   /** index -1: the message's complete text; reply: the reply this message joins. */
   assistant_text: {
@@ -142,7 +120,7 @@ export interface RowBodies {
     reply?: string
   }
   reasoning: { messageId?: string; text: string }
-  marker: { kind: MarkerKind; detail?: string; providerTurnId?: string }
+  marker: { kind: MarkerKind; detail?: string }
   tool_call: ToolCallBody
   ask: AskBody
   ask_resolved: {
