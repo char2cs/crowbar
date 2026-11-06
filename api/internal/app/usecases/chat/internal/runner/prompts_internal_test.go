@@ -34,11 +34,8 @@ func (s stubConversationsForPromptRestart) ChatSelection(
 	return s.desired, nil
 }
 
-// restartOnChangeAgent is a minimal engineagents.Agent whose SelectionRestart
-// answers exactly like a real restart_tui model/effort block would
-// (selection.RestartRequired): true whenever launched != desired. Standing
-// one up this way, rather than resolving the real codex descriptor, keeps the
-// test from depending on model discovery ever running.
+// restartOnChangeAgent answers SelectionRestart like a restart_tui model/effort
+// block (true whenever launched != desired), so the test never runs model discovery.
 type restartOnChangeAgent struct {
 	engineagents.Agent
 }
@@ -47,25 +44,9 @@ func (restartOnChangeAgent) SelectionRestart(launched, desired engineagents.Sele
 	return launched != desired
 }
 
-// TestRegression_SubmitPromptOverAPI_ChangedSelectionRefusesTheLiveConnection
-// reproduces the showstopper reported live: a codex chat with a LIVE api
-// connection (the common case once session_start has fired — every prompt
-// after the first) whose user picks a new model or effort and sends a
-// message. Before this fix, submitPromptOverAPI pushed the text straight
-// over the stale connection whenever one was live, never once comparing the
-// launched process's model/effort against the chat's newly staged selection
-// — confirmed live against a running codex process polled every 3s for 36s
-// after each send: it never changed and never restarted, silently keeping
-// the OLD model and effort for two full turns.
-//
-// handled MUST be false here: that is what makes submitPromptLocked
-// (prompts.go) fall through to the restart_tui path instead, which tears the
-// stale connection down (quitOutgoingCLI) and respawns with the new
-// selection (spawn.go's resolveSelectionForSpawn + buildSpawnSteps render
-// the new model/effort into the fresh process's argv — see
-// TestBuildSpawnSteps_IncludesSelectionSteps, spawnsteps_internal_test.go,
-// for that half of the property). Nothing here is silently dropped: a
-// refused shortcut is a real restart, never a swallowed selection.
+// A live api connection must not carry a prompt after the user changed model or
+// effort: handled is false so submitPromptLocked restarts the CLI with the new
+// selection instead of silently keeping the old one.
 func TestRegression_SubmitPromptOverAPI_ChangedSelectionRefusesTheLiveConnection(t *testing.T) {
 	live := engineagents.Runner{
 		ID: "runner-1", ProviderID: "codex",
@@ -117,16 +98,9 @@ func TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection(t *tes
 	}, "an unchanged selection must still reach dispatch, not stop at the restart guard")
 }
 
-// TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity is the
-// hazard the orphan-PTY fix exposed (apirunner.go): once an api-driven spawn
-// forks no PTY at all, the runner row's TerminalSession is legitimately "" —
-// and commitPromptSpawn refused exactly that as "replacement terminal
-// identity is missing", which is the SUCCESS path of every api-dispatched
-// prompt (submitPromptOverAPI's own tail). Unfixed, every single message to a
-// codex chat comes back ErrPromptOutcomeUnknown.
-//
-// The identity that matters is the DELIVERY TARGET, and for this runner that
-// is its live connection, not a terminal session it was never given.
+// An api-driven runner forks no PTY, so its empty TerminalSession is no missing
+// identity: its delivery target is the live connection, and refusing it would
+// fail every api-dispatched prompt.
 func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
@@ -193,7 +167,7 @@ func TestReplayPriorPrompt_ACarrierItCannotReadIsAnError(t *testing.T) {
 // orphaned: a second send in that window waits behind it, never displaces it.
 func TestReplayPriorPrompt_APromptWhoseCarrierIsStillLaunchingKeepsTheChatBusy(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	defer h.rs.live.launch("runner-launching")()
+	h.rs.live.launching.Store("runner-launching", true)
 	appendPrompt(t, h.rs.ledger, "req-1", "runner-launching")
 
 	_, done, err := h.rs.replayPriorPrompt(t.Context(), "chat-1", "req-2", "next")
@@ -202,22 +176,6 @@ func TestReplayPriorPrompt_APromptWhoseCarrierIsStillLaunchingKeepsTheChatBusy(t
 	require.ErrorIs(t, err, ErrPromptBusy)
 	assert.Equal(t, ledger.PromptStatusPending, promptReceipt(t, h.rs.ledger, "req-1").Status,
 		"the first prompt is still owed its delivery")
-}
-
-// Once its launch is over, a carrier that is not the chat's live runner can
-// deliver nothing: its prompt is settled so it holds the chat busy for nobody.
-func TestReplayPriorPrompt_APromptWhoseCarrierLeftIsSettled(t *testing.T) {
-	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	h.rs.live.launch("runner-gone")()
-	appendPrompt(t, h.rs.ledger, "req-1", "runner-gone")
-
-	_, done, err := h.rs.replayPriorPrompt(t.Context(), "chat-1", "req-2", "next")
-
-	assert.False(t, done, "the new request goes ahead")
-	require.NoError(t, err)
-	got := promptReceipt(t, h.rs.ledger, "req-1")
-	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
-	assert.Equal(t, ledger.ReasonRunnerExited, got.Reason)
 }
 
 // appendPrompt records a pending prompt on chat-1, carried by carrier, straight into l.

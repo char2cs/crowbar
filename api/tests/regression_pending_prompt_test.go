@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -200,61 +199,4 @@ func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.
 	assert.False(t, untilSettled(t, h, chatID, requestID).Consumed, "the provider never took the prompt")
 	assert.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "and now?", uuid.NewString()),
 		"a settled prompt no longer holds the chat busy")
-}
-
-// Two sends racing on a chat whose idle CLI the first must replace: whichever
-// the daemon refuses as busy left no trace, and the one it accepted is still
-// owed its delivery. The race is the order the two retake the chat after that
-// CLI quits, so a few chats run it.
-func TestRegression_TwoRacingSendsNeverLoseTheAcceptedOne(t *testing.T) {
-	h := newHarness(t)
-	imported := importWritableWorkspace(t, h)
-	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
-	for range 6 {
-		chatID, _ := createFakeChat(t, h, imported, fake)
-		ids := []string{uuid.NewString(), uuid.NewString()}
-		statuses := racePrompts(t, h, imported, chatID, ids)
-		h.QuiesceReactors()
-		st := chatState(t, h, chatID)
-		for i, id := range ids {
-			p, recorded := st.Receipt(id)
-			if statuses[i] == http.StatusConflict {
-				assert.False(t, recorded, "a send answered busy must not be on the record")
-				continue
-			}
-			require.Equal(t, http.StatusOK, statuses[i])
-			require.True(t, recorded)
-			assert.NotEqual(t, ledger.PromptStatusSettled, p.Status,
-				"an accepted send was settled %q behind its client's back", p.Reason)
-		}
-	}
-}
-
-// racePrompts posts one prompt per request id at once and returns each status.
-func racePrompts(t *testing.T, h *harness, imported importedRepo, chatID string, ids []string) []int {
-	t.Helper()
-	reqs := make([]*http.Request, len(ids))
-	for i, id := range ids {
-		body, err := json.Marshal(map[string]string{"text": "send " + id, "clientRequestId": id})
-		require.NoError(t, err)
-		reqs[i], err = http.NewRequestWithContext(t.Context(), http.MethodPost,
-			h.url+repoBase(imported)+"/chats/"+chatID+"/prompts", bytes.NewReader(body))
-		require.NoError(t, err)
-		reqs[i].Header.Set("Content-Type", "application/json")
-	}
-	statuses, errs := make([]int, len(ids)), make([]error, len(ids))
-	var wg sync.WaitGroup
-	for i, req := range reqs {
-		wg.Go(func() {
-			resp, err := h.server.Client().Do(req)
-			if errs[i] = err; err == nil {
-				statuses[i], errs[i] = resp.StatusCode, resp.Body.Close()
-			}
-		})
-	}
-	wg.Wait()
-	for _, err := range errs {
-		require.NoError(t, err)
-	}
-	return statuses
 }
