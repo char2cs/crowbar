@@ -195,6 +195,7 @@ func (r *Recorder) prepare(
 		stdout, ok := agent.PromptSteer(cmp.Or(p.Dispatch, p.Text))
 		return []byte(stdout), ok && src.Channel == engineagents.ChannelHooks
 	}
+	src.Command = agent.PromptIsCommand
 	var capability engineagents.AnswerCapability
 	switch ev.Kind {
 	case engineagents.HookUserPrompt:

@@ -26,6 +26,8 @@ type Source struct {
 	// Steer is the hook reply handing a steered prompt to the CLI; false when
 	// the event's channel cannot carry one.
 	Steer func(ledger.Prompt) ([]byte, bool)
+	// Command reports whether a prompt's text is one the CLI runs itself.
+	Command func(text string) bool
 	// Answerable: Crowbar can hold an ask's reply.
 	Answerable bool
 	// CompactsByPrompt: a compaction is asked for with a prompt no turn
@@ -447,9 +449,9 @@ func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 	if _, running := st.RunningTurn(); running || src.Channel == engineagents.ChannelAPI {
 		return rows, Effects{}, nil
 	}
-	settled, err := ledger.Settle(st, func(p ledger.Prompt) bool {
+	settled, err := ledger.SettleUntaken(st, func(p ledger.Prompt) bool {
 		return p.RunnerID == src.RunnerID && p.Delivery != ledger.DeliverySteer
-	}, false, ledger.ReasonNotAcknowledged)
+	}, src.Command)
 	return append(rows, settled...), Effects{}, err
 }
 

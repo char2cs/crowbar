@@ -1,6 +1,9 @@
 package ledger
 
-import "time"
+import (
+	"cmp"
+	"time"
+)
 
 // Who a user_message speaks for.
 const (
@@ -101,6 +104,19 @@ func Settle(st State, match func(Prompt) bool, consumed bool, reason string) ([]
 // left the chat can acknowledge none of them.
 func SettleCarried(st State, runnerID string, consumed bool, reason string) ([]Row, error) {
 	return Settle(st, func(p Prompt) bool { return p.RunnerID == runnerID }, consumed, reason)
+}
+
+// SettleUntaken settles every pending prompt match selects that no turn took: a
+// command (as the provider names one) ran in the CLI itself and was consumed by its
+// builtin; anything else went unacknowledged. A nil command names none.
+func SettleUntaken(st State, match func(Prompt) bool, command func(text string) bool) ([]Row, error) {
+	isCommand := func(p Prompt) bool { return command != nil && command(cmp.Or(p.Dispatch, p.Text)) }
+	ran, err := Settle(st, func(p Prompt) bool { return match(p) && isCommand(p) }, true, ReasonProviderBuiltin)
+	if err != nil {
+		return nil, err
+	}
+	rest, err := Settle(st, func(p Prompt) bool { return match(p) && !isCommand(p) }, false, ReasonNotAcknowledged)
+	return append(ran, rest...), err
 }
 
 // SettleOrphaned settles, as runner_exited, every pending prompt whose carrier
