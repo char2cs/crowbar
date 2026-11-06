@@ -621,7 +621,10 @@
 .agent-chat .tool-call-label {
   display: inline-flex;
   min-width: 0;
-  flex: 1;
+  /* Sized by its content, not from zero: a long command beside it must shrink too,
+     or the label collapses and its verb paints under the command. */
+  flex: 1 1 auto;
+  overflow: hidden;
   align-items: center;
   gap: 6px;
 }
