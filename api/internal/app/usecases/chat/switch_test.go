@@ -457,42 +457,33 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 }
 
 // A switch moves the chat's pick onto the incoming provider: what it last ran as
-// in this chat, else its default. The outgoing provider's model would name a
-// model the running CLI is not on, and the composer would re-post it.
+// here, else its default, never a model of the outgoing one the CLI is not on.
 func TestSwitchProvider_ThePickFollowsTheProvider(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
-	ranAs(t, f, chatID, "", "sonnet")
+	ranAs(t, f, chatID, "sonnet")
 
-	switchedTo(t, f, chatID, "codex")
+	assert.NotContains(t, switchedTo(t, f, chatID, "codex"), "--model")
 	assert.Empty(t, f.chat(t, chatID).Model, "codex never ran here: its default")
-	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "--model")
 	assert.Equal(t, []string{"provider_switched:codex", "model_changed:"}, f.markers(t, chatID))
-	ranAs(t, f, chatID, "", "gpt-5")
+	ranAs(t, f, chatID, "gpt-5")
 
-	switchedTo(t, f, chatID, "claude")
+	assert.Equal(t, "sonnet", argAfter(t, switchedTo(t, f, chatID, "claude"), "--model"))
 	assert.Equal(t, "sonnet", f.chat(t, chatID).Model)
-	assert.Equal(t, "sonnet", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--model"))
 
-	switchedTo(t, f, chatID, "codex")
+	assert.Equal(t, "gpt-5", argAfter(t, switchedTo(t, f, chatID, "codex"), "--model"))
 	assert.Equal(t, "gpt-5", f.chat(t, chatID).Model)
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, "gpt-5", live.LaunchModel)
-
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "",
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "",
 		&domain.ChatSelection{Model: "gpt-5"})
 	require.NoError(t, err, "the composer re-posts the held pick")
 }
 
 // ranAs sends a prompt carrying model and answers it, so the chat's CLI ran as it.
-func ranAs(t *testing.T, f testFixture, chatID, provider, model string) {
+func ranAs(t *testing.T, f testFixture, chatID, model string) {
 	t.Helper()
 	text := "run as " + model
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), provider,
-		&domain.ChatSelection{Model: model})
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), "", &domain.ChatSelection{Model: model})
 	require.NoError(t, err)
-	f.wait()
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	require.Equal(t, model, live.LaunchModel)
@@ -500,9 +491,10 @@ func ranAs(t *testing.T, f testFixture, chatID, provider, model string) {
 	turn(t, f, live.ID, live.ProviderID, "ran as "+model)
 }
 
-func switchedTo(t *testing.T, f testFixture, chatID, provider string) {
+// switchedTo switches chatID to provider and returns the launched CLI's argv.
+func switchedTo(t *testing.T, f testFixture, chatID, provider string) []string {
 	t.Helper()
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, provider)
 	require.NoError(t, err)
-	f.wait()
+	return f.term.calls[f.term.callCount()-1].argv
 }

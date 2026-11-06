@@ -26,7 +26,7 @@ type Conversations interface {
 		chatID string,
 	) (engineagents.Selection, error)
 	// SetChatSelection pins the model and effort the chat's next CLI launches
-	// with, refusing a value the resolved provider does not declare.
+	// with; the runner checks them against the provider first.
 	SetChatSelection(
 		ctx context.Context,
 		chatID string,

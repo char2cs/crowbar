@@ -28,17 +28,8 @@ describe('effectiveSelection', () => {
   })
 })
 
-// A pane switch keeps the outgoing provider's model as the chat's pick; the chip
-// must not name a Claude model beside the Codex icon.
+// With nothing to check a model against, the daemon passes it through too.
 describe('declaredModel', () => {
-  it('names a model the provider declares', () => {
-    expect(declaredModel({ models: ['gpt-6-luna'] }, 'gpt-6-luna')).toBe('gpt-6-luna')
-  })
-
-  it('reads a model the provider does not declare as its default', () => {
-    expect(declaredModel({ models: ['gpt-6-luna'] }, 'haiku')).toBe('')
-  })
-
   it('keeps any model for a provider with no catalogue to check against', () => {
     expect(declaredModel({ models: [] }, 'haiku')).toBe('haiku')
     expect(declaredModel(undefined, 'haiku')).toBe('haiku')

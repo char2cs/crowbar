@@ -17,35 +17,8 @@ func (c *Conversations) SetChatSelection(
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: set chat selection: chat: %w", err)
 	}
-	if model != "" || effort != "" {
-		if err := c.validateSelection(ctx, chatID, model, effort); err != nil {
-			return err
-		}
-	}
 	if _, err := c.chats.SetSelection(ctx, chatID, model, effort); err != nil {
 		return fmt.Errorf("agent: set chat selection: save: %w", err)
-	}
-	return nil
-}
-
-func (c *Conversations) validateSelection(
-	ctx context.Context,
-	chatID string,
-	model string,
-	effort string,
-) error {
-	agent, err := c.chatAgent(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	discovered := agent.Capabilities().ModelDiscovery
-	if model != "" && !engineagents.Allowed(agent.Models(), discovered, model) {
-		return fmt.Errorf("agent: set chat selection: %q declares no model %q: %w",
-			agent.ID(), model, problem.ErrInvalidArgument)
-	}
-	if effort != "" && !engineagents.Allowed(agent.Efforts(model), discovered, effort) {
-		return fmt.Errorf("agent: set chat selection: %q declares no effort %q for model %q: %w",
-			agent.ID(), effort, model, problem.ErrInvalidArgument)
 	}
 	return nil
 }

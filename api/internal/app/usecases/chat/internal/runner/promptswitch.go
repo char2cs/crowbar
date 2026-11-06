@@ -73,21 +73,14 @@ func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort s
 		return fmt.Errorf("agent: set chat selection: %w", err)
 	}
 	defer h.release()
+	if err := rs.validateStagedSelection(ctx, chatID, "", &domain.ChatSelection{Model: model, Effort: effort}); err != nil {
+		return err
+	}
 	return rs.setChatSelectionLocked(ctx, chatID, model, effort)
 }
 
-// resolveTargetProvider is the provider a staged model/effort must validate
-// against: the one this call is itself about to switch to, or — nothing
-// staged — the chat's current one.
-func (rs *Runners) resolveTargetProvider(ctx context.Context, chatID, staged string) (string, error) {
-	if staged != "" {
-		return staged, nil
-	}
-	return rs.conversations.ChatProviderID(ctx, chatID)
-}
-
-// validateSelectionForProvider mirrors Conversations' validateSelection against an
-// EXPLICIT provider, since it must run before that provider is committed to the chat.
+// validateSelectionForProvider refuses a model or effort providerID does not
+// declare; a staged switch checks it before that provider is the chat's.
 func (rs *Runners) validateSelectionForProvider(
 	ctx context.Context,
 	chatID, providerID, model, effort string,
@@ -96,13 +89,9 @@ func (rs *Runners) validateSelectionForProvider(
 	if err != nil {
 		return fmt.Errorf("agent: submit prompt: validate selection: chat: %w", err)
 	}
-	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	agent, _, err := rs.promptAgent(ctx, chat, providerID)
 	if err != nil {
-		return fmt.Errorf("agent: submit prompt: validate selection: worktree dir: %w", err)
-	}
-	agent, err := rs.agents.Get(ctx, crowbarHome, providerID)
-	if err != nil {
-		return fmt.Errorf("agent: submit prompt: validate selection: resolve descriptor: %w", err)
+		return fmt.Errorf("agent: submit prompt: validate selection: %w", err)
 	}
 	discovered := agent.Capabilities().ModelDiscovery
 	if model != "" && !engineagents.Allowed(agent.Models(), discovered, model) {
@@ -154,19 +143,15 @@ func (rs *Runners) validateStagedSelection(
 	chatID, provider string,
 	selection *domain.ChatSelection,
 ) error {
-	if selection == nil {
-		return nil
+	if selection == nil || *selection == (domain.ChatSelection{}) {
+		return nil // the provider's default is always valid
 	}
-	// A re-posted pick the chat already holds changes nothing; one its catalogue
-	// has since dropped resolves to the default at the spawn.
-	if provider == "" && rs.holdsSelection(ctx, chatID, *selection) {
-		return nil
+	var err error
+	if provider == "" { // nothing staged: the chat's current provider
+		provider, err = rs.conversations.ChatProviderID(ctx, chatID)
 	}
-	targetProvider, err := rs.resolveTargetProvider(ctx, chatID, provider)
 	if err != nil {
 		return err
 	}
-	return rs.validateSelectionForProvider(
-		ctx, chatID, targetProvider, selection.Model, selection.Effort,
-	)
+	return rs.validateSelectionForProvider(ctx, chatID, provider, selection.Model, selection.Effort)
 }

@@ -347,20 +347,6 @@ func TestAncestors_AnswersThroughTheLineagePort(t *testing.T) {
 	assert.Equal(t, []string{"parent", "grandparent"}, got)
 }
 
-// The selection is validated against the provider's OWN declared catalogue, so a
-// model no descriptor offers cannot be pinned to a chat.
-func TestSetChatSelection_RefusesAModelNoProviderDeclares(t *testing.T) {
-	t.Parallel()
-
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
-	require.NoError(t, err)
-
-	err = f.conversations.SetChatSelection(t.Context(), chatID, "a-model-nobody-ships", "")
-
-	require.Error(t, err)
-}
-
 func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T) {
 	t.Parallel()
 

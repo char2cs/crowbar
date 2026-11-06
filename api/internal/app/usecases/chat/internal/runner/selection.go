@@ -25,9 +25,8 @@ func resolveSelectionForSpawn(
 	return sel
 }
 
-// movedPick is the pick a launch carries when nothing was staged. One moving the
-// chat onto another provider takes what that provider last ran as here, else its
-// default: the outgoing provider's model names nothing the incoming one runs.
+// movedPick is an unstaged launch's pick: one moving the chat onto another provider
+// takes what it last ran as here, else its default, never the outgoing one's model.
 func (rs *Runners) movedPick(
 	ctx context.Context, chat domain.Chat, providerID string, staged *domain.ChatSelection,
 ) (*domain.ChatSelection, error) {
@@ -38,15 +37,6 @@ func (rs *Runners) movedPick(
 	if err != nil {
 		return nil, fmt.Errorf("agent: spawn runner: last launch: %w", err)
 	}
-	last, _ := st.LastLaunch(providerID)
+	last := st.LastLaunch(providerID)
 	return &domain.ChatSelection{Model: last.LaunchModel, Effort: last.LaunchEffort}, nil
-}
-
-// committedPick is the pick a launch makes the chat's own: staged as the spawn
-// resolved it, so the chat names what runs; nil when nothing was staged.
-func committedPick(staged *domain.ChatSelection, sel engineagents.Selection) *domain.ChatSelection {
-	if staged == nil {
-		return nil
-	}
-	return &domain.ChatSelection{Model: sel.Model, Effort: sel.Effort}
 }

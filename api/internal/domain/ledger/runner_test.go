@@ -60,13 +60,9 @@ func TestFold_LastLaunchIsTheNewestRunnerOfThatProvider(t *testing.T) {
 	codex := row(t, ledger.KindRunnerStarted, "", ledger.RunnerStarted{RunnerID: "r2", Provider: "codex"})
 	st := ledger.Fold("c1", sequenced(t, started(t, "r1"), codex, started(t, "r3")))
 
-	last, ok := st.LastLaunch("codex")
-	require.True(t, ok)
-	assert.Equal(t, "r2", last.RunnerID)
-	last, _ = st.LastLaunch("claude")
-	assert.Equal(t, "r3", last.RunnerID)
-	_, ok = st.LastLaunch("gemini")
-	assert.False(t, ok)
+	assert.Equal(t, "r2", st.LastLaunch("codex").RunnerID)
+	assert.Equal(t, "r3", st.LastLaunch("claude").RunnerID)
+	assert.Zero(t, st.LastLaunch("gemini"))
 }
 
 func TestFold_NoRunnerHasNoExit(t *testing.T) {

@@ -117,7 +117,10 @@ func (rs *Runners) spawnRunner(
 	// Never the chat's own raw stored intent directly — see
 	// resolveSelectionForSpawn (selection.go) for why.
 	sel = resolveSelectionForSpawn(descriptor, sel)
-	staged := committedPick(pre.staged, sel)
+	staged := pre.staged
+	if staged != nil {
+		staged = &domain.ChatSelection{Model: sel.Model, Effort: sel.Effort}
+	}
 
 	tctx, inject := rs.renderSpawnContext(spawnContext{
 		chatID:          chatID,
@@ -291,7 +294,7 @@ type spawnPreflight struct {
 	mcpOn     bool
 	threads   string
 	selection engineagents.Selection
-	staged    *domain.ChatSelection // the pick the launch carries; nil carries none
+	staged    *domain.ChatSelection // committed as resolved, so the chat names what runs; nil: none
 	// surface is the chat's own stored landing VIEW.
 	surface string
 }

@@ -182,13 +182,13 @@ func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T
 	var committed []string
 	rs := &Runners{
 		chatLock: askedLock{Locks: locks, asked: asked}, parks: newParks(), ledger: newTestLedger(t),
-		conversations: stagedConversations{committed: &committed},
+		conversations: stagedConversations{committed: &committed, held: engineagents.Selection{Model: "deep"}},
 	}
 	unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
 	require.NoError(t, err)
 
 	done := make(chan error, 1)
-	go func() { done <- rs.SetChatSelection(context.Background(), "chat-1", "deep", "") }()
+	go func() { done <- rs.SetChatSelection(context.Background(), "chat-1", "", "") }()
 	select {
 	case <-asked:
 	case err := <-done:

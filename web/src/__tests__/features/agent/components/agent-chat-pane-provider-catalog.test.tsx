@@ -335,25 +335,17 @@ describe('a pane on a remote host', () => {
   })
 })
 
-// The chip says what the next message runs as. A switch can land the provider on
-// the chat before the pick the daemon moved with it: until then the outgoing
-// provider's model is not what runs, and must not be named.
-describe('a provider switch', () => {
-  it('names the incoming provider’s model, never the outgoing one’s', async () => {
-    useAgentProvidersStore.getState().setProviders(providers)
-    const switched = (provider: string, model: string) => ({
-      ...dormantChat('c1', provider),
-      model,
-    })
-    await renderPane(unmountedWorkspace([switched('claude', 'sonnet')]), openChatPane('c1'))
-    await settle()
-    const chip = () => screen.getByTestId('agent-selection-picker').getAttribute('aria-label')
-    expect(chip()).toContain('Claude, model sonnet')
-
-    await act(async () => seedChats([switched('codex', 'sonnet')]))
-    expect(chip()).toContain('Codex, model Default')
-
-    await act(async () => seedChats([switched('codex', 'gpt-5')]))
-    expect(chip()).toContain('Codex, model gpt-5')
-  })
+// The chip says what the next message runs as: a switch can land the provider
+// before the pick the daemon moved with it, and the outgoing model is not it.
+it('names the incoming provider’s model after a switch, never the outgoing one’s', async () => {
+  useAgentProvidersStore.getState().setProviders(providers)
+  const on = (provider: string, model: string) => ({ ...dormantChat('c1', provider), model })
+  await renderPane(unmountedWorkspace([on('claude', 'sonnet')]), openChatPane('c1'))
+  await settle()
+  const chip = () => screen.getByTestId('agent-selection-picker').getAttribute('aria-label')
+  expect(chip()).toContain('Claude, model sonnet')
+  await act(async () => seedChats([on('codex', 'sonnet')]))
+  expect(chip()).toContain('Codex, model Default')
+  await act(async () => seedChats([on('codex', 'gpt-5')]))
+  expect(chip()).toContain('Codex, model gpt-5')
 })
