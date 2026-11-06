@@ -50,7 +50,7 @@ runtime:
 # No Notification hook exists; its idle (thread/status/changed) lands just before
 # turn/completed (0.149.1), so mapped it would end the turn before its answer. Its
 # plan is restated whole (plan_update); a child's result is its own turn_stop.
-not_emitted: [notification, idle, plan_step, subagent_result]
+not_emitted: [idle, plan_step, subagent_result]
 
 # Both are launchable, and the CHANNEL is what separates them: a chat born on
 # the terminal runs the TUI in a PTY and opens no app-server connection.
@@ -338,6 +338,16 @@ events:
   # — see runtime's own top comment on attach-without-hotswap) the user is
   # already watching this stream render there, so ingesting a second copy
   # into a chat surface nobody is looking at is pure waste.
+  # What codex warns its TUI user about (a resumed session's model, a sandbox
+  # problem); configWarning arrives before any thread, so it names none.
+  notification:
+    api:
+      in: [warning, configWarning]
+      map:
+        session_id: threadId
+        message:    { first_present: [message, summary] }
+      fixtures: [warning.json, configWarning.json]
+
   message_delta:
     surfaces: [chat]
     in: item/agentMessage/delta

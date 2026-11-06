@@ -66,7 +66,7 @@ func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 
 	assert.Equal(t, agents.DeliveryRestartTUI, codex.Delivery)
 	assert.False(t, codex.Telemetry, "codex exposes no telemetry channel today")
-	assert.False(t, codex.Declares(agents.HookNotification), "codex has no Notification event")
+	assert.True(t, codex.Declares(agents.HookNotification), "codex warnings arrive as notifications")
 	assert.True(t, codex.Declares(agents.HookPermission))
 	assert.False(t, codex.Declares("no_such_kind"))
 }
@@ -1273,4 +1273,25 @@ func TestSurfaceNames_MatchTheDescriptorVocabulary(t *testing.T) {
 	assert.Equal(t, domain.SurfaceTerminal, agents.SurfaceTerminal)
 	assert.True(t, domain.KnownSurface(agents.SurfaceChat))
 	assert.True(t, domain.KnownSurface(agents.SurfaceTerminal))
+}
+
+// codex tells its TUI user about a resumed session's model mismatch or a sandbox
+// problem; the native chat must show the same warnings (recorded live, 0.164).
+func TestCodexWarningsReachTheChatAsNotifications(t *testing.T) {
+	for file, want := range map[string]string{
+		"warning.json":       "recorded with model",
+		"configWarning.json": "bubblewrap",
+	} {
+		raw, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "codex", file))
+		require.NoError(t, err)
+		var frame struct {
+			Params json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &frame))
+
+		ev, err := get(t, "codex").ParseHook(agents.HookNotification, frame.Params, agents.ChannelAPI)
+
+		require.NoError(t, err, file)
+		assert.Contains(t, ev.Message, want, file)
+	}
 }
