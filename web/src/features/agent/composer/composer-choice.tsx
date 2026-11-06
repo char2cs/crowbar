@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useState, type KeyboardEvent } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { answerChoice } from '@/features/agent/api/agent-chat-commands'
 import type {
   AgentChoice,
@@ -52,6 +53,8 @@ type CardState = {
   /** A 400: the relay refuses this shape of answer, so retrying cannot help; only the
    *  terminal can answer it. */
   unsupportedHere: boolean
+  /** What a Deny tells the CLI: why, or what to do instead. */
+  reason: string
 }
 
 function freshCard(choiceId: string): CardState {
@@ -64,6 +67,7 @@ function freshCard(choiceId: string): CardState {
     error: '',
     gateClosed: false,
     unsupportedHere: false,
+    reason: '',
   }
 }
 
@@ -140,7 +144,8 @@ export function ComposerChoice({
   const send = async (optionIds: string[]) => {
     update({ error: '', sending: true })
     try {
-      await answerChoice(wsId, chatId, choice.id, { optionIds })
+      const reason = optionIds.includes('deny') ? card.reason.trim() : ''
+      await answerChoice(wsId, chatId, choice.id, reason ? { optionIds, reason } : { optionIds })
       // Deliberately NOT removed here. The card lives until the server says the
       // prompt stopped pending, so an answer that raced a terminal keystroke
       // resolves to whatever actually reached the CLI.
@@ -200,6 +205,16 @@ export function ComposerChoice({
       {choice.schema && <ChoiceSchema schema={choice.schema} />}
       {view && (
         <ChoiceRequest view={view} expanded={expanded} onExpand={() => setExpandedId(choice.id)} />
+      )}
+      {flat && controls.some((option) => option.kind === 'deny') && (
+        <Input
+          size="sm"
+          aria-label="Reason, sent with Deny"
+          placeholder={`Or tell ${providerLabel} what to do instead, then Deny`}
+          value={card.reason}
+          disabled={busy}
+          onChange={(event) => update({ reason: event.target.value })}
+        />
       )}
       {canAnswerHere && questions.length > 0 && (
         <ChoiceQuestions
