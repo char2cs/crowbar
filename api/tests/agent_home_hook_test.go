@@ -65,8 +65,8 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	feed.awaitChat(created.ID, "titled", func(chat map[string]any) bool { return chat["title"] == "Derived home title" })
 }
 
-// A hook whose runner's chat is gone is refused and dead-lettered on the home
-// mount as on the repo one: no hook is acknowledged that nothing recorded.
+// A hook whose runner's chat is gone is refused on the home mount as on the
+// repo one, and is no dead letter: the delete made it expected.
 func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -83,5 +83,5 @@ func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
 
 	resp := l.PostHook(t, h.url+homeBase, "livestub", "user_prompt", []byte(`{"prompt":"hi"}`)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-	assert.Equal(t, before+1, chatDeadLetters(t, h))
+	assert.Equal(t, before, chatDeadLetters(t, h))
 }

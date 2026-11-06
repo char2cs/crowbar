@@ -165,15 +165,16 @@ func (f fixture) reasons() []string {
 	return out
 }
 
-func TestHook_UnknownRunnerIsNotFoundAndDeadLettered(t *testing.T) {
+// The door admits only runners this daemon minted, so one nothing knows had its
+// chat erased: its last hooks (a session end on delete) are expected, not lost.
+func TestHook_ARunnerWhoseChatWasErasedIsNotFoundAndNotDeadLettered(t *testing.T) {
 	f := newFixture()
 
-	_, err := f.ingress.Hook(t.Context(), "runner-gone", "p", "tool_pre", []byte(`{}`), engineagents.ChannelHooks)
+	_, err := f.ingress.Hook(t.Context(), "runner-gone", "p", "session_end", []byte(`{}`), engineagents.ChannelHooks)
 
 	require.ErrorIs(t, err, ErrUnknownRunner)
 	require.ErrorIs(t, err, problem.ErrNotFound)
-	assert.Equal(t, []string{reasonUnknownRunner}, f.reasons())
-	assert.Equal(t, "runner-gone", f.ledger.letters[0].RunnerID)
+	assert.Empty(t, f.ledger.letters)
 	assert.Empty(t, f.turns.dispatched)
 }
 
@@ -324,6 +325,19 @@ func TestHook_DeclaredFiltersAreAcknowledgedWithNoRecord(t *testing.T) {
 	assert.Equal(t, Reply{}, reply)
 	assert.Empty(t, f.ledger.letters)
 	assert.Empty(t, f.turns.dispatched)
+}
+
+// A sender that hung up is why whatever failed after failed.
+func TestHook_ASenderThatGaveUpBeforeItsDescriptorResolvedIsSenderGone(t *testing.T) {
+	f := newFixture()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	f.descriptors.err = fmt.Errorf("worktree dir: %w", ctx.Err())
+
+	_, err := f.ingress.Hook(ctx, "runner-1", "p", "message_delta", []byte(`{}`), engineagents.ChannelHooks)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, []string{reasonSenderGone}, f.reasons())
 }
 
 func TestHook_AHookThatCouldNotBeRecordedIsRefusedAndDeadLettered(t *testing.T) {

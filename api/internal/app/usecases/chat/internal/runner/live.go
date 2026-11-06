@@ -14,9 +14,10 @@ import (
 )
 
 type liveTable struct {
-	mu      sync.Mutex
-	chats   map[string]*liveEntry
-	runners map[string]*liveEntry
+	mu        sync.Mutex
+	chats     map[string]*liveEntry
+	runners   map[string]*liveEntry
+	launching sync.Map // carriers a submission is launching: their prompts are owed, not orphaned
 }
 
 type liveEntry struct {
@@ -48,9 +49,7 @@ type liveView struct {
 }
 
 func newLiveTable() *liveTable {
-	return &liveTable{
-		chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{},
-	}
+	return &liveTable{chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{}}
 }
 
 // add registers r on r.CurrentChatID, refusing while that chat has an entry.
