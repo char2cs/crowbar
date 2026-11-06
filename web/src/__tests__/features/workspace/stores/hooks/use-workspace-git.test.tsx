@@ -186,6 +186,20 @@ describe('useWorkspaceGit', () => {
       expect(useGitRefreshStore.getState().changed['ws-test']).toBe(before + 1)
     })
 
+    // An edit to a file already modified leaves the status frame as it was; the edit is the news.
+    it('reloads when a worktree file changes, though the status frame does not', async () => {
+      const { reloadStatusAndLog } = await ready()
+      await vi.waitFor(() => expect(heldScopes('files:')).toEqual(['files:ws-test']))
+      streamDaemon.deliver({
+        t: 'signal',
+        scope: 'files:ws-test',
+        kind: 'file_change',
+        data: { type: 'modified', path: 'calc.py' },
+      })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
+    })
+
     it('reloads on an editor-save refresh request for this workspace only', async () => {
       const { reloadStatusAndLog } = await ready()
 
