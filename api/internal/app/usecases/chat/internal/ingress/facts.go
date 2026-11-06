@@ -3,6 +3,7 @@ package ingress
 import (
 	"cmp"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -117,6 +118,22 @@ func toolPhase(kind string) string {
 	return ledger.ToolPre
 }
 
+// A call's output reads inline when it is at most this many lines and bytes.
+const (
+	inlineOutputLines = 5
+	inlineOutputBytes = 400
+)
+
+// shortOutput is out when it is short enough to read inline, else "": the
+// whole of it stays in the call's result.
+func shortOutput(out string) string {
+	out = strings.TrimRight(out, "\n")
+	if len(out) > inlineOutputBytes || strings.Count(out, "\n") >= inlineOutputLines {
+		return ""
+	}
+	return out
+}
+
 // mapTool records one phase of a tool call in its scope, once. A call's end
 // closes the asks it raised: the CLI went on.
 func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string, refs BlobRefs) ([]ledger.Row, error) {
@@ -153,7 +170,7 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	if phase == ledger.ToolPre {
 		body.Diff = toolStartDiff(tool)
 	} else {
-		body.Diff, body.Status = toolResultDiff(tool), toolStatus(ev)
+		body.Diff, body.Status, body.Output = toolResultDiff(tool), toolStatus(ev), shortOutput(tool.Output)
 	}
 	row, err := ledger.NewRow(ledger.KindToolCall, turnID, scope, body)
 	if err != nil {

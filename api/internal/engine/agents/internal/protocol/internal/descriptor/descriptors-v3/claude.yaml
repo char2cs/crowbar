@@ -151,6 +151,7 @@ events:
       tool_input:  tool_input
       cwd:         cwd
       tool_result: tool_response
+      tool_output: tool_response.stdout
       duration_ms: duration_ms
       spawns_scope: tool_response.agentId
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }

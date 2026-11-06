@@ -66,6 +66,7 @@ events:
       - tool_target
       - tool_input
       - tool_result
+      - tool_output
       - tool_status
       - duration_ms
       # spawns_scope is the subagent this call spawned; addresses_scope one it

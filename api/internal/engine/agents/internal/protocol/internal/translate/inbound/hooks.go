@@ -349,6 +349,7 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		Patch:      buildPatch(patch, decoded),
 
 		Result:         mapping.JSON(decoded, fields["tool_result"]),
+		Output:         mapping.String(decoded, fields["tool_output"]),
 		Error:          mapping.String(decoded, fields["tool_error"]),
 		Status:         status,
 		DurationMS:     duration,

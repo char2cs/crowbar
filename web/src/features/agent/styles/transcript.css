@@ -868,3 +868,15 @@
 .agent-chat .agent-prose span[contenteditable='false'] {
   user-select: none;
 }
+
+/* A finished call's short output, read without opening the call. */
+.agent-chat .tool-call-output {
+  margin: 2px 0 0 20px;
+  max-height: 7.5em;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+}
