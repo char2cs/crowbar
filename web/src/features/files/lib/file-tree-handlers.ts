@@ -65,6 +65,9 @@ export async function refreshDirectory(
   store: WorkspaceStore,
   path?: string,
 ): Promise<void> {
+  // Only a level the tree holds is re-listed: an unopened folder loads when expanded, and one
+  // already gone (a deleted branch's .git/refs dir) would answer 404.
+  if (path && !findNode(store.getState().files, path)?.children) return
   let fresh: AppFile[]
   try {
     fresh = await fetchFileTree(wsId, path || undefined)

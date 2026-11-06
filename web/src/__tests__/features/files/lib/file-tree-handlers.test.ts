@@ -154,6 +154,19 @@ describe('refreshDirectory', () => {
     )
     expect(store.getState().files).toEqual(files)
   })
+
+  // A merge deletes .git/refs/heads/feat: its change event names a folder the tree never listed.
+  it('does not re-list a folder the tree never opened', async () => {
+    const list = vi.spyOn(fileTreeApi, 'fetchFileTree')
+    onTestFinished(() => list.mockRestore())
+    const store = createWorkspaceStore('ws-unopened')
+    store.getState().fileTreeActions.setFiles([{ name: '.git', path: '.git', isDir: true }])
+
+    await refreshDirectory('ws-unopened', store, '.git/refs/heads/feat')
+
+    expect(list).not.toHaveBeenCalled()
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
 })
 
 describe('handleDuplicatePath destination naming', () => {
