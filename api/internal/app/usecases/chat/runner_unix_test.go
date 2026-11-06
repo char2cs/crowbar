@@ -92,7 +92,7 @@ presentation:
 	require.NoError(t, err, "the deterministic provider command must be in flight")
 	require.NoError(t, inFlight.Close())
 
-	_, switchErr := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, switchErr := f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, switchErr)
 	f.wait()
 	releaser, err := os.OpenFile(release, os.O_WRONLY, 0)

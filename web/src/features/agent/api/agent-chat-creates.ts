@@ -43,6 +43,7 @@ export async function createChatWithOwnWorktree(
   provider: string,
   parentId = '',
   branch = '',
+  surface?: LandingChatPresentation,
 ): Promise<{ id: string; workspaceId: string }> {
   return apiFetch<{ id: string; workspaceId: string }>(`${repoBase(projectId, repoId)}/chats`, {
     method: 'POST',
@@ -53,6 +54,7 @@ export async function createChatWithOwnWorktree(
       parentId,
       ownWorktree: true,
       ...(branch && { branch }),
+      ...(surface && { surface }),
     }),
   })
 }

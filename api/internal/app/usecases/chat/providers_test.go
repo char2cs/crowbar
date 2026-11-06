@@ -146,7 +146,7 @@ func TestSwitchProvider_RefusesDisabledTarget(t *testing.T) {
 	chatID, _ := f.spawn(t, "claude")
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", Disabled: true})
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Equal(t, 1, f.term.callCount(), "the disabled target must never be spawned")

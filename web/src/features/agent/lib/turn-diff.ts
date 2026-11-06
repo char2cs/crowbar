@@ -12,6 +12,7 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
   try {
     const version = fingerprint(diff)
     const patches = parsePatchFiles(diff, `${turnId}:${version}`, true)
+    const bare = !/^diff --git /m.test(diff)
     let fileIndex = 0
     return patches.flatMap((patch, patchIndex) =>
       patch.files.map((fileDiff) => {
@@ -19,7 +20,7 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
         return {
           id: `${turnId}:${patchIndex}:${index}`,
           type: 'diff' as const,
-          fileDiff: withoutGitPrefixes(fileDiff),
+          fileDiff: bare ? unprefixed(fileDiff) : fileDiff,
           version,
         }
       }),
@@ -30,14 +31,13 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
   }
 }
 
-// Without a `diff --git` line the parser keeps git's a/ b/ prefixes, so an edit of one file
-// reads as a rename from a/x to b/x; the daemon's per-edit diffs are written that way.
-function withoutGitPrefixes(file: FileDiffMetadata): FileDiffMetadata {
-  if (!file.prevName?.startsWith('a/') || !file.name.startsWith('b/')) return file
-  const [name, prevName] = [file.name.slice(2), file.prevName.slice(2)]
-  return prevName === name
-    ? { ...file, name, prevName: undefined, type: 'change' }
-    : { ...file, name, prevName }
+/** A tool's edit arrives as a bare unified diff, whose `a/`/`b/` names the parser
+ *  keeps, so every edit would read as a rename from a/ to b/. */
+function unprefixed(file: FileDiffMetadata): FileDiffMetadata {
+  const name = file.name.replace(/^b\//, '')
+  const prev = file.prevName?.replace(/^a\//, '')
+  if (name === file.name || (prev !== undefined && prev !== name)) return file
+  return { ...file, name, prevName: undefined, type: prev === undefined ? file.type : 'change' }
 }
 
 function fingerprint(text: string): number {

@@ -182,7 +182,8 @@ func (rs *Runners) renderSpawnContext(
 		Effort: in.selection.Effort,
 		// The resolved permission level's named values, looked up by the caller
 		// against the SAME descriptor SpawnPlan renders.
-		PermissionVars: in.permissionVars,
+		PermissionVars:  in.permissionVars,
+		PermissionLevel: in.selection.PermissionLevel,
 		// The prior session id, if any — applyAPITransport overwrites this with
 		// whatever EstablishSession actually confirmed (a resumed id unchanged,
 		// or a freshly minted one) before attach's argv is ever rendered.

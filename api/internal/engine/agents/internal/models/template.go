@@ -56,6 +56,9 @@ type TemplateCtx struct {
 	// referenced as {permission.<key>}, for transports that set permissions in a
 	// request field rather than an argv flag.
 	PermissionVars map[string]string
+	// PermissionLevel is the chat's resolved level, which a forked view's argv
+	// renders through permission_levels.<level>.apply.
+	PermissionLevel string
 }
 
 // HookURL is where this runner's hooks are posted: the runner-keyed route on the

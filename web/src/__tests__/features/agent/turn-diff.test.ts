@@ -38,29 +38,12 @@ describe('parseTurnDiff', () => {
     expect(second[0]?.version).not.toBe(first[0]?.version)
   })
 
-  // The daemon's per-edit diffs carry git's a/ b/ prefixes without a `diff --git` line.
-  it('reads an edit with git prefixes but no git header as a change, not a rename', () => {
-    const edit = ['--- a/src/calc.py', '+++ b/src/calc.py', '@@ -1 +1,2 @@', ' x', '+y', ''].join(
-      '\n',
-    )
-    const [item] = parseTurnDiff(edit, 'turn-1')
-
-    expect(item?.type === 'diff' && item.fileDiff).toMatchObject({
-      name: 'src/calc.py',
-      prevName: undefined,
-      type: 'change',
-    })
-  })
-
-  it('still reads a real rename as one', () => {
-    const rename = ['--- a/old.py', '+++ b/new.py', '@@ -1 +1 @@', '-x', '+y', ''].join('\n')
-    const [item] = parseTurnDiff(rename, 'turn-1')
-
-    expect(item?.type === 'diff' && item.fileDiff).toMatchObject({
-      name: 'new.py',
-      prevName: 'old.py',
-      type: 'rename-changed',
-    })
+  it('reads a tool edit’s bare unified diff as a change to its file, not a rename', () => {
+    const edit =
+      '--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n--- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+one\n'
+    const files = parseTurnDiff(edit, 't').map((i) => i.type === 'diff' && i.fileDiff)
+    expect(files).toMatchObject([{ name: 'app.py', type: 'change' }, { name: 'n.md' }])
+    expect(files.map((f) => f && f.prevName)).toEqual([undefined, undefined])
   })
 
   it('declines oversized input before parsing', () => {

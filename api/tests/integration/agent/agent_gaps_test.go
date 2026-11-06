@@ -382,7 +382,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 // dialog; the new PTY is killed with the test.
 func switchTo(t *testing.T, h *harness, chatID, provider string) (runnerID, termSessID string, tap *kit.PTYTap) {
 	t.Helper()
-	runnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(context.Background(), chatID, provider)
+	runnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(context.Background(), chatID, provider, "")
 	require.NoError(t, err)
 	termSessID = runnerTerminalSession(t, h, runnerID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })

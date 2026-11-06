@@ -327,9 +327,31 @@ describe('ToolRow', () => {
     draw('t:tool-1')
     expect(fetchSpy).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
-    expect(await screen.findByText(/"command": "ls"/)).toBeInTheDocument()
+    expect(await screen.findByText('command: ls')).toBeInTheDocument()
     expect(await screen.findByText('No longer available')).toBeInTheDocument()
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/v0/chats/chat-1/blobs/sha256%3Ain')
+  })
+
+  it('shows a result’s output as its own lines, without escapes or terminal colour codes', async () => {
+    const result = {
+      stdout: '\u001b[31mred\u001b[0m\n2',
+      stderr: '',
+      file: { lines: 2, text: 'a\n  b' },
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).includes(encodeURIComponent('sha256:out'))
+        ? new Response(JSON.stringify(result))
+        : new Response(JSON.stringify('Exit code 3\n\u001b[1;32mgreen\u001b[0m')),
+    )
+    const l = ledger()
+    const call = { toolId: 'tool-1', name: 'Bash', inputRef: 'sha256:in', resultRef: 'sha256:out' }
+    seed([l.row('tool_call', { ...call, phase: 'post' }, { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    expect((await screen.findByText(/Exit code 3/)).textContent).toBe('Exit code 3\ngreen')
+    expect((await screen.findByText(/stdout/)).textContent).toBe(
+      'stdout: |\n  red\n  2\nstderr: ""\nfile:\n  lines: 2\n  text: |\n    a\n      b',
+    )
   })
 
   it('adds the Result side when its ref lands while the panel is open', async () => {
@@ -343,7 +365,7 @@ describe('ToolRow', () => {
     seed([l.start('turn-1'), l.row('tool_call', { ...call, phase: 'pre' }, { turnId: 'turn-1' })])
     draw('t:tool-1')
     fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
-    expect(await screen.findByText(/"command": "ls"/)).toBeInTheDocument()
+    expect(await screen.findByText('command: ls')).toBeInTheDocument()
     expect(screen.queryByText('Result')).toBeNull()
 
     act(

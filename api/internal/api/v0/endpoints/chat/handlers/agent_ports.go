@@ -157,11 +157,12 @@ type RunnerUsecase interface {
 
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,
-	// returning the new runner's id.
+	// returning the new runner's id. A non-empty surface is where the new runner starts.
 	SwitchProvider(
 		ctx context.Context,
 		chatID string,
 		targetProviderID string,
+		surface string,
 	) (newRunnerID string, err error)
 
 	// ResumeChat revives a dormant chat (its CLI exited or died with the daemon) into the provider and

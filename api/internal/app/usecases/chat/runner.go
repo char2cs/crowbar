@@ -48,11 +48,12 @@ type RunnerUsecase interface {
 
 	// SwitchProvider replaces the chat's CLI with another provider's, handing over the
 	// conversation. It WAITS out an in-flight turn, and refuses a disabled target
-	// before anything is torn down.
+	// before anything is torn down. A non-empty surface is where the incoming CLI starts.
 	SwitchProvider(
 		ctx context.Context,
 		chatID string,
 		targetProviderID string,
+		surface string,
 	) (string, error)
 
 	// SubmitPrompt delivers a prompt at most once per clientRequestID (a retry replays the
@@ -226,13 +227,15 @@ func (u *Usecase) KillChat(
 
 // SwitchProvider replaces the chat's CLI with another provider's, waiting out any turn
 // in flight. A same-provider switch is deliberately NOT a no-op: it is Promote's
-// respawn primitive, rebuilding a CLI whose worktree just changed.
+// respawn primitive, rebuilding a CLI whose worktree just changed. A non-empty surface
+// becomes the chat's before the incoming CLI starts; "" keeps the chat's own.
 func (u *Usecase) SwitchProvider(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
+	surface string,
 ) (string, error) {
-	return u.runners.SwitchProvider(ctx, chatID, targetProviderID)
+	return u.runners.SwitchProvider(ctx, chatID, targetProviderID, surface)
 }
 
 // SubmitPrompt delivers a prompt at most once per client request id, in one hold
