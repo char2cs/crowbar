@@ -55,11 +55,7 @@ function attachmentOf(
     return { state: 'reviving', message: `Starting ${providerName}…` }
   }
   // A new chat's CLI starts with its first message: not yet started is no ended session.
-  if (neverStarted)
-    return {
-      state: 'idle',
-      message: `${sentenceCase(providerName)} starts with your first message.`,
-    }
+  if (neverStarted) return { state: 'idle', message: `Your first message starts ${providerName}.` }
   return { state: 'idle', message: describeDormant(exitReason) }
 }
 
@@ -113,9 +109,4 @@ export function usePaneAttachment({
     canSend: attachment.state !== 'pending',
     startSession,
   }
-}
-
-// The fallback provider name is mid-sentence lowercase ("the agent"); this sentence opens with it.
-function sentenceCase(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }

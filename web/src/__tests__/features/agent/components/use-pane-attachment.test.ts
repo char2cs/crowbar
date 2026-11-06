@@ -31,19 +31,19 @@ describe('usePaneAttachment', () => {
 
     expect(result.current.attachment).toEqual({
       state: 'idle',
-      message: 'Claude starts with your first message.',
+      message: 'Your first message starts Claude.',
     })
     expect(result.current.canSend).toBe(true)
   })
 
-  // A chat with no provider chosen yet names "the agent", which opens the sentence.
-  it('opens the not-yet-started sentence with a capital when no provider is named', () => {
+  // A chat with no provider chosen yet names "the agent", which must not open a sentence.
+  it('names an unchosen provider mid-sentence in the not-yet-started line', () => {
     seedChats([{ id: 'c1' }])
     seedFeed('c1')
 
     expect(attachmentOn('c1', 'the agent').current.attachment).toEqual({
       state: 'idle',
-      message: 'The agent starts with your first message.',
+      message: 'Your first message starts the agent.',
     })
   })
 
