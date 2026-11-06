@@ -201,6 +201,19 @@ describe('review patch window with viewed files', () => {
     expect(screen.getAllByRole('checkbox', { name: /viewed/i })).toHaveLength(3)
   })
 
+  // A pure addition: +4 -0 over a 3-line context hunk, as the daemon reported a real edit.
+  it('shows the summary counts on a file viewed before its patch was ever fetched', async () => {
+    const { files, outline } = manyFiles(2)
+    files[0] = { ...files[0], additions: 4, deletions: 0 }
+    outline[0] = { ...outline[0], hunks: [{ oldStart: 4, oldLines: 3, newStart: 4, newLines: 7 }] }
+    const { container } = await renderSurface(files, outline, [pathOf(0)])
+    await waitForCode(container, markerOf(1))
+
+    const [host] = container.querySelectorAll('diffs-container')
+    const root = (host as HTMLElement).shadowRoot as ShadowRoot
+    expect(root.querySelector('[data-additions-count]')?.textContent).toBe('+4')
+  })
+
   it("fetches a file's full text only when a separator is expanded, then reveals the lines", async () => {
     const lines = (edit: string) =>
       Array.from({ length: 30 }, (_, i) => (i === 10 ? edit : `unchangedLine${i + 1}`)).join('\n')
