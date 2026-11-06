@@ -1,8 +1,7 @@
-// Package snapshot is the one owner of what a client is told a chat is: row, live runner, phase,
-// and a version ordering every answer. Frames and GETs are built from one in-memory state under the
-// lock that assigns the version, so "newer version wins" is safe. Events feed that state directly,
-// so it never lags a frame; the read model is only a fallback for chats no event has touched since
-// boot. Memory is bounded by chats asked about.
+// Package snapshot is the one owner of what a client is told a chat is: row, live runner, phase, and a version ordering
+// every answer. Frames and GETs are built from one in-memory state under the lock that assigns the version, so "newer
+// version wins" is safe. Events feed that state directly, so it never lags a frame; the read model is only a fallback
+// for chats no event has touched since boot. Memory is bounded by chats asked about.
 package snapshot
 
 import (

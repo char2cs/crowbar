@@ -62,8 +62,7 @@ export const chatComposerStructurePlugin = createPlatePlugin({
         const last = editor.children.at(-1)
         if (!last || last.type !== LINE) {
           editor.tf.insertNodes(emptyLine(), { at: [editor.children.length] })
-          // An emptied editor is left with `selection: null`, which swallows the
-          // next keystroke.
+          // An emptied editor is left with `selection: null`, which swallows the next keystroke.
           if (!last && !editor.selection) {
             const start = editor.api.start([])
             if (start) editor.tf.select(start)

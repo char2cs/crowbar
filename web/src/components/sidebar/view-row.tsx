@@ -9,6 +9,7 @@ import type { SidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import type { ChatIconFields } from '@/components/sidebar/lib/chat-icon-index'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { viewMembers } from '@/features/panes/lib/view-state'
 import type { ViewMember } from '@/features/panes/types/pane'
@@ -16,6 +17,7 @@ import { selectRepos, useSelect } from '@/core/entities/select'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
+const pendingLabel = (chatId: string) => (isDraftChatId(chatId) ? 'New thread' : LOADING_CHAT_LABEL)
 
 // A chat as a sidebar row: the workspace store's live title and spinner when mounted, else the
 // sidebar's chat record. With no chat data yet it still draws, as loading.
@@ -32,7 +34,7 @@ export function useMemberRow(
     parentId: null,
     order: 0,
     // The tree's own fallback: both rows name an untitled chat alike.
-    label: chat.title || (known ? UNTITLED_CHAT_LABEL : LOADING_CHAT_LABEL),
+    label: chat.title || (known ? UNTITLED_CHAT_LABEL : pendingLabel(chatId)),
     labelProvisional: !chat.title,
     workspaceId: chat.workspaceId,
     working: chat.working,

@@ -1,7 +1,7 @@
 import type { GitCommit, GitDiff, GitStatus } from '../types/git-types'
 import { reviewFilesSummaryToChangedFiles } from '../utils/review-file-summary-to-git-diff'
 import { getGitLog } from './git-commits-api'
-import { getGitStatus } from './git-status-api'
+import { readGitStatus } from './git-status-api'
 import { getReviewFiles } from './review-api'
 
 export const COMMITS_PER_PAGE = 50
@@ -17,15 +17,17 @@ export async function fetchReviewFiles(wsId: string): Promise<GitDiff[] | null> 
 
 export interface GitData {
   status: GitStatus | null
+  /** Why the status could not be read; null when it was. */
+  statusError: string | null
   commits: GitCommit[]
   reviewFiles: GitDiff[] | null
 }
 
 export async function fetchGitData(wsId: string): Promise<GitData> {
-  const [status, commits, reviewFiles] = await Promise.all([
-    getGitStatus(wsId),
+  const [{ status, error }, commits, reviewFiles] = await Promise.all([
+    readGitStatus(wsId),
     getGitLog(wsId, COMMITS_PER_PAGE, 0),
     fetchReviewFiles(wsId),
   ])
-  return { status, commits, reviewFiles }
+  return { status, statusError: error, commits, reviewFiles }
 }

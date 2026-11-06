@@ -143,6 +143,7 @@ async function send(chatId: string, item: OutboxItem) {
       item.provider ?? '',
       item.model,
       item.effort,
+      item.retryOf,
     )
     // The 202 is the only word that a staged pick was taken; the chat's frame confirms it.
     const hostId = chatHostOf(chatId)

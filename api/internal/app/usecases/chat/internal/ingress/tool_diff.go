@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -28,6 +29,15 @@ func toolResultDiff(tool *engineagents.ToolEvent) string {
 // the file is inside it; else the path itself.
 func diffName(path, cwd string) string {
 	return strings.TrimLeft(sessionPath(path, cwd), "/")
+}
+
+// toolTarget is the call's target; a read or edit's is its file, named from
+// the session's directory.
+func toolTarget(tool *engineagents.ToolEvent) string {
+	if tool.Kind == ledger.ToolKindRead || tool.Kind == ledger.ToolKindEdit {
+		return sessionPath(tool.Target, tool.Cwd)
+	}
+	return tool.Target
 }
 
 // sessionPath is path relative to cwd when it lies inside it, else path as given.

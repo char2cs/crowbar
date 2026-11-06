@@ -65,7 +65,9 @@ func (fx effects) run() {
 // since every caller checks the state under ent.mu. Caller holds ent.mu.
 func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to sessionState, exitCode int) effects {
 	e.unregister(ent)
-	e.discardPersisted(ctx, ent)
+	if !ent.command { // never persisted, and its chat may already be erased
+		e.discardPersisted(ctx, ent)
+	}
 	ent.state = to
 	var fx effects
 	if onExit := ent.onExit; onExit != nil {

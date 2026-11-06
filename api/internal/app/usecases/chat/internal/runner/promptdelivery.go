@@ -174,6 +174,8 @@ func (rs *Runners) launchCarrying(
 	ctx context.Context, h *hold, chat domain.Chat, requestID, text string, delivery promptDelivery,
 ) (domain.AgentPromptSubmission, error) {
 	carrier := uuid.NewString()
+	rs.live.launching.Store(carrier, true)
+	defer rs.live.launching.Delete(carrier)
 	if err := rs.recordPrompt(ctx, chat.ID, requestID, text, "", ledger.DeliveryRestart, carrier, nil); err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}

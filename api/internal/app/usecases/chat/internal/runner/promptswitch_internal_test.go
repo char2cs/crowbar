@@ -207,3 +207,36 @@ func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T
 	assert.Equal(t, ledger.KindTurnStarted, rows[0].Kind)
 	assert.Equal(t, ledger.KindMarker, rows[1].Kind, "the divider follows the hook's row")
 }
+
+// An effort the chat never set runs as the one its last turn reported: a pick
+// naming that effort changes the model only.
+func TestSetChatSelection_AnUnsetEffortIsTheOneTheLastTurnReported(t *testing.T) {
+	for pick, want := range map[string][]string{
+		"medium": {"model_changed:haiku"},
+		"high":   {"model_changed:haiku", "effort_changed:high"},
+	} {
+		t.Run(pick, func(t *testing.T) {
+			var committed []string
+			rs := &Runners{
+				chatLock: ingress.NewLocks(), parks: newParks(), ledger: newTestLedger(t),
+				conversations: stagedConversations{committed: &committed},
+			}
+			for _, row := range []struct {
+				kind ledger.Kind
+				body any
+			}{
+				{ledger.KindTurnStarted, ledger.TurnStarted{Provider: "p", RunnerID: "r-1"}},
+				{ledger.KindTurnEnded, ledger.TurnEnded{Status: "done", RunnerID: "r-1", Effort: "medium"}},
+			} {
+				r, err := ledger.NewRow(row.kind, "T-1", "", row.body)
+				require.NoError(t, err)
+				_, _, err = rs.ledger.Append(t.Context(), "chat-1", r)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, rs.setChatSelectionLocked(t.Context(), "chat-1", "haiku", pick))
+
+			assert.Equal(t, want, dividers(t, rs.ledger, "chat-1"))
+		})
+	}
+}

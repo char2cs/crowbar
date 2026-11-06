@@ -148,8 +148,7 @@ export function SidebarRow({
         className={cn(
           ROW_BASE,
           isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
-          // Swap only ROW_INACTIVE's text color; the fill comes from the ROW_ACTIVE ground
-          // painted on an ancestor.
+          // Only ROW_INACTIVE's text color: the fill is the ancestor's ROW_ACTIVE ground.
           !isNestTarget && activeGround && 'text-foreground-inverse',
           !isNestTarget && hasViewIdle && row.hasView && ROW_HAS_VIEW_IDLE,
           isDragging && 'opacity-40',

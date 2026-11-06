@@ -16,6 +16,8 @@ type GitLoadStatus = 'idle' | 'loading' | 'ready' | 'failed'
 export interface GitSlice {
   gitLoad: GitLoadStatus
   gitStatus: GitStatus | null
+  /** Why git could not read the worktree (a moved or deleted repo); null while it can. */
+  gitStatusError: string | null
   /** `gitStatus` capped for the file-explorer decorations. */
   workspaceGitStatus: GitStatus | null
   commits: GitCommit[]
@@ -49,6 +51,7 @@ export const createGitSlice: StateCreator<
 > = (set, get) => ({
   gitLoad: 'idle',
   gitStatus: null,
+  gitStatusError: null,
   workspaceGitStatus: null,
   commits: [],
   reviewFiles: null,
@@ -63,11 +66,12 @@ export const createGitSlice: StateCreator<
       set({ gitLoad: 'loading' })
       try {
         const { fetchGitData, COMMITS_PER_PAGE } = await gitDataApi()
-        const { status, commits, reviewFiles } = await fetchGitData(workspaceId)
+        const { status, statusError, commits, reviewFiles } = await fetchGitData(workspaceId)
         set({
           gitLoad: 'ready',
           reviewFiles,
           gitStatus: status,
+          gitStatusError: statusError,
           workspaceGitStatus: toWorkspaceGitStatus(status),
           commits,
           hasMoreCommits: commits.length >= COMMITS_PER_PAGE,
@@ -93,17 +97,18 @@ export const createGitSlice: StateCreator<
     // first page replaces the list.
     async reloadStatusAndLog() {
       const wsId = get().workspaceId
-      const [{ getGitStatus }, { getGitLog }, { COMMITS_PER_PAGE }] = await Promise.all([
+      const [{ readGitStatus }, { getGitLog }, { COMMITS_PER_PAGE }] = await Promise.all([
         gitStatusApi(),
         gitCommitsApi(),
         gitDataApi(),
       ])
-      const [status, commits] = await Promise.all([
-        getGitStatus(wsId),
+      const [{ status, error }, commits] = await Promise.all([
+        readGitStatus(wsId),
         getGitLog(wsId, COMMITS_PER_PAGE, 0),
       ])
       set({
         gitStatus: status,
+        gitStatusError: error,
         workspaceGitStatus: toWorkspaceGitStatus(status),
         commits,
         hasMoreCommits: commits.length >= COMMITS_PER_PAGE,

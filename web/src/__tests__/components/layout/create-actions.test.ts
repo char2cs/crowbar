@@ -232,6 +232,32 @@ describe('creating a workspace off the repo-home row', () => {
     )
   })
 
+  // One default: with Terminal preferred, a New thread starts on the terminal as a fork's
+  // chat does, instead of a Chat draft whose first prompt the terminal would hold unsent.
+  it("starts a new thread on the user's default terminal surface, like a fork", async () => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true },
+      ] as never,
+    })
+    seedRepos([repo()])
+
+    await handleCreate('home-1', 'thread', vi.fn())
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'home-1',
+      'codex',
+      'home-1',
+      'terminal',
+    )
+  })
+
   it('is a silent no-op with no enabled provider loaded yet', async () => {
     seedRepos([repo()])
 

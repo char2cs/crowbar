@@ -95,6 +95,50 @@ func TestLedgerFeed_SettlesAPromptWithoutATurn(t *testing.T) {
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
 }
 
+// A retry names the refused prompt it sends again on its own row, so the ledger,
+// not the sending tab's memory, says the refused one was sent again.
+func TestLedgerFeed_ARetryRecordsTheRefusedPromptItSendsAgain(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	f.term.err = errors.New("replacement create failed")
+	refused := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "never forked", refused, "", nil)
+	require.Error(t, err)
+	require.Eventually(t, func() bool {
+		return !agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID)
+	}, 10*time.Second, 10*time.Millisecond)
+	f.term.err = nil
+
+	retry := uuid.NewString()
+	_, err = f.usecase.SubmitPrompt(domain.WithPromptRetryOf(f.ctx, refused), chatID, "never forked", retry, "", nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, refused, userMessage(t, f, chatID, retry).RetryOf)
+}
+
+// A retry of a prompt the ledger does not hold as refused links nothing.
+func TestLedgerFeed_ARetryOfAnUnknownPromptLinksNothing(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	retry := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(domain.WithPromptRetryOf(f.ctx, "never-sent"), chatID, "hi", retry, "", nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, userMessage(t, f, chatID, retry).RetryOf)
+}
+
+func userMessage(t *testing.T, f testFixture, chatID, requestID string) ledger.UserMessage {
+	t.Helper()
+	for _, r := range ledgerRows(t, f, chatID) {
+		msg, err := ledger.DecodeBody[ledger.UserMessage](r)
+		if err == nil && r.Kind == ledger.KindUserMessage && msg.RequestID == requestID {
+			return msg
+		}
+	}
+	t.Fatalf("no user_message row for %s", requestID)
+	return ledger.UserMessage{}
+}
+
 // A chat's first commit reaches a subscriber that reads the chat's snapshot.
 // Its facts are installed first, so no subscriber reads the ledger under the
 // writer still holding it.

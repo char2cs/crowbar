@@ -53,11 +53,13 @@ export async function submitAgentPrompt(
   provider?: string,
   model?: string,
   effort?: string,
+  /** The refused prompt this send retries: the daemon links the two in the ledger. */
+  retryOf?: string,
 ): Promise<AgentPromptResult> {
   return apiFetch<AgentPromptResult>(`${chatBase(wsId)}/${encodeURIComponent(id)}/prompts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, clientRequestId, provider, model, effort }),
+    body: JSON.stringify({ text, clientRequestId, provider, model, effort, retryOf }),
   })
 }
 
@@ -152,9 +154,8 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// killChat force-ends the chat's live vendor CLI on hostId, mid-turn included —
-// unlike stopChat, which interrupts a turn in place. The chat entry stays,
-// dormant and resumable.
+// killChat force-ends the chat's live vendor CLI on hostId, mid-turn included — unlike stopChat,
+// which interrupts a turn in place. The chat entry stays, dormant and resumable.
 export async function killChat(hostId: string, chatId: string): Promise<void> {
   await apiFetch<unknown>(`${chatBaseOn(hostId, chatId)}/kill`, { method: 'POST' })
 }

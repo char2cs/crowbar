@@ -1,7 +1,7 @@
 import { apiFetch } from '@/lib/api/fetch'
 import { operationHeaders, type OperationReply } from '@/core/entities/run-operation'
 import {
-  reviewBaseForWorkspace,
+  reviewBaseForWorkspace as reviewBase,
   workspaceBase,
   worktreeVerbBaseForWorkspace,
 } from '@/lib/workspace-scope-url'
@@ -17,10 +17,6 @@ import type { ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 // The local branch-vs-parent review client. Review routes hang off the worktree's owning chat;
 // merge is a worktree lifecycle verb (worktreeVerbBaseForWorkspace). Review-comment /threads are
 // a separate, workspace-scoped system. No remote PRs here.
-
-function reviewBase(wsId: string): string {
-  return reviewBaseForWorkspace(wsId)
-}
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
@@ -240,9 +236,8 @@ export async function deleteThread(wsId: string, threadId: string): Promise<void
   })
 }
 
-/** DELETE a single reply by message id. Returns the updated thread (root + the
- *  remaining replies). The root comment cannot be deleted this way — delete the
- *  whole thread instead. */
+/** DELETE a single reply by message id. Returns the updated thread (root + the remaining replies).
+ *  The root comment cannot be deleted this way — delete the whole thread instead. */
 export async function deleteMessage(
   wsId: string,
   threadId: string,

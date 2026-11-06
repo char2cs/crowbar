@@ -65,6 +65,8 @@ export async function refreshDirectory(
   store: WorkspaceStore,
   path?: string,
 ): Promise<void> {
+  // Only a level the tree holds is re-listed: an unopened or vanished folder would answer 404.
+  if (path && !findNode(store.getState().files, path)?.children) return
   let fresh: AppFile[]
   try {
     fresh = await fetchFileTree(wsId, path || undefined)
@@ -120,9 +122,8 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
     handleDeletePath: async (path: string) => {
       await deleteFileNode(wsId, path)
     },
-    // Duplicate goes through the daemon's server-side copy verb — byte faithful
-    // and recursive for directories; only the collision-free destination is
-    // derived client-side.
+    // Duplicate goes through the daemon's server-side copy verb — byte faithful and recursive for
+    // directories; only the collision-free destination is derived client-side.
     handleDuplicatePath: async (path: string) => {
       try {
         await copyFileNode(wsId, path, duplicateDestPath(path, store.getState().files))

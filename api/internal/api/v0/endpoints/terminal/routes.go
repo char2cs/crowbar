@@ -29,6 +29,7 @@ func Register(
 	// The host terminal theme is a single global truth (one Crowbar window, one theme), so
 	// it mounts on settingsRG beside the profiles rather than under a chat: it is
 	// pushed BEFORE any session exists, which is the entire point — see Handlers.SetHostTheme.
+	settingsRG.GET("/settings/terminal/theme", h.HostTheme)
 	settingsRG.PUT("/settings/terminal/theme", h.SetHostTheme)
 
 	settingsRG.GET("/settings/terminal/profiles", h.ListProfiles)

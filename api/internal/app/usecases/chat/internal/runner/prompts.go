@@ -155,13 +155,14 @@ func (rs *Runners) replayPriorPrompt(
 	return domain.AgentPromptSubmission{RunnerID: prior.RunnerID, TerminalSessionID: carrier.TerminalSession}, true, nil
 }
 
-// settleOrphanedPrompts settles the chat's pending prompts whose carrier is not
-// its live runner, then returns the State. A departure that never settled its
-// prompt would otherwise hold the chat busy for good.
+// settleOrphanedPrompts settles pending prompts no live or launching carrier can deliver, then returns the State.
 func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (ledger.State, error) {
 	live, _ := rs.live.byChat(chatID)
 	_, st, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.SettleOrphaned(st, func(runnerID string) bool { return runnerID == live.ID })
+		return ledger.SettleOrphaned(st, func(runnerID string) bool {
+			_, launching := rs.live.launching.Load(runnerID)
+			return runnerID == live.ID || launching
+		})
 	})
 	if err != nil {
 		return ledger.State{}, fmt.Errorf("pending prompts: ledger: %w", err)
@@ -208,7 +209,7 @@ func (rs *Runners) recordPrompt(
 		}
 		row, err := ledger.NewRow(ledger.KindUserMessage, uuid.NewString(), "", ledger.UserMessage{
 			RequestID: requestID, Text: text, Origin: ledger.OriginCrowbar, Delivery: delivery, RunnerID: carrier,
-			Dispatch: dispatch,
+			Dispatch: dispatch, RetryOf: refusedRetry(st, domain.PromptRetryOf(ctx)),
 		})
 		return []ledger.Row{row}, err
 	})
@@ -216,6 +217,15 @@ func (rs *Runners) recordPrompt(
 		return fmt.Errorf("agent: submit prompt: record: %w", err)
 	}
 	return nil
+}
+
+// refusedRetry is retryOf when the ledger holds it as a prompt settled without running.
+func refusedRetry(st ledger.State, retryOf string) string {
+	p, ok := st.Receipt(retryOf)
+	if retryOf == "" || !ok || p.Status != ledger.PromptStatusSettled || p.Consumed {
+		return ""
+	}
+	return retryOf
 }
 
 // failPrompt settles requestID as undelivered, as lost when cause says its

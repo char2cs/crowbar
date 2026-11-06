@@ -1,8 +1,7 @@
-// Package runner is the vendor CLI's lifecycle: start, switch provider, resume, stop, and deliver
-// a Crowbar-authored prompt. Everything here is user-initiated and decides under the chat's hook
-// lock (chatlock.go); the hook path must never call in through a locking door. A runner's process
-// (PTY, serve connection or native view) is the sole authority on its liveness: a CLI is ended by
-// killing it and letting its death record the exit.
+// Package runner is the vendor CLI's lifecycle: start, switch provider, resume, stop, and deliver a Crowbar-authored
+// prompt. Everything here is user-initiated and decides under the chat's hook lock (chatlock.go); the hook path must
+// never call in through a locking door. A runner's process (PTY, serve connection or native view) is the sole authority
+// on its liveness: a CLI is ended by killing it and letting its death record the exit.
 package runner
 
 import (

@@ -1,5 +1,19 @@
 # Ordering a hooks-only provider's text and calls by its transcript
 
+Status: deferred: needs a live design review; hooks-only ordering is the current rule.
+
+Follow-up: a design review of whether Crowbar may read a provider's
+transcript at all. Provider homes are off-limits, and the refactor removed the
+SessionFinder that read them. Until that review, rows are ordered by the round
+rule in `web/src/features/agent/stores/lib/fold-rounds.ts`.
+
+Known limits of hooks-only ordering:
+
+- Text said before parallel calls can arrive after their `PreToolUse` hooks
+  (1.3 s after both, in the capture below). Only the round rule places it.
+- A call that fails claude's own validation fires no hook, so Crowbar never
+  shows it.
+
 ## Problem
 
 On a hooks-only provider (claude), text and tool calls reach Crowbar through

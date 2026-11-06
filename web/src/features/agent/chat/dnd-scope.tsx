@@ -15,8 +15,7 @@ import {
   resolveAttachmentDrop,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 
-// Pointer-only (no keyboard sensor): the default instructions describe keys
-// that do nothing here.
+// Pointer-only (no keyboard sensor): the default instructions describe keys that do nothing here.
 const ACCESSIBILITY = {
   screenReaderInstructions: { draggable: 'Drag the handle to move this attachment.' },
 }

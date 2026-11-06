@@ -14,6 +14,15 @@ const HANDLE_TRACK_PX = 1
 const DEFAULT_CONTENT_MIN_RATIO = 0.2
 const KEYBOARD_STEP_PX = 16
 
+// Below 640px there is no room to share: the open sidebar lies over the content as a drawer,
+// so the content keeps its whole width and a tap beside the drawer closes it.
+// Out of flow, the sidebar still fills its grid area, which already holds the clamped track width.
+const NARROW_SIDEBAR =
+  '@max-[640px]/split:absolute @max-[640px]/split:inset-0 @max-[640px]/split:z-40 ' +
+  '@max-[640px]/split:bg-background @max-[640px]/split:shadow-xl'
+// A class, not an inline style, so the narrow variant can widen it to every column.
+const CONTENT_AREA = '[grid-area:content] @max-[640px]/split:[grid-area:1/1/2/-1]'
+
 interface SidebarSplitPaneProps {
   side: 'left' | 'right'
   open: boolean
@@ -269,7 +278,7 @@ export function SidebarSplitPane({
       ref={rootRef}
       data-sidebar-split-pane=""
       data-side={side}
-      className="grid h-full w-full min-w-0"
+      className="@container/split relative grid h-full w-full min-w-0"
       style={
         {
           '--sidebar-track-width': `${open ? preferredWidth : 0}px`,
@@ -283,7 +292,7 @@ export function SidebarSplitPane({
         ref={sidebarRef}
         id="crowbar-sidebar-pane"
         data-sidebar-split-panel="sidebar"
-        className="min-h-0 min-w-0 overflow-hidden"
+        className={cn('min-h-0 min-w-0 overflow-hidden', NARROW_SIDEBAR)}
         style={{ gridArea: 'sidebar' }}
       >
         {sidebar}
@@ -306,6 +315,7 @@ export function SidebarSplitPane({
         onPointerDown={handlePointerDown}
         className={cn(
           'relative z-10 h-full w-2 touch-none justify-self-center cursor-col-resize outline-none',
+          '@max-[640px]/split:hidden',
           'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors',
           'hover:after:bg-border/60 focus-visible:after:bg-border focus-visible:ring-1 focus-visible:ring-ring',
         )}
@@ -314,11 +324,20 @@ export function SidebarSplitPane({
 
       <div
         data-sidebar-split-panel="content"
-        className="min-h-0 min-w-0 overflow-visible"
-        style={{ gridArea: 'content' }}
+        className={cn('min-h-0 min-w-0 overflow-visible', CONTENT_AREA)}
       >
         {children}
       </div>
+
+      {open && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Close sidebar"
+          className="absolute inset-0 z-30 hidden bg-black/30 @max-[640px]/split:block"
+          onClick={() => onOpenChange(false)}
+        />
+      )}
     </div>
   )
 }

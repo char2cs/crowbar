@@ -339,3 +339,20 @@ func exitFrameCode(conn *mockConn) (int, bool) {
 	}
 	return 0, false
 }
+
+// A command session is never persisted, so its end touches no storage: the
+// chat it ran on may already be erased, as when a deleted chat's CLI is ended.
+func TestTerminate_ACommandSessionEndsWithoutTouchingStorage(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	defer eng.Shutdown()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	ctx := context.Background()
+	sid, err := eng.CreateCommand(ctx, "chat-erased", t.TempDir(), []string{"/bin/sh", "-c", "sleep 9999"}, os.Environ(), nil)
+	require.NoError(t, err)
+
+	require.NoError(t, eng.TerminateGraceful(ctx, sid))
+
+	assert.False(t, store.hasDeleted(sid))
+}

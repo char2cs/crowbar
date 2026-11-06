@@ -265,9 +265,8 @@ function ReviewCodeViewSurface({
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
       {binaries.length > 0 ? <ReviewBinaryFiles entries={binaries} /> : null}
       <DiffCodeView<ReviewThread>
-        // Remounting on a changed file list is deliberate: CodeView seeds
-        // `initialItems` once, and a different set of files is a different
-        // document, not an update to this one.
+        // Remounting on a changed file list is deliberate: CodeView seeds `initialItems` once, and
+        // a different set of files is a different document, not an update to this one.
         viewKey={signature}
         ref={handleRef}
         containerRef={markScrollerRef}
