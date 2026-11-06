@@ -18,6 +18,8 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	var body struct {
 		Text            string `json:"text"`
 		ClientRequestID string `json:"clientRequestId"`
+		// RetryOf is the refused prompt this send retries; the ledger links the two.
+		RetryOf string `json:"retryOf"`
 		// Provider is the composer's staged provider — omitted or empty
 		// means "nothing staged, use the chat's current one as-is." It has no
 		// "clear it" reading at all: a chat always runs SOME provider.
@@ -39,7 +41,7 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		}
 	}
 	result, err := h.runners.SubmitPrompt(
-		ctx.Request.Context(), chat.ID, body.Text, body.ClientRequestID,
+		domain.WithPromptRetryOf(ctx.Request.Context(), body.RetryOf), chat.ID, body.Text, body.ClientRequestID,
 		body.Provider, selection,
 	)
 	if err != nil {

@@ -96,6 +96,8 @@ export interface RowBodies {
     delivery?: 'restart' | 'steer' | 'api'
     runnerId?: string
     dispatch?: string
+    /** The refused prompt this one sends again. */
+    retryOf?: string
   }
   turn_started: {
     requestId?: string

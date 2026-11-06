@@ -53,11 +53,13 @@ export async function submitAgentPrompt(
   provider?: string,
   model?: string,
   effort?: string,
+  /** The refused prompt this send retries: the daemon links the two in the ledger. */
+  retryOf?: string,
 ): Promise<AgentPromptResult> {
   return apiFetch<AgentPromptResult>(`${chatBase(wsId)}/${encodeURIComponent(id)}/prompts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, clientRequestId, provider, model, effort }),
+    body: JSON.stringify({ text, clientRequestId, provider, model, effort, retryOf }),
   })
 }
 
