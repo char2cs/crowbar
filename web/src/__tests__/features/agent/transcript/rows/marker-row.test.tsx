@@ -186,6 +186,7 @@ describe('MarkerRow', () => {
     session_changed: 'the CLI’s own bookkeeping; the transcript reads on',
     session_conflict: true,
     dead_letter: 'counted in the daemon’s health, not drawn in a chat',
+    warning: true,
     notification:
       'what the CLI told its user repeats what the transcript shows; a legacy notice outside a turn stays in the ledger only',
   }

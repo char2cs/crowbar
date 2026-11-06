@@ -137,6 +137,12 @@ events:
     required: []
     optional: [session_id, message]
 
+  # A warning the CLI prints in its own transcript; notification is an alert.
+  warning:
+    direction: in
+    required: []
+    optional: [session_id, message]
+
   message_delta:
     direction: in
     # index is OPTIONAL, not required as the Go rule had it. claude numbers its deltas;

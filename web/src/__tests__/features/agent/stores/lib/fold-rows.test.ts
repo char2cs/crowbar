@@ -357,6 +357,19 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['k:2', 'k:3'])
   })
 
+  it('shows what the CLI warned its user about as a notice in the transcript', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.row('marker', { kind: 'warning', detail: 'Code Mode is unavailable' }),
+    ])
+    expect(feed.order).toEqual(['k:1'])
+    expect(feed.items['k:1']).toMatchObject({
+      kind: 'marker',
+      marker: 'warning',
+      detail: 'Code Mode is unavailable',
+    })
+  })
+
   // A launch records its prompt, then the CLI that carries it says what it switched to.
   it('reads a launch switch above the prompt that caused it', () => {
     const l = ledger()

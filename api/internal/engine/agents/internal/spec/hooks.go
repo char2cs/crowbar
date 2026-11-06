@@ -9,11 +9,13 @@ const (
 	HookSubagentPre  = "subagent_pre"
 	HookSubagentPost = "subagent_post"
 	HookNotification = "notification"
-	HookPermission   = "permission"
-	HookCompactPre   = "compact_pre"
-	HookCompactPost  = "compact_post"
-	HookSessionEnd   = "session_end"
-	HookTelemetry    = "telemetry"
+	// HookWarning is a warning the CLI prints in its own transcript.
+	HookWarning     = "warning"
+	HookPermission  = "permission"
+	HookCompactPre  = "compact_pre"
+	HookCompactPost = "compact_post"
+	HookSessionEnd  = "session_end"
+	HookTelemetry   = "telemetry"
 
 	HookToolFail = "tool_fail"
 

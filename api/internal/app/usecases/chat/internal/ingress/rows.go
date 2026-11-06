@@ -114,6 +114,7 @@ var mappers = map[string]mapFunc{
 	engineagents.HookPlanUpdate:      scopedRows(mapPlan),
 	engineagents.HookPlanStep:        scopedRows(mapPlanStep),
 	engineagents.HookNotification:    mapNotification,
+	engineagents.HookWarning:         mapWarning,
 }
 
 func withoutRefs(f func(ledger.State, engineagents.CanonicalEvent, Source) ([]ledger.Row, Effects, error)) mapFunc {
@@ -165,6 +166,12 @@ func mapToolCall(st ledger.State, ev engineagents.CanonicalEvent, src Source, re
 func mapNotification(st ledger.State, ev engineagents.CanonicalEvent, _ Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
 	row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "",
 		ledger.Marker{Kind: ledger.MarkerNotification, Detail: ev.Message})
+	return []ledger.Row{row}, Effects{}, err
+}
+
+func mapWarning(st ledger.State, ev engineagents.CanonicalEvent, _ Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+	row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "",
+		ledger.Marker{Kind: ledger.MarkerWarning, Detail: ev.Message})
 	return []ledger.Row{row}, Effects{}, err
 }
 

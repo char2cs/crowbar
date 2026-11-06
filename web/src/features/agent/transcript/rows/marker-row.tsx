@@ -65,6 +65,8 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
       return { label: `Model: ${item.detail || 'default'}`, testId: 'agent-model-switch-divider' }
     case 'effort_changed':
       return { label: `Effort: ${item.detail || 'default'}`, testId: 'agent-effort-switch-divider' }
+    case 'warning':
+      return { label: item.detail || 'The agent warned of a problem', testId: 'agent-warning' }
     default:
       return { label: item.detail || item.marker, testId: 'agent-marker-divider' }
   }

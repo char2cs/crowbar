@@ -417,6 +417,19 @@ func TestMap_ANotificationIsAMarker(t *testing.T) {
 	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerNotification, Detail: "look"}, bodyOf[ledger.Marker](t, rows[0]))
 }
 
+// A warning the CLI shows in its own transcript is a warning marker, apart from
+// a notification (an attention alert the chat already shows another way).
+func TestMap_AWarningIsAWarningMarker(t *testing.T) {
+	c := liveChatRows(t)
+	turnID := c.typed("go")
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookWarning, Message: "sandbox"}, hooksSource())
+
+	require.Equal(t, []ledger.Kind{ledger.KindMarker}, kinds(rows))
+	assert.Equal(t, turnID, rows[0].TurnID)
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerWarning, Detail: "sandbox"}, bodyOf[ledger.Marker](t, rows[0]))
+}
+
 func TestMap_AnEventItDoesNotRecordWritesNothing(t *testing.T) {
 	rows, fx := liveChatRows(t).mapped(engineagents.CanonicalEvent{Kind: engineagents.HookSessionEnd}, hooksSource())
 	assert.Empty(t, rows)
