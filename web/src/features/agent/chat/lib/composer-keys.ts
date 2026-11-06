@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
+import type { PickerItem } from '@/features/agent/composer/composer-slash-picker'
 import { matchesPromptStashShortcut } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type {
   CaretEdges,
@@ -10,8 +10,8 @@ import { isSendKey } from '@/features/agent/chat/lib/send-key'
 interface ComposerKeyTargets {
   slash: {
     open: boolean
-    items: SlashCatalogItem[]
-    highlighted?: SlashCatalogItem
+    items: PickerItem[]
+    highlighted?: PickerItem
     close: () => void
     move: (direction: 1 | -1) => void
   }
@@ -25,7 +25,7 @@ interface ComposerKeyTargets {
   /** Esc in an empty box: false when there is no prompt to take back. */
   retract: () => boolean
   stashOrRestore: (markdown: string) => void
-  selectSlashItem: (item: SlashCatalogItem) => void
+  selectSlashItem: (item: PickerItem) => void
   send: (markdown: string) => void
   recall: (text: string) => void
 }

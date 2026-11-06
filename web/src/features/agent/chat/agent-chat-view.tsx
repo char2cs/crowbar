@@ -8,13 +8,16 @@ import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { declaredModel } from '@/features/agent/lib/staged-selection'
 import { sendPrompt, stopTurn } from '@/features/agent/stores/chat-outbox'
 import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
-import type { AgentTerminalAnswer, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
+import type { AgentTerminalAnswer } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { TodoStrip } from '@/features/agent/activity/todo-strip'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/lib/composer-state'
-import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
+import {
+  ComposerSlashPicker,
+  type PickerItem,
+} from '@/features/agent/composer/composer-slash-picker'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
 import { stashPrompt } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type {
@@ -163,7 +166,7 @@ export function AgentChatView({
     catalogActive: active && visible,
     history,
   })
-  const { load, slash, setError } = composer
+  const { load, slash, mention, setError } = composer
   const { reset: resetHistory } = history
   const editPrompt = useCallback(
     (text: string) => {
@@ -251,7 +254,10 @@ export function AgentChatView({
 
   const handleStop = () => void stopTurn(wsId, chatId)
 
-  const selectSlashItem = (item: SlashCatalogItem) => load(slash.accept(item))
+  // An open @ path picker takes the keys before the skill picker: it completes in place.
+  const picker = mention.open ? mention : slash
+  const selectSlashItem = (item: PickerItem) =>
+    mention.open ? composer.completeMention(mention.accept(item)) : load(slash.accept(item))
 
   // Esc takes the newest prompt back; its text returns to this chat's composer,
   // or to the chat's stashes once that composer is gone.
@@ -285,7 +291,7 @@ export function AgentChatView({
   ) =>
     handleComposerKey(
       {
-        slash,
+        slash: picker,
         history,
         canStop: working && live,
         stop: handleStop,
@@ -409,11 +415,12 @@ export function AgentChatView({
               {!blank && <TodoStrip plan={facts.plan} />}
               {!blank && <SubagentShelf chatId={chatId} />}
               {!blank && stashPicker}
-              {!blank && slash.open && (
+              {!blank && (mention.open || slash.open) && (
                 <ComposerSlashPicker
-                  state={slash.state}
-                  items={slash.items}
-                  selected={slash.selected}
+                  state={mention.open ? undefined : slash.state}
+                  label={mention.open ? 'Files' : 'Skills'}
+                  items={picker.items}
+                  selected={picker.selected}
                   onSelect={selectSlashItem}
                 />
               )}
@@ -440,7 +447,7 @@ export function AgentChatView({
                 haltedResetsAt={limitResetsAt(telemetry)}
                 feedError={unfollowed}
                 canStop={live}
-                slashOpen={slash.open}
+                slashOpen={picker.open}
                 onShapeChange={composer.noteShape}
                 onKeyDown={handleKeyDown}
                 onSend={() => enqueueDraft()}

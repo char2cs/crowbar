@@ -1,19 +1,29 @@
 import { useEffect, useRef } from 'react'
-import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { SlashCatalogState } from '@/features/agent/hooks/use-slash-catalog'
 import { cn } from '@/lib/utils'
 
+/** One completion the picker offers: a skill, or a workspace path after an `@`. */
+export interface PickerItem {
+  id: string
+  insertText: string
+  description: string
+}
+
 interface ComposerSlashPickerProps {
-  state: SlashCatalogState
-  items: SlashCatalogItem[]
+  /** The skill catalogue's state; a path listing has none to report. */
+  state?: SlashCatalogState
+  /** What the list is of, for its name. */
+  label?: string
+  items: PickerItem[]
   selected: number
-  onSelect: (item: SlashCatalogItem) => void
+  onSelect: (item: PickerItem) => void
 }
 
 /** No explanatory chrome: no probe reports a CLI's built-ins, so the catalogue is
  *  always incomplete, and an empty result must not claim the provider has no skills. */
 export function ComposerSlashPicker({
   state,
+  label = 'Skills',
   items,
   selected,
   onSelect,
@@ -25,8 +35,8 @@ export function ComposerSlashPicker({
   }, [selected])
 
   return (
-    <div ref={listRef} className="slash" id="agent-skill-picker" role="listbox" aria-label="Skills">
-      {state.state === 'error' && (
+    <div ref={listRef} className="slash" id="agent-skill-picker" role="listbox" aria-label={label}>
+      {state?.state === 'error' && (
         <div className="state" role="alert">
           {state.unavailable ? 'No skill list from this provider.' : state.error.message}
         </div>

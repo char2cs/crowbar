@@ -122,6 +122,16 @@ function keyEvent(
 }
 
 const grabbed: { editor?: PlateEditor } = {}
+const shape = (
+  empty: boolean,
+  slashQuery: string | null = null,
+  mentionQuery: string | null = null,
+) => ({
+  empty,
+  slashQuery,
+  mentionQuery,
+})
+
 function GrabEditor() {
   grabbed.editor = useEditorRef()
   return null
@@ -167,7 +177,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     act(() => ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nhello world\n```'))
 
     expect(ref.current?.getMarkdown()).toContain('text-attachment:abc123')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
   })
 
   it('settles a pending image to its real ref, an image alone being something to send', async () => {
@@ -175,7 +185,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     const { ref } = await renderEditor(onShapeChange)
     act(() => ref.current?.insertPendingImage('blob:local-preview', 'photo.png'))
     expect(ref.current?.getMarkdown()).toContain('blob:local-preview')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
 
     act(() =>
       ref.current?.settlePendingImage(
@@ -201,7 +211,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(editable()).toBe(before)
     expect(editable()).toHaveTextContent('never mindsecond thought')
     expect(ref.current?.getMarkdown()).toBe('**never mind**\n\nsecond thought')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, false)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), false)
   })
 
   it('empties the box through clear, with nothing left to undo', async () => {
@@ -213,7 +223,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     act(() => grabbed.editor!.undo())
 
     expect(ref.current?.getMarkdown()).toBe('')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null }, false)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(true), false)
   })
 })
 
@@ -226,15 +236,30 @@ describe('ChatMarkdownEditor shape and commits', () => {
     const { type } = await renderEditor(onShapeChange)
 
     await type('/')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: '' }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false, ''), true)
     await type('Rev')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: 'Rev' }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false, 'Rev'), true)
     await act(async () => {
       const editor = grabbed.editor!
       editor.tf.delete({ at: { anchor: editor.api.start([])!, focus: editor.api.end([])! } })
     })
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(true), true)
     expect(serialize).not.toHaveBeenCalled()
+  })
+
+  it('reports the @ path before the caret, and completes it in place', async () => {
+    const onShapeChange = vi.fn()
+    const { ref } = await renderEditor(onShapeChange)
+
+    await act(async () => {
+      grabbed.editor!.tf.select(grabbed.editor!.api.end([])!)
+      grabbed.editor!.tf.insertText('see @src/ma')
+    })
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false, null, 'src/ma'), true)
+
+    act(() => ref.current?.completeMention('@src/main.ts '))
+    expect(ref.current?.getMarkdown().trim()).toBe('see @src/main.ts')
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
   })
 
   it('commits an edit to the text once', async () => {
@@ -243,7 +268,7 @@ describe('ChatMarkdownEditor shape and commits', () => {
 
     await type('hi')
 
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
     expect(counter.commits).toBe(1)
   })
 
@@ -324,10 +349,10 @@ describe('ChatMarkdownEditor key handling', () => {
     handleKeyDown({ editor, event })
 
     expect(onKeyDown).toHaveBeenCalledTimes(1)
-    const [passedEvent, readMarkdown, caret, shape] = onKeyDown.mock.calls[0]!
+    const [passedEvent, readMarkdown, caret, passedShape] = onKeyDown.mock.calls[0]!
     expect(passedEvent).toBe(event)
     expect(caret).toEqual({ atStart: false, atEnd: true })
-    expect(shape).toEqual({ empty: false, slashQuery: null })
+    expect(passedShape).toEqual(shape(false))
     expect(readMarkdown()).toBe('hi')
   })
 

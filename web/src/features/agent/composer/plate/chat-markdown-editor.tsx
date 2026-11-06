@@ -46,6 +46,8 @@ export interface ChatMarkdownEditorHandle {
   setMarkdown(markdown: string): void
   /** Adds blocks after the last one, leaving the caret where the person had it. */
   appendMarkdown(markdown: string): void
+  /** Replaces the `@path` before the caret with `text`. */
+  completeMention(text: string): void
   focus(): void
   clear(): void
 }
@@ -55,6 +57,8 @@ export interface ComposerShape {
   empty: boolean
   /** The text after a leading `/` on the first line, or null when there is none. */
   slashQuery: string | null
+  /** The `@path` typed right before the caret, without its `@`; null when there is none. */
+  mentionQuery: string | null
 }
 
 // A list or quote paragraph is text-bearing markdown even when it has no letters;
@@ -65,12 +69,22 @@ function blankParagraph(node: Descendant): boolean {
   return NodeApi.string(node).trim() === ''
 }
 
-function shapeOf(children: Value): ComposerShape {
+function mentionBefore(editor: PlateEditor): string | null {
+  const { selection } = editor
+  if (!selection || !RangeApi.isCollapsed(selection)) return null
+  const leaf = NodeApi.get(editor, selection.anchor.path)
+  const before = leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
+  return /(?:^|\s)@([^\s@]*)$/.exec(before)?.[1] ?? null
+}
+
+function shapeOf(editor: PlateEditor): ComposerShape {
+  const children = editor.children as Value
   const first = children[0]
   const line = first && 'type' in first && first.type === 'p' ? NodeApi.string(first) : ''
   return {
     empty: children.every(blankParagraph),
     slashQuery: line.startsWith('/') ? line.slice(1) : null,
+    mentionQuery: mentionBefore(editor),
   }
 }
 
@@ -173,7 +187,7 @@ export function ChatMarkdownEditor({
               event as KeyboardEvent<HTMLDivElement>,
               () => chatValueToMarkdown(current.children as Value),
               { atStart, atEnd },
-              shapeOf(current.children as Value),
+              shapeOf(current),
             )
           },
         },
@@ -233,7 +247,7 @@ export function ChatMarkdownEditor({
   // A load's own later onChange sees the very children it left: not an edit.
   const loadedRef = useRef<Value | null>(null)
   const report = useCallback(
-    (edited = true) => shapeHandlerRef.current(shapeOf(editor.children as Value), edited),
+    (edited = true) => shapeHandlerRef.current(shapeOf(editor), edited),
     [editor],
   )
   const handleChange = useCallback(() => {
@@ -277,10 +291,17 @@ export function ChatMarkdownEditor({
       getMarkdown: () => chatValueToMarkdown(editor.children as Value),
       setMarkdown: load,
       appendMarkdown: (markdown: string) => {
-        if (shapeOf(editor.children as Value).empty) return load(markdown)
+        if (shapeOf(editor).empty) return load(markdown)
         const at = [editor.children.length]
         editor.tf.insertNodes(chatMarkdownToValue(markdown), { at, select: false })
         report()
+      },
+      completeMention: (text: string) => {
+        const typed = mentionBefore(editor)
+        if (typed === null) return
+        editor.tf.delete({ distance: typed.length + 1, unit: 'character', reverse: true })
+        editor.tf.insertText(text)
+        focusAndReport()
       },
       focus: () => editor.tf.focus(),
       clear: () => {
@@ -296,7 +317,7 @@ export function ChatMarkdownEditor({
   useEffect(() => {
     if (!persistAs) return
     const saved = loadDraft(persistAs)
-    if (saved && shapeOf(editor.children as Value).empty) {
+    if (saved && shapeOf(editor).empty) {
       loadMarkdown(editor, saved)
       loadedRef.current = editor.children as Value
       report(false)
