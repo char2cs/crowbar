@@ -372,21 +372,23 @@ func TestMap_AnIdleThatEndsTheTurnKeepsWhatItSaid(t *testing.T) {
 	assert.Empty(t, c.st.PendingAsks())
 }
 
-// An idle with nothing running is recorded late: on hooks it also says the
-// prompts the CLI carried were never taken; on an api connection, nothing more.
-func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
+// An idle with nothing running ends no turn (a compaction is no turn): on hooks
+// it says the prompts the CLI carried were never taken; on an api connection, nothing.
+func TestMap_AnIdleWithNothingRunningEndsNoTurn(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart))
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookCompactPre, TurnID: "compact-1"}, hooksSource())
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookCompactPost, TurnID: "compact-1"}, hooksSource())
 	api := hooksSource()
 	api.Channel = engineagents.ChannelAPI
 
 	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, api)
-	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows))
+	assert.Empty(t, rows)
 	assert.Empty(t, fx.Ended)
 
 	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, hooksSource())
-	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled}, kinds(rows))
-	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
+	require.Equal(t, []ledger.Kind{ledger.KindPromptSettled}, kinds(rows))
+	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[0]).Reason)
 }
 
 // A late turn_stop closes its turn no second time; what it said lands in it,
