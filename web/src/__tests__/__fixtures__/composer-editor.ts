@@ -40,7 +40,6 @@ export function TextareaComposerEditor({
     appendMarkdown: (text: string) => (typed() ? write(`${typed()}\n\n${text}`, true) : load(text)),
     focus: () => box.current?.focus(),
     clear: () => load(''),
-    restoreMarkdown: load,
   }))
   return createElement('textarea', {
     ref: box,

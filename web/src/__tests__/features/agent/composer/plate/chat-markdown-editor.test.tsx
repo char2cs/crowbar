@@ -55,6 +55,35 @@ const drawEditor = (props: Partial<EditorProps> = {}) =>
     />,
   )
 
+describe('ChatMarkdownEditor — the unsent draft outlives the page', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('keeps what was typed through a reload and puts it back', () => {
+    const ref = createRef<ChatMarkdownEditorHandle>()
+    const first = drawEditor({ ref, persistAs: 'c1' })
+    act(() => ref.current?.setMarkdown('half a thought'))
+    act(() => void window.dispatchEvent(new Event('pagehide')))
+    first.unmount()
+
+    const again = createRef<ChatMarkdownEditorHandle>()
+    drawEditor({ ref: again, persistAs: 'c1' })
+    expect(again.current?.getMarkdown().trim()).toBe('half a thought')
+  })
+
+  it('forgets the draft once it is cleared by a send', () => {
+    const ref = createRef<ChatMarkdownEditorHandle>()
+    const first = drawEditor({ ref, persistAs: 'c1' })
+    act(() => ref.current?.setMarkdown('about to send'))
+    act(() => void window.dispatchEvent(new Event('pagehide')))
+    act(() => ref.current?.clear())
+    first.unmount()
+
+    const again = createRef<ChatMarkdownEditorHandle>()
+    drawEditor({ ref: again, persistAs: 'c1' })
+    expect(again.current?.getMarkdown().trim()).toBe('')
+  })
+})
+
 describe('ChatMarkdownEditor — autoFocus', () => {
   it('takes focus on mount', () => {
     const { getByRole } = drawEditor({ autoFocus: true })

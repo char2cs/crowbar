@@ -1,4 +1,4 @@
-import { useCallback, useImperativeHandle, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
 import { NodeApi, PointApi, RangeApi, type Descendant, type Value } from 'platejs'
@@ -18,6 +18,7 @@ import {
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { cn } from '@/lib/utils'
 import { IS_MOBILE } from '@/utils/platform'
+import { forgetDraft, loadDraft, saveDraft } from '@/features/agent/composer/lib/draft-persistence'
 
 /** Whether the caret has anywhere left to go WITHIN the text — the box's own
  *  arrow-key history recall only fires at these edges, so moving through a
@@ -47,8 +48,6 @@ export interface ChatMarkdownEditorHandle {
   appendMarkdown(markdown: string): void
   focus(): void
   clear(): void
-  /** Loads markdown without taking focus, as a parked view mounting must not. */
-  restoreMarkdown(markdown: string): void
 }
 
 /** What the chat reads off the box while it is typed into, without markdown. */
@@ -111,6 +110,8 @@ export interface ChatMarkdownEditorProps {
   className?: string
   style?: CSSProperties
   ref?: Ref<ChatMarkdownEditorHandle>
+  /** The chat whose unsent draft this box keeps across a reload or a remount. */
+  persistAs?: string
 }
 
 // The rich-markdown prompt box, shared by the conversation's pill and the blank chat's document.
@@ -130,6 +131,7 @@ export function ChatMarkdownEditor({
   className,
   style,
   ref,
+  persistAs,
 }: ChatMarkdownEditorProps) {
   // A plugin, not the `onKeyDown` DOM prop: the prop runs after Slate's own handling, so Enter
   // would split the block instead of sending. Read through a ref so the editor is built once
@@ -281,15 +283,31 @@ export function ChatMarkdownEditor({
         report()
       },
       focus: () => editor.tf.focus(),
-      clear: () => load(''),
-      restoreMarkdown: (markdown: string) => {
-        loadMarkdown(editor, markdown)
-        loadedRef.current = editor.children as Value
-        report(false)
+      clear: () => {
+        if (persistAs) forgetDraft(persistAs)
+        load('')
       },
     }),
-    [editor, focusAndReport, load, report],
+    [editor, focusAndReport, load, report, persistAs],
   )
+
+  // The box owns its draft; storage keeps it while there is no box: written as the
+  // page hides or the box goes, read once into an empty box, without taking focus.
+  useEffect(() => {
+    if (!persistAs) return
+    const saved = loadDraft(persistAs)
+    if (saved && shapeOf(editor.children as Value).empty) {
+      loadMarkdown(editor, saved)
+      loadedRef.current = editor.children as Value
+      report(false)
+    }
+    const save = () => saveDraft(persistAs, chatValueToMarkdown(editor.children as Value))
+    window.addEventListener('pagehide', save)
+    return () => {
+      window.removeEventListener('pagehide', save)
+      save()
+    }
+  }, [editor, persistAs, report])
 
   // The editable's measured height, observed because only the browser knows where
   // a line wrapped. A ref callback, not an effect: Slate can replace the editable's

@@ -7,8 +7,9 @@ is parked), but a reload, a closed tab or a daemon-driven remount loses it.
 
 ## Owner and copy
 
-The editor stays the one owner of the draft while it is mounted; nothing reads
-the stored copy then. The stored copy is the editor's content at the moments the
+The editor (ChatMarkdownEditor, `persistAs`) stays the one owner of the draft
+while it is mounted; nothing reads the stored copy then. Persistence lives in the
+editor itself because it mounts after the chat view does. The stored copy is the editor's content at the moments the
 editor stops owning it: the page hiding (reload, close) and the view unmounting.
 It is read once, when a composer for that chat mounts on an empty editor.
 
