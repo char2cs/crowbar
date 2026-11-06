@@ -16,7 +16,7 @@ import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
 import { useProjectStore } from '@/core/entities/active-project'
 import { selectProjects, useSelect } from '@/core/entities/select'
 import { landingFor } from '@/components/layout/shell-landing'
-import { fetchPrerequisites } from '@/lib/api'
+import { fetchPrerequisite } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
 import { OOBE_TAGLINE, OobeGradient } from './oobe-frame'
 
@@ -76,20 +76,22 @@ function PrerequisitesStep({
   onContinue,
   onRetry,
 }: {
-  prereqs: Prerequisites | null
+  prereqs: Partial<Prerequisites>
   onContinue: () => void
   onRetry: () => void
 }) {
-  const checked = prereqs !== null
+  // Each row stands on its own probe: one still running holds only its own row.
+  const { git, gh, glab } = prereqs
+  const checked = git !== undefined && gh !== undefined && glab !== undefined
 
-  const gitStatus = prereqStatus(prereqs?.git, false)
-  const ghStatus = prereqStatus(prereqs?.gh, true)
-  const glabStatus = prereqStatus(prereqs?.glab, true)
+  const gitStatus = prereqStatus(git, false)
+  const ghStatus = prereqStatus(gh, true)
+  const glabStatus = prereqStatus(glab, true)
 
-  const canContinue = prereqs !== null && prereqs.git.installed
+  const canContinue = git?.installed === true
 
   const blockedReason =
-    checked && !prereqs?.git.installed ? 'Git is required. Install it from git-scm.com.' : null
+    git && !git.installed ? 'Git is required. Install it from git-scm.com.' : null
 
   return (
     <div className="flex flex-col gap-2">
@@ -104,10 +106,10 @@ function PrerequisitesStep({
         <CheckRow
           label="Git"
           description={
-            !checked
+            !git
               ? 'Checking…'
-              : prereqs?.git.installed
-                ? (prereqs.git.version ?? 'Installed')
+              : git.installed
+                ? (git.version ?? 'Installed')
                 : 'Not found — install from git-scm.com'
           }
           status={gitStatus}
@@ -116,11 +118,11 @@ function PrerequisitesStep({
         <CheckRow
           label="GitHub CLI (gh)"
           description={
-            !checked
+            !gh
               ? 'Checking…'
-              : prereqs?.gh.authed
+              : gh.authed
                 ? 'Authenticated'
-                : prereqs?.gh.installed
+                : gh.installed
                   ? 'Not signed in — run: gh auth login'
                   : 'Not installed — optional, enables GitHub features'
           }
@@ -130,11 +132,11 @@ function PrerequisitesStep({
         <CheckRow
           label="GitLab CLI (glab)"
           description={
-            !checked
+            !glab
               ? 'Checking…'
-              : prereqs?.glab.authed
+              : glab.authed
                 ? 'Authenticated'
-                : prereqs?.glab.installed
+                : glab.installed
                   ? 'Not signed in — run: glab auth login'
                   : 'Not installed — optional, enables GitLab features'
           }
@@ -216,7 +218,7 @@ function AddProjectStep({ onChooseFolder }: { onChooseFolder: () => void }) {
 
 export function OobeScreen() {
   const [step, setStep] = useState<OobeStep>('presentation')
-  const [prereqs, setPrereqs] = useState<Prerequisites | null>(null)
+  const [prereqs, setPrereqs] = useState<Partial<Prerequisites>>({})
   const [retryCount, setRetryCount] = useState(0)
   const [importOpen, setImportOpen] = useState(false)
   const projects = useSelect(selectProjects)
@@ -225,20 +227,20 @@ export function OobeScreen() {
   useEffect(() => {
     if (step !== 'prerequisites') return
     let cancelled = false
-    setPrereqs(null)
-    fetchPrerequisites()
-      .then((data) => {
-        if (!cancelled) setPrereqs(data)
-      })
-      .catch(() => {
-        if (cancelled) return
-        // Surface failures as "not installed" so the UI can still guide the user
-        setPrereqs({
-          git: { installed: false },
-          gh: { installed: false, authed: false },
-          glab: { installed: false, authed: false },
+    setPrereqs({})
+    const absent: Prerequisites = {
+      git: { installed: false },
+      gh: { installed: false, authed: false },
+      glab: { installed: false, authed: false },
+    }
+    for (const tool of ['git', 'gh', 'glab'] as const) {
+      // A failed check reads as "not installed", so the screen can still guide the user.
+      void fetchPrerequisite(tool)
+        .catch(() => absent[tool])
+        .then((result) => {
+          if (!cancelled) setPrereqs((held) => ({ ...held, [tool]: result }))
         })
-      })
+    }
     return () => {
       cancelled = true
     }

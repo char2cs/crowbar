@@ -16,11 +16,8 @@ import { browserApi } from '@/lib/browser-bridge'
 const postProject = vi.fn()
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  fetchPrerequisites: async () => ({
-    git: { installed: true, version: 'git 2.0' },
-    gh: { installed: true, authed: true },
-    glab: { installed: true, authed: true },
-  }),
+  fetchPrerequisite: async (tool: string) =>
+    tool === 'git' ? { installed: true, version: 'git 2.0' } : { installed: true, authed: true },
   postProject: (...a: unknown[]) => postProject(...a),
 }))
 
