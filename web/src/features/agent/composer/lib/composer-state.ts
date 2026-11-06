@@ -1,4 +1,4 @@
-import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
+import { type AgentTerminalWait, TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-chat-reads'
 import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
 
 /** What occupies the composer's slot: an input when you can talk, else the one
@@ -41,8 +41,6 @@ export interface ComposerInputs {
   /** Why the chat's feed failed, while it has. */
   feedError?: string
 }
-
-export const TERMINAL_WAIT_TRUST = 'workspace_trust'
 
 /** What to say about a wait Crowbar cannot answer; an unknown kind is not guessed at. */
 export function describeTerminalWait(wait: AgentTerminalWait): string {
