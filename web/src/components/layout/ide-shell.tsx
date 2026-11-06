@@ -48,7 +48,6 @@ function IdeShellBody() {
   useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
   useSidebarFocusMode()
-  useDocumentTitle()
   const {
     activeProjectId: activeProjectIdFromRoute,
     allProjects,
@@ -151,8 +150,15 @@ function IdeShellBody() {
       <DetachHolderModal />
       <PlaceholderToastWatcher />
       <NavigationHistoryRecorder />
+      <DocumentTitle />
     </SidebarProvider>
   )
+}
+
+// A childless leaf: the title follows the focused pane, which must not re-render the shell.
+function DocumentTitle(): null {
+  useDocumentTitle()
+  return null
 }
 
 // A childless leaf for `useNavigationHistory`: its active-editor-tab subscription would otherwise
