@@ -158,7 +158,11 @@ export class FeedFold {
   private readsBelow(item: TranscriptItem, above: string): boolean {
     const prev = this.item(above)
     if (!prev || prev.turnId === undefined) return false
-    if (prev.turnId !== item.turnId) return false
+    if (prev.turnId !== item.turnId) {
+      // A prompt not yet delivered follows everything its predecessor still says.
+      const fact = prev.kind === 'user' && prev.requestId && this.facts.prompts[prev.requestId]
+      return item.kind !== 'user' && !!fact && fact.state === 'pending'
+    }
     // What a provider flushes after its turn ended still reads above that end.
     if (prev.kind === 'marker') return item.kind !== 'marker'
     // A model says nothing while its calls run: text landing then was said before them.

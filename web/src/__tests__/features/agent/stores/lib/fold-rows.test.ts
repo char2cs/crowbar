@@ -191,6 +191,26 @@ describe('applyRow', () => {
     expect(feed.facts.prompts.r2).toEqual({ state: 'delivered', turnId: 'turn-1' })
   })
 
+  it('reads a prompt sent during a turn below what that turn still says, as it was delivered', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'look at this'),
+      l.start('turn-1', 'r1'),
+      l.row(
+        'user_message',
+        { requestId: 'r2', text: 'what shape is it?', origin: 'crowbar', delivery: 'steer' },
+        { turnId: 'turn-2' },
+      ),
+      l.tool('turn-1', 'read', 'pre'),
+      l.tool('turn-1', 'read', 'post'),
+      l.text('turn-1', 'm1', 0, 'You asked nothing yet.', true),
+      l.end('turn-1'),
+      l.start('turn-2', 'r2'),
+      l.text('turn-2', 'm2', 0, 'A circle.', true),
+    ])
+    expect(feed.order).toEqual(['p:r1', 't:read', 'm:turn-1:m1', 'p:r2', 'm:turn-2:m2'])
+  })
+
   it('folds numbered chunks into one text and settles on the final chunk', () => {
     const l = ledger()
     let feed = applyRows(emptyFeed(), [
