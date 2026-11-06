@@ -1,6 +1,7 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { MarkerKind, PlanItem, RowBodies, ToolCallBody } from '@/features/agent/api/chat-rows'
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
+import type { CallRound } from '@/features/agent/stores/lib/fold-rounds'
 
 interface ItemBase {
   id: string
@@ -172,6 +173,8 @@ export interface TurnFacts {
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */
   providers: Record<string, string>
+  /** turnId → its main-scope calls since its last message. */
+  calls: Record<string, CallRound>
 }
 
 export interface ChatFeed {

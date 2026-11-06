@@ -334,17 +334,17 @@ func RemoveUnderHome(
 	return nil
 }
 
-// AttachmentsDir returns <chatsDir>/<chatID>/attachments, a chat's durable attachment store. Keyed by
-// chat id (never erased), so deleting the chat's directory already removes it.
-func AttachmentsDir(chatsDir, chatID string) string {
-	return filepath.Join(chatsDir, chatID, "attachments")
+// AttachmentsDir returns <home>/chats/<chatID>/attachments, a chat's durable attachment store. It
+// hangs off the chat's own directory, not its workspace's, so a move keeps it and a delete reaps it.
+func AttachmentsDir(crowbarHome, chatID string) string {
+	return filepath.Join(LedgerChatsDir(crowbarHome), chatID, "attachments")
 }
 
 // RestoreDurableAttachmentRefs rewrites durable-store absolute attachment paths in a hook's prompt
 // back to logical chats/<chatID>/attachments/<file> refs, since a prompt typed into the CLI has no
 // other copy of the original text. Text without such paths comes back unchanged.
-func RestoreDurableAttachmentRefs(text, chatsDir, chatID string) string {
-	absolutePrefix := filepath.ToSlash(AttachmentsDir(chatsDir, chatID))
+func RestoreDurableAttachmentRefs(text, crowbarHome, chatID string) string {
+	absolutePrefix := filepath.ToSlash(AttachmentsDir(crowbarHome, chatID))
 	pattern := regexp.MustCompile(regexp.QuoteMeta(absolutePrefix) + `/([^/)\s]+)`)
 	logicalPrefix := "chats/" + chatID + "/attachments"
 	return pattern.ReplaceAllString(text, logicalPrefix+"/$1")

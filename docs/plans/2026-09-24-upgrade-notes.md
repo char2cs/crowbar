@@ -90,28 +90,29 @@ nothing; a second Crowbar is still refused, at the socket. Only a home
 directory that cannot be created at all makes the daemon exit with the error.
 
 Before a run that rewrites `state/`, the daemon writes a backup to
-`<home>/migrate/backups/<run-id>/` (needing the copy's size plus 64 MiB free,
-else it halts before touching anything): `state/`, `LAYOUT` and `ledger.jsonl`,
-as they stood before the run. A halt names the backup in its message. Crowbar
-never restores one, and never prunes `<home>/migrate/backups`: it is kept until
-you remove it, and once you have confirmed the upgrade you can safely delete
-it.
+`<home>/migrate/backups/<run-id>.tar.gz` (needing the raw size plus 64 MiB free,
+else it halts before touching anything): `state/`, `LAYOUT`,
+`migrate/ledger.jsonl` and the prompt journals, as they stood before the run,
+read back and checked before it counts. A halt names the backup in its message.
+Crowbar never restores one. It keeps the newest backup and deletes older ones
+once a later migration completed (`docs/plans/2026-11-06-home-tidy.md`).
 
 ### Restoring a backup
 
 1. Quit Crowbar, so the daemon lets go of the home.
-2. In the home, replace `state/` with the backup's `state/`, `LAYOUT` with the
-   backup's `LAYOUT`, and `migrate/ledger.jsonl` with the backup's
-   `ledger.jsonl`.
+2. In the home: `rm -rf state && tar -xzf migrate/backups/<run-id>.tar.gz`.
+   That puts back `state/`, `LAYOUT`, the ledger and the journals together.
 3. Open Crowbar. The restored ledger says the steps were not done, so the boot
    runs them again on the restored data (taking a fresh backup first).
 
-Restore all three together. `state/` alone would leave the ledger saying the
-steps were applied, so they would never run again over the restored data.
+Restore them together. `state/` alone would leave the ledger saying the steps
+were applied, so they would never run again over the restored data. A directory
+backup from an earlier build restores by copying its `state/`, `LAYOUT` and
+`ledger.jsonl` back to `state/`, `LAYOUT` and `migrate/ledger.jsonl`.
 
-Copy out of the backup rather than moving: the restored ledger does not refer to
-it, so it stays in `migrate/backups`, and the re-run takes a second full copy
-(the size plus 64 MiB free-space check applies again).
+The boot after a migrated home first booted deletes the legacy databases the
+backup holds byte for byte. A pre-engine build started on such a home without
+restoring finds them gone and shows chats without their history; restore first.
 
 ## Downgrading is not supported
 

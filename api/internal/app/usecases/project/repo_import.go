@@ -182,11 +182,11 @@ func (u *projectImport) writeRepoIcon(
 		return false
 	}
 	iconPath := worktreepath.RepoIconPath(home, projectID, repoID)
-	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil { //nolint:gosec // G301: repo icon dir lives under the user's own ~/.crowbar home; 0755 intentional
+	if err := os.MkdirAll(filepath.Dir(iconPath), 0o700); err != nil {
 		slog.WarnContext(ctx, "project import: create repo icon dir failed", "error", err)
 		return false
 	}
-	if err := os.WriteFile(iconPath, data, 0o644); err != nil { //nolint:gosec // G306: repo icon is a non-sensitive display asset; 0644 intentional
+	if err := os.WriteFile(iconPath, data, 0o600); err != nil {
 		slog.WarnContext(ctx, "project import: write repo icon failed", "error", err)
 		return false
 	}

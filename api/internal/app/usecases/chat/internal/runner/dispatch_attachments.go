@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,12 +37,12 @@ func findAttachmentRefs(chatID, text string) []attachmentRef {
 // materializeAttachmentsForDispatch returns text with chatID's attachment refs rewritten
 // to absolute store paths; the stored text keeps logical refs. No file is copied (the
 // CLIs read outside the worktree unprompted); a ref to a deleted file is left as is.
-func materializeAttachmentsForDispatch(chatsDir, chatID, text string) string {
+func materializeAttachmentsForDispatch(crowbarHome, chatID, text string) string {
 	refs := findAttachmentRefs(chatID, text)
 	if len(refs) == 0 {
 		return text
 	}
-	durableDir := worktreepath.AttachmentsDir(chatsDir, chatID)
+	durableDir := worktreepath.AttachmentsDir(crowbarHome, chatID)
 	out := text
 	done := make(map[string]bool, len(refs))
 	for _, ref := range refs {
@@ -68,15 +67,14 @@ func materializeAttachmentsForDispatch(chatsDir, chatID, text string) string {
 	return out
 }
 
-// rewritePromptTextForDispatch is materializeAttachmentsForDispatch with the chatsDir
-// lookup folded in, for a caller that only has a workspaceID.
+// rewritePromptTextForDispatch is materializeAttachmentsForDispatch with the home
+// lookup folded in.
 func (rs *Runners) rewritePromptTextForDispatch(
-	ctx context.Context,
-	workspaceID, chatID, text string,
+	chatID, text string,
 ) (string, error) {
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, workspaceID)
+	home, err := rs.home()
 	if err != nil {
-		return "", fmt.Errorf("agent: submit prompt: chats dir: %w", err)
+		return "", fmt.Errorf("agent: submit prompt: home: %w", err)
 	}
-	return materializeAttachmentsForDispatch(chatsDir, chatID, text), nil
+	return materializeAttachmentsForDispatch(home, chatID, text), nil
 }

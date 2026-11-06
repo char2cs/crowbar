@@ -166,8 +166,8 @@ func manifestCachePath(homeDir, url string) string {
 }
 
 func writeManifestCache(path string, raw []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644) //nolint:gosec // cache file, not a secret
+	return os.WriteFile(path, raw, 0o600)
 }

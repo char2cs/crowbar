@@ -154,9 +154,33 @@ func TestNew_CreatesAnOwnerOnlyHomeRoot(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	info, err := os.Stat(root)
+	for _, dir := range []string{root, c.Home().State(), c.Home().Events(), c.Home().Store()} {
+		info, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+	}
+}
+
+// TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen: an older build made state/
+// and its two database dirs 0750; opening the home makes them owner-only.
+func TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "home")
+	h, err := home.ResolveDir(root)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	for _, dir := range []string{h.Events(), h.Store()} {
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.Chmod(dir, 0o750))
+	}
+	require.NoError(t, os.Chmod(h.State(), 0o750))
+	c, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	for _, dir := range []string{h.State(), h.Events(), h.Store()} {
+		info, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+	}
 }
 
 func TestNew_RejectsARelativeHome(t *testing.T) {

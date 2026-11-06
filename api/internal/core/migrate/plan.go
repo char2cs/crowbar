@@ -27,7 +27,10 @@ type Plan struct {
 	Actions []Action
 	// RewritesState asks for a backup of state/ before the run.
 	RewritesState bool
-	NeedsGit      bool
+	// BacksUp names home-relative glob patterns outside state/ that the step
+	// reads as its input, so the run's backup holds them too.
+	BacksUp  []string
+	NeedsGit bool
 }
 
 // Empty reports that the plan has no actions.

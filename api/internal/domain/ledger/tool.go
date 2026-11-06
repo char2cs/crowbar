@@ -38,6 +38,8 @@ type ToolCall struct {
 	Error      string         `json:"error,omitempty"`
 	DurationMS int            `json:"durationMs,omitempty"`
 	Diff       string         `json:"diff,omitempty"`
+	// Output is what a finished call printed, when it is short enough to read inline.
+	Output string `json:"output,omitempty"`
 	// MCPServer and MCPTool name a call of kind ToolKindMCP; the server is
 	// absent where its channel does not say it.
 	MCPServer   string `json:"mcpServer,omitempty"`

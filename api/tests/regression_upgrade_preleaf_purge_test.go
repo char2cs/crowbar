@@ -140,7 +140,7 @@ func (in *preLeafInstall) assertUntouched(
 		assert.FileExists(t, wip, "sibling %q lost its checkout or its uncommitted work", branch)
 	}
 	for _, f := range in.attachments {
-		assert.FileExists(t, f, "a file of the shared chats tree was removed")
+		assert.FileExists(t, movedAttachment(in.home, f), "a file of the shared chats tree was removed")
 	}
 	for _, f := range in.journals {
 		assert.FileExists(t, f, "a chat journal was removed")

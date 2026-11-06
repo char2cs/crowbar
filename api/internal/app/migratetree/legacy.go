@@ -130,7 +130,7 @@ func readNodes(ctx context.Context, path string) ([]tree.Node, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
-	log, err := eventsqlite.NewEventStore(path)
+	log, err := eventsqlite.OpenReadOnly(path)
 	if err != nil {
 		return nil, fmt.Errorf("migratetree: open %s: %w", path, err)
 	}

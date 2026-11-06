@@ -286,6 +286,20 @@ func TestMap_AToolRowCarriesItsTitleInputExitCodeAndInterrupt(t *testing.T) {
 	assert.True(t, failed.Interrupted)
 }
 
+func TestMap_AFinishedCallCarriesItsOutputOnlyWhenItIsShort(t *testing.T) {
+	c := liveChatRows(t)
+	c.typed("go")
+	short := toolEvent(engineagents.HookToolPost, "t1", "Bash")
+	short.Tool.Output = "one\ntwo\n"
+	long := toolEvent(engineagents.HookToolPost, "t2", "Bash")
+	long.Tool.Output = strings.Repeat("line\n", 6)
+
+	rows, _ := c.mapped(short, hooksSource())
+	assert.Equal(t, "one\ntwo", bodyOf[ledger.ToolCall](t, rows[0]).Output)
+	rows, _ = c.mapped(long, hooksSource())
+	assert.Empty(t, bodyOf[ledger.ToolCall](t, rows[0]).Output, "a long output stays in its blob")
+}
+
 // Only a call of the MCP kind names an MCP server and tool: the server is
 // optional, and a tool name is given to other kinds of call too.
 func TestMap_OnlyACallIntoAnMCPServerNamesOne(t *testing.T) {

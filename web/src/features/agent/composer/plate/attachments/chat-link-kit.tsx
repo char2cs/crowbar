@@ -1,6 +1,7 @@
 'use client'
 
 import { LinkRules } from '@platejs/link'
+import { isUrl } from 'platejs'
 import { LinkPlugin } from '@platejs/link/react'
 import { LinkFloatingToolbar } from '@/components/ui/link-toolbar'
 import { ChatLinkElement, ChatLinkElementStatic } from './chat-attachment-file-card'
@@ -12,10 +13,16 @@ const inputRules = [
   LinkRules.autolink({ variant: 'break' }),
 ]
 
+/** GFM ends an address before its trailing punctuation; a word that ends in
+ *  one is left as text, so what is linked is what the transcript links. */
+const TRAILING_PUNCTUATION = /[.,:;!?*_~'"]$/
+const linksAsTyped = (text: string) => !TRAILING_PUNCTUATION.test(text) && isUrl(text)
+
 /** The shared `LinkKit` with a node renderer that draws attachment file cards. */
 export const ChatLinkKit = [
   LinkPlugin.configure({
     inputRules,
+    options: { isUrl: linksAsTyped },
     render: { node: ChatLinkElement, afterEditable: () => <LinkFloatingToolbar /> },
   }),
 ]

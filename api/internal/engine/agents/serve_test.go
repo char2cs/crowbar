@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,6 +199,31 @@ mcp_injection:
 	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
 }
 
+// argv is world-readable through ps: the relay reads the token from a 0600 file.
+func TestShippedAgents_KeepTheRunnerTokenOffArgv(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		t.Run(id, func(t *testing.T) {
+			tmp := t.TempDir()
+			ctx := agents.TemplateCtx{
+				Tmp: tmp, Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "SECRET-RUNNER-TOKEN",
+				ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarBin: "/bin/crowbar", HookBase: "http://127.0.0.1:4242",
+			}
+			plan, err := get(t, id).SpawnPlan(ctx, nil, nil)
+			require.NoError(t, err)
+
+			argv := strings.Join(plan.Argv, " ")
+			assert.NotContains(t, argv, "SECRET-RUNNER-TOKEN")
+			assert.Contains(t, argv, `"--token-file","`+filepath.Join(tmp, "mcp.token")+`"`)
+			raw, err := os.ReadFile(filepath.Join(tmp, "mcp.token"))
+			require.NoError(t, err)
+			assert.Equal(t, "SECRET-RUNNER-TOKEN", strings.TrimSpace(string(raw)))
+			info, err := os.Stat(filepath.Join(tmp, "mcp.token"))
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		})
+	}
+}
+
 func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
 	a := get(t, "codex")
 	ctx := agents.TemplateCtx{Cwd: `/work/tree "a"`, CrowbarBin: "/bin/crowbar", Tmp: t.TempDir()}
@@ -301,7 +327,7 @@ model:
 // second copy of the TUI's own.
 func TestRegression_ACodexChatsChosenModelReachesItsServeProcess(t *testing.T) {
 	serveArgv, ok := get(t, "codex").APIServeArgv(agents.TemplateCtx{
-		Model: "gpt-5.4-codex", Effort: "high",
+		Model: "gpt-5.4-codex", Effort: "high", Tmp: t.TempDir(),
 	})
 
 	require.True(t, ok)

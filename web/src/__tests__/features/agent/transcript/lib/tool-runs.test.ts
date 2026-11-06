@@ -98,10 +98,10 @@ describe('runSentence', () => {
   it('counts the run by family, live and settled', () => {
     const reads = [tool({ kind: 'read' }, 'running'), tool({ kind: 'read' }, 'running')]
     const search = tool({ kind: 'search' }, 'running')
-    expect(runSentence([...reads, search], true)).toBe('Reading 2 files, searching 1 pattern…')
+    expect(runSentence([...reads, search], true)).toBe('Reading 2 files, running 1 search…')
     const fetch = tool({ kind: 'fetch' })
     expect(runSentence([reads[0]!, search, fetch], false)).toBe(
-      'Read 1 file, searched 1 pattern, fetched 1 page',
+      'Read 1 file, ran 1 search, fetched 1 page',
     )
   })
 })

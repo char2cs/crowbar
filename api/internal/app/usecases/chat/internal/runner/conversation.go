@@ -28,7 +28,7 @@ func (rs *Runners) HandleSessionStart(
 	if ev.SessionID == "" {
 		return nil
 	}
-	got, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID)
+	got, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID, ev.Reason == startCleared)
 	if err != nil {
 		return err
 	}
@@ -68,10 +68,18 @@ const (
 	announcedConflict                  // another chat holds it, and this one kept its own
 )
 
-// announceSession records that providerID's CLI on chatID is on sessionID.
-// The ledger's session index alone judges a session another chat holds.
-func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string) (announced, error) {
-	rows, err := rs.announce(ctx, chatID, providerID, sessionID, "")
+// startCleared is the canonical reason of a session_start the person's clear made.
+const startCleared = "cleared"
+
+// announceSession records that providerID's CLI on chatID is on sessionID, cleared
+// when the person's clear started it. The ledger's session index alone judges a
+// session another chat holds.
+func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string, cleared bool) (announced, error) {
+	announce := func(st ledger.State) ([]ledger.Row, error) { return ledger.Announce(st, providerID, sessionID, "") }
+	if cleared {
+		announce = func(st ledger.State) ([]ledger.Row, error) { return ledger.AnnounceCleared(st, providerID, sessionID) }
+	}
+	rows, _, err := rs.ledger.Do(ctx, chatID, announce)
 	if errors.Is(err, ledgerstore.ErrSessionClaimed) {
 		rows, err = rs.claimHeld(ctx, chatID, providerID, sessionID)
 	}
@@ -122,7 +130,7 @@ func (rs *Runners) sessionOrigin(chatID, providerID string) engineagents.APISess
 			if sessionID == "" {
 				return
 			}
-			if _, err := rs.announceSession(context.Background(), chatID, providerID, sessionID); err != nil {
+			if _, err := rs.announceSession(context.Background(), chatID, providerID, sessionID, false); err != nil {
 				slog.Warn("agent: api transport: bind the session it opened",
 					"chat_id", chatID, "provider", providerID, "err", err)
 			}

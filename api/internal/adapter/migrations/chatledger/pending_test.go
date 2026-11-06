@@ -35,7 +35,7 @@ func TestBoot_AChatAnOlderBuildAddedAfterTheUpgradeIsConverted(t *testing.T) {
 	assert.Equal(t, convert(t, chatA(), nobody).Rows, held(t, h, "chat-a"))
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 	assert.Len(t, migratetest.Applied(t, h)[stepNumber], 2)
-	backups, err := os.ReadDir(filepath.Join(h.MigrateDir(), "backups"))
+	backups, err := filepath.Glob(filepath.Join(h.MigrateDir(), "backups", "*.tar.gz"))
 	require.NoError(t, err)
 	assert.Len(t, backups, 1, "a later run only adds chats the ledger lacks: the upgrade's backup is the only one")
 	before := testutil.TreeSnapshot(t, h)
@@ -383,3 +383,33 @@ type notes struct {
 func (n notes) Noted(key string) (migrate.Note, bool) { v, ok := n.notes[key]; return v, ok }
 
 func (n notes) Note(key string, v migrate.Note) error { n.notes[key] = v; return nil }
+
+func TestSettled_OnlyARunThatLeftNoChatOutsideTheLedger(t *testing.T) {
+	ran := map[string]migrate.Note{stampKey: {Detail: "converter 5\n"}}
+	tests := []struct {
+		name  string
+		marks migrate.Marks
+		notes map[string]migrate.Note
+		want  bool
+	}{
+		{name: "never ran", want: false},
+		{name: "ran and owes nothing", notes: ran, want: true},
+		{name: "owes a retry", notes: map[string]migrate.Note{stampKey: {Counts: migrate.Counts{retryingChats: 1}}}, want: false},
+		{
+			name:  "skipped a chat",
+			notes: map[string]migrate.Note{stampKey: {}, skippedKey("c1"): {Detail: "unconvertible"}},
+			want:  false,
+		},
+		{
+			name:  "skipped a chat a later converter converted",
+			marks: migrate.Marks{"c1": {legacyRecords: 2}},
+			notes: map[string]migrate.Note{stampKey: {}, skippedKey("c1"): {Detail: "unconvertible"}},
+			want:  true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, Settled(tc.marks, tc.notes))
+		})
+	}
+}
