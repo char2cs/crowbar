@@ -56,6 +56,9 @@ type eventStore struct {
 func NewEventStore(
 	path string,
 ) (models.Store, error) {
+	if err := storesqlite.OwnerOnly(path); err != nil {
+		return nil, fmt.Errorf("eventstore: %w", err)
+	}
 	db, err := gorm.Open(sqlite.Open(eventStoreDSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

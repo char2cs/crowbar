@@ -68,6 +68,9 @@ func openWithMaxConns(
 	path string,
 	maxConns int,
 ) (*gorm.DB, error) {
+	if err := OwnerOnly(path); err != nil {
+		return nil, err
+	}
 	db, err := gorm.Open(glebarez.Open(DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
