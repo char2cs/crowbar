@@ -375,7 +375,7 @@ describe('chat outbox', () => {
     seedFeed('c1', [])
     writeChat({ id: 'c1', model: 'old', effort: 'low' })
     sendPrompt('w1', 'c1', { text: 'go', steer: false, model: 'big', effort: '' })
-    expect(submit.mock.calls[0]?.slice(4)).toEqual(['', 'big', ''])
+    expect(submit.mock.calls[0]?.slice(4, 7)).toEqual(['', 'big', ''])
     await flush()
     expect(readSelect((s) => selectAgentChat(s, 'c1'))).toMatchObject({ model: 'big', effort: '' })
   })
@@ -388,6 +388,7 @@ describe('chat outbox', () => {
 
     expect(submit).toHaveBeenCalledTimes(1)
     expect(submit.mock.calls[0]?.[2]).toBe('again')
+    expect(submit.mock.calls[0]?.[7]).toBe('r1')
     expect(sentId()).not.toBe('r1')
     expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
   })

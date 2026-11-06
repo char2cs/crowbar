@@ -122,6 +122,8 @@ type Engine interface {
 		bg color.Color,
 		fg color.Color,
 	)
+	// HostTheme is the pair SetHostTheme last recorded; nil for a channel never set.
+	HostTheme() (bg, fg color.Color)
 
 	// ListSessions returns all active session IDs.
 	ListSessions() []string
@@ -279,8 +281,8 @@ func (e *terminalEngine) SetHostTheme(
 	}
 }
 
-// hostTheme reads the recorded host colours for a session about to be born.
-func (e *terminalEngine) hostTheme() (bg, fg color.Color) {
+// HostTheme reads the recorded host colours: a session about to be born answers with them.
+func (e *terminalEngine) HostTheme() (bg, fg color.Color) {
 	e.themeMu.RLock()
 	defer e.themeMu.RUnlock()
 	return e.themeBg, e.themeFg

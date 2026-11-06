@@ -209,7 +209,7 @@ func (rs *Runners) recordPrompt(
 		}
 		row, err := ledger.NewRow(ledger.KindUserMessage, uuid.NewString(), "", ledger.UserMessage{
 			RequestID: requestID, Text: text, Origin: ledger.OriginCrowbar, Delivery: delivery, RunnerID: carrier,
-			Dispatch: dispatch,
+			Dispatch: dispatch, RetryOf: refusedRetry(st, domain.PromptRetryOf(ctx)),
 		})
 		return []ledger.Row{row}, err
 	})
@@ -217,6 +217,15 @@ func (rs *Runners) recordPrompt(
 		return fmt.Errorf("agent: submit prompt: record: %w", err)
 	}
 	return nil
+}
+
+// refusedRetry is retryOf when the ledger holds it as a prompt settled without running.
+func refusedRetry(st ledger.State, retryOf string) string {
+	p, ok := st.Receipt(retryOf)
+	if retryOf == "" || !ok || p.Status != ledger.PromptStatusSettled || p.Consumed {
+		return ""
+	}
+	return retryOf
 }
 
 // failPrompt settles requestID as undelivered, as lost when cause says its

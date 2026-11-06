@@ -31,6 +31,19 @@ func TestSubmitPrompt_ReturnsReplacementIdentity(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"runnerId":"runner-new"`)
 }
 
+// A retry names the refused prompt it sends again, for the ledger to link the two.
+func TestSubmitPrompt_ThreadsTheRetriedPromptOntoTheSameCall(t *testing.T) {
+	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
+		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","retryOf":"refused-1"}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}
+	newChatHandlers(uc).SubmitPrompt(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.promptCalls, 1)
+	assert.Equal(t, "refused-1", uc.promptCalls[0].retryOf)
+}
+
 // A staged model/effort travels on the SAME request as the text — the
 // composer never PATCHes .../selection on its own, only bundles the pick
 // with the next send. Regression for that becoming two separate calls again.

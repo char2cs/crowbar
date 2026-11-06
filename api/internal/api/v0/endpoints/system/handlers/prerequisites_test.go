@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -24,24 +25,25 @@ func TestMain(
 }
 
 // envelope mirrors the {success, data} query envelope every v0 read answers with.
-type envelope struct {
-	Success bool                             `json:"success"`
-	Data    systemhandlers.PrerequisitesData `json:"data"`
+type envelope[T any] struct {
+	Success bool `json:"success"`
+	Data    T    `json:"data"`
 }
 
-// doPrerequisites serves GET /v0/system/prerequisites with reqCtx as the request
-// context, so a test can decide whether the probes are allowed to run at all.
-func doPrerequisites(
-	reqCtx context.Context,
-) *httptest.ResponseRecorder {
+// probe serves GET /v0/system/prerequisites/:tool with reqCtx as the request context,
+// so a test can decide whether the probes are allowed to run at all.
+func probe[T any](t *testing.T, reqCtx context.Context, tool string) envelope[T] {
+	t.Helper()
 	r := gin.New()
 	h := systemhandlers.NewHandler(context.Background())
-	r.GET("/v0/system/prerequisites", h.Prerequisites)
+	r.GET("/v0/system/prerequisites/:tool", h.Prerequisite)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v0/system/prerequisites", http.NoBody)
-	r.ServeHTTP(rec, req.WithContext(reqCtx))
-	return rec
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(reqCtx, http.MethodGet, "/v0/system/prerequisites/"+tool, http.NoBody))
+	require.Equal(t, http.StatusOK, rec.Code, "a missing toolchain is data, not an error")
+	var got envelope[T]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	return got
 }
 
 // TestPrerequisites_UnavailableToolsReportNotInstalled pins the degraded answer:
@@ -56,18 +58,15 @@ func TestPrerequisites_UnavailableToolsReportNotInstalled(
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	rec := doPrerequisites(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code, "a missing toolchain is data, not an error")
-	var got envelope
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.True(t, got.Success)
-	assert.False(t, got.Data.Git.Installed)
-	assert.Empty(t, got.Data.Git.Version)
-	assert.False(t, got.Data.Gh.Installed)
-	assert.False(t, got.Data.Gh.Authed)
-	assert.False(t, got.Data.Glab.Installed)
-	assert.False(t, got.Data.Glab.Authed)
+	git := probe[systemhandlers.GitStatus](t, ctx, "git")
+	assert.True(t, git.Success)
+	assert.False(t, git.Data.Installed)
+	assert.Empty(t, git.Data.Version)
+	for _, cli := range []string{"gh", "glab"} {
+		got := probe[systemhandlers.CLIStatus](t, ctx, cli)
+		assert.False(t, got.Data.Installed, cli)
+		assert.False(t, got.Data.Authed, cli)
+	}
 }
 
 // writeFakeCLI drops an executable shell script at dir/name, standing in for a
@@ -93,13 +92,9 @@ func writeFakeCLI(
 func TestPrerequisites_ReportsGitVersionWhenInstalled(
 	t *testing.T,
 ) {
-	rec := doPrerequisites(context.Background())
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var got envelope
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.True(t, got.Data.Git.Installed, "the real git on PATH must be detected as installed")
-	assert.NotEmpty(t, got.Data.Git.Version, "a successful `git --version` must report a version string")
+	got := probe[systemhandlers.GitStatus](t, context.Background(), "git")
+	assert.True(t, got.Data.Installed, "the real git on PATH must be detected as installed")
+	assert.NotEmpty(t, got.Data.Version, "a successful `git --version` must report a version string")
 }
 
 // TestPrerequisites_DetectsInstalledAndUnauthenticatedCLI exercises checkCLI's
@@ -130,13 +125,60 @@ exit 1
 `)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	rec := doPrerequisites(context.Background())
+	gh := probe[systemhandlers.CLIStatus](t, context.Background(), "gh")
+	assert.True(t, gh.Data.Installed)
+	assert.True(t, gh.Data.Authed, "gh's auth status call succeeded, so Authed must be true")
+	glab := probe[systemhandlers.CLIStatus](t, context.Background(), "glab")
+	assert.True(t, glab.Data.Installed)
+	assert.False(t, glab.Data.Authed, "glab never succeeded at auth status, so it is installed but not Authed")
+}
+
+// A probe that never answers is bounded: a hung `gh auth status` (a credential helper
+// waiting on a keychain) reads as not signed in, and the check still answers promptly.
+func TestPrerequisites_AHungProbeIsBoundedAndReadsAsNotAuthed(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakeCLI(t, binDir, "gh", `
+if [ "$1" = "--version" ]; then
+  exit 0
+fi
+sleep 30
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	r := gin.New()
+	h := systemhandlers.NewHandlerWithProbeTimeout(200 * time.Millisecond)
+	r.GET("/v0/system/prerequisites/:tool", h.Prerequisite)
+
+	start := time.Now()
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/system/prerequisites/gh", http.NoBody))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var got envelope
+	assert.Less(t, time.Since(start), 5*time.Second, "the hung probe must not hold the answer")
+	var got struct {
+		Data systemhandlers.CLIStatus `json:"data"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.True(t, got.Data.Gh.Installed)
-	assert.True(t, got.Data.Gh.Authed, "gh's auth status call succeeded, so Authed must be true")
-	assert.True(t, got.Data.Glab.Installed)
-	assert.False(t, got.Data.Glab.Authed, "glab's auth status was never asked to succeed, so Authed must be false")
+	assert.True(t, got.Data.Installed)
+	assert.False(t, got.Data.Authed)
+}
+
+// Each tool is its own read, so the first-run screen draws a row as soon as its probe
+// answers instead of waiting on the slowest one.
+func TestPrerequisite_AnswersOneToolAndRefusesAnUnknownOne(t *testing.T) {
+	r := gin.New()
+	h := systemhandlers.NewHandler(context.Background())
+	r.GET("/v0/system/prerequisites/:tool", h.Prerequisite)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/system/prerequisites/git", http.NoBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct {
+		Data systemhandlers.GitStatus `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.True(t, got.Data.Installed)
+
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/system/prerequisites/svn", http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

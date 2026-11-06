@@ -4,7 +4,7 @@ import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as feeds from '@/features/agent/stores/chat-feed'
 import { retryPrompt, sendPrompt } from '@/features/agent/stores/chat-outbox'
-import { chatStore } from '@/features/agent/stores/chat-store'
+import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
@@ -123,6 +123,23 @@ describe('UserRow', () => {
     act(() => retryPrompt('w1', 'c1', 'r1', false))
 
     expect(rowOf('r1')).not.toBeNull()
+    expect(screen.queryByLabelText('Retry prompt')).not.toBeInTheDocument()
+  })
+
+  // The ledger says the refused prompt was sent again, so the row stops offering Retry for
+  // good: the sending tab's memory of the retry is gone once its row lands.
+  it('a refused prompt whose retry landed says nothing more and offers no Retry', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'hello?'), l.settle('r1', false, 'not_acknowledged')])
+    draw()
+
+    await act(async () => retryPrompt('w1', 'c1', 'r1', false))
+    const retryId = submit.mock.calls[0]![3]
+    expect(submit.mock.calls[0]![7]).toBe('r1')
+    act(() => applyFeedFrame('c1', { type: 'row', row: l.prompt(retryId, 'hello?', 'r1') }))
+
+    expect(chatStore.getState().outbox.c1 ?? []).toHaveLength(0)
+    expect(screen.queryByText(/never took this prompt/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Retry prompt')).not.toBeInTheDocument()
   })
 })

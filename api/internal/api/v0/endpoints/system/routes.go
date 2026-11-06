@@ -10,7 +10,7 @@ import (
 	systemhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers"
 )
 
-// Register mounts GET /system/prerequisites, GET /system/browse (directory listings for the
+// Register mounts GET /system/prerequisites/:tool, GET /system/browse (directory listings for the
 // client's remote file picker) and the /system/perf arm/read pair. Perf sits on the top-level
 // group because the timing ring is process-wide.
 func Register(rg *gin.RouterGroup) {
@@ -18,7 +18,7 @@ func Register(rg *gin.RouterGroup) {
 	defer cancel()
 
 	h := systemhandlers.NewHandler(ctx)
-	rg.GET("/system/prerequisites", h.Prerequisites)
+	rg.GET("/system/prerequisites/:tool", h.Prerequisite)
 
 	rg.GET("/system/browse", systemhandlers.Browse)
 

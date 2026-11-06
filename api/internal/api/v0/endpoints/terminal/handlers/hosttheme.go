@@ -17,6 +17,13 @@ type hostThemeReq struct {
 	Fg string `json:"fg"`
 }
 
+// HostTheme handles GET /v0/settings/terminal/theme: the pair every later PTY answers with, ""
+// for a channel never pushed. The frontend pushes only a pair that differs from it.
+func (h *Handlers) HostTheme(ctx *gin.Context) {
+	bg, fg := h.termEng.HostTheme()
+	libs.WriteQueryOK(ctx, hostThemeReq{Bg: engineterminal.FormatHexColor(bg), Fg: engineterminal.FormatHexColor(fg)})
+}
+
 // SetHostTheme handles PUT /v0/settings/terminal/theme, recording the colours every later PTY
 // answers OSC 10/11 with: a CLI often queries before any client can attach and push a theme.
 // Idempotent; the frontend pushes at boot and on each theme change, and the newest wins.

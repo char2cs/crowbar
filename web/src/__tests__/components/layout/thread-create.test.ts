@@ -179,14 +179,13 @@ describe('starting a thread on a real workspace', () => {
     )
   })
 
-  // The draft's first prompt is a chat prompt: on Terminal it would wait unsent.
-  it('lands a draft on Chat, where its first prompt is sent, whatever the default', async () => {
+  // The draft's first prompt is a chat prompt: on Terminal it would wait unsent. An agent that
+  // cannot start on a terminal drafts, whatever the default.
+  it('lands a draft on Chat, where its first prompt is sent, for an agent with no terminal', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
       status: 'ready',
-      providers: [
-        { id: 'claude', enabled: true, hasTerminal: true, terminalStartHere: true },
-      ] as never,
+      providers: [{ id: 'claude', enabled: true, hasTerminal: false }] as never,
     })
     useSettingsStore.setState((state) => ({
       settings: { ...state.settings, chatIsDefaultPresentation: false },

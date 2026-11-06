@@ -27,8 +27,8 @@ export function ledger(chatId = 'chat-1', from = 1) {
     get seq() {
       return seq
     },
-    prompt: (requestId: string, text: string) =>
-      row('user_message', { requestId, text, origin: 'crowbar' }),
+    prompt: (requestId: string, text: string, retryOf?: string) =>
+      row('user_message', { requestId, text, origin: 'crowbar', ...(retryOf && { retryOf }) }),
     start: (turnId: string, requestId?: string) =>
       row('turn_started', { requestId, provider: 'fake' }, { turnId }),
     text: (turnId: string, messageId: string, index: number, text: string, final = false) =>

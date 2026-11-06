@@ -165,6 +165,9 @@ export function renameWorkspaceBranch(
   })
 }
 
-export function fetchPrerequisites(): Promise<Prerequisites> {
-  return apiFetch('/v0/system/prerequisites')
+/** One tool's check, so each row shows as soon as its probe answers. */
+export function fetchPrerequisite<T extends keyof Prerequisites>(
+  tool: T,
+): Promise<Prerequisites[T]> {
+  return apiFetch(`/v0/system/prerequisites/${tool}`)
 }

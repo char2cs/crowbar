@@ -29,7 +29,7 @@ type engineBirth struct {
 // answers OSC 10/11 truthfully before the process can ask. The caller admits the birth
 // first, then registers the session, calls startReaper and settles the birth.
 func (e *terminalEngine) spawnShell(ctx context.Context, id, shell, cwd, profileID string, b engineBirth) (*session.Session, error) {
-	bg, fg := e.hostTheme()
+	bg, fg := e.HostTheme()
 	var (
 		s   *session.Session
 		err error
@@ -142,7 +142,7 @@ func (e *terminalEngine) CreateCommand(
 	// CreateCommand takes the caller's env verbatim, so under launchd TERM and the locale
 	// are absent; backfill the terminal defaults for any keys not already set.
 	env = withTerminalDefaults(env)
-	bg, fg := e.hostTheme()
+	bg, fg := e.HostTheme()
 	s, err := session.NewCommand(ctx, id, argv, cwd, env, 80, 24, 0, session.WithTheme(bg, fg))
 	if err != nil {
 		e.reaps.settle(false)

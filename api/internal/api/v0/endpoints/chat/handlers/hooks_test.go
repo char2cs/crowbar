@@ -158,8 +158,8 @@ type fakeAgentUsecase struct {
 }
 
 type promptCall struct {
-	chatID, text, requestID, provider string
-	selection                         *domain.ChatSelection
+	chatID, text, requestID, provider, retryOf string
+	selection                                  *domain.ChatSelection
 }
 
 type ingestCall struct {
@@ -249,12 +249,13 @@ func (f *fakeAgentUsecase) ChatSnapshotsOf(
 }
 
 func (f *fakeAgentUsecase) SubmitPrompt(
-	_ context.Context,
+	ctx context.Context,
 	chatID, text, requestID, provider string,
 	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
 	f.promptCalls = append(f.promptCalls, promptCall{
 		chatID: chatID, text: text, requestID: requestID, provider: provider, selection: selection,
+		retryOf: domain.PromptRetryOf(ctx),
 	})
 	return f.promptResult, f.promptErr
 }
