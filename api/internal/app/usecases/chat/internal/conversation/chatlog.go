@@ -22,12 +22,21 @@ func (c *Conversations) renderConversation(
 	if err != nil {
 		return nil, fmt.Errorf("agent: render conversation: %w", err)
 	}
+	st, err := c.ledger.State(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: render conversation: %w", err)
+	}
+	// What the person cleared is no conversation to hand on.
+	resuming := !cut.IsZero()
+	if cleared := st.ClearedAt(); cleared.After(cut) {
+		cut = cleared
+	}
 	since, pin := turns[:0:0], -1
 	for _, t := range turns {
 		if !t.At.After(cut) {
 			continue
 		}
-		if pin < 0 && cut.IsZero() && t.Role == domain.TurnRoleUser {
+		if pin < 0 && !resuming && t.Role == domain.TurnRoleUser {
 			pin = len(since)
 		}
 		since = append(since, t)

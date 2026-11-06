@@ -58,10 +58,12 @@ surfaces:
   terminal: { channel: hooks, start_here: true }
 
 events:
+  # source says why the session started; a clear starts the conversation over.
   session_start:
     required: [session_id]
     in: SessionStart
-    map: { session_id: session_id, model: model }
+    status_map: { clear: cleared }
+    map: { session_id: session_id, model: model, reason: source }
     fixtures: [SessionStart.json]
 
   # session_id IS mapped: UserPromptSubmit.json's own real capture carries it
@@ -616,6 +618,9 @@ terminal_prompts:
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".
   - needle: "Enter to confirm"
+  # Footer of a dialog a command opens (/help, verified on 2.1.319): it holds the
+  # CLI until closed in the terminal, and no hook says so.
+  - needle: "Esc to cancel"
   # First-run onboarding, painted before any hook by a claude never set up on
   # this machine (verified on 2.1.281 with an empty CLAUDE_CONFIG_DIR): the
   # theme picker, then the login method. Neither paints the footer above.

@@ -1002,6 +1002,18 @@ func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
 	}
 }
 
+// A command that opens a dialog (/help) holds the CLI until the person closes it
+// in the terminal; its screen (captured on 2.1.319) reads as blocking.
+func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
+	screen := " Help General Commands Custom commands\n Shortcuts ! for shell mode\n" +
+		" For more help: https://code.claude.com/docs/en/overview\n Esc to cancel"
+
+	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
+
+	require.True(t, ok)
+	assert.Empty(t, prompt.Kind)
+}
+
 // The trust dialog as the real CLI paints it (2.1.319, through our emulator) preselects
 // "No, exit": accepting must move the cursor onto the trust option before confirming.
 func TestMatchTerminalPrompt_ClaudeAimsItsTrustAnswerAtTheTrustOption(t *testing.T) {

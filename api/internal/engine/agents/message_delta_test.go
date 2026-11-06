@@ -148,3 +148,15 @@ func TestAgent_ParseHookTellsACompletedMessageFromACompletedTool(t *testing.T) {
 
 	require.ErrorIs(t, err, agents.ErrHookVariantMismatch)
 }
+
+// A session claude started for /clear reads as cleared; any other start does not.
+func TestAgent_ClaudeTellsAClearedSessionStartApart(t *testing.T) {
+	for source, want := range map[string]string{"clear": "cleared", "startup": "startup", "resume": "resume"} {
+		raw := []byte(`{"session_id":"s","hook_event_name":"SessionStart","source":"` + source + `"}`)
+
+		ev, err := get(t, "claude").ParseHook(agents.HookSessionStart, raw, agents.ChannelHooks)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, ev.Reason, source)
+	}
+}

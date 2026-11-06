@@ -197,6 +197,11 @@ func build(
 		ev.TurnStatus = mapped
 	}
 	switch canonical {
+	case spec.HookSessionStart:
+		// Why it started, in Crowbar's words: a clear starts the conversation over.
+		if mapped, ok := statusMap[ev.Reason]; ok {
+			ev.Reason = mapped
+		}
 	case spec.HookUserPrompt:
 		if id := get("scope_id"); id != "" {
 			ev.Subagent = &models.SubagentEvent{ID: id}

@@ -245,6 +245,38 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['p:r1', 't:read', 'm:turn-1:m1', 'p:r2', 'm:turn-2:m2'])
   })
 
+  it('keeps a steer parked on the turn end below that turn, and its reply under it', () => {
+    const l = ledger()
+    const waiting = applyRows(emptyFeed(), [
+      l.prompt('r1', 'a'),
+      l.start('turn-1', 'r1'),
+      l.tool('turn-1', 'tool-1', 'pre'),
+      l.row(
+        'user_message',
+        { requestId: 'r2', text: 'b', origin: 'crowbar', delivery: 'steer' },
+        { turnId: 'turn-2' },
+      ),
+      l.tool('turn-1', 'tool-1', 'post'),
+      l.tool('turn-1', 'tool-2', 'pre'),
+      l.text('turn-1', 'm1', 0, 'DONE-A', true),
+    ])
+    expect(waiting.facts.prompts.r2).toMatchObject({ state: 'pending' })
+    expect(waiting.order).toEqual(['p:r1', 't:tool-1', 'm:turn-1:m1', 't:tool-2', 'p:r2'])
+    const taken = applyRows(waiting, [
+      l.end('turn-1'),
+      l.start('turn-2', 'r2'),
+      l.text('turn-2', 'm2', 0, 'BANANA', true),
+    ])
+    expect(taken.order).toEqual([
+      'p:r1',
+      't:tool-1',
+      'm:turn-1:m1',
+      't:tool-2',
+      'p:r2',
+      'm:turn-2:m2',
+    ])
+  })
+
   it('folds numbered chunks into one text and settles on the final chunk', () => {
     const l = ledger()
     let feed = applyRows(emptyFeed(), [
