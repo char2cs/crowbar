@@ -35,6 +35,12 @@ func TestEditDiff_NamesAFileInTheSessionsDirectoryFromThere(t *testing.T) {
 	assert.Contains(t, editDiff("/ws/repo2/a.go", "/ws/repo", "a\n", "b\n"), "--- a/ws/repo2/a.go\n")
 }
 
+func TestSessionPath_NamesAFileInsideTheSessionFromThereAndOthersAsGiven(t *testing.T) {
+	assert.Equal(t, "src/a.go", sessionPath("/ws/repo/src/a.go", "/ws/repo"))
+	assert.Equal(t, "/etc/hosts", sessionPath("/etc/hosts", "/ws/repo"))
+	assert.Equal(t, "/ws/repo/a.go", sessionPath("/ws/repo/a.go", ""))
+}
+
 func TestPatchDiff_KeepsTheProvidersTrueLineNumbers(t *testing.T) {
 	got := patchDiff("/ws/repo/a.go", "/ws", []engineagents.PatchHunk{
 		{OldStart: 8, NewStart: 8, Lines: []string{" ctx", "-old", "+new", " tail"}},

@@ -286,19 +286,6 @@ func TestMap_AToolRowCarriesItsTitleInputExitCodeAndInterrupt(t *testing.T) {
 	assert.True(t, failed.Interrupted)
 }
 
-func TestMap_ACallNamesAFileInTheSessionsDirectoryFromThere(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-	pre := toolEvent(engineagents.HookToolPre, "t1", "Read")
-	pre.Tool.Cwd = "/ws/repo"
-	pre.Tool.Locations = []engineagents.ToolLocation{{Path: "/ws/repo/src/a.go", Line: 3}, {Path: "/etc/hosts"}}
-
-	rows, _ := c.mapped(pre, hooksSource())
-
-	want := []ledger.ToolLocation{{Path: "src/a.go", Line: 3}, {Path: "/etc/hosts"}}
-	assert.Equal(t, want, bodyOf[ledger.ToolCall](t, rows[0]).Locations)
-}
-
 func TestMap_AFinishedCallCarriesItsOutputOnlyWhenItIsShort(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")

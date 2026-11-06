@@ -345,9 +345,7 @@ func TestParse_ToolEventCarriesTheMappedEditBeforeAndAfterText(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Equal(t, "a", ev.Tool.EditBefore)
-	assert.Equal(t, "b", ev.Tool.EditAfter)
-	assert.Equal(t, "/ws", ev.Tool.Cwd)
+	assert.Equal(t, []string{"a", "b", "/ws"}, []string{ev.Tool.EditBefore, ev.Tool.EditAfter, ev.Tool.Cwd})
 }
 
 func TestParse_ToolEventCarriesTheMappedPatchHunks(t *testing.T) {
