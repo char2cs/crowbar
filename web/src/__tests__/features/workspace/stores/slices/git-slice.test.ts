@@ -6,7 +6,13 @@ const { getGitStatus, getGitLog, getReviewFiles } = vi.hoisted(() => ({
   getGitLog: vi.fn(),
   getReviewFiles: vi.fn(),
 }))
-vi.mock('@/features/git/api/git-status-api', () => ({ getGitStatus }))
+vi.mock('@/features/git/api/git-status-api', () => ({
+  readGitStatus: (ws: string) =>
+    getGitStatus(ws).then(
+      (status: unknown) => ({ status, error: null }),
+      (err: Error) => ({ status: null, error: err.message }),
+    ),
+}))
 vi.mock('@/features/git/api/git-commits-api', () => ({ getGitLog }))
 vi.mock('@/features/git/api/review-api', () => ({ getReviewFiles }))
 
@@ -46,12 +52,25 @@ describe('git slice', () => {
 
   it('goes back to retryable after a failed load', async () => {
     const a = createWorkspaceStore('ws-A')
-    getGitStatus.mockRejectedValueOnce(new Error('boom'))
+    getGitLog.mockRejectedValueOnce(new Error('boom'))
     await a.getState().gitActions.loadGitData()
     expect(a.getState().gitLoad).toBe('failed')
 
     await a.getState().gitActions.loadGitData()
     expect(a.getState().gitLoad).toBe('ready')
+  })
+
+  // A worktree whose repo moved still loads: the status failure is the fact the panel shows.
+  it('keeps why git could not read the worktree, and clears it once git can', async () => {
+    const a = createWorkspaceStore('ws-A')
+    getGitStatus.mockRejectedValueOnce(new Error('not a git repository: /gone'))
+    await a.getState().gitActions.loadGitData()
+    expect(a.getState().gitLoad).toBe('ready')
+    expect(a.getState().gitStatusError).toBe('not a git repository: /gone')
+
+    await a.getState().gitActions.reloadStatusAndLog()
+    expect(a.getState().gitStatusError).toBeNull()
+    expect(a.getState().gitStatus?.branch).toBe('main')
   })
 
   // A commit made in the integrated terminal arrives only as a git push; a soft
