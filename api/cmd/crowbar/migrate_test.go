@@ -37,10 +37,11 @@ func TestMigrateCmd_PlanPrintsAndChangesNothingOnDisk(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, out, "home      "+h.Root())
-	assert.Contains(t, out, "7 pending steps, in execution order")
+	assert.Contains(t, out, "9 pending steps, in execution order")
 	assert.Contains(t, out, "#2 workspace-paths-table   pre-open   layout 0")
 	assert.Contains(t, out, "state/view.db: drop table workspace_paths")
-	assert.Contains(t, out, "#3 chat-types   post-open   layout 0")
+	assert.Contains(t, out, "#9 ledger-layout   pre-open   layout 0 -> 1")
+	assert.Contains(t, out, "#3 chat-types   post-open   layout 1")
 	assert.Contains(t, out, "delete  state/upgrades/chat-types")
 	assert.Contains(t, out, "state backup  required")
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
@@ -72,7 +73,7 @@ func TestMigrateCmd_PlanNamesTheChatLedgerStep(t *testing.T) {
 	out, err := runMigrate(t, "--plan")
 
 	require.NoError(t, err)
-	assert.Contains(t, out, "#6 chat-ledger   pre-open   layout 0")
+	assert.Contains(t, out, "#6 chat-ledger   pre-open   layout 1")
 	assert.Contains(t, out, "legacy chats → chat ledger")
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "nothing written")
 	assert.NoDirExists(t, h.MigrateDir())

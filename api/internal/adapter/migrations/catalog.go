@@ -30,6 +30,15 @@ const StepChatLedger = 6
 // It deletes nothing: the node files and the folders table stay for a rollback.
 const StepPlacementTree = 7
 
+// StepLedgerLayout bumps the layout to 1, the home of the chat ledger and the
+// project trees: a build that knows only layout 0 halts on it instead of
+// re-creating the legacy files StepRetireLegacy deletes.
+const StepLedgerLayout = 9
+
+// StepRetireLegacy deletes the legacy files once the migrated home has booted,
+// keeping any its backup does not hold as it is.
+const StepRetireLegacy = 10
+
 // legacyNames are the steps' names, which were also their markers' file names.
 var legacyNames = map[int]string{
 	StepProjectHomes:        "project-homes",
@@ -64,13 +73,17 @@ type planFunc = func(ctx context.Context, env migrate.Env) (migrate.Plan, error)
 
 func legacySteps() []migrate.Step {
 	return []migrate.Step{
-		legacyStep(StepProjectHomes, migrate.PostOpen, rewrites("projects without a home workspace")),
-		legacyStep(StepWorkspacePathsTable, migrate.PreOpen, planWorkspacePaths),
-		legacyStep(StepChatTypes, migrate.PostOpen, rewrites("chats minted before chat types existed")),
-		legacyStep(StepChatProviders, migrate.PostOpen, rewrites("chat providers their runner history disagrees with")),
-		legacyStep(StepHookDeliveries, migrate.PostOpen, deletes(".hook-deliveries directories")),
-		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: chatledger.Plan, Recurs: true},
-		{Number: StepPlacementTree, Name: "placement-tree", Phase: migrate.PostOpen, Plan: planPlacementTree},
+		legacyStep(StepProjectHomes, migrate.PostOpen, 1, rewrites("projects without a home workspace")),
+		legacyStep(StepWorkspacePathsTable, migrate.PreOpen, 0, planWorkspacePaths),
+		legacyStep(StepChatTypes, migrate.PostOpen, 1, rewrites("chats minted before chat types existed")),
+		legacyStep(StepChatProviders, migrate.PostOpen, 1, rewrites("chat providers their runner history disagrees with")),
+		legacyStep(StepHookDeliveries, migrate.PostOpen, 1, deletes(".hook-deliveries directories")),
+		// At layout 1, so it recurs after the bump: a home an older build wrote
+		// legacy records into again is converted at its next boot.
+		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, From: 1, To: 1, Plan: chatledger.Plan, Recurs: true},
+		{Number: StepPlacementTree, Name: "placement-tree", Phase: migrate.PostOpen, From: 1, To: 1, Plan: planPlacementTree},
+		{Number: StepLedgerLayout, Name: "ledger-layout", Phase: migrate.PreOpen, From: 0, To: 1, Plan: planLedgerLayout},
+		{Number: StepRetireLegacy, Name: "retire-legacy", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planRetire, Recurs: true},
 	}
 }
 
@@ -80,6 +93,7 @@ func legacySteps() []migrate.Step {
 func legacyStep(
 	number int,
 	phase migrate.Phase,
+	layout int,
 	plan planFunc,
 ) migrate.Step {
 	name := legacyNames[number]
@@ -87,6 +101,8 @@ func legacyStep(
 		Number: number,
 		Name:   name,
 		Phase:  phase,
+		From:   layout,
+		To:     layout,
 		Plan: func(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 			adopts, err := adopting(env.Home, name, env.Earlier.Done)
 			switch {
@@ -112,6 +128,11 @@ func rewrites(
 			RewritesState: true,
 		}, nil
 	}
+}
+
+// planLedgerLayout is the bump alone: the engine writes LAYOUT when it is done.
+func planLedgerLayout(context.Context, migrate.Env) (migrate.Plan, error) {
+	return migrate.Plan{Actions: []migrate.Action{{Kind: migrate.Record, Subject: "LAYOUT 0 -> 1", Count: 1}}}, nil
 }
 
 // deletes is work outside state/, so it needs no backup of it.

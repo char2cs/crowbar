@@ -27,7 +27,9 @@ func PreOpenImpls() migrate.Impls {
 			Apply:  dropWorkspacePaths,
 			Verify: verifyWorkspacePaths,
 		}),
-		StepChatLedger: chatledger.Impl(),
+		StepChatLedger:   chatledger.Impl(),
+		StepLedgerLayout: {Apply: func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) { return nil, nil }},
+		StepRetireLegacy: RetireImpl(),
 	}
 }
 
