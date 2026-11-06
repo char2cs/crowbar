@@ -36,9 +36,8 @@ function ownsWorktree(repo: Repo, chat: Chat): boolean {
 }
 
 /** {@link chatIsThreadIn} in the render path, over the repo chats and the
- *  project-home chats (home rides no repo, so it is never among the former). */
+ *  project-home chats (home rides no repo, so it is never among the former).
+ *  Selects the answer, so a chat change that keeps it renders nothing. */
 export function useChatIsThread(chatId: string | null): boolean {
-  const repos = useSelect(selectRepos)
-  const homeTrees = useSelect(selectHomeTrees)
-  return chatIsThreadIn(repos, chatId, homeTrees)
+  return useSelect((s) => chatIsThreadIn(selectRepos(s), chatId, selectHomeTrees(s)))
 }
