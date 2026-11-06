@@ -586,12 +586,15 @@ events:
       # global default reaching an inherited chat — see selection.go) kept
       # resuming under whatever sandbox the thread was ORIGINALLY created
       # with forever, because resume never sent the new choice at all.
+      # excludeTurns: Crowbar's ledger is the transcript; hydrating the thread's
+      # history cost the first prompt after a restart seconds (live, 0.167).
       - call: thread/resume
         send:
           threadId:       "{session_id}"
           cwd:            "{cwd}"
           sandbox:        "{permission.sandbox}"
           approvalPolicy: "{permission.approvalPolicy}"
+          excludeTurns:   true
     action:
       - call: turn/start
         send:
