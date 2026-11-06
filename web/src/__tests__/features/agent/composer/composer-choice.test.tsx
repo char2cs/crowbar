@@ -631,6 +631,29 @@ describe('ComposerChoice keys', () => {
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 
+  // The composer gives way to the card, so focus falls to the page: a digit then
+  // is meant for the card. An Enter is not: it may be the end of a message.
+  it('takes a digit pressed while nothing has focus, never an Enter', async () => {
+    show()
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: '2' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['deny'] }),
+    )
+  })
+
+  it('answers nothing for a digit typed into a field elsewhere', () => {
+    show()
+    const field = document.createElement('input')
+    document.body.append(field)
+    field.focus()
+    fireEvent.keyDown(field, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    field.remove()
+  })
+
   it('shows which digit answers with which option', () => {
     show()
     expect(screen.getByRole('button', { name: /Allow/ })).toHaveTextContent('1')

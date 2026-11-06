@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useEffectEvent, useState, type KeyboardEvent } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { answerChoice } from '@/features/agent/api/agent-chat-commands'
@@ -159,16 +159,28 @@ export function ComposerChoice({
 
   // A digit picks that option; Enter allows once, only from the card itself so
   // an Enter meant for the composer never grants a permission.
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Only from the card itself: a key on a control inside it is that control's.
-    if (event.target !== event.currentTarget || event.repeat || event.nativeEvent.isComposing)
-      return
-    if (!flat || busy || event.metaKey || event.ctrlKey || event.altKey) return
+  const pickByKey = (event: globalThis.KeyboardEvent, enter: boolean) => {
+    if (event.repeat || event.isComposing || !flat || busy) return
+    if (event.metaKey || event.ctrlKey || event.altKey || (!enter && event.key === 'Enter')) return
     const picked = keyedOption(controls, event.key)
     if (!picked) return
     event.preventDefault()
     void send([picked.id])
   }
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Only from the card itself: a key on a control inside it is that control's.
+    if (event.target === event.currentTarget) pickByKey(event.nativeEvent, true)
+  }
+  // The composer gives way to the card and focus falls to the page: a digit typed
+  // then is for the card. Not an Enter, which may be the end of a message.
+  const onPageKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (event.target === document.body && document.activeElement === document.body)
+      pickByKey(event, false)
+  })
+  useEffect(() => {
+    window.addEventListener('keydown', onPageKey)
+    return () => window.removeEventListener('keydown', onPageKey)
+  }, [])
 
   // WHAT IS ASKED goes above the bar; the bar is the QUESTION and its controls.
   // Options are a list to read down, and folding them into a 38px row turns them
