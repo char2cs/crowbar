@@ -1,5 +1,5 @@
 import { parsePatchFiles } from '@pierre/diffs'
-import type { CodeViewItem } from '@pierre/diffs'
+import type { CodeViewItem, FileDiffMetadata } from '@pierre/diffs'
 
 /** Keep parser and syntax-highlighting work bounded for a live preview. */
 export const MAX_TURN_DIFF_PREVIEW_CHARS = 250_000
@@ -19,7 +19,7 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
         return {
           id: `${turnId}:${patchIndex}:${index}`,
           type: 'diff' as const,
-          fileDiff,
+          fileDiff: withoutGitPrefixes(fileDiff),
           version,
         }
       }),
@@ -28,6 +28,16 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
     // The component falls back to the raw diff; a parse failure must not hide it.
     return []
   }
+}
+
+// Without a `diff --git` line the parser keeps git's a/ b/ prefixes, so an edit of one file
+// reads as a rename from a/x to b/x; the daemon's per-edit diffs are written that way.
+function withoutGitPrefixes(file: FileDiffMetadata): FileDiffMetadata {
+  if (!file.prevName?.startsWith('a/') || !file.name.startsWith('b/')) return file
+  const name = file.name.slice(2)
+  const prevName = file.prevName.slice(2)
+  if (prevName !== name) return { ...file, name, prevName }
+  return { ...file, name, prevName: undefined, type: 'change' }
 }
 
 function fingerprint(text: string): number {
