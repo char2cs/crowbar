@@ -38,6 +38,30 @@ describe('parseTurnDiff', () => {
     expect(second[0]?.version).not.toBe(first[0]?.version)
   })
 
+  it('reads a tool edit’s bare unified diff as a change to its file, not a rename', () => {
+    const edit = [
+      '--- a/home/me/app.py',
+      '+++ b/home/me/app.py',
+      '@@ -1,2 +1,2 @@',
+      '-def greet(name):',
+      '--- a/removed-dashes',
+      '+++ b/added-pluses',
+      '+def hello(name):',
+      '--- a/home/me/notes.md',
+      '+++ b/home/me/notes.md',
+      '@@ -0,0 +1,1 @@',
+      '+one',
+      '',
+    ].join('\n')
+    const files = parseTurnDiff(edit, 'turn-1').map(
+      (item) => item.type === 'diff' && [item.fileDiff.name, item.fileDiff.prevName],
+    )
+    expect(files).toEqual([
+      ['home/me/app.py', undefined],
+      ['home/me/notes.md', undefined],
+    ])
+  })
+
   it('declines oversized input before parsing', () => {
     expect(parseTurnDiff('x'.repeat(MAX_TURN_DIFF_PREVIEW_CHARS + 1), 'turn-1')).toEqual([])
   })
