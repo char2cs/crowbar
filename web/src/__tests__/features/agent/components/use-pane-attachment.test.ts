@@ -5,13 +5,13 @@ import { usePaneAttachment } from '@/features/agent/components/use-pane-attachme
 import { resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 
-function attachmentOn(chatId: string) {
+function attachmentOn(chatId: string, presentation: 'chat' | 'terminal' = 'terminal') {
   return renderHook(() =>
     usePaneAttachment({
       wsId: 'w1',
       chatId,
       providerName: 'Claude',
-      presentation: 'terminal',
+      presentation,
       promptReplacing: false,
     }),
   ).result
@@ -55,5 +55,19 @@ describe('usePaneAttachment', () => {
       state: 'idle',
       message: 'Stopped. Send a message to continue the conversation.',
     })
+  })
+
+  it('says the chat is connecting while its live CLI moves onto the chat surface', () => {
+    seedChats([{ id: 'c1', liveRunnerId: 'r1', phase: 'switching' }])
+    seedFeed('c1')
+
+    expect(attachmentOn('c1', 'chat').current.connecting).toBe('Connecting to Claude…')
+  })
+
+  it('says nothing about connecting once the switch has landed', () => {
+    seedChats([{ id: 'c1', liveRunnerId: 'r1', phase: 'live' }])
+    seedFeed('c1')
+
+    expect(attachmentOn('c1', 'chat').current.connecting).toBeUndefined()
   })
 })

@@ -133,4 +133,9 @@ describe('WorkingLine', () => {
     expect(within(live).getByText(`${verbAt(1)}…`)).toHaveAttribute('aria-hidden', 'true')
     expect(within(live).getByText('Working')).toBe(spoken)
   })
+
+  it('names the connection the chat is waiting on while no turn runs', () => {
+    render(<WorkingLine working={false} connecting="Connecting to Codex…" />)
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Connecting to Codex…')
+  })
 })
