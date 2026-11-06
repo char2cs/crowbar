@@ -50,6 +50,8 @@ type TerminalEngine interface {
 		bg color.Color,
 		fg color.Color,
 	)
+	// HostTheme is the pair SetHostTheme last recorded; nil for a channel never set.
+	HostTheme() (bg, fg color.Color)
 }
 
 // ProfileStore is the CRUD surface for terminal profiles.
