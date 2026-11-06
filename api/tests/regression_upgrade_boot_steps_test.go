@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	crowbarhome "github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
@@ -105,7 +106,7 @@ func TestRegression_Upgrade_BootDeletesTheRetiredHookJournal(t *testing.T) {
 
 	assert.NoDirExists(t, filepath.Join(chatsDir, ".hook-deliveries"))
 	for _, f := range kept {
-		assert.FileExists(t, f)
+		assert.FileExists(t, movedAttachment(home, f))
 	}
 }
 
@@ -295,13 +296,28 @@ func messageTexts(t *testing.T, h *harness, imported importedRepo, chatID string
 	return texts
 }
 
+// movedAttachment is where the upgrade boot puts a file an older build kept as
+// <chats>/<chat-id>/attachments/<name>: under the chat's own directory.
+func movedAttachment(
+	home string,
+	path string,
+) string {
+	dir := filepath.Dir(path)
+	if filepath.Base(dir) != "attachments" || filepath.Base(filepath.Dir(filepath.Dir(dir))) != "chats" {
+		return path
+	}
+	return filepath.Join(worktreepath.AttachmentsDir(home, filepath.Base(filepath.Dir(dir))), filepath.Base(path))
+}
+
 // forgetMigrations leaves dir as a home no migration ever ran in, as base did.
 func forgetMigrations(
 	t *testing.T,
 	dir string,
 ) {
 	t.Helper()
-	require.NoError(t, os.RemoveAll(homeAt(t, dir).MigrateDir()))
+	h := homeAt(t, dir)
+	require.NoError(t, os.RemoveAll(h.MigrateDir()))
+	require.NoError(t, os.RemoveAll(h.LayoutFile()), "an older daemon wrote no LAYOUT")
 }
 
 func homeAt(
