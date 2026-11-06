@@ -89,6 +89,50 @@ describe('subagent cards', () => {
     expect(feed.order).toEqual(['s:call-1'])
   })
 
+  // The rows claude 2.1.319 recorded for "say ALPHA, launch two agents, say
+  // BRAVO": it reports ALPHA only once both spawns had started.
+  it('draws spawns where they were said, live and on reload, and finishes them in place', () => {
+    const l = ledger()
+    const say = (id: string, text: string) => l.text('turn-1', id, 0, text, true)
+    const bind = (call: string, scope: string) =>
+      l.row('subagent', { phase: 'bound', spawnToolId: call }, { turnId: 'turn-1', scope })
+    const end = (scope: string, phase: 'stop' | 'result') =>
+      l.row('subagent', { phase, result: scope }, { turnId: 'turn-1', scope })
+    const rows = [
+      l.prompt('r1', 'launch two'),
+      l.start('turn-1', 'r1'),
+      spawn(l, 'call-1', 'pre'),
+      spawn(l, 'call-2', 'pre'),
+      spawn(l, 'call-1', 'post', 'sub-1'),
+      bind('call-1', 'sub-1'),
+      say('m-alpha', 'ALPHA'),
+      spawn(l, 'call-2', 'post', 'sub-2'),
+      bind('call-2', 'sub-2'),
+      say('m-bravo', 'BRAVO'),
+      end('sub-2', 'stop'),
+      l.end('turn-1'),
+      end('sub-1', 'stop'),
+      end('sub-2', 'result'),
+      end('sub-1', 'result'),
+      l.start('turn-2'),
+      l.text('turn-2', 'm-charlie', 0, 'CHARLIE', true),
+      l.end('turn-2'),
+    ]
+    const said = ['p:r1', 'm:turn-1:m-alpha', 's:call-1', 's:call-2', 'm:turn-1:m-bravo']
+    let live = emptyFeed()
+    for (const row of rows) {
+      live = applyRows(live, [row])
+      if (live.order.includes('m:turn-1:m-alpha'))
+        expect(live.order.slice(0, 4)).toEqual(said.slice(0, 4))
+    }
+    const replay = new FeedFold(emptyFeed())
+    for (const row of rows) replay.apply(row)
+    expect(live.order).toEqual([...said, 'm:turn-2:m-charlie'])
+    expect(replay.finish().order).toEqual(live.order)
+    expect(live.items['s:call-1']).toMatchObject({ status: 'done', result: 'sub-1' })
+    expect(live.items['s:call-2']).toMatchObject({ status: 'done', result: 'sub-2' })
+  })
+
   it('marks running cards interrupted when the turn is stopped', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [

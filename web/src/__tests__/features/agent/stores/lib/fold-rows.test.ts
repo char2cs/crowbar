@@ -27,6 +27,56 @@ describe('applyRow', () => {
     expect(feed.items['m:turn-1:m1']?.seq).toBe(3)
   })
 
+  // claude reports a one-paragraph message only when its response ended: after
+  // the calls it made had started, and sometimes after they had ended.
+  it('reads a message reported whole after its calls above them, a closing reply below', () => {
+    const l = ledger()
+    const whole = (id: string) => l.text('turn-1', id, 0, id, true)
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      l.tool('turn-1', 'silent', 'pre'),
+      l.tool('turn-1', 'silent', 'post'),
+      l.tool('turn-1', 'slow', 'pre'),
+      whole('before-slow'),
+      l.tool('turn-1', 'slow', 'post'),
+      l.tool('turn-1', 'fast', 'pre'),
+      l.tool('turn-1', 'fast', 'post'),
+      whole('before-fast'),
+      l.tool('turn-1', 'last', 'pre'),
+      l.tool('turn-1', 'last', 'post'),
+      whole('closing'),
+      l.end('turn-1'),
+    ])
+    expect(feed.order).toEqual([
+      't:silent',
+      'm:turn-1:before-slow',
+      't:slow',
+      'm:turn-1:before-fast',
+      't:fast',
+      't:last',
+      'm:turn-1:closing',
+    ])
+    const l2 = ledger()
+    const wentOn = applyRows(emptyFeed(), [
+      l2.start('turn-1'),
+      l2.tool('turn-1', 'fast', 'pre'),
+      l2.tool('turn-1', 'fast', 'post'),
+      l2.text('turn-1', 'said', 0, 'said', true),
+      l2.tool('turn-1', 'next', 'pre'),
+      l2.tool('turn-1', 'next', 'post'),
+      l2.end('turn-1'),
+    ])
+    expect(wentOn.order).toEqual(['m:turn-1:said', 't:fast', 't:next'])
+    const l3 = ledger()
+    const streamed = applyRows(emptyFeed(), [
+      l3.tool('turn-1', 'a', 'pre'),
+      l3.text('turn-1', 'chunked', 0, 'first part'),
+      l3.tool('turn-2', 'b', 'pre'),
+      l3.text('turn-2', 'complete', -1, 'reported complete'),
+    ])
+    expect(streamed.order).toEqual(['t:a', 'm:turn-1:chunked', 't:b', 'm:turn-2:complete'])
+  })
+
   it('keeps the p:<requestId> id from user_message through settle', () => {
     const l = ledger()
     let feed = applyRow(emptyFeed(), l.prompt('r1', 'hi'))

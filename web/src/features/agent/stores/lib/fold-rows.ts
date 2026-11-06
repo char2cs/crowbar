@@ -22,6 +22,7 @@ import {
   notePlan,
   endPlan,
 } from '@/features/agent/stores/lib/fold-subagents'
+import { placeMessage, settleRound } from '@/features/agent/stores/lib/fold-rounds'
 import {
   liveKey,
   markerItemId,
@@ -50,6 +51,8 @@ const emptyFacts: TurnFacts = {
   traceless: {},
   efforts: {},
   providers: {},
+  calls: {},
+  closing: {},
 }
 
 export function emptyFeed(): ChatFeed {
@@ -71,7 +74,15 @@ export function emptyFeed(): ChatFeed {
 
 // Markers a reader sees as a pill; the rest change facts only.
 type FactRecord =
-  'prompts' | 'output' | 'traceless' | 'efforts' | 'providers' | 'subagentScopes' | 'pendingScopes'
+  | 'prompts'
+  | 'output'
+  | 'traceless'
+  | 'efforts'
+  | 'providers'
+  | 'subagentScopes'
+  | 'pendingScopes'
+  | 'calls'
+  | 'closing'
 
 /** Edits to a feed over one or many rows. Each part is copied on its first
  *  write, so what the rows leave alone keeps its identity, and a replay of
@@ -128,8 +139,9 @@ export class FeedFold {
     return this.facts[key]
   }
 
-  /** Places a new item: main scope in the order, a subagent's under its scope. */
-  place(id: string, scope: string) {
+  /** Places a new item: main scope in the order (above `before` when that is
+   *  placed), a subagent's under its scope. */
+  place(id: string, scope: string, before?: string) {
     if (scope) {
       this.scoped ??= { ...this.base.scoped }
       if (!this.ownedScopes.has(scope)) {
@@ -149,10 +161,12 @@ export class FeedFold {
     }
     this.order ??= [...this.base.order]
     // What a provider flushes after its turn ended still reads above that end.
-    let at = this.order.length
+    let at = before ? this.order.indexOf(before) : -1
+    if (at < 0) at = this.order.length
     while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
     this.order.splice(at, 0, id)
-    if (item && isUnsettled(item)) this.setOpen(turn, [...this.openIn(turn), id])
+    const open = this.openIn(turn)
+    if (item && isUnsettled(item) && !open.includes(id)) this.setOpen(turn, [...open, id])
   }
 
   private isEndOf(id: string, turn: string) {
@@ -281,6 +295,7 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   // A provider may report an end Crowbar already recorded: one marker per turn.
   const ending = fold.facts.running?.turnId === row.turnId
+  settleRound(fold, row.turnId)
   retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
@@ -294,6 +309,7 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
 
 const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   if (row.scope || !row.turnId) return
+  settleRound(fold, row.turnId)
   closeRunning(fold, row.turnId)
   endTurn(fold, row.turnId)
   endPlan(fold, row.turnId)
@@ -372,7 +388,9 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
     if (item.settled) fold.put({ ...target, text: fuller(target.text, item.text) })
     return
   }
-  if (!known || (known.seq === 0 && !fold.placed(id))) fold.place(id, scope)
+  if (known && (known.seq !== 0 || fold.placed(id))) return
+  if (scope) fold.place(id, scope)
+  else placeMessage(fold, row, id)
 }
 
 const applyPlan: Apply<'plan'> = (fold, row) => {
