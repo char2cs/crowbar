@@ -107,8 +107,8 @@ func (rs *Runners) spawnRunner(
 	// while refs are still the logical form its pattern is written against.
 	sigils, escape := descriptor.PromptLeadingSigils()
 	guardedMessage := promptsigil.Guard(sigils, escape, chatID, in.promptMessage)
-	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, guardedMessage)
-	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, in.conversation)
+	dispatchMessage := materializeAttachmentsForDispatch(paths.crowbarHome, chatID, guardedMessage)
+	dispatchConversation := materializeAttachmentsForDispatch(paths.crowbarHome, chatID, in.conversation)
 
 	// Tools are switched off by rendering a descriptor without them, not by filtering
 	// steps here: where those steps land (flag pairing) is the descriptor's business.
@@ -231,7 +231,7 @@ func (rs *Runners) abandonUnforked(ctx context.Context, runnerID string, paths s
 	rs.apiConns.drop(runnerID)
 	rs.agents.ForgetRunner(runnerID)
 	rs.surfaces.drop(runnerID)
-	reapRunnerDir(ctx, paths.crowbarHome, paths.tmpDir)
+	rs.reapRunnerDir(ctx, paths.crowbarHome, paths.tmpDir)
 }
 
 func (rs *Runners) forkCLI(

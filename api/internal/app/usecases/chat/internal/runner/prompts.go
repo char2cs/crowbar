@@ -265,7 +265,7 @@ func (rs *Runners) submitPromptOverAPI(
 	}
 
 	// A COPY of text for dispatch — the durable ledger text is never mutated.
-	dispatchText, err := rs.rewritePromptTextForDispatch(ctx, chat.WorkspaceID, chat.ID, text)
+	dispatchText, err := rs.rewritePromptTextForDispatch(chat.ID, text)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}

@@ -183,7 +183,7 @@ func TestRegression_UserPromptHookRestoresTheDurableAttachmentRef(t *testing.T) 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	absPath := filepath.ToSlash(filepath.Join(
-		worktreepath.AttachmentsDir(f.ws.chatsDir, chatID), "diagram.png"))
+		worktreepath.AttachmentsDir(f.ws.home, chatID), "diagram.png"))
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt,
 		map[string]any{"prompt": "check this out ![diagram](" + absPath + ")"})
 

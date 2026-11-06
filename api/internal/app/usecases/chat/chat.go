@@ -170,9 +170,11 @@ type Usecase struct {
 	chats  agentchat.EventStore
 	agents engineagents.Agents
 	// ledger is every chat's record, and blobs the tool payloads its rows name.
-	ledger   *ledgerstore.Store
-	blobs    *ledgerstore.Blobs
-	ws       WorkspaceReader
+	ledger *ledgerstore.Store
+	blobs  *ledgerstore.Blobs
+	ws     WorkspaceReader
+	// home resolves the crowbar home each chat's own directory hangs off.
+	home     func() (string, error)
 	worktree WorktreeCreator
 	// folders/nodes let the placement-tree walks (fork parent, cwd, repo scope) see
 	// past a folder, which is not a Chat row. May be nil: walks then see Chat rows only.

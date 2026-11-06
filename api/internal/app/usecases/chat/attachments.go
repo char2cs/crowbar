@@ -41,11 +41,11 @@ func (u *Usecase) UploadAttachment(
 	if err != nil {
 		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: chat: %w", err)
 	}
-	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	home, err := u.home()
 	if err != nil {
-		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: chats dir: %w", err)
+		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: home: %w", err)
 	}
-	dir := worktreepath.AttachmentsDir(chatsDir, chatID)
+	dir := worktreepath.AttachmentsDir(home, chat.ID)
 	fileName, contentType, err := repoattachments.Store(dir, in.ID, in.OriginalName, in.Data)
 	if err != nil {
 		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: %w", err)
@@ -66,11 +66,11 @@ func (u *Usecase) ReadAttachment(
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: read attachment: chat: %w", err)
 	}
-	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	home, err := u.home()
 	if err != nil {
-		return nil, "", fmt.Errorf("agent: read attachment: chats dir: %w", err)
+		return nil, "", fmt.Errorf("agent: read attachment: home: %w", err)
 	}
-	data, contentType, err := repoattachments.Read(worktreepath.AttachmentsDir(chatsDir, chatID), fileName)
+	data, contentType, err := repoattachments.Read(worktreepath.AttachmentsDir(home, chat.ID), fileName)
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: read attachment: %w", err)
 	}

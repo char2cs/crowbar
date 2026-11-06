@@ -239,7 +239,7 @@ func TestEstablishAPISession_ARefusedResumeLosesTheSession(t *testing.T) {
 func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	rs := &Runners{
 		ledger: turnedTestLedger(t, apiLoseProvider, "S1"), apiConns: newAPIConnRegistry(), live: apiLoseLive(t),
-		ws: fakeWSReader{chatsDir: t.TempDir()}, conversations: stubConversationsForPromptRestart{},
+		ws: fakeWSReader{chatsDir: t.TempDir()}, home: homeAt(t.TempDir()), conversations: stubConversationsForPromptRestart{},
 	}
 	_, asked := apiLoseConn(t, rs, refusedResume)
 

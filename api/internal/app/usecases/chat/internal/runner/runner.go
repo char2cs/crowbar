@@ -9,6 +9,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -28,6 +29,11 @@ type Runners struct {
 	agents  engineagents.Agents
 	term    seam.TerminalCommander
 	ws      seam.WorkspaceReader
+	// runnerDirs orders a spawn's mkdir of its runner dir against a reap pruning
+	// the parents it emptied, so neither removes what the other is creating.
+	runnerDirs sync.Mutex
+	// home resolves the crowbar home a chat's attachments live under.
+	home func() (string, error)
 	// ancestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see AncestorCwd's own doc for why this is declared here rather
 	// than imported directly.
@@ -94,6 +100,8 @@ type Deps struct {
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
 	Workspace seam.WorkspaceReader
+	// Home resolves the crowbar home.
+	Home func() (string, error)
 	// AncestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see the AncestorCwd interface's own doc.
 	AncestorCwd AncestorCwd
@@ -125,6 +133,7 @@ func New(d Deps) *Runners {
 		agents:         d.Agents,
 		term:           d.Terminal,
 		ws:             d.Workspace,
+		home:           d.Home,
 		ancestorCwd:    d.AncestorCwd,
 		ledger:         d.Ledger,
 		daemonHost:     d.DaemonHost,
