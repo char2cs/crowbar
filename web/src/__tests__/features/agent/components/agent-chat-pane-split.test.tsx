@@ -24,6 +24,7 @@ vi.spyOn(commandsApi, 'switchToNative').mockResolvedValue()
 // view in particular is stubbed rather than rendered for real because `active`
 // is exactly the prop under test — a stub reports it, a real transcript only
 // implies it.
+const handed = vi.hoisted(() => new Set<unknown>())
 vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   const { ViewSwitcher } = await import('@/features/agent/controls/view-switcher')
   return {
@@ -33,6 +34,7 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
       presentation,
       splitEnabled,
       onSelectPresentation,
+      onOpenTerminal,
       blankSignpost,
     }: {
       active: boolean
@@ -40,8 +42,10 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
       presentation: 'chat' | 'terminal' | 'split'
       splitEnabled: boolean
       onSelectPresentation: (next: 'chat' | 'terminal' | 'split') => void
+      onOpenTerminal: () => void
       blankSignpost?: ReactNode
     }) =>
+      handed.add(onOpenTerminal).add(onSelectPresentation) &&
       createElement(
         'div',
         {
@@ -344,6 +348,18 @@ describe('AgentChatPane — a split nobody is looking at', () => {
     expect(xterm()).toHaveAttribute('data-visible', 'false')
     expect(xterm()).toHaveAttribute('data-active', 'false')
     expect(chatView()).toHaveAttribute('data-visible', 'false')
+  })
+})
+
+// A fresh handler per pane render is a fresh row action for every transcript row.
+describe('AgentChatPane — what it hands the chat view', () => {
+  it('hands the same terminal and surface handlers across its renders', async () => {
+    const store = seed()
+    const view = await act(async () => render(pane(store)))
+    handed.clear()
+    await act(async () => view.rerender(pane(store, { isActivePane: false })))
+    await act(async () => view.rerender(pane(store)))
+    expect(handed.size).toBe(2)
   })
 })
 

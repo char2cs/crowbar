@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, type RefObject } from 'react'
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { switchToNative, switchToTerminal } from '@/features/agent/api/agent-chat-commands'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
@@ -179,5 +179,17 @@ export function useTerminalEscort(options: EscortOptions) {
     enterTerminal()
   }
 
-  return { enterTerminal, chooseSurface, openTerminal, openTerminalFromBanner }
+  // The handlers keep their identity across renders and call this render's moves: a
+  // fresh one per render would be a fresh row action for every transcript row.
+  const latest = useRef({ enterTerminal, chooseSurface, openTerminal, openTerminalFromBanner })
+  useLayoutEffect(() => {
+    latest.current = { enterTerminal, chooseSurface, openTerminal, openTerminalFromBanner }
+  })
+  const [handlers] = useState(() => ({
+    enterTerminal: (providerId?: string) => latest.current.enterTerminal(providerId),
+    chooseSurface: (next: ChatPresentation) => latest.current.chooseSurface(next),
+    openTerminal: () => latest.current.openTerminal(),
+    openTerminalFromBanner: () => latest.current.openTerminalFromBanner(),
+  }))
+  return handlers
 }
