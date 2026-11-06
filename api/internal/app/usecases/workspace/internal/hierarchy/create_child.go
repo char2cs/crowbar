@@ -214,6 +214,9 @@ func (u *hierarchyUsecase) cleanupFailedWorktree(
 	detached bool,
 	createdBranch bool,
 ) {
+	// The undo outlives the request: a caller that hung up would otherwise
+	// leave the worktree and branch on disk for good.
+	ctx = context.WithoutCancel(ctx)
 	// The worktree was created a moment ago by this very call, so nothing in
 	// it can be anyone's uncommitted work: force is safe.
 	if rmErr := u.git.WorktreeRemove(ctx, repoPath, path, true); rmErr != nil {

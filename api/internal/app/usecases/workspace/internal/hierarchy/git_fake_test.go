@@ -347,12 +347,16 @@ func (f *fakeGit) WorktreePrune(
 	return f.pruneErr
 }
 
+// WorktreeRemove fails on a cancelled context, as the git it stands for does.
 func (f *fakeGit) WorktreeRemove(
-	_ context.Context,
+	ctx context.Context,
 	repoPath string,
 	worktreePath string,
 	force bool,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.record("WorktreeRemove", repoPath, worktreePath, fmt.Sprint(force))
 	return f.removeErr
 }
@@ -375,11 +379,15 @@ func (f *fakeGit) UnmergedCommits(
 	return f.unmerged[dropBranch], f.riskErr
 }
 
+// ForceDeleteBranch fails on a cancelled context, as the git it stands for does.
 func (f *fakeGit) ForceDeleteBranch(
-	_ context.Context,
+	ctx context.Context,
 	repoPath string,
 	name string,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.record("ForceDeleteBranch", repoPath, name)
 	return f.deleteErr
 }

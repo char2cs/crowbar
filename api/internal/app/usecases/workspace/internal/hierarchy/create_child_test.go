@@ -79,6 +79,29 @@ func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
 	assert.Contains(t, ops, "ForceDeleteBranch", "failed create must delete the orphaned branch")
 }
 
+// A client that hangs up while its create is writing the row still gets the
+// worktree and branch it left behind removed: no orphan blocks a retry.
+func TestCreateChild_CleansUpWorktreeWhenTheCallerHangsUp(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	g := &fakeGit{addStartSha: "sha"}
+	ws := &fakeWorkspace{
+		CreateFn: func(ctx context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			cancel()
+			return domain.Workspace{}, ctx.Err()
+		},
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(ctx, hierarchy.CreateChildInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
+		Branch: "feature/x", ParentID: "w-parent", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	ops := g.ops()
+	assert.Contains(t, ops, "WorktreeRemove", "the orphaned worktree must go even though the caller left")
+	assert.Contains(t, ops, "ForceDeleteBranch", "and so must its branch")
+}
+
 func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha"}
 	var created workspace.CreateInput
