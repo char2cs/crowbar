@@ -201,7 +201,7 @@ func TestEndingRunner_ItsLateToolAndSubagentReportsLandInItsOwnTurn(t *testing.T
 	})
 	hook(t, f, r1, "claude", engineagents.HookSubagentPre, map[string]any{"agent_id": "a1", "agent_type": "explore"})
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
-	r2, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	r2, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.announce(t, r2, "codex-s1")
 	hook(t, f, r2, "codex", "user_prompt", map[string]any{"prompt": "next"})

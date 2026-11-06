@@ -25,20 +25,23 @@ func Match(d *spec.Descriptor, screen string) (models.TerminalPrompt, bool) {
 			continue
 		}
 		if p.Kind != "" {
-			return models.TerminalPrompt{Kind: p.Kind, Needle: p.Needle, Answers: answers(p)}, true
+			return models.TerminalPrompt{Kind: p.Kind, Needle: p.Needle, Answers: answers(p, screen)}, true
 		}
 		if !found {
-			generic = models.TerminalPrompt{Needle: p.Needle, Answers: answers(p)}
+			generic = models.TerminalPrompt{Needle: p.Needle, Answers: answers(p, screen)}
 			found = true
 		}
 	}
 	return generic, found
 }
 
-func answers(p spec.TerminalPromptSpec) []models.TerminalPromptAnswer {
+// answers are p's replies aimed at this screen; one that cannot be aimed is not offered.
+func answers(p spec.TerminalPromptSpec, screen string) []models.TerminalPromptAnswer {
 	var out []models.TerminalPromptAnswer
 	for _, a := range p.Answers {
-		out = append(out, models.TerminalPromptAnswer{ID: a.ID, Label: a.Label, Keys: a.Keys})
+		if keys, ok := aim(p, a, screen); ok {
+			out = append(out, models.TerminalPromptAnswer{ID: a.ID, Label: a.Label, Keys: keys})
+		}
 	}
 	return out
 }

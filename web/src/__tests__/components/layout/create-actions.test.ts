@@ -157,6 +157,7 @@ describe('creating a workspace off the repo-home row', () => {
       'claude',
       'home-1',
       'typed-branch',
+      undefined,
     )
     expect(postWorkspace).not.toHaveBeenCalled()
   })
@@ -177,6 +178,7 @@ describe('creating a workspace off the repo-home row', () => {
       'claude',
       'ws-a',
       'typed-branch',
+      undefined,
     )
   })
 
@@ -196,6 +198,37 @@ describe('creating a workspace off the repo-home row', () => {
       'codex',
       'home-1',
       'typed-branch',
+      undefined,
+    )
+  })
+
+  // A workspace's first chat lands on the user's default surface like any other create: born on
+  // codex's default (no PTY), a terminal-preferring pane would relaunch it on the terminal.
+  it("creates the workspace's chat on the user's default terminal surface", async () => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true },
+      ] as never,
+    })
+    seedRepos([repo()])
+
+    handleCreate('home-1', 'workspace', vi.fn())
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'p1',
+      'r1',
+      'codex',
+      'home-1',
+      'typed-branch',
+      'terminal',
     )
   })
 
@@ -280,6 +313,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       'claude',
       'c-owner',
       'typed-branch',
+      undefined,
     )
   })
 
@@ -378,6 +412,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       'claude',
       'c-owner',
       'feature/y',
+      undefined,
     )
   })
 

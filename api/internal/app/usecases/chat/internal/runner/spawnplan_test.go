@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
@@ -20,6 +21,18 @@ func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
 	tctx, _ := rs.renderSpawnContext(in)
 	if tctx.CrowbarHome != "/tmp/some-dev-home" {
 		t.Fatalf("TemplateCtx.CrowbarHome = %q, want %q", tctx.CrowbarHome, "/tmp/some-dev-home")
+	}
+}
+
+// A forked terminal view renders the level through permission_levels.<level>.apply.
+func TestRenderSpawnContext_CarriesThePermissionLevel(t *testing.T) {
+	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{
+		crowbarHome: "/tmp/h", runnerID: "run1",
+		selection: engineagents.Selection{PermissionLevel: "trusted"},
+	})
+
+	if tctx.PermissionLevel != "trusted" {
+		t.Fatalf("TemplateCtx.PermissionLevel = %q, want the chat's level", tctx.PermissionLevel)
 	}
 }
 

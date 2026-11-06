@@ -37,12 +37,12 @@ func TestScripted_SwitchProviderRoundTrip(t *testing.T) {
 	r.firstTurn(chatID)
 	claudeSession := r.logged("prompt")[0]["session"]
 
-	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	r.continues(chatID, "codex, what was the word?")
 	assert.True(t, r.transcriptReached("PELICAN"), "codex was handed the conversation")
 
-	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "claude again"))
 	r.eventually(func() bool {

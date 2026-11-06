@@ -21,18 +21,21 @@ func (terminalPrompts) Check(d *spec.Descriptor) error {
 				return invalid(d.ID, "terminal_prompts[%d]: unknown kind %q", i, p.Kind)
 			}
 		}
-		if err := checkAnswers(d.ID, i, p.Answers); err != nil {
+		if err := checkAnswers(d.ID, i, p); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkAnswers(providerID string, prompt int, answers []spec.TerminalPromptAnswerSpec) error {
-	seen := make(map[string]struct{}, len(answers))
-	for j, a := range answers {
+func checkAnswers(providerID string, prompt int, p spec.TerminalPromptSpec) error {
+	seen := make(map[string]struct{}, len(p.Answers))
+	for j, a := range p.Answers {
 		if a.ID == "" || a.Label == "" || a.Keys == "" {
 			return invalid(providerID, "terminal_prompts[%d].answers[%d]: id, label and keys are required", prompt, j)
+		}
+		if a.Option != "" && (p.Cursor == "" || p.Down == "" || p.Up == "") {
+			return invalid(providerID, "terminal_prompts[%d].answers[%d]: an option needs the prompt's cursor, down and up", prompt, j)
 		}
 		if _, dup := seen[a.ID]; dup {
 			return invalid(providerID, "terminal_prompts[%d].answers[%d]: duplicate id %q", prompt, j, a.ID)

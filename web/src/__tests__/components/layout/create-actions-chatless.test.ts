@@ -89,6 +89,7 @@ describe('chatless workspace rows — create verbs send the WORKSPACE id as the 
       'claude',
       'ws-main',
       'test/test',
+      undefined,
     )
   })
 
@@ -103,6 +104,7 @@ describe('chatless workspace rows — create verbs send the WORKSPACE id as the 
       'claude',
       'ws-locked',
       'test/test',
+      undefined,
     )
   })
 })

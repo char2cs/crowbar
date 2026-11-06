@@ -23,13 +23,19 @@ func (h *Handlers) Switch(
 
 	var body struct {
 		Provider string `json:"provider"`
+		// Surface is the view the client shows the chat on; omitted keeps the chat's own.
+		Surface string `json:"surface"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !knownSurface(body.Surface) {
+		libs.WriteErr(ctx, http.StatusBadRequest, "unknown surface: "+body.Surface)
+		return
+	}
 
-	newSegID, err := h.runners.SwitchProvider(rctx, id, body.Provider)
+	newSegID, err := h.runners.SwitchProvider(rctx, id, body.Provider, body.Surface)
 	if err != nil {
 		libs.Fail(ctx, err)
 		return
