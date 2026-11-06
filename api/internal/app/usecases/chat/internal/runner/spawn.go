@@ -117,6 +117,7 @@ func (rs *Runners) spawnRunner(
 	// Never the chat's own raw stored intent directly — see
 	// resolveSelectionForSpawn (selection.go) for why.
 	sel = resolveSelectionForSpawn(descriptor, sel)
+	staged := committedPick(pre.staged, sel)
 
 	tctx, inject := rs.renderSpawnContext(spawnContext{
 		chatID:          chatID,
@@ -212,7 +213,7 @@ func (rs *Runners) spawnRunner(
 		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, TerminalSession: termSessID,
 		CurrentChatID: chatID, LaunchModel: carried.Model, LaunchEffort: carried.Effort,
 		LaunchPermissionLevel: carried.PermissionLevel,
-	}, launch.resumeID, in.selection); err != nil {
+	}, launch.resumeID, staged); err != nil {
 		if !errors.Is(err, ErrProviderExitedDuringStartup) {
 			rs.agents.ForgetRunner(runnerID)
 		}
@@ -290,6 +291,7 @@ type spawnPreflight struct {
 	mcpOn     bool
 	threads   string
 	selection engineagents.Selection
+	staged    *domain.ChatSelection // the pick the launch carries; nil carries none
 	// surface is the chat's own stored landing VIEW.
 	surface string
 }
@@ -322,15 +324,18 @@ func (rs *Runners) spawnPreflight(
 	if err != nil {
 		return spawnPreflight{}, err
 	}
-	if staged != nil {
-		sel.Model, sel.Effort = staged.Model, staged.Effort
-	}
 	// Read at every spawn, so each one rebuilds on the chat's durable landing VIEW.
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return spawnPreflight{}, fmt.Errorf("agent: spawn runner: chat surface: %w", err)
 	}
-	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, surface: chat.Surface}, nil
+	if staged, err = rs.movedPick(ctx, chat, providerID, staged); err != nil {
+		return spawnPreflight{}, err
+	}
+	if staged != nil {
+		sel.Model, sel.Effort = staged.Model, staged.Effort
+	}
+	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, staged: staged, surface: chat.Surface}, nil
 }
 
 type forkRequest struct {

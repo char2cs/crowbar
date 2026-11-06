@@ -39,10 +39,22 @@ func (s State) LastExit() (RunnerExit, bool) {
 	return s.lastExit, s.hasExit
 }
 
+// LastLaunch is the newest runner provider was started as on the chat.
+func (s State) LastLaunch(provider string) (RunnerStarted, bool) {
+	r, ok := s.launches[provider]
+	return r, ok
+}
+
 func (s *State) applyRunnerStarted(r Row) {
-	if body, err := DecodeBody[RunnerStarted](r); err == nil {
-		s.live, s.hasLive = body, true
+	body, err := DecodeBody[RunnerStarted](r)
+	if err != nil {
+		return
 	}
+	s.live, s.hasLive = body, true
+	if s.launches == nil {
+		s.launches = map[string]RunnerStarted{}
+	}
+	s.launches[body.Provider] = body
 }
 
 // applyRunnerExited ends the live runner only when it is the one named: an

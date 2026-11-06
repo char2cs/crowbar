@@ -18,7 +18,8 @@ type State struct {
 
 	live     RunnerStarted // the runner started and not exited, while hasLive
 	hasLive  bool
-	lastExit RunnerExit // the newest runner_exited, while hasExit
+	launches map[string]RunnerStarted // provider → its newest runner_started
+	lastExit RunnerExit               // the newest runner_exited, while hasExit
 	hasExit  bool
 
 	turn    turnState // the newest main-scope turn, while hasTurn
@@ -212,6 +213,7 @@ func (s State) Clone() State {
 	s.pending = slices.Clone(s.pending)
 	s.conversations = slices.Clone(s.conversations)
 	s.current = maps.Clone(s.current)
+	s.launches = maps.Clone(s.launches)
 	s.keys = s.keys.clone()
 	s.agents = s.agents.clone()
 	s.plan = slices.Clone(s.plan)

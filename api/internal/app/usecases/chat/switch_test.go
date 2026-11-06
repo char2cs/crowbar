@@ -456,25 +456,53 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 	assert.ErrorContains(t, err, "boom: workspace lookup")
 }
 
-// The pane's provider switch keeps the outgoing provider's model as the chat's
-// pick, and the composer re-posts that pick with its next send: a pick the chat
-// already holds changes nothing, so it must not be refused against the new provider.
-func TestRegression_ASendAfterASwitchRepostingTheHeldPickIsDelivered(t *testing.T) {
+// A switch moves the chat's pick onto the incoming provider: what it last ran as
+// in this chat, else its default. The outgoing provider's model would name a
+// model the running CLI is not on, and the composer would re-post it.
+func TestSwitchProvider_ThePickFollowsTheProvider(t *testing.T) {
 	f := newFixture(t)
-	// codex's catalogue is discovered, so any pick holds there; claude's is declared.
-	chatID, _ := f.spawn(t, "codex")
-	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "gpt-5", ""))
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	chatID, _ := f.spawn(t, "claude")
+	ranAs(t, f, chatID, "", "sonnet")
+
+	switchedTo(t, f, chatID, "codex")
+	assert.Empty(t, f.chat(t, chatID).Model, "codex never ran here: its default")
+	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "--model")
+	assert.Equal(t, []string{"provider_switched:codex", "model_changed:"}, f.markers(t, chatID))
+	ranAs(t, f, chatID, "", "gpt-5")
+
+	switchedTo(t, f, chatID, "claude")
+	assert.Equal(t, "sonnet", f.chat(t, chatID).Model)
+	assert.Equal(t, "sonnet", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--model"))
+
+	switchedTo(t, f, chatID, "codex")
+	assert.Equal(t, "gpt-5", f.chat(t, chatID).Model)
+	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
-	f.wait()
+	assert.Equal(t, "gpt-5", live.LaunchModel)
 
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "",
 		&domain.ChatSelection{Model: "gpt-5"})
+	require.NoError(t, err, "the composer re-posts the held pick")
+}
+
+// ranAs sends a prompt carrying model and answers it, so the chat's CLI ran as it.
+func ranAs(t *testing.T, f testFixture, chatID, provider, model string) {
+	t.Helper()
+	text := "run as " + model
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), provider,
+		&domain.ChatSelection{Model: model})
 	require.NoError(t, err)
 	f.wait()
-
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, "claude", live.ProviderID)
-	assert.Empty(t, live.LaunchModel, "the stale pick resolves to claude's default")
+	require.Equal(t, model, live.LaunchModel)
+	prompt(t, f, live.ID, live.ProviderID, text)
+	turn(t, f, live.ID, live.ProviderID, "ran as "+model)
+}
+
+func switchedTo(t *testing.T, f testFixture, chatID, provider string) {
+	t.Helper()
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, provider)
+	require.NoError(t, err)
+	f.wait()
 }

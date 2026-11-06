@@ -56,6 +56,19 @@ func TestFold_AnExitOfAnotherRunnerKeepsTheLiveOne(t *testing.T) {
 	assert.Equal(t, "r1", last.RunnerID)
 }
 
+func TestFold_LastLaunchIsTheNewestRunnerOfThatProvider(t *testing.T) {
+	codex := row(t, ledger.KindRunnerStarted, "", ledger.RunnerStarted{RunnerID: "r2", Provider: "codex"})
+	st := ledger.Fold("c1", sequenced(t, started(t, "r1"), codex, started(t, "r3")))
+
+	last, ok := st.LastLaunch("codex")
+	require.True(t, ok)
+	assert.Equal(t, "r2", last.RunnerID)
+	last, _ = st.LastLaunch("claude")
+	assert.Equal(t, "r3", last.RunnerID)
+	_, ok = st.LastLaunch("gemini")
+	assert.False(t, ok)
+}
+
 func TestFold_NoRunnerHasNoExit(t *testing.T) {
 	st := ledger.Fold("c1", nil)
 	_, ok := st.LiveRunner()
