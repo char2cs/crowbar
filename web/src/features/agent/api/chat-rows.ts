@@ -157,7 +157,8 @@ export interface FeedDelta {
 
 // Go `omitempty`: an absent seq is 0.
 export type FeedFrame =
-  | { type: 'row'; row: LedgerRow }
+  /** `from`: on a window's first row, the seq it follows. */
+  | { type: 'row'; row: LedgerRow; from?: number }
   | { type: 'ready'; epoch: string }
   | { type: 'delta'; delta: FeedDelta }
   | { type: 'resync'; seq?: number }

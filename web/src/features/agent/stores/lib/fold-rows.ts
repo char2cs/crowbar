@@ -60,6 +60,7 @@ export function emptyFeed(): ChatFeed {
     status: 'connecting',
     epoch: '',
     seq: 0,
+    from: 0,
     order: [],
     liveTail: [],
     items: ItemMap.empty,
@@ -90,9 +91,18 @@ export class FeedFold {
   private readonly ownedScopes = new Set<string>()
   private readonly ownedFacts = new Set<FactRecord>()
   private seq: number
+  private from: number
 
   constructor(private readonly base: ChatFeed) {
     this.seq = base.seq
+    this.from = base.from
+  }
+
+  /** An empty fold opens on a window: it holds the rows after `from` only. */
+  startAt(from: number) {
+    if (this.seq !== 0) return
+    this.seq = from
+    this.from = from
   }
 
   /** Folds the row right after the folded seq. One at or below it is already
@@ -232,6 +242,7 @@ export class FeedFold {
     return {
       ...this.base,
       seq: this.seq,
+      from: this.from,
       items: this.items?.finish() ?? this.base.items,
       order: this.order ?? this.base.order,
       liveTail: this.liveTail ?? this.base.liveTail,

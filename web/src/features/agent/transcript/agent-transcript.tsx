@@ -33,6 +33,7 @@ import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
 } from '@/features/agent/hooks/use-transcript-anchor'
+import { useOlderTurns } from '@/features/agent/hooks/use-older-turns'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
@@ -219,9 +220,11 @@ function placesOf(
   ids: string[],
   itemOf: (id: string) => TranscriptItem | undefined,
   working: boolean,
+  fromStart: boolean,
 ): Map<string, RowPlace> {
   const places = new Map<string, RowPlace>()
-  const first = itemOf(ids[0] ?? '')
+  // A window of a longer chat starts mid-way: its first prompt is not the chat's.
+  const first = fromStart ? itemOf(ids[0] ?? '') : undefined
   const firstTurn = first?.kind === 'user' ? first.id : undefined
   let firstReply: string | undefined
   let lastUserAt: string | undefined
@@ -323,18 +326,19 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     return props.suppressId ? all.filter((id) => id !== props.suppressId) : all
   }, [order, liveTail, unsent, props.suppressId])
   const itemOf = useCallback((id: string) => items?.get(id) ?? unsent.get(id), [items, unsent])
+  const fromStart = useChatStore((s) => !s.feeds[chatId]?.from)
 
   // Place objects keep their identity while unchanged, so memoized rows skip.
   const placeCache = useRef(new Map<string, RowPlace>())
   const places = useMemo(() => {
-    const next = placesOf(rows, itemOf, props.working)
+    const next = placesOf(rows, itemOf, props.working, fromStart)
     for (const [id, place] of next) {
       const prev = placeCache.current.get(id)
       if (samePlace(prev, place)) next.set(id, prev!)
     }
     placeCache.current = next
     return next
-  }, [rows, itemOf, props.working])
+  }, [rows, itemOf, props.working, fromStart])
 
   // A send lifts its prompt to the top, so its reply has the viewport to grow
   // into. A prompt still queued (behind a turn, or held) starts nothing, and one
@@ -395,6 +399,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
   const measuring = virtualItems.some((row) => !measured.has(row.key))
+  useOlderTurns(chatId, virtualItems[0]?.index, anchor.keepPlace)
   useLayoutEffect(() => afterCommit(measuring))
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1

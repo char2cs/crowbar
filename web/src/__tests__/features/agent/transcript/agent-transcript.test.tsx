@@ -130,6 +130,26 @@ describe('AgentTranscript', () => {
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
 
+  it('marks the first turn only on a feed that holds the chat from its start', () => {
+    const turn = (l: ReturnType<typeof ledger>) => [
+      l.prompt('r1', 'ask'),
+      l.start('turn-1', 'r1'),
+      l.text('turn-1', 'm1', 0, 'answer', true),
+      l.end('turn-1'),
+    ]
+    seedFeed('chat-1', turn(ledger()))
+    const { unmount } = draw()
+    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
+    unmount()
+
+    chatStore.setState({ feeds: {} })
+    const [first, ...rest] = turn(ledger('chat-1', 41))
+    applyFeedFrame('chat-1', { type: 'row', row: first!, from: 40 })
+    seedFeed('chat-1', rest)
+    draw()
+    expect(screen.queryByTestId('agent-first-turn-divider')).toBeNull()
+  })
+
   it('keeps the turn actions of earlier turns while a new one runs', () => {
     const l = ledger()
     seedFeed('chat-1', [

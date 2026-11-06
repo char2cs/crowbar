@@ -184,6 +184,8 @@ export interface ChatFeed {
   epoch: string
   /** The last applied row. */
   seq: number
+  /** Rows at or below it are not held: the feed opened on a window of a longer ledger. */
+  from: number
   /** Main-scope item ids by the seq of their first row. */
   order: string[]
   /** Ids known only from deltas, after the order. */
