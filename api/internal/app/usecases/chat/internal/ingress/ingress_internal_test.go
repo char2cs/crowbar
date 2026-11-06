@@ -326,6 +326,19 @@ func TestHook_DeclaredFiltersAreAcknowledgedWithNoRecord(t *testing.T) {
 	assert.Empty(t, f.turns.dispatched)
 }
 
+// A sender that hung up is why whatever failed after failed.
+func TestHook_ASenderThatGaveUpBeforeItsDescriptorResolvedIsSenderGone(t *testing.T) {
+	f := newFixture()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	f.descriptors.err = fmt.Errorf("worktree dir: %w", ctx.Err())
+
+	_, err := f.ingress.Hook(ctx, "runner-1", "p", "message_delta", []byte(`{}`), engineagents.ChannelHooks)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, []string{reasonSenderGone}, f.reasons())
+}
+
 func TestHook_AHookThatCouldNotBeRecordedIsRefusedAndDeadLettered(t *testing.T) {
 	for name, tc := range map[string]struct {
 		set    func(f fixture)

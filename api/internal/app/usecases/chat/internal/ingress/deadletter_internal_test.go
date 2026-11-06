@@ -26,14 +26,14 @@ func TestDeadLetter_RecordsTheReasonAndTheRunner(t *testing.T) {
 }
 
 // Refusals counts the hooks refused to their senders, not those acknowledged
-// and kept: an internal session's hooks are routine and say nothing is wrong.
+// and kept nor those whose sender hung up: neither says anything is wrong.
 func TestRefusals_CountsTheRefusedNotTheAcknowledged(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	store, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	in := New(Deps{Ledger: store})
-	for _, reason := range []string{reasonForeign, reasonNotRecorded, reasonUnknownRunner, reasonWriteFailed} {
+	for _, reason := range []string{reasonForeign, reasonNotRecorded, reasonUnknownRunner, reasonWriteFailed, reasonSenderGone} {
 		require.NoError(t, in.deadLetter(t.Context(), hook{runnerID: "runner-1"}, "", reason))
 	}
 
