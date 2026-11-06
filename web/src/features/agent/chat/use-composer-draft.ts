@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   addPromptStash,
   createPromptStash,
@@ -8,6 +8,7 @@ import {
   subscribePromptStashes,
   type PromptStash,
 } from '@/features/agent/composer/lib/prompt-stash-persistence'
+import { forgetDraft, loadDraft, saveDraft } from '@/features/agent/composer/lib/draft-persistence'
 import type {
   ChatMarkdownEditorHandle,
   ComposerShape,
@@ -39,7 +40,25 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
 
   const read = useCallback(() => editorRef.current?.getMarkdown() ?? '', [])
   const load = useCallback((text: string) => editorRef.current?.setMarkdown(text), [])
-  const clear = useCallback(() => editorRef.current?.clear(), [])
+  const clear = useCallback(() => {
+    forgetDraft(chatId)
+    editorRef.current?.clear()
+  }, [chatId])
+
+  // The editor owns the draft while mounted; storage keeps it across a reload or
+  // a remount, written as the page hides or the view goes (plan: persisted drafts).
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const saved = loadDraft(chatId)
+    if (saved && !editor.getMarkdown().trim()) editor.restoreMarkdown(saved)
+    const save = () => saveDraft(chatId, editor.getMarkdown())
+    window.addEventListener('pagehide', save)
+    return () => {
+      window.removeEventListener('pagehide', save)
+      save()
+    }
+  }, [chatId])
 
   /** Puts text back after what was typed since; false when there is no box to take it. */
   const putBack = useCallback((text: string) => {

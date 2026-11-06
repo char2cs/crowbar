@@ -47,6 +47,8 @@ export interface ChatMarkdownEditorHandle {
   appendMarkdown(markdown: string): void
   focus(): void
   clear(): void
+  /** Loads markdown without taking focus, as a parked view mounting must not. */
+  restoreMarkdown(markdown: string): void
 }
 
 /** What the chat reads off the box while it is typed into, without markdown. */
@@ -280,6 +282,11 @@ export function ChatMarkdownEditor({
       },
       focus: () => editor.tf.focus(),
       clear: () => load(''),
+      restoreMarkdown: (markdown: string) => {
+        loadMarkdown(editor, markdown)
+        loadedRef.current = editor.children as Value
+        report(false)
+      },
     }),
     [editor, focusAndReport, load, report],
   )
