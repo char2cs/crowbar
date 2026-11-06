@@ -81,19 +81,6 @@ function pendingAsks(feed: ChatFeed | undefined): AskItem[] {
     .filter((item): item is AskItem => item?.kind === 'ask' && item.choice.pending)
 }
 
-const newestEffort = new WeakMap<Record<string, string>, string>()
-
-/** The effort the newest finished turn reported, read once per efforts record. */
-function latestEffort(efforts: Record<string, string> | undefined): string {
-  if (!efforts) return ''
-  let effort = newestEffort.get(efforts)
-  if (effort === undefined) {
-    effort = Object.values(efforts).at(-1) ?? ''
-    newestEffort.set(efforts, effort)
-  }
-  return effort
-}
-
 /** What the chat's feed says about the turn, read once for the view's parts. Each
  *  part is its own narrow read, so a row that changes none of them renders nothing. */
 export function useComposerFacts(chatId: string): ComposerFacts {
@@ -105,7 +92,8 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   const agents = useChatStore((s) => feedOf(s)?.facts.liveSubagents.length ?? 0)
   const compacting = useChatStore((s) => feedOf(s)?.facts.compacting ?? false)
   const stopTurn = useChatStore((s) => feedOf(s)?.facts.stopping)
-  const effort = useChatStore((s) => latestEffort(feedOf(s)?.facts.efforts))
+  const efforts = useChatStore((s) => feedOf(s)?.facts.efforts)
+  const effort = useMemo(() => Object.values(efforts ?? {}).at(-1) ?? '', [efforts])
   const liveTail = useChatStore((s) => feedOf(s)?.liveTail.length ?? 0)
   const empty = useChatStore((s) => !feedOf(s)?.order.length && !feedOf(s)?.liveTail.length)
   const last = useChatStore((s) => {
