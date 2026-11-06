@@ -262,16 +262,21 @@ func TestCodexWarningsReachTheChatAsWarnings(t *testing.T) {
 		"warning.json":       "recorded with model",
 		"configWarning.json": "bubblewrap",
 	} {
-		raw, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "codex", file))
-		require.NoError(t, err)
-		var frame struct {
-			Params json.RawMessage `json:"params"`
-		}
-		require.NoError(t, json.Unmarshal(raw, &frame))
-
-		ev, err := get(t, "codex").ParseHook(agents.HookWarning, frame.Params, agents.ChannelAPI)
+		ev, err := get(t, "codex").ParseHook(agents.HookWarning, codexParams(t, file), agents.ChannelAPI)
 
 		require.NoError(t, err, file)
 		assert.Contains(t, ev.Message, want, file)
 	}
+}
+
+// codexParams reads a recorded codex frame's params.
+func codexParams(t *testing.T, file string) json.RawMessage {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "codex", file))
+	require.NoError(t, err)
+	var frame struct {
+		Params json.RawMessage `json:"params"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &frame))
+	return frame.Params
 }

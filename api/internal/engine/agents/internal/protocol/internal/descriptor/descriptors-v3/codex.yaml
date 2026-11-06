@@ -148,10 +148,11 @@ events:
       map:
         session_id: threadId
         reason:     { first_present: [turn.error.message, turn.status] }
-        detail:     turn.error.additionalDetails
+        # additionalDetails is often null (a 401 when not logged in): the message is then all it says.
+        detail:     { first_present: [turn.error.additionalDetails, turn.error.message] }
         # See turn_stop's own turn_id comment — a compaction can fail too.
         turn_id:    turn.id
-      fixtures: [turn_completed.failed-schema.json]
+      fixtures: [turn_completed.failed-schema.json, turn_completed.failed.unauthorized.json]
 
   # item.type values are codex's ThreadItem variants. webSearch and dynamicToolCall
   # were missing, so a turn that searched the web showed NO activity for that step.

@@ -103,6 +103,17 @@ func TestAgent_CodexMapsAFailedTurnOffTurnStatus(t *testing.T) {
 	assert.Equal(t, "connection reset by peer", ev.Failure.Detail)
 }
 
+// A codex that is not logged in fails the turn with the reason in error.message
+// and no additionalDetails (recorded live, 0.167): the chat must still say why.
+func TestAgent_CodexFailedTurnWithNoDetailsStillSaysWhy(t *testing.T) {
+	ev, err := get(t, "codex").ParseHook(agents.HookTurnFailed,
+		codexParams(t, "turn_completed.failed.unauthorized.json"), agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Failure)
+	assert.Contains(t, ev.Failure.Detail, "401 Unauthorized")
+}
+
 // The routing half of the same sum type — which of turn_stop / turn_failed a given
 // turn/completed frame is delivered as — is asserted in the dispatch package, where
 // the when: clauses are actually evaluated.
