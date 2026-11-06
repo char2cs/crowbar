@@ -1,6 +1,6 @@
 'use client'
 
-import { type ReactNode, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { TLinkElement } from 'platejs'
 import { PlateElement, type PlateElementProps, useComposedRef } from 'platejs/react'
 import { LinkElement } from '@/components/ui/link-node'
@@ -122,17 +122,24 @@ function ChatAttachmentFileCard(props: FileCardProps) {
   )
 }
 
-/** Falls through to `LinkElement` for a non-attachment url or with no `MarkdownAssetContext`. */
-function chatLink(Card: (props: FileCardProps) => ReactNode) {
-  return function ChatLink(props: PlateElementProps<TLinkElement>) {
-    const asset = useMarkdownAsset()
-    const url = props.element.url
-    const parsed = parseChatAttachmentRef(url)
-    if (!parsed || !asset || !('wsId' in asset)) return <LinkElement {...props} />
-    return <Card {...props} wsId={asset.wsId} attachmentRef={url} filename={parsed.filename} />
-  }
+/** The card a link draws when its url is an attachment and a `MarkdownAssetContext`
+ *  names the workspace; null falls through to `LinkElement`. */
+function useCardTarget(element: TLinkElement) {
+  const asset = useMarkdownAsset()
+  const parsed = parseChatAttachmentRef(element.url)
+  if (!parsed || !asset || !('wsId' in asset)) return null
+  return { wsId: asset.wsId, attachmentRef: element.url, filename: parsed.filename }
 }
 
-export const ChatLinkElement = chatLink(ChatAttachmentFileCard)
+export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
+  const card = useCardTarget(props.element)
+  if (!card) return <LinkElement {...props} />
+  return <ChatAttachmentFileCard {...props} {...card} />
+}
+
 /** Never touches `useAttachmentDraggable`, so a settled message needs no `DndScope`. */
-export const ChatLinkElementStatic = chatLink(FileCardAnchor)
+export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
+  const card = useCardTarget(props.element)
+  if (!card) return <LinkElement {...props} />
+  return <FileCardAnchor {...props} {...card} />
+}
