@@ -237,4 +237,3 @@ func ResolveCwdWorkspaceID(
 	}
 	return id, ok, nil
 }
-
