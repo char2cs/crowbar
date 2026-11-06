@@ -38,6 +38,7 @@ function TextRowBody({
   providers,
   provider,
   effort,
+  model,
   firstReply,
   turnbar,
   precedingUserAt,
@@ -47,6 +48,8 @@ function TextRowBody({
   providers: AgentProvider[]
   provider?: string
   effort?: string
+  /** The model the turn ran on, where its CLI named one. */
+  model?: string
   firstReply: boolean
   /** Only the reply that hands control back gets copy and time. */
   turnbar: boolean
@@ -75,6 +78,11 @@ function TextRowBody({
         {item.settled && turnbar && (
           <div className="turnbar" data-testid="message-turn-actions">
             {glyph && <ProviderIcon svg={glyph} className="size-3" />}
+            {model && (
+              <span className="turn-effort" data-testid="message-model">
+                {model}
+              </span>
+            )}
             {effort && (
               <span className="turn-effort" data-testid="message-effort">
                 {effort}

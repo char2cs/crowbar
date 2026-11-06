@@ -22,7 +22,7 @@ export interface RowPlace {
   precedingUserAt?: string
 }
 
-function useTurnFact(chatId: string, turnId: string | undefined, fact: 'providers' | 'efforts') {
+function useTurnFact(chatId: string, turnId: string | undefined, fact: 'providers' | 'efforts' | 'models') {
   return useChatStore((s) => (turnId ? s.feeds[chatId]?.facts[fact][turnId] : undefined))
 }
 
@@ -46,6 +46,7 @@ function TranscriptRowBody({
   const item = useChatItem(chatId, id)
   const provider = useTurnFact(chatId, item?.turnId, 'providers')
   const effort = useTurnFact(chatId, item?.turnId, 'efforts')
+  const model = useTurnFact(chatId, item?.turnId, 'models')
   if (members) return <ToolRunRow chatId={chatId} id={id} members={members} />
   switch (item?.kind) {
     case undefined:
@@ -71,6 +72,7 @@ function TranscriptRowBody({
           providers={providers}
           provider={provider}
           effort={effort}
+          model={model}
           firstReply={place?.firstReply ?? false}
           turnbar={place?.turnbar ?? false}
           precedingUserAt={place?.precedingUserAt}

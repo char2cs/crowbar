@@ -172,6 +172,10 @@ export interface TurnFacts {
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */
   providers: Record<string, string>
+  /** The model the live CLI runs: its launch model, or the newest change. */
+  model: string
+  /** turnId → the model it ran on, where one was named. */
+  models: Record<string, string>
 }
 
 export interface ChatFeed {

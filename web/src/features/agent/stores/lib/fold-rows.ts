@@ -50,6 +50,8 @@ const emptyFacts: TurnFacts = {
   traceless: {},
   efforts: {},
   providers: {},
+  model: '',
+  models: {},
 }
 
 export function emptyFeed(): ChatFeed {
@@ -71,7 +73,14 @@ export function emptyFeed(): ChatFeed {
 
 // Markers a reader sees as a pill; the rest change facts only.
 type FactRecord =
-  'prompts' | 'output' | 'traceless' | 'efforts' | 'providers' | 'subagentScopes' | 'pendingScopes'
+  | 'prompts'
+  | 'output'
+  | 'traceless'
+  | 'efforts'
+  | 'providers'
+  | 'models'
+  | 'subagentScopes'
+  | 'pendingScopes'
 
 /** Edits to a feed over one or many rows. Each part is copied on its first
  *  write, so what the rows leave alone keeps its identity, and a replay of
@@ -285,6 +294,11 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
   fold.set('running', { turnId: row.turnId, requestId, startedAt: row.at, seq: row.seq })
   if (requestId) setPrompt(fold, requestId, { state: 'delivered', turnId: row.turnId })
   if (provider) fold.record('providers')[row.turnId] = provider
+  if (fold.facts.model) fold.record('models')[row.turnId] = fold.facts.model
+}
+
+const applyRunnerStarted: Apply<'runner_started'> = (fold, row) => {
+  fold.set('model', row.body.launchModel)
 }
 
 function closeRunning(fold: FeedFold, turnId: string | undefined) {
@@ -335,6 +349,7 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
   const { kind, detail } = row.body
   if (kind === 'compaction_started') fold.set('compacting', true)
   if (kind === 'compaction_ended') fold.set('compacting', false)
+  if (kind === 'model_changed' && !row.scope) fold.set('model', detail ?? '')
   if (!row.scope) divider(fold, kind, () => marker(fold, row, kind, detail))
 }
 
@@ -418,7 +433,7 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   turn_failed: applyTurnFailed,
   session_bound: ignore,
   session_lost: applySessionLost,
-  runner_started: ignore,
+  runner_started: applyRunnerStarted,
   runner_exited: applyRunnerExited,
   assistant_text: applyAssistantText,
   reasoning: applyReasoning,

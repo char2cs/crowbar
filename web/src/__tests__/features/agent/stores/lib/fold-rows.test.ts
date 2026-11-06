@@ -17,7 +17,7 @@ describe('applyRow', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
       l.prompt('r1', 'hi'),
-      l.start('turn-1', 'r1'),
+      l.start('turn-1'),
       l.text('turn-1', 'm1', 0, 'Hel'),
       l.tool('turn-1', 'tool-1', 'pre'),
       l.text('turn-1', 'm1', 1, 'lo', true),
@@ -367,6 +367,31 @@ describe('applyRow', () => {
     ])
     expect(feed.order).toEqual(['k:2', 'k:4'])
     expect(feed.items['k:4']).toMatchObject({ marker: 'provider_switched', detail: 'codex' })
+  })
+
+  it("names the model each turn ran on: its CLI's launch model, then any change", () => {
+    const l = ledger()
+    const runner = (runnerId: string, launchModel: string) =>
+      l.row('runner_started', {
+        runnerId,
+        provider: 'p',
+        terminalSession: '',
+        launchModel,
+        launchEffort: '',
+        launchPermissionLevel: '',
+        resumeSessionId: '',
+      })
+    const feed = applyRows(emptyFeed(), [
+      runner('r1', 'sonnet'),
+      l.start('turn-1', 'r1'),
+      l.end('turn-1'),
+      l.row('marker', { kind: 'model_changed', detail: 'opus' }),
+      l.start('turn-2'),
+      l.end('turn-2'),
+      runner('r2', ''),
+      l.start('turn-3'),
+    ])
+    expect(feed.facts.models).toEqual({ 'turn-1': 'sonnet', 'turn-2': 'opus' })
   })
 
   it('shows what the CLI warned its user about as a notice in the transcript', () => {

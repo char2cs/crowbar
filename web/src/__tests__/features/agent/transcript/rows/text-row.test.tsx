@@ -94,6 +94,27 @@ describe('TextRow', () => {
     await waitFor(() => expect(prose()?.textContent).toContain('Hello the'))
   })
 
+  it('names the model the turn ran on beside its effort', () => {
+    const l = ledger()
+    seed([
+      l.row('marker', { kind: 'model_changed', detail: 'gpt-5.6-luna' }),
+      l.start('turn-1'),
+      l.text('turn-1', 'm1', -1, 'done'),
+      l.row('turn_ended', { status: 'done', effort: 'low' }, { turnId: 'turn-1' }),
+    ])
+    render(
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: true }}
+      />,
+    )
+    expect(screen.getByTestId('message-model')).toHaveTextContent('gpt-5.6-luna')
+    expect(screen.getByTestId('message-effort')).toHaveTextContent('low')
+  })
+
   it('shows the turn effort and time only on the reply that hands control back', () => {
     const l = ledger()
     seed([
