@@ -18,6 +18,7 @@ interface ComposerKeyTargets {
   history: {
     recallOlder: (current: string) => string | undefined
     recallNewer: () => string | undefined
+    searchOlder: (typed: string) => string | undefined
   }
   /** The composer's own stop button is showing. */
   canStop: boolean
@@ -71,6 +72,13 @@ export function handleComposerKey(
     // incomplete by declaration, so a built-in like /compact matches nothing.
     if (slash.highlighted) targets.selectSlashItem(slash.highlighted)
     else targets.send(readMarkdown())
+    return
+  }
+  // The terminal's reverse search; in a browser ctrl+r would reload the page.
+  if (event.key === 'r' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+    event.preventDefault()
+    const found = targets.history.searchOlder(readMarkdown())
+    if (found !== undefined) targets.recall(found)
     return
   }
   // History recall only at an edge the caret could not otherwise move past.
