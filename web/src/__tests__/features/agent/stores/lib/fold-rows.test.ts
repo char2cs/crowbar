@@ -193,14 +193,11 @@ describe('applyRow', () => {
 
   it('reads a prompt sent during a turn below what that turn still says, as it was delivered', () => {
     const l = ledger()
+    const steer = { requestId: 'r2', text: 'and?', origin: 'crowbar' as const }
     const feed = applyRows(emptyFeed(), [
       l.prompt('r1', 'look at this'),
       l.start('turn-1', 'r1'),
-      l.row(
-        'user_message',
-        { requestId: 'r2', text: 'what shape is it?', origin: 'crowbar', delivery: 'steer' },
-        { turnId: 'turn-2' },
-      ),
+      l.row('user_message', { ...steer, delivery: 'steer' }, { turnId: 'turn-2' }),
       l.tool('turn-1', 'read', 'pre'),
       l.tool('turn-1', 'read', 'post'),
       l.text('turn-1', 'm1', 0, 'You asked nothing yet.', true),
@@ -248,14 +245,8 @@ describe('applyRow', () => {
       l.tool('turn-1', 'step-3', 'post'),
       l.text('turn-1', 'm2', 0, 'Done.', true),
     ])
-    expect(feed.order).toEqual([
-      'p:r1',
-      't:step-1',
-      'm:turn-1:m1',
-      't:step-2',
-      't:step-3',
-      'm:turn-1:m2',
-    ])
+    const order = ['p:r1', 't:step-1', 'm:turn-1:m1', 't:step-2', 't:step-3', 'm:turn-1:m2']
+    expect(feed.order).toEqual(order)
   })
 
   it('settles every text of a turn when the turn ends', () => {

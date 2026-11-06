@@ -334,10 +334,9 @@ describe('ToolRow', () => {
 
   it('shows a result’s output as its own lines, without escapes or terminal colour codes', async () => {
     const result = {
-      stdout: '\u001b[31mred\u001b[0m\n2\n3',
+      stdout: '\u001b[31mred\u001b[0m\n2',
       stderr: '',
-      interrupted: false,
-      file: { numLines: 2, content: 'def a():\n    return 1' },
+      file: { lines: 2, text: 'a\n  b' },
     }
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
       String(input).includes(encodeURIComponent('sha256:out'))
@@ -345,39 +344,13 @@ describe('ToolRow', () => {
         : new Response(JSON.stringify('Exit code 3\n\u001b[1;32mgreen\u001b[0m')),
     )
     const l = ledger()
-    seed([
-      l.row(
-        'tool_call',
-        {
-          toolId: 'tool-1',
-          phase: 'post',
-          name: 'Bash',
-          inputRef: 'sha256:in',
-          resultRef: 'sha256:out',
-        },
-        { turnId: 'turn-1' },
-      ),
-    ])
+    const call = { toolId: 'tool-1', name: 'Bash', inputRef: 'sha256:in', resultRef: 'sha256:out' }
+    seed([l.row('tool_call', { ...call, phase: 'post' }, { turnId: 'turn-1' })])
     draw('t:tool-1')
     fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
-
-    const request = await screen.findByText(/Exit code 3/)
-    expect(request.textContent).toBe('Exit code 3\ngreen')
-    const output = await screen.findByText(/stdout/)
-    expect(output.textContent).toBe(
-      [
-        'stdout: |',
-        '  red',
-        '  2',
-        '  3',
-        'stderr: ""',
-        'interrupted: false',
-        'file:',
-        '  numLines: 2',
-        '  content: |',
-        '    def a():',
-        '        return 1',
-      ].join('\n'),
+    expect((await screen.findByText(/Exit code 3/)).textContent).toBe('Exit code 3\ngreen')
+    expect((await screen.findByText(/stdout/)).textContent).toBe(
+      'stdout: |\n  red\n  2\nstderr: ""\nfile:\n  lines: 2\n  text: |\n    a\n      b',
     )
   })
 
