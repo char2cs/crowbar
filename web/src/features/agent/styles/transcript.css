@@ -618,10 +618,13 @@
     background-position: -200% 0;
   }
 }
+/* A zero basis let a long command or error take the whole row and draw over the
+   verb; the label keeps up to 45% of it before it truncates. */
 .agent-chat .tool-call-label {
   display: inline-flex;
-  min-width: 0;
-  flex: 1;
+  min-width: min(45%, max-content);
+  flex: 1 1 auto;
+  overflow: hidden;
   align-items: center;
   gap: 6px;
 }
