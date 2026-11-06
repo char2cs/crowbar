@@ -204,7 +204,11 @@ export function cancelCreateDraft(): void {
 }
 
 /** Creates the chat a repo-workspace draft was waiting to become, with its first prompt. */
-export function promoteRepoDraft(draft: DraftSpec, prompt: DraftPrompt): Promise<void> {
+export function promoteRepoDraft(
+  draft: DraftSpec,
+  prompt: DraftPrompt,
+  typedSince: () => string,
+): Promise<void> {
   const { projectId, workspaceId } = draft
   return startThread({
     inFlightKey: `draft:${draft.draftId}`,
@@ -212,6 +216,6 @@ export function promoteRepoDraft(draft: DraftSpec, prompt: DraftPrompt): Promise
     workspaceId,
     parentId: draft.parentId || workspaceId,
     ...draftLanding(prompt),
-    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt),
+    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt, typedSince),
   })
 }

@@ -37,6 +37,7 @@ const listGlobalProviders = vi
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleCreateHomeThread as openHomeDraft } from '@/components/layout/home-actions'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
+import { loadDraft } from '@/features/agent/composer/lib/draft-persistence'
 import { FIRST_PROMPT, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -101,8 +102,8 @@ async function openThreadDraft(
 }
 
 /** The first send from the open draft. */
-function sendDraft(): Promise<void> {
-  return promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
+function sendDraft(typedSince = () => ''): Promise<void> {
+  return promoteDraftThread(draftPaneId()!, FIRST_PROMPT, typedSince)
 }
 
 /** What a person does: open the New thread draft, then send its first message. */
@@ -289,6 +290,20 @@ describe('handleCreateHomeThread', () => {
     await sendDraft()
 
     expect(windowPaneStore.getState().panes[paneId]?.chatId).toBe(mintedChatId())
+  })
+
+  // The draft's box goes when its chat opens: what was typed after the send is
+  // that chat's unsent draft, for the chat's own box to pick up.
+  it('hands what was typed after the send to the new chat as its draft', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+
+    await sendDraft(() => 'and one more thing')
+
+    expect(loadDraft(mintedChatId())).toBe('and one more thing')
   })
 
   // A person who saw nothing happen taps send again: one chat, not two.

@@ -211,7 +211,7 @@ describe('starting a thread on a real workspace', () => {
     })
 
     await handleCreate('ws-a', 'thread', vi.fn())
-    await promoteDraftThread(draftPaneId() ?? '', { ...FIRST_PROMPT, provider: 'codex' })
+    await promoteDraftThread(draftPaneId() ?? '', { ...FIRST_PROMPT, provider: 'codex' }, () => '')
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'codex', 'ws-a', 'chat')
   })
