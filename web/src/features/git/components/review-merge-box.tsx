@@ -14,6 +14,7 @@ import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-wor
 import { selectWorkspace, useSelect } from '@/core/entities/select'
 import { useReviewThreads } from '@/features/git/hooks/use-review-threads'
 import { useBranchMerge } from '../hooks/use-branch-merge'
+import { CommitChangesForm } from './commit-changes-form'
 import { resolveBranchAction } from '../lib/branch-action'
 import { MERGE_STRATEGIES } from '../lib/merge-strategies'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
@@ -51,7 +52,7 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
     wsId,
     parentBranch,
   )
-  // Default ON: merging a child usually means it is done.
+  // Default ON: merging a child usually means it is done; the label says what goes with it.
   const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
 
   const uncommitted = gitStatus?.files.length ?? 0
@@ -81,6 +82,7 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
 
       {merged ? null : (
         <CardContent className="flex min-w-0 flex-col gap-2 p-3">
+          {action.kind === 'commit' && <CommitChangesForm wsId={wsId} changes={uncommitted} />}
           <div className="flex min-w-0 flex-col gap-2">
             <Select
               value={strategy}
@@ -113,7 +115,9 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
 
           <label className="flex cursor-pointer items-start gap-2">
             <Checkbox checked={deleteAfterMerge} onChange={setDeleteAfterMerge} />
-            <span className="ui-text-xs min-w-0">Delete workspace after merging</span>
+            <span className="ui-text-xs min-w-0">
+              Delete this branch and its chats after merging
+            </span>
           </label>
 
           {reason && <p className="ui-text-xs min-w-0 text-muted-foreground">{reason}</p>}
