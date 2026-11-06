@@ -31,6 +31,7 @@ func PreOpenImpls() migrate.Impls {
 		StepChatAttachments: {Apply: moveChatAttachments},
 		StepLedgerLayout:    {Apply: func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) { return nil, nil }},
 		StepRetireLegacy:    RetireImpl(),
+		StepOwnerOnly:       {Apply: narrowOwnerOnly},
 	}
 }
 
