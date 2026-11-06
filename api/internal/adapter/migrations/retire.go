@@ -234,15 +234,15 @@ func pruneEmptyDirs(
 	}
 	dirs = append(dirs, filepath.Join(h.Root(), "chats"), filepath.Join(h.State(), markersDir), filepath.Join(h.Root(), "bin"))
 	for _, dir := range dirs {
-		if err := removeEmpty(dir); err != nil {
+		if err := removeEmptyTree(dir); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// removeEmpty removes dir and the empty directories under it, deepest first.
-func removeEmpty(
+// removeEmptyTree removes dir and the empty directories under it, deepest first.
+func removeEmptyTree(
 	dir string,
 ) error {
 	entries, err := os.ReadDir(dir)
@@ -254,7 +254,7 @@ func removeEmpty(
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			if err := removeEmpty(filepath.Join(dir, entry.Name())); err != nil {
+			if err := removeEmptyTree(filepath.Join(dir, entry.Name())); err != nil {
 				return err
 			}
 		}
