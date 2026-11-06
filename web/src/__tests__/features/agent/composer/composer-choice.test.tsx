@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
@@ -655,6 +655,23 @@ describe('ComposerChoice keys', () => {
     show()
     expect(screen.getByRole('button', { name: /Allow/ })).toHaveTextContent('1')
     expect(screen.getByRole('button', { name: /Deny/ })).toHaveTextContent('2')
+  })
+
+  // It replaces the composer the person just sent from, whose focus would otherwise drop to
+  // the page, where the number keys answer nothing.
+  it('takes focus when it appears and nothing else holds it', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    expect(screen.getByTestId('agent-choice-prompt')).toHaveFocus()
+  })
+
+  it('leaves focus where it is when something else holds it', () => {
+    const elsewhere = document.createElement('input')
+    document.body.append(elsewhere)
+    onTestFinished(() => elsewhere.remove())
+    elsewhere.focus()
+    show()
+    expect(elsewhere).toHaveFocus()
   })
 
   it('answers nothing by key while it cannot be answered here', () => {
