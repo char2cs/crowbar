@@ -345,7 +345,6 @@ function joinedReply(fold: FeedFold, row: LedgerRow<'assistant_text'>): TextItem
 }
 
 const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
-  const scope = row.scope ?? ''
   const { messageId, index, final, text, phase } = row.body
   const id = textItemId(row.turnId, messageId)
   const known = fold.item<TextItem>(id)
