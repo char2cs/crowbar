@@ -407,6 +407,18 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['m:turn-1:final-turn-1'])
     expect(feed.items['m:turn-1:final-turn-1']).toMatchObject({ text: 'Hello there' })
   })
+
+  it('shows a joining message once, though its naming chunk came before its first', () => {
+    const l = ledger()
+    const joins = { messageId: 'm2', index: 1, final: true, text: ' there', reply: 'final-turn-1' }
+    const feed = applyRows(emptyFeed(), [
+      l.text('turn-1', 'final-turn-1', -1, 'Hello there'),
+      l.end('turn-1'),
+      l.row('assistant_text', joins, { turnId: 'turn-1' }),
+      l.text('turn-1', 'm2', 0, 'Hello'),
+    ])
+    expect(feed.order.filter((id) => id.startsWith('m:'))).toEqual(['m:turn-1:final-turn-1'])
+  })
 })
 
 // A replay folds thousands of rows before anyone reads the feed; copying the
