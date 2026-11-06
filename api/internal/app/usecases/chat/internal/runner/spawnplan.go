@@ -160,7 +160,7 @@ func (rs *Runners) renderSpawnContext(
 	tctx := engineagents.TemplateCtx{
 		Tmp:         in.tmpDir,
 		Cwd:         canonicalDir(in.worktree),
-		CrowbarBin:  rs.crowbarBinPath(in.crowbarHome),
+		CrowbarBin:  rs.crowbarBin,
 		CrowbarHome: in.crowbarHome,
 		DaemonHost:  rs.daemonHost,
 		Segid:       in.runnerID,
@@ -203,13 +203,4 @@ func (rs *Runners) renderSpawnContext(
 	// thus also loses the preamble on a gapless revive; its tools are still registered.
 	inject := in.conversation != "" || !in.resuming
 	return tctx, inject
-}
-
-// crowbarBinPath is the crowbar binary the descriptors run: the injected one,
-// else the one installed under home.
-func (rs *Runners) crowbarBinPath(home string) string {
-	if rs.crowbarBin != "" {
-		return rs.crowbarBin
-	}
-	return filepath.Join(home, "bin", "crowbar")
 }

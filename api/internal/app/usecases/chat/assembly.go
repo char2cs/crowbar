@@ -63,8 +63,8 @@ type Deps struct {
 	// DaemonAddress is the address the daemon bound, handed to every callback a
 	// spawned CLI runs.
 	DaemonAddress string
-	// CrowbarBin is the crowbar binary a spawned CLI runs for its tool bridge;
-	// empty is the one installed under the home.
+	// CrowbarBin is the crowbar binary a spawned CLI runs for its tool bridge:
+	// the daemon's own executable.
 	CrowbarBin string
 	// NoAPITransport runs every provider over hooks alone.
 	NoAPITransport bool

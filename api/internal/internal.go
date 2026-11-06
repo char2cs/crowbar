@@ -25,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
-	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -254,21 +253,13 @@ func (s *stack) open(
 		return fmt.Errorf("internal: api: %w", err)
 	}
 
-	// Install the crowbar binary into <home>/bin so vendor CLIs can launch
-	// `crowbar mcp` by absolute path, into the home the adapter opened so tests
-	// and dev instances stay isolated. Best-effort: never block startup.
-	installHome := s.adapter.Home().Root()
-	if _, err := selfinstall.Install(installHome); err != nil {
-		slog.Warn("internal: install the crowbar binary", "home", installHome, "err", err)
-	}
-
 	// Published before anything can spawn a CLI: the spawner reads it to point the
 	// CLI's hooks here.
 	s.hooks, err = hookserver.Listen(ctx, s.api.Handler())
 	if err != nil {
 		return fmt.Errorf("internal: hooks: %w", err)
 	}
-	if err := hookserver.Publish(installHome, s.hooks.URL()); err != nil {
+	if err := hookserver.Publish(s.adapter.Home().Root(), s.hooks.URL()); err != nil {
 		return fmt.Errorf("internal: hooks: %w", err)
 	}
 	return nil

@@ -37,7 +37,7 @@ type Runners struct {
 	// daemonHost is the address the daemon bound, rendered into every callback's
 	// --host so none derives one of its own.
 	daemonHost string
-	// crowbarBin is the crowbar binary the descriptors run (empty: the home's);
+	// crowbarBin is the crowbar binary the descriptors run (the daemon's own);
 	// noAPITransport keeps every provider on hooks alone.
 	crowbarBin     string
 	noAPITransport bool
@@ -100,8 +100,7 @@ type Deps struct {
 	Ledger      *ledgerstore.Store
 	// DaemonHost is the address the daemon bound, rendered into the callbacks.
 	DaemonHost string
-	// CrowbarBin is the crowbar binary the descriptors run; empty is the one
-	// installed under the home.
+	// CrowbarBin is the crowbar binary the descriptors run: the daemon's own.
 	CrowbarBin string
 	// NoAPITransport runs every provider over hooks alone, its serve never forked.
 	NoAPITransport bool

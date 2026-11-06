@@ -55,9 +55,7 @@ Process-level plumbing with no domain knowledge:
   `crowbar pair` works on the daemon's own host), `ipc` (the socket
   client the in-PTY callbacks use), `terminal` (the PTY session engine — spawn,
   resize, screen model, reap), `shellenv`/`binpath` (login-shell PATH and CLI
-  lookup for a GUI-launched daemon), `selfinstall` (copies the binary to
-  `<home>/bin` so a vendor CLI can launch `crowbar mcp` by absolute path),
-  `safego` (panic-safe goroutines).
+  lookup for a GUI-launched daemon), `safego` (panic-safe goroutines).
 
 ### `engine/`
 Each engine is a facade over one capability, with its implementation in
