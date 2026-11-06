@@ -210,14 +210,14 @@ func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
 	before, ok := r.snapshot(chatID).Conversation()
 	require.True(t, ok)
 
-	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	_, err = r.runners().SwitchToTerminal(ctx, chatID)
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "codex in its terminal"))
 	r.eventually(r.replied(chatID, 2), "codex's TUI never answered")
 
-	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "claude again"))
 	r.eventually(r.replied(chatID, 3), "claude never answered again")

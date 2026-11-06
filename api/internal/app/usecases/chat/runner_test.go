@@ -88,7 +88,7 @@ func TestRegression_ResumeChat_RevivesProviderThatNeverBoundAConversation(t *tes
 	// this test exists to prove has nothing to distinguish.
 	waitForClockTick(t)
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	// No f.announce for codex: it never reports a session_start hook, so it
@@ -133,7 +133,7 @@ func claudeAwayOnCodex(t *testing.T, f testFixture) string {
 	// must not land on the same instant.
 	waitForClockTick(t)
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	f.announce(t, codexRunner, "sid-codex-native")
@@ -151,7 +151,7 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 
 	chatID := claudeAwayOnCodex(t, f)
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -337,7 +337,7 @@ func TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOthe
 	f.announce(t, claudeRunner, "sid-claude-native")
 	exchange(t, f, claudeRunner, "claude", "claude has real history before going dormant")
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	f.announce(t, codexRunner, "sid-codex-native")
@@ -429,7 +429,7 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 	f.announce(t, claudeRunner, "sid-claude-native")
 	exchange(t, f, claudeRunner, "claude", "claude has real, table-recorded history")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	codexRunner, err := f.liveRunnerFor(t, chatID)
@@ -437,7 +437,7 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 	f.announce(t, codexRunner.ID, "sid-codex-native")
 	exchange(t, f, codexRunner.ID, "codex", "codex has its own real history now too")
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -465,12 +465,12 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsANewSession(t *te
 	// claude binds a conversation but never takes a turn.
 	f.announce(t, claudeRunner, "sid-claude-empty")
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	turn(t, f, codexRunner, "codex", "codex actually said something")
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 
 	require.Equal(t, 3, f.term.callCount())
@@ -498,7 +498,7 @@ func TestSwitchProvider_MidTurn_IsRefusedAndTouchesNothing(t *testing.T) {
 	prompt(t, f, runnerID, "claude", "think hard about this")
 	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptBusy)
 	f.wait()
@@ -509,7 +509,7 @@ func TestSwitchProvider_MidTurn_IsRefusedAndTouchesNothing(t *testing.T) {
 	assert.Equal(t, runnerID, live.ID)
 
 	turn(t, f, runnerID, "claude", "the answer the user was waiting for")
-	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err, "once the turn ends the switch goes ahead")
 	assert.NotEqual(t, runnerID, switched)
 }
@@ -525,7 +525,7 @@ func TestSwitchProvider_Idle_SwitchesImmediately(t *testing.T) {
 	turn(t, f, runnerID, "claude", "an answer")
 	require.False(t, f.busy(t, chatID), "precondition: the chat is idle")
 
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -606,7 +606,7 @@ func TestSwitchProvider_ARunnerThatCannotBeRecordedIsTornDown(t *testing.T) {
 
 	f.refuseRunnerStarted(t)
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.ErrorContains(t, err, "record runner")
 
 	// term-2 is the codex CLI whose runner could not be recorded.
@@ -974,7 +974,7 @@ func TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff(t *tes
 	// would silently extract an empty message.
 	codexTurnStop(t, f, codexRunnerID, "codex-session", "I like turtles")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	claudeRunner, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -1061,7 +1061,7 @@ func TestSwitchProvider_DoesNotKillPromptAwaitingAcceptanceFromAnotherWindow(t *
 		cancel()
 	}()
 
-	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude")
+	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude", "")
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, spawnCount, f.term.callCount())
 	assert.Len(t, f.term.terminatedIDs(), terminated,
@@ -2247,7 +2247,7 @@ func TestOnExit_AfterSwitch_DoesNotCloseTheIncomingRunnersTurn(t *testing.T) {
 	chatID, oldRunner := f.spawn(t, "claude")
 	oldTerm := f.runner(t, oldRunner).TerminalSession
 
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -2910,7 +2910,7 @@ func TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker(t 
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -2934,7 +2934,7 @@ func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillL
 	require.Empty(t, f.chat(t, chatID).ProviderID,
 		"precondition: nothing about this chat names a vendor, exactly like a pre-field row")
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -3189,7 +3189,7 @@ var sessionOps = []sessionOp{
 	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
 		w.provider = map[string]string{"claude": "codex", "codex": "claude"}[w.provider]
-		_, _ = f.usecase.SwitchProvider(f.ctx, w.chatID, w.provider)
+		_, _ = f.usecase.SwitchProvider(f.ctx, w.chatID, w.provider, "")
 	}},
 	{"resume", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
@@ -3410,7 +3410,7 @@ func TestRegression_LongChatHandoffKeepsTheFirstAskAcrossTwoSwitches(t *testing.
 		exchange(t, f, claudeRunner, "claude", fmt.Sprintf("claude turn %d", i))
 	}
 
-	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	doc := configValue(t, f.term.calls[f.term.callCount()-1].argv, "developer_instructions=")
 	assert.Regexp(t, `(?s)FIRST ASK: build the parser.*earlier turns are omitted.*claude turn 29`, doc)
@@ -3420,7 +3420,7 @@ func TestRegression_LongChatHandoffKeepsTheFirstAskAcrossTwoSwitches(t *testing.
 		prompt(t, f, codexRunner, "codex", "go on")
 		codexTurnStop(t, f, codexRunner, "sid-codex-native", fmt.Sprintf("codex turn %d", i))
 	}
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	argv := f.term.calls[f.term.callCount()-1].argv
 	gap := argv[len(argv)-1]
@@ -3435,7 +3435,7 @@ func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *t
 	spawnCount := f.term.callCount()
 	terminatedCount := len(f.term.terminatedIDs())
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "resolve descriptor")
 	assert.Equal(t, spawnCount, f.term.callCount(), "an invalid target must not spawn anything")

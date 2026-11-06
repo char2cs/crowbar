@@ -91,6 +91,14 @@ describe('agent-chat-commands', () => {
     })
   })
 
+  it('switchProvider names the surface the new runner starts on', async () => {
+    apiFetch.mockResolvedValue({ id: 'r2' })
+    await api.switchProvider('w1', 'c1', 'codex', 'terminal')
+    expect(apiFetch.mock.calls[0][1]).toMatchObject({
+      body: JSON.stringify({ provider: 'codex', surface: 'terminal' }),
+    })
+  })
+
   it('resumeChat POSTs to /resume and returns the id of the RUNNER now on the chat', async () => {
     apiFetch.mockResolvedValue({ id: 'r9' })
     const runnerId = await api.resumeChat('w1', 'c1')

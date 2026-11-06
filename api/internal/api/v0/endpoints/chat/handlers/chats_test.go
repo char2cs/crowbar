@@ -316,7 +316,7 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 	return u.conversations[chatID], nil
 }
 
-func (configurableListGetUsecase) SwitchProvider(context.Context, string, string) (string, error) {
+func (configurableListGetUsecase) SwitchProvider(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
 

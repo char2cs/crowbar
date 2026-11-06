@@ -1695,13 +1695,13 @@ func TestSwitchProvider_ARunningSubagentIsRefusedUntilItStops(t *testing.T) {
 	require.True(t, f.busy(t, chatID), "precondition: the subagent keeps the chat live")
 	require.False(t, running(t, f, chatID), "the turn itself really did end")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.ErrorIs(t, err, agentusecase.ErrPromptBusy)
 	require.Empty(t, f.term.terminatedIDs(), "a running subagent keeps the outgoing TUI alive")
 
 	hook(t, f, runnerID, "claude", engineagents.HookSubagentPost, map[string]any{"session_id": "s1", "agent_id": "a1"})
 	require.False(t, f.busy(t, chatID), "its own stop ends it")
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
@@ -1764,7 +1764,7 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	f.wait()
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
-	codexRunnerID, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	codexRunnerID, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.announce(t, codexRunnerID, "codex-s1")
 
