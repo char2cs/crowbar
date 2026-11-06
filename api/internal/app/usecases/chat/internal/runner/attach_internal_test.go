@@ -392,6 +392,7 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 		agent:      agent,
 		tctx:       engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
 	})
+	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal) // as attachNativeView leaves it
 
 	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
 

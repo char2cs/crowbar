@@ -70,9 +70,10 @@ func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	return append([]string{plan.Executable}, plan.Argv...), true
 }
 
-// APIAttachArgv carries config_injection and spawn.Args like a primary interactive spawn: the
-// attached process is an ordinary hooks-transport TUI, which without its hook wiring reports
-// nothing to the ledger and without spawn.Args parks on a hook-trust prompt.
+// APIAttachArgv carries config_injection, spawn.Args and the chat's selection like a primary
+// interactive spawn: the attached process is an ordinary hooks-transport TUI, which without its
+// hook wiring reports nothing, without spawn.Args parks on a hook-trust prompt, and without the
+// selection runs the provider's default model, effort and sandbox.
 func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Attach) == 0 {
 		return nil, false
@@ -80,7 +81,8 @@ func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 	argv := expandArgv(a.spec.Runtime.API.Attach, ctx)
 	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
 	spawn.PrependArgs(a.spec, ctx, plan)
-	if err := spawn.Inject(a.spec, ctx, plan, nil); err != nil {
+	sel := Selection{Model: ctx.Model, Effort: ctx.Effort, PermissionLevel: ctx.PermissionLevel}
+	if err := spawn.Inject(a.spec, ctx, plan, selection.Steps(a.spec, sel)); err != nil {
 		return nil, false
 	}
 	return append([]string{plan.Executable}, plan.Argv...), true

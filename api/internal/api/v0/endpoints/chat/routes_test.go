@@ -172,7 +172,7 @@ func (stubUsecase) ConversationsForChat(context.Context, string) ([]engineagents
 	return nil, nil
 }
 
-func (stubUsecase) SwitchProvider(context.Context, string, string) (string, error) {
+func (stubUsecase) SwitchProvider(context.Context, string, string, string) (string, error) {
 	return "seg-2", nil
 }
 

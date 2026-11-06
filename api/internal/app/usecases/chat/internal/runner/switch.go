@@ -13,6 +13,7 @@ func (rs *Runners) SwitchProvider(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
+	surface string,
 ) (string, error) {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
@@ -20,6 +21,13 @@ func (rs *Runners) SwitchProvider(
 	}
 	defer h.release()
 	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(chatID))()
+	// The spawn reads the chat's surface: recorded first, the incoming CLI starts on
+	// the view the user is on instead of being relaunched there right after.
+	if surface != "" {
+		if err := rs.moveDormantSurface(ctx, chatID, surface); err != nil {
+			return "", err
+		}
+	}
 	return rs.switchProviderLocked(ctx, h, chatID, targetProviderID)
 }
 

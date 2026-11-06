@@ -23,11 +23,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer is
-// the 409 reproduced twice on 2026-09-23: a switch sent between SubmitPrompt's 200
-// and the provider's user_prompt hook, while the chat still read idle. The switch
-// waits for the ledger to decide the prompt: acknowledged, it opened a turn, and a
-// switch while a turn runs is refused.
+// A switch sent between SubmitPrompt's 200 and the provider's user_prompt hook (the chat
+// still reads idle) waits for the ledger to decide the prompt: acknowledged, it opened
+// a turn, and a switch while a turn runs is refused.
 func TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer(t *testing.T) {
 	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
@@ -40,7 +38,7 @@ func TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer(t
 	assert.Equal(t, carrier, live.ID)
 
 	turn(t, f, carrier, "claude", "SEED")
-	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	assertSwitchedToCodex(t, f, chatID, switched)
 	incoming := f.term.calls[f.term.callCount()-1]
@@ -96,7 +94,7 @@ func switchParkedOnAPendingPrompt(t *testing.T) (testFixture, string, string, <-
 	parked := parkedOn(t, agentusecase.WaitingForPendingPromptLog)
 	done := make(chan switchResult, 1)
 	go func() {
-		id, switchErr := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
+		id, switchErr := f.usecase.SwitchProvider(context.Background(), chatID, "codex", "")
 		done <- switchResult{runnerID: id, err: switchErr}
 	}()
 	select {
@@ -167,7 +165,7 @@ func TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T
 	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
 	f.ws.worktreeDirIDs = nil
 
-	_, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -183,7 +181,7 @@ func TestSwitchProvider_TerminatesOutgoingCLI_AndTakesOverTheChat(t *testing.T) 
 	oldTerm := f.runner(t, oldRunner).TerminalSession
 	require.NotEmpty(t, oldTerm)
 
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -213,7 +211,7 @@ func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *t
 	chatID, _ := f.spawn(t, "claude")
 	f.term.terminateErr = fmt.Errorf("terminal: terminate: %w: term-1", engineterminal.ErrSessionNotFound)
 
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunner)
 	f.wait()
@@ -232,7 +230,7 @@ func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	chatID, oldRunner := f.spawn(t, "claude")
 	f.term.terminateErr = errors.New("boom: terminate genuinely failed")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "terminate outgoing terminal")
 
@@ -242,17 +240,15 @@ func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	assert.Equal(t, oldRunner, live.ID, "the chat still belongs to the CLI that would not die")
 }
 
-// TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate: the handoff is
-// assembled BEFORE the terminate, so a failure there leaves the chat completely
-// untouched — rather than killing the old CLI and spawning the new one with an EMPTY
-// handoff.
+// The handoff is assembled BEFORE the terminate, so a failure there leaves the chat
+// untouched rather than spawning the new CLI with an EMPTY handoff.
 func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, oldRunner := f.spawn(t, "claude")
 
 	f.ws.err = errors.New("boom: worktree lookup")
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.Error(t, err)
 
 	f.ws.err = nil // let the assertion reads resolve the worktree again
@@ -269,7 +265,7 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	turn(t, f, runnerID, "claude", "prior turn content for handoff")
 
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunner)
 
@@ -280,14 +276,9 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 	assert.Contains(t, strings.Join(newCall.argv, "\x00"), "prior turn content for handoff")
 }
 
-// TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange: a handoff changes which
-// CLI is on the chat, and the runner feed carries that whole story in order — the
-// outgoing runner exits, and only then does the incoming one start.
-//
-// The chat aggregate is written to exactly ONCE, and only for what durably moved: its
-// own vendor (domain.Chat.ProviderID), the same way SwitchToTerminal writes its
-// surface. A respawn on the SAME provider changes nothing and emits nothing — the
-// command refuses an unchanged value — so this frame appears only on a real switch.
+// The runner feed carries a handoff in order (the outgoing runner exits, then the
+// incoming one starts); the chat aggregate is written once, for its own vendor, and a
+// same-provider respawn emits nothing since the command refuses an unchanged value.
 func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
 	f := newFixture(t)
 
@@ -295,7 +286,7 @@ func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
 	f.bc.reset()
 	f.snapFrames.reset()
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -304,15 +295,27 @@ func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
 	assert.Equal(t, []string{"exited", "started"}, f.runnerKinds(t))
 }
 
-// TestSwitchProvider_RecordsAProviderSwitchedInterruption guards the new
-// InterruptProviderSwitched marker: recorded once the switch actually
-// commits, and only when the target differs from the chat's provider
-// beforehand — Crowbar's own doing, not something a provider hook reports.
+// A chat whose surface was never recorded shows the user's default (terminal): the switch
+// launches the incoming provider on the view the user is on, not its own default face.
+func TestSwitchProvider_LaunchesTheIncomingProviderOnTheUsersSurface(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	require.Empty(t, f.chat(t, chatID).Surface)
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", domain.SurfaceTerminal)
+	require.NoError(t, err)
+	f.wait()
+
+	assert.Equal(t, domain.SurfaceTerminal, f.chat(t, chatID).Surface)
+}
+
+// InterruptProviderSwitched is recorded once the switch commits, and only when the
+// target differs from the chat's provider: Crowbar's own doing, not a provider hook's.
 func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -331,7 +334,7 @@ func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) 
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -340,10 +343,9 @@ func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) 
 	assert.Empty(t, ints, "switching to the provider already on the chat is not a switch")
 }
 
-// With no api connection (this fixture disables it, as production degrades to
-// when app-server fails), the hooks PTY is the only codex: it must carry the
-// native `resume {id}` itself, or codex mints a new thread on every switch back.
-// Its sessions live in its own home, which Crowbar must never own and so delete.
+// With no api connection (as when app-server fails), the hooks PTY must carry the native
+// `resume {id}` itself, or codex mints a new thread on every switch back. Its sessions
+// live in its own home, which Crowbar must never own and so delete.
 func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
 	f := newFixture(t)
 
@@ -357,14 +359,14 @@ func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t
 		}
 	}
 
-	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	f.wait()
 
 	// What codex misses while it is away.
 	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -394,7 +396,7 @@ func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 	f.announce(t, runnerID, "sid-claude-native")
 	turn(t, f, runnerID, "claude", "claude said this first")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 
 	require.Equal(t, 2, f.term.callCount())
@@ -411,16 +413,13 @@ func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 func TestSwitchProvider_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 
-	_, err := f.usecase.SwitchProvider(f.ctx, "does-not-exist", "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, "does-not-exist", "codex", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "switch provider: chat")
 }
 
-// TestSwitchProvider_DormantChat_SwitchesAnyway: a chat whose CLI is gone (it exited,
-// or died with the daemon) used to be a hard dead end — the pane told the user to
-// "switch provider below to start a new one" while this call returned ErrNotFound, so
-// the chat could never be re-entered by ANY route. A dormant chat now simply means
-// there is no outgoing CLI to quit.
+// A chat whose CLI is gone (exited, or died with the daemon) still switches: dormant
+// only means there is no outgoing CLI to quit, never a dead end.
 func TestSwitchProvider_DormantChat_SwitchesAnyway(t *testing.T) {
 	f := newFixture(t)
 
@@ -431,7 +430,7 @@ func TestSwitchProvider_DormantChat_SwitchesAnyway(t *testing.T) {
 	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "precondition: the chat is dormant")
 
 	before := len(f.term.terminateRequestIDs())
-	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunner)
 	f.wait()
@@ -450,7 +449,7 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 	// A workspace-reader failure surfaces wrapped, at the preflight WorktreeDir
 	// read: the wait for a pending prompt reads only the chat ledger before it.
 	f.ws.err = errors.New("boom: workspace lookup")
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "preflight worktree dir")
 	assert.ErrorContains(t, err, "boom: workspace lookup")
@@ -494,7 +493,7 @@ func ranAs(t *testing.T, f testFixture, chatID, model string) {
 // switchedTo switches chatID to provider and returns the launched CLI's argv.
 func switchedTo(t *testing.T, f testFixture, chatID, provider string) []string {
 	t.Helper()
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, provider)
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, provider, "")
 	require.NoError(t, err)
 	return f.term.calls[f.term.callCount()-1].argv
 }

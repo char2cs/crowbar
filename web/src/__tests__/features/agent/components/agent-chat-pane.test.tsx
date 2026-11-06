@@ -944,7 +944,7 @@ describe('AgentChatPane', () => {
 
       // The switch must target c2. Targeting c1 would hand a CLI the conversation
       // the user has already left, and leave the live one running unattended.
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c2', 'codex')
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c2', 'codex', 'terminal')
     })
 
     it('surfaces a toast when the switch rejects (target CLI missing / spawn failed)', async () => {
@@ -976,7 +976,7 @@ describe('AgentChatPane', () => {
         fireEvent.click(screen.getByTestId('provider-switch'))
       })
 
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex', 'terminal')
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
 

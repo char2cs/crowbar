@@ -130,7 +130,7 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 	r.firstTurn(chatID)
 	claudeSession := r.lastPrompt()["session"]
 
-	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	_, err = r.runners().SwitchToTerminal(ctx, chatID)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 		"codex's TUI was handed the conversation")
 	r.continues(chatID, "codex in its terminal")
 
-	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	r.continues(chatID, "claude again")
 	assert.Equal(t, "claude", r.lastPrompt()["cli"])
