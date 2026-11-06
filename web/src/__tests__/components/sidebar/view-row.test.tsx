@@ -199,6 +199,12 @@ describe('RecentsViewRow', () => {
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
   })
 
+  it('a draft not yet sent is named as the new thread it is, never as loading', () => {
+    actions().openChat('draft-1', { workspaceId: 'ws-1' })
+    renderBand()
+    expect(screen.getByTestId('recents-row-draft-1')).toHaveTextContent('New thread')
+  })
+
   it("draws a workspace-owning chat's real icon, not the generic bubble", () => {
     seedRepos([
       repo(SIDEBAR_CHATS, [
