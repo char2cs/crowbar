@@ -48,6 +48,9 @@ export default defineConfig({
     },
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
+    // Expected API URLs are origin-relative; a shell or .env VITE_API_URL must not leak
+    // in. Tests that need a base stub it, and vi.unstubAllEnvs() restores this pin.
+    env: { VITE_API_URL: '' },
     alias: {
       // Stub the Tauri desktop API — it is only available inside the native shell.
       '@tauri-apps/api/core': path.resolve(

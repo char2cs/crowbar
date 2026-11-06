@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -13,16 +13,10 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
-// Expected URLs are origin-relative; the shell's or .env's VITE_API_URL must not leak in.
 beforeEach(() => {
-  vi.stubEnv('VITE_API_URL', '')
   resetHostWorld()
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
-})
-
-afterEach(() => {
-  vi.unstubAllEnvs()
 })
 
 describe('formatAttachmentSize', () => {
