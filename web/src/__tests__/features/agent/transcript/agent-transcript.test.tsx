@@ -366,6 +366,25 @@ describe('AgentTranscript', () => {
     expect(list.scrollTop).toBe(500)
   })
 
+  it('offers a reader up the page a way back to the newest rows', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
+    const { redraw } = draw({ working: true })
+    const list = screen.getByTestId('agent-message-list')
+    const box = { scrollHeight: 3000, clientHeight: 800 }
+    layOut(list, box)
+    redraw({ line: { working: true, since: 'a' } })
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
+    list.scrollTop = 500
+    fireEvent.scroll(list)
+    box.scrollHeight = 3400
+    redraw({ line: { working: true, since: 'b' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to latest' }))
+    expect(list.scrollTop).toBe(2600)
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
+  })
+
   it('keeps the pin while its turn runs and releases it to the rows when it ends', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one')])

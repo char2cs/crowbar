@@ -42,6 +42,7 @@ import type {
   UserItem,
 } from '@/features/agent/stores/lib/transcript-items'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
+import { JumpToLatest } from '@/features/agent/transcript/jump-to-latest'
 import {
   TranscriptRow,
   type RowActions,
@@ -413,6 +414,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     return () => cancelAnimationFrame(frame)
   }, [empty])
 
+  const jumpToLatest = () => {
+    stick()
+    notifyReflow()
+  }
+
   return (
     <div
       className="scroll"
@@ -477,6 +483,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           </div>
         )}
         <WorkingLine {...props.line} />
+        {!holding && !empty && <JumpToLatest onJump={jumpToLatest} />}
         <div className="dock-spacer" aria-hidden="true" />
       </div>
     </div>
