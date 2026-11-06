@@ -369,6 +369,22 @@ describe('applyRow', () => {
     expect(feed.items['k:4']).toMatchObject({ marker: 'provider_switched', detail: 'codex' })
   })
 
+  it('draws a warning the chat already shows once, though each new connection repeats it', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.row('marker', { kind: 'warning', detail: 'no bubblewrap' }),
+      l.start('turn-1'),
+      l.end('turn-1'),
+      l.row('marker', { kind: 'warning', detail: 'no bubblewrap' }),
+      l.row('marker', { kind: 'warning', detail: 'resumed on another model' }),
+    ])
+    const warnings = feed.order.filter((id) => feed.items[id]?.kind === 'marker')
+    expect(warnings.map((id) => (feed.items[id] as { detail?: string }).detail)).toEqual([
+      'no bubblewrap',
+      'resumed on another model',
+    ])
+  })
+
   it("names the model each turn ran on: its CLI's launch model, then any change", () => {
     const l = ledger()
     const runner = (runnerId: string, launchModel: string) =>
