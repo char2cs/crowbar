@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 
@@ -129,7 +130,8 @@ func (rs *Runners) setChatSelectionLocked(
 	if model != before.Model {
 		rs.divide(ctx, chatID, ledger.MarkerModelChanged, model)
 	}
-	if effort != before.Effort {
+	// An unset effort runs as the one its turns report: picking that one is no change.
+	if effort != before.Effort && effort != cmp.Or(before.Effort, st.ReportedEffort()) {
 		rs.divide(ctx, chatID, ledger.MarkerEffortChanged, effort)
 	}
 	return nil

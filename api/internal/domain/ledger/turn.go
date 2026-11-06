@@ -99,6 +99,10 @@ func (s State) LastTurn() (Turn, bool) {
 	return s.turn.Turn, s.hasTurn
 }
 
+// ReportedEffort is the effort the newest main turn to report one ran at: what
+// a chat that never picked an effort runs as. "" when no turn reported one.
+func (s State) ReportedEffort() string { return s.effort }
+
 // Busy reports whether the chat is working: a main-scope turn runs, or a
 // subagent is starting or running, whatever turn spawned it.
 func (s State) Busy() bool {
@@ -154,6 +158,9 @@ func (s *State) applyTurnEnded(r Row) {
 		return
 	}
 	s.turn.Status, s.turn.closeSeq = next, r.Seq
+	if body.Effort != "" {
+		s.effort = body.Effort
+	}
 	outlived := s.SubagentRunning()
 	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID && !a.OutlivesEnd(outlived) })
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
