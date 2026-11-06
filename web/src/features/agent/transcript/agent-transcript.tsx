@@ -399,7 +399,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
   const measuring = virtualItems.some((row) => !measured.has(row.key))
-  useOlderTurns(chatId, virtualItems[0]?.index, anchor.keepPlace)
+  useOlderTurns(chatId, virtualItems[0]?.index, scrollRef, anchor.keepPlace)
   useLayoutEffect(() => afterCommit(measuring))
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
