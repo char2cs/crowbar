@@ -22,7 +22,11 @@ export interface RowPlace {
   precedingUserAt?: string
 }
 
-function useTurnFact(chatId: string, turnId: string | undefined, fact: 'providers' | 'efforts' | 'models') {
+function useTurnFact(
+  chatId: string,
+  turnId: string | undefined,
+  fact: 'providers' | 'efforts' | 'models',
+) {
   return useChatStore((s) => (turnId ? s.feeds[chatId]?.facts[fact][turnId] : undefined))
 }
 
