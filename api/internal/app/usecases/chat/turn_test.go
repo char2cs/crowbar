@@ -755,16 +755,16 @@ func TestHook_TwoIdenticalTurnEndsAreTwoTurns(t *testing.T) {
 	assert.Len(t, turns, 2)
 }
 
-// A hook from a runner the daemon does not hold is refused and kept as a dead
-// letter, so a CLI that outlived its runner is visible rather than silent.
-func TestHook_AnUnknownRunnerIsRefusedAndDeadLettered(t *testing.T) {
+// A hook from a runner the daemon does not hold is refused, but no dead letter:
+// the door admits only runners this daemon minted, so its chat was erased.
+func TestHook_AnUnknownRunnerIsRefusedNotDeadLettered(t *testing.T) {
 	f := newFixture(t)
 
 	lateHook(t, f, uuid.NewString(), "claude", "session_start", map[string]any{"session_id": "sid-1"})
 
 	assert.Empty(t, f.bc.snapshot())
 	assert.Empty(t, f.runnerKinds(t), "a hook must never resurrect a runner we do not know")
-	assert.Equal(t, 1, deadLetters(t, f))
+	assert.Zero(t, deadLetters(t, f))
 }
 
 // Once the PTY is gone no turn opens on its runner: a late prompt from it
