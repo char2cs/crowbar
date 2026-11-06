@@ -913,7 +913,7 @@ func TestSubmitPrompt_RunnerPersistFailureAfterPTYStartIsOutcomeUnknown(t *testi
 	f.refuseRunnerStarted(t)
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", uuid.NewString(), "", nil)
-	assert.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
+	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	assert.Equal(t, 2, f.term.callCount(), "the replacement PTY started before runner persistence failed")
 	_, err = f.liveRunnerFor(t, chatID)
 	assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "the torn-down replacement leaves the chat free")
