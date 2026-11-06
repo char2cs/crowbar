@@ -36,11 +36,18 @@ func Decide(
 		return engineagents.AnswerDecision{}, err
 	}
 	decision.Key = key
+	// A provider reads a deny with no message as its own hook's refusal.
+	if key == domain.ChoiceOptionDeny && decision.Reason == "" {
+		decision.Reason = personDenied
+	}
 	if key == domain.ChoiceOptionAnswer {
 		decision.Answers = answersByQuestion(answers)
 	}
 	return decision, nil
 }
+
+// personDenied is what a deny says when the person gave no reason of their own.
+const personDenied = "The user denied this request."
 
 // RefusalKey is the canonical reply that declines an ask of kind event without
 // ending the turn — what a desk sends when nobody answered in time.
