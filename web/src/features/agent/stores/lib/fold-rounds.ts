@@ -35,8 +35,7 @@ export function placeMessage(fold: FeedFold, row: LedgerRow<'assistant_text'>, i
   const turn = row.turnId ?? ''
   const round = row.scope ? undefined : fold.facts.calls[turn]
   const whole = row.body.index === 0 && row.body.final === true
-  const above = whole && round?.first && fold.placed(round.first) ? round.first : undefined
-  fold.place(id, row.scope ?? '', above)
+  const above = fold.place(id, row.scope ?? '', whole ? round?.first : undefined)
   if (!round) return
   const closing = above && round.open.length === 0 ? id : undefined
   fold.record('calls')[turn] = { open: [], ended: false, closing }

@@ -131,8 +131,8 @@ export class FeedFold {
     return this.facts[key]
   }
 
-  /** Places a new item: main scope in the order (above `before` when that is
-   *  placed), a subagent's under its scope. */
+  /** Places a new item: main scope in the order, a subagent's under its scope.
+   *  Answers whether it went above `before`, which must already be placed. */
   place(id: string, scope: string, before?: string) {
     if (scope) {
       this.scoped ??= { ...this.base.scoped }
@@ -141,24 +141,26 @@ export class FeedFold {
         this.scoped[scope] = [...(this.scoped[scope] ?? [])]
       }
       this.scoped[scope].push(id)
-      return
+      return false
     }
     const tail = this.liveTail ?? this.base.liveTail
     if (tail.includes(id)) this.liveTail = tail.filter((other) => other !== id)
     const item = this.item(id)
     const turn = item?.turnId ?? ''
     if (this.facts.traceless[turn]) {
-      if (item?.kind === 'marker') return
+      if (item?.kind === 'marker') return false
       reviveTurn(this, turn)
     }
     this.order ??= [...this.base.order]
     // What a provider flushes after its turn ended still reads above that end.
-    let at = this.order.indexOf(before ?? '')
-    if (at < 0) at = this.order.length
+    let at = before ? this.order.lastIndexOf(before) : -1
+    const above = at >= 0
+    if (!above) at = this.order.length
     while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
     this.order.splice(at, 0, id)
     const open = this.openIn(turn)
     if (item && isUnsettled(item) && !open.includes(id)) this.setOpen(turn, [...open, id])
+    return above
   }
 
   private isEndOf(id: string, turn: string) {
@@ -196,8 +198,11 @@ export class FeedFold {
   }
 
   unplace(id: string) {
-    const order = this.order ?? this.base.order
-    if (order.includes(id)) this.order = order.filter((other) => other !== id)
+    // From the end: what moves or goes is nearly always among the newest.
+    const at = (this.order ?? this.base.order).lastIndexOf(id)
+    if (at < 0) return
+    this.order ??= [...this.base.order]
+    this.order.splice(at, 1)
   }
 
   /** Main-scope ids a turn end can still change, by turn ('' for none). */
