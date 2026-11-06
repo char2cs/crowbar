@@ -40,7 +40,9 @@ describe('parseTurnDiff', () => {
 
   // The daemon's per-edit diffs carry git's a/ b/ prefixes without a `diff --git` line.
   it('reads an edit with git prefixes but no git header as a change, not a rename', () => {
-    const edit = ['--- a/src/calc.py', '+++ b/src/calc.py', '@@ -1 +1,2 @@', ' x', '+y', ''].join('\n')
+    const edit = ['--- a/src/calc.py', '+++ b/src/calc.py', '@@ -1 +1,2 @@', ' x', '+y', ''].join(
+      '\n',
+    )
     const [item] = parseTurnDiff(edit, 'turn-1')
 
     expect(item?.type === 'diff' && item.fileDiff).toMatchObject({
