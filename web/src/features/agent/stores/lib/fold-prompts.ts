@@ -81,6 +81,14 @@ const PILL_MARKERS = new Set([
 ])
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
 
+/** A CLI repeats some warnings on every connection; the chat says each once. */
+export function warningShown(fold: FeedFold, detail: string | undefined) {
+  return fold.placedOrder.some((id) => {
+    const item = fold.item(id)
+    return item?.kind === 'marker' && item.marker === 'warning' && item.detail === detail
+  })
+}
+
 /** A switch made with nothing said since the last of its kind supersedes that
  *  one: back-and-forth switches on a quiet chat read as where it landed. */
 function dropSupersededDivider(fold: FeedFold, kind: string) {

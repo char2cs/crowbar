@@ -301,8 +301,7 @@ func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, stdio, nil)
+	drv, err := apidriver.Start(ctx, loadCodexAPIDescriptor(t), stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = drv.Close() }()
 
@@ -311,28 +310,10 @@ func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t
 		"permission.sandbox": "danger-full-access", "permission.approvalPolicy": "never",
 	})
 	require.NoError(t, err)
+	require.Contains(t, (*seen)[0], `"excludeTurns":true`, "a resume skips the history Crowbar never reads")
 	require.Contains(t, (*seen)[0], `"sandbox":"danger-full-access"`,
 		"a resumed thread must be handed the CURRENT permission level too, not just a fresh one")
 	require.Contains(t, (*seen)[0], `"approvalPolicy":"never"`)
-}
-
-// A resume asks for no history: Crowbar's own ledger is the transcript, and
-// hydrating every past turn cost the first prompt after a restart seconds
-// (live, 0.167: 1.45s with history, 0.10s without).
-func TestEstablishSession_ResumeSkipsTheThreadsHistory(t *testing.T) {
-	stdio, seen := scriptedServer(t, []scriptedCall{
-		{method: "thread/resume", result: `{"thread":{"id":"known-1"}}`},
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	drv, err := apidriver.Start(ctx, loadCodexAPIDescriptor(t), stdio, nil)
-	require.NoError(t, err)
-	defer func() { _ = drv.Close() }()
-
-	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "known-1", "cwd": "/work"})
-	require.NoError(t, err)
-	require.Contains(t, (*seen)[0], `"excludeTurns":true`)
 }
 
 func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.T) {

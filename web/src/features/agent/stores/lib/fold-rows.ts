@@ -7,6 +7,7 @@ import {
   retractTurn,
   reviveTurn,
   setPrompt,
+  warningShown,
 } from '@/features/agent/stores/lib/fold-prompts'
 import {
   applyAsk,
@@ -352,14 +353,6 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
   if (kind === 'model_changed' && !row.scope) fold.set('model', detail ?? '')
   if (kind === 'warning' && warningShown(fold, detail)) return
   if (!row.scope) divider(fold, kind, () => marker(fold, row, kind, detail))
-}
-
-/** A CLI repeats some warnings on every connection; the chat says each once. */
-function warningShown(fold: FeedFold, detail: string | undefined) {
-  return fold.placedOrder.some((id) => {
-    const item = fold.item(id)
-    return item?.kind === 'marker' && item.marker === 'warning' && item.detail === detail
-  })
 }
 
 /** The reply its turn closed on that `item` is shown as: the one its message named,

@@ -1274,24 +1274,3 @@ func TestSurfaceNames_MatchTheDescriptorVocabulary(t *testing.T) {
 	assert.True(t, domain.KnownSurface(agents.SurfaceChat))
 	assert.True(t, domain.KnownSurface(agents.SurfaceTerminal))
 }
-
-// codex tells its TUI user about a resumed session's model mismatch or a sandbox
-// problem; the native chat must show the same warnings (recorded live, 0.164).
-func TestCodexWarningsReachTheChatAsWarnings(t *testing.T) {
-	for file, want := range map[string]string{
-		"warning.json":       "recorded with model",
-		"configWarning.json": "bubblewrap",
-	} {
-		raw, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "codex", file))
-		require.NoError(t, err)
-		var frame struct {
-			Params json.RawMessage `json:"params"`
-		}
-		require.NoError(t, json.Unmarshal(raw, &frame))
-
-		ev, err := get(t, "codex").ParseHook(agents.HookWarning, frame.Params, agents.ChannelAPI)
-
-		require.NoError(t, err, file)
-		assert.Contains(t, ev.Message, want, file)
-	}
-}

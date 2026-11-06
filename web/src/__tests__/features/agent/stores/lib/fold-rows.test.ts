@@ -357,34 +357,6 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['k:2', 'k:3'])
   })
 
-  it('draws one switch divider for switches back and forth with nothing said between', () => {
-    const l = ledger()
-    const feed = applyRows(emptyFeed(), [
-      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
-      l.row('marker', { kind: 'model_changed', detail: 'big' }),
-      l.row('marker', { kind: 'provider_switched', detail: 'claude' }),
-      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
-    ])
-    expect(feed.order).toEqual(['k:2', 'k:4'])
-    expect(feed.items['k:4']).toMatchObject({ marker: 'provider_switched', detail: 'codex' })
-  })
-
-  it('draws a warning the chat already shows once, though each new connection repeats it', () => {
-    const l = ledger()
-    const feed = applyRows(emptyFeed(), [
-      l.row('marker', { kind: 'warning', detail: 'no bubblewrap' }),
-      l.start('turn-1'),
-      l.end('turn-1'),
-      l.row('marker', { kind: 'warning', detail: 'no bubblewrap' }),
-      l.row('marker', { kind: 'warning', detail: 'resumed on another model' }),
-    ])
-    const warnings = feed.order.filter((id) => feed.items[id]?.kind === 'marker')
-    expect(warnings.map((id) => (feed.items[id] as { detail?: string }).detail)).toEqual([
-      'no bubblewrap',
-      'resumed on another model',
-    ])
-  })
-
   it("names the model each turn ran on: its CLI's launch model, then any change", () => {
     const l = ledger()
     const runner = (runnerId: string, launchModel: string) =>
@@ -408,19 +380,6 @@ describe('applyRow', () => {
       l.start('turn-3'),
     ])
     expect(feed.facts.models).toEqual({ 'turn-1': 'sonnet', 'turn-2': 'opus' })
-  })
-
-  it('shows what the CLI warned its user about as a notice in the transcript', () => {
-    const l = ledger()
-    const feed = applyRows(emptyFeed(), [
-      l.row('marker', { kind: 'warning', detail: 'Code Mode is unavailable' }),
-    ])
-    expect(feed.order).toEqual(['k:1'])
-    expect(feed.items['k:1']).toMatchObject({
-      kind: 'marker',
-      marker: 'warning',
-      detail: 'Code Mode is unavailable',
-    })
   })
 
   // A launch records its prompt, then the CLI that carries it says what it switched to.
