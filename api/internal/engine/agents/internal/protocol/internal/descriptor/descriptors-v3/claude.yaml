@@ -124,6 +124,7 @@ events:
       mcp_server:  mcp_server.name
       mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       edit_before: tool_input.old_string
       edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
     fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json, PreToolUse.Bash.json,
@@ -148,6 +149,7 @@ events:
       mcp_server:  mcp_server.name
       mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       tool_result: tool_response
       duration_ms: duration_ms
       spawns_scope: tool_response.agentId
@@ -179,6 +181,7 @@ events:
       mcp_server:  mcp_server.name
       mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       tool_result: { first_present: [tool_response, error] }
       tool_error:  error
       duration_ms: duration_ms

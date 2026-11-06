@@ -344,6 +344,7 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 
 		EditBefore: mapping.String(decoded, fields["edit_before"]),
 		EditAfter:  mapping.String(decoded, fields["edit_after"]),
+		Cwd:        mapping.String(decoded, fields["cwd"]),
 		Diff:       buildDiffFiles(diffFiles, decoded),
 		Patch:      buildPatch(patch, decoded),
 

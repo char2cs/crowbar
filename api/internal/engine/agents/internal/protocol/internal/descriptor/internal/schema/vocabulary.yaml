@@ -46,11 +46,12 @@ events:
     optional: [session_id, message, detail, turn_id]
 
   # tool_title is the agent's own description of the call, mcp_server and mcp_tool name a
-  # call into an MCP server, exit_code and interrupted say how a call ended.
+  # call into an MCP server, exit_code and interrupted say how a call ended; cwd is the
+  # session's directory, which a diff names its files from.
   tool_pre:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, spawns_scope, addresses_scope, scope_id, tool_title, mcp_server, mcp_tool, exit_code, interrupted]
+    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, spawns_scope, addresses_scope, scope_id, tool_title, mcp_server, mcp_tool, exit_code, interrupted, cwd]
     extras: [kind_map, locations, diff_files]
 
   tool_post:
@@ -77,6 +78,7 @@ events:
       - mcp_tool
       - exit_code
       - interrupted
+      - cwd
 
   # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it. Mapping only
   # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
@@ -103,6 +105,7 @@ events:
       - mcp_tool
       - exit_code
       - interrupted
+      - cwd
 
   # status is Crowbar's word (failed, else done) by the event's status_map.
   subagent_pre:
