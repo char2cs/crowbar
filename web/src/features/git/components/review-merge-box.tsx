@@ -28,7 +28,9 @@ function blockedReason(
   parentBranch: string | undefined,
   uncommitted: number,
   openThreads: number,
+  unchanged: boolean,
 ): string | null {
+  if (unchanged) return 'Nothing to merge yet — this branch has no changes.'
   if (kind === 'commit') return `${plural(uncommitted, 'uncommitted change')} — commit them first.`
   if (kind === 'resolve') return `Conflicts with ${parentBranch} — resolve them first.`
   if (kind === 'pull-request') return `${parentBranch} is protected — open a pull request instead.`
@@ -41,6 +43,7 @@ function blockedReason(
 export function ReviewMergeBox({ wsId }: { wsId: string }) {
   const ws = useSelect((s) => selectWorkspace(s, wsId) ?? null)
   const gitStatus = useWorkspaceStoreById(wsId, (s) => s.gitStatus)
+  const changedFiles = useWorkspaceStoreById(wsId, (s) => s.reviewFiles?.length ?? null)
   const threads = useReviewThreads(wsId)
   const openThreads = threads.filter((t) => !t.isResolved).length
   const parentBranch = ws?.parentBranch
@@ -59,7 +62,10 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
     status: ws?.status ?? 'new',
   })
   const merged = ws?.status === 'pr-merged'
-  const reason = merged ? null : blockedReason(action.kind, parentBranch, uncommitted, openThreads)
+  const unchanged = changedFiles === 0 && uncommitted === 0
+  const reason = merged
+    ? null
+    : blockedReason(action.kind, parentBranch, uncommitted, openThreads, unchanged)
   const active = MERGE_STRATEGIES.find((s) => s.value === strategy) ?? MERGE_STRATEGIES[0]
 
   return (

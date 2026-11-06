@@ -74,6 +74,7 @@ function setup(opts: {
   const store = getOrCreateWorkspaceStore(WS)
   store.setState({
     gitStatus: { branch: 'feature', ahead: 0, behind: 0, files: [], ...opts.git },
+    reviewFiles: null,
   })
   store.setState((s) => ({ branchReview: { ...s.branchReview, mergeStrategy: 'merge' } }))
   for (const thread of opts.threads ?? []) putReviewThread(WS, thread)
@@ -110,6 +111,15 @@ describe('ReviewMergeBox', () => {
     })
     expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', true, op.id)
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith(PARENT_ROUTE))
+  })
+
+  // Merging a branch with no changes merges nothing but would still delete the workspace.
+  it('offers no merge while the branch has no changes against its parent', () => {
+    const { store } = setup({})
+    act(() => store.setState({ reviewFiles: [] }))
+
+    expect(mergeButton().disabled).toBe(true)
+    expect(screen.getByText('Nothing to merge yet — this branch has no changes.')).toBeTruthy()
   })
 
   it('keeps the workspace and stays put when delete-after-merge is unticked', async () => {
