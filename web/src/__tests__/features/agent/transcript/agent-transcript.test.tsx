@@ -385,6 +385,24 @@ describe('AgentTranscript', () => {
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
   })
 
+  it('copies a code block’s empty line as empty, not as the editor’s caret anchor', () => {
+    const l = ledger()
+    const code = '```\nfirst\n\nthird\n```'
+    seedFeed('chat-1', [
+      l.prompt('r1', 'go'),
+      l.start('turn-1', 'r1'),
+      l.text('turn-1', 'm1', 0, code, true),
+    ])
+    draw()
+    const block = document.querySelector('pre')!
+    getSelection()!.selectAllChildren(block)
+    const data = new Map<string, string>()
+    const clipboardData = { setData: (type: string, value: string) => data.set(type, value) }
+    fireEvent.copy(block, { clipboardData })
+    expect(data.get('text/plain')).toBe('firstthird')
+    expect(data.get('text/html')).not.toContain('\uFEFF')
+  })
+
   it('keeps the pin while its turn runs and releases it to the rows when it ends', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one')])
