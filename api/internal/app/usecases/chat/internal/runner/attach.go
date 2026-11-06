@@ -318,8 +318,10 @@ func (rs *Runners) detachNativeView(
 	ctx context.Context, h *hold, live engineagents.Runner, view attachedView,
 ) error {
 	chatID := live.CurrentChatID
+	// The handshake can take as long as the CLI does; a reload must not cancel it.
+	ctx = context.WithoutCancel(ctx)
+	defer rs.enterPhase(ctx, chatID, snapshot.PhaseSwitching)()
 	rs.attached.drop(live.ID)
-	rs.touch(ctx, chatID)
 
 	if err := h.outside(func(context.Context) error {
 		err := rs.term.TerminateGraceful(ctx, view.termSessID)
