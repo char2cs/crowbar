@@ -16,7 +16,7 @@ func TestCodexDescriptor_CommandActionsGiveKindTargetAndExitCode(t *testing.T) {
 		exit                      int
 	}{
 		{"tool_post", "item_completed.commandExecution.read.json", "read", "cat notes.txt", 0},
-		{"tool_post", "item_completed.commandExecution.json", "search", "ls -la", 0},
+		{"tool_post", "item_completed.commandExecution.json", "execute", "ls -la", 0}, // a listing it ran, not a search
 		{"tool_fail", "item_completed.commandExecutionFailed.json", "read", "cat does-not-exist.txt", 1},
 	} {
 		tool := parseRecorded(t, d, tc.event, tc.file, spec.ChannelAPI)
