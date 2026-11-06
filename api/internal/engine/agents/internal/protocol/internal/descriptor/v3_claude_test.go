@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/termprompt"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -140,4 +141,21 @@ func TestClaudeDescriptor_ATaskUpdateIsAPlanStep(t *testing.T) {
 		t.Fatalf("step %v, err %v", renamed.Step, err)
 	}
 	expectEq(t, "a rename says no status", *renamed.Step, models.PlanStepEvent{StepID: "1", Text: "renamed"})
+}
+
+// Trusting must land on "Yes" whichever row claude opens selected: 2.1.281 numbered Yes first,
+// 2.1.319 lists "No, exit" first and selected, so Enter alone would exit the CLI.
+func TestClaudeDescriptor_TrustAnswerSelectsYes(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	for _, tc := range []struct{ screen, keys string }{
+		{"│ ❯ 1. Yes, I trust this folder │\n│   2. No, exit │\n│ Enter to confirm · Esc to cancel │", "\r"},
+		{" Quick safety check: Is this a project you created or one you trust?\n ❯ No, exit\n" +
+			"   Yes, I trust this folder\n Enter to confirm · Esc to cancel", "\x1b[B\r"},
+	} {
+		got, ok := termprompt.Match(d, tc.screen)
+		if !ok || got.Kind != spec.TerminalPromptTrust || len(got.Answers) != 1 {
+			t.Fatalf("trust dialog not identified: %+v on %q", got, tc.screen)
+		}
+		expectEq(t, "accept keys", got.Answers[0].Keys, tc.keys)
+	}
 }

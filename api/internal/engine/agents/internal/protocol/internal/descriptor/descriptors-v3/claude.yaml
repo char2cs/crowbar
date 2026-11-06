@@ -601,9 +601,17 @@ injected_prompts:
 # is an empty pane over a blocked process with no channel to answer it.
 # Matching ignores spacing/punctuation (see the termprompt package).
 terminal_prompts:
+  # 2.1.319 lists "No, exit" first and selected: Down reaches Yes. Listed first, as
+  # its needle (the rows in that order) is the narrower match.
+  - kind: workspace_trust
+    needle: "No, exit Yes, I trust this folder"
+    answers:
+      - id: accept
+        label: "Trust workspace"
+        keys: "\e[B\r"
+  # 2.1.281 opens with "1. Yes, I trust this folder" selected; Enter takes it.
   - kind: workspace_trust
     needle: "I trust this folder"
-    # The dialog opens with "Yes, I trust this folder" selected; Enter takes it.
     answers:
       - id: accept
         label: "Trust workspace"
