@@ -17,6 +17,7 @@ import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
 import { useSidebarFocusMode } from './use-sidebar-focus-mode'
+import { useDocumentTitle } from '@/features/window/hooks/use-document-title'
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { IdeShellWorkspaceContent } from './ide-shell-workspace-content'
@@ -47,6 +48,7 @@ function IdeShellBody() {
   useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
   useSidebarFocusMode()
+  useDocumentTitle()
   const {
     activeProjectId: activeProjectIdFromRoute,
     allProjects,
