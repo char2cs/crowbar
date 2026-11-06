@@ -6,6 +6,8 @@ import type { ChatMarkdownEditorHandle } from '@/features/agent/composer/plate/c
 
 const ref = createRef<ChatMarkdownEditorHandle>()
 
+const onShapeChange = vi.fn()
+
 function drawField(chatId: string) {
   render(
     <ComposerField
@@ -15,7 +17,7 @@ function drawField(chatId: string) {
       placement="dock"
       placeholder=""
       expanded={false}
-      onShapeChange={vi.fn()}
+      onShapeChange={onShapeChange}
       onKeyDown={vi.fn()}
       onHeightChange={vi.fn()}
     />,
@@ -47,5 +49,23 @@ describe('ComposerField — a chat keeps its unsent draft', () => {
 
     reload('c3')
     expect(ref.current?.getMarkdown()).toBe('')
+  })
+})
+
+describe('ComposerField — an @ path', () => {
+  it('reports the @ path before the caret, and completes it in place', () => {
+    drawField('c4')
+    act(() => ref.current?.setMarkdown('see @src/ma'))
+    expect(onShapeChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mentionQuery: 'src/ma' }),
+      false,
+    )
+
+    act(() => ref.current?.completeMention('@src/main.ts '))
+    expect(ref.current?.getMarkdown().trim()).toBe('see @src/main.ts')
+    expect(onShapeChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mentionQuery: null }),
+      true,
+    )
   })
 })

@@ -105,31 +105,17 @@ describe('ComposerChoice that can be answered', () => {
     )
   })
 
-  // A plan's "tell it what to change" is a deny that carries what to change.
-  it('sends what is typed in the reason field with a Deny', async () => {
-    draw()
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Reason, sent with Deny' }), {
-      target: { value: 'name it b.txt' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
-
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
-        optionIds: ['deny'],
-        reason: 'name it b.txt',
-      }),
-    )
-  })
-
   // Sent is NOT resolved. The terminal can decide the same prompt in the same
   // instant, so the card stays until the server says how it actually ended.
-  it('says the answer is sent and waits for the server to confirm it', async () => {
+  it('sends a Deny with its reason and waits for the server to confirm it', async () => {
     draw()
-
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    fireEvent.change(reason, { target: { value: 'name it b.txt' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
 
     await waitFor(() => expect(screen.getByTestId('agent-choice-sent')).toBeInTheDocument())
+    const sent = { optionIds: ['deny'], reason: 'name it b.txt' }
+    expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', sent)
     expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
   })
 

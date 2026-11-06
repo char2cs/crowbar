@@ -862,12 +862,7 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 	require.NoError(t, err)
 	allow, err := a.RenderAnswer(agents.HookPermission, plan, agents.AnswerDecision{Key: "allow"})
 	require.NoError(t, err)
-	var got struct {
-		HookSpecificOutput struct{ Decision map[string]any } `json:"hookSpecificOutput"`
-	}
-	require.NoError(t, json.Unmarshal(allow, &got))
-	assert.Equal(t, "allow", got.HookSpecificOutput.Decision["behavior"])
-	assert.Contains(t, got.HookSpecificOutput.Decision["updatedInput"], "plan")
+	assert.Contains(t, string(allow), `"decision":{"behavior":"allow","updatedInput":{"plan":`)
 
 	deny, err := a.RenderAnswer(agents.HookPermission, nil,
 		agents.AnswerDecision{Key: "deny", Reason: "no"})

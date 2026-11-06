@@ -122,14 +122,10 @@ function keyEvent(
 }
 
 const grabbed: { editor?: PlateEditor } = {}
-const shape = (
-  empty: boolean,
-  slashQuery: string | null = null,
-  mentionQuery: string | null = null,
-) => ({
+const shape = (empty: boolean, slashQuery: string | null = null) => ({
   empty,
   slashQuery,
-  mentionQuery,
+  mentionQuery: null,
 })
 
 function GrabEditor() {
@@ -247,21 +243,6 @@ describe('ChatMarkdownEditor shape and commits', () => {
     expect(serialize).not.toHaveBeenCalled()
   })
 
-  it('reports the @ path before the caret, and completes it in place', async () => {
-    const onShapeChange = vi.fn()
-    const { ref } = await renderEditor(onShapeChange)
-
-    await act(async () => {
-      grabbed.editor!.tf.select(grabbed.editor!.api.end([])!)
-      grabbed.editor!.tf.insertText('see @src/ma')
-    })
-    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false, null, 'src/ma'), true)
-
-    act(() => ref.current?.completeMention('@src/main.ts '))
-    expect(ref.current?.getMarkdown().trim()).toBe('see @src/main.ts')
-    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
-  })
-
   it('commits an edit to the text once', async () => {
     const onShapeChange = vi.fn()
     const { counter, type } = await renderEditor(onShapeChange)
@@ -304,25 +285,18 @@ describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
     expect(handled).toBe(true)
   })
 
-  it('does nothing for a drop that carries no Files', () => {
-    const onDrop = renderAndCapture()
-    const preventDefault = vi.fn()
+  it.each([{ types: ['text/plain'] }, null])(
+    'does nothing for a drop with no Files (dataTransfer %o)',
+    (dataTransfer) => {
+      const onDrop = renderAndCapture()
+      const preventDefault = vi.fn()
 
-    const handled = onDrop({ event: { dataTransfer: { types: ['text/plain'] }, preventDefault } })
+      const handled = onDrop({ event: { dataTransfer, preventDefault } })
 
-    expect(preventDefault).not.toHaveBeenCalled()
-    expect(handled).toBeUndefined()
-  })
-
-  it('does nothing when the drop event carries no dataTransfer at all', () => {
-    const onDrop = renderAndCapture()
-    const preventDefault = vi.fn()
-
-    const handled = onDrop({ event: { dataTransfer: null, preventDefault } })
-
-    expect(preventDefault).not.toHaveBeenCalled()
-    expect(handled).toBeUndefined()
-  })
+      expect(preventDefault).not.toHaveBeenCalled()
+      expect(handled).toBeUndefined()
+    },
+  )
 })
 
 describe('ChatMarkdownEditor key handling', () => {
