@@ -214,6 +214,30 @@ describe('applyRow', () => {
     expect(feed.items['m:turn-1:m1']).toMatchObject({ text: 'Hello world', settled: true })
   })
 
+  it('reads a message that lands while its calls run above them, as it was said', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'go'),
+      l.start('turn-1', 'r1'),
+      l.tool('turn-1', 'step-1', 'pre'),
+      l.tool('turn-1', 'step-1', 'post'),
+      l.tool('turn-1', 'step-2', 'pre'),
+      l.tool('turn-1', 'step-3', 'pre'),
+      l.text('turn-1', 'm1', 0, 'Step 1 done, so steps 2 and 3 now.', true),
+      l.tool('turn-1', 'step-2', 'post'),
+      l.tool('turn-1', 'step-3', 'post'),
+      l.text('turn-1', 'm2', 0, 'Done.', true),
+    ])
+    expect(feed.order).toEqual([
+      'p:r1',
+      't:step-1',
+      'm:turn-1:m1',
+      't:step-2',
+      't:step-3',
+      'm:turn-1:m2',
+    ])
+  })
+
   it('settles every text of a turn when the turn ends', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [l.text('turn-1', 'm1', 0, 'Hel'), l.end('turn-1')])

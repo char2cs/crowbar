@@ -148,16 +148,21 @@ export class FeedFold {
       reviveTurn(this, turn)
     }
     this.order ??= [...this.base.order]
-    // What a provider flushes after its turn ended still reads above that end.
     let at = this.order.length
-    while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
+    while (item && turn !== '' && at > 0 && this.readsBelow(item, this.order[at - 1]!)) at--
     this.order.splice(at, 0, id)
     if (item && isUnsettled(item)) this.setOpen(turn, [...this.openIn(turn), id])
   }
 
-  private isEndOf(id: string, turn: string) {
-    const item = this.item(id)
-    return turn !== '' && item?.kind === 'marker' && item.turnId === turn
+  /** Whether `item` was said before the already placed `above`, though it landed after. */
+  private readsBelow(item: TranscriptItem, above: string): boolean {
+    const prev = this.item(above)
+    if (!prev || prev.turnId === undefined) return false
+    if (prev.turnId !== item.turnId) return false
+    // What a provider flushes after its turn ended still reads above that end.
+    if (prev.kind === 'marker') return item.kind !== 'marker'
+    // A model says nothing while its calls run: text landing then was said before them.
+    return item.kind === 'text' && prev.kind === 'tool' && prev.status === 'running'
   }
 
   /** Moves `turn`'s streamed text into the order, above the turn's end, holding
