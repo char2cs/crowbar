@@ -61,29 +61,14 @@ export function MarkdownEditorPane({ paneId, bufferId }: MarkdownEditorPaneProps
     // it stays reachable (and lets the user bail to source view) even if the
     // inner rich editor is mid-crash — it must not depend on the child's state.
     <div className="relative h-full">
-      {/* Sits in the reading column's right gutter. It clears the text
-          vertically too — the surface's 3rem top padding starts the first
-          line below it — and the wash keeps it legible over content that
-          scrolls underneath. z-[60]: strictly above the floating selection
-          toolbar (z-40, floating-toolbar.tsx), which comes after this div in
-          the tree, so it needs real headroom, not just a matching z-index. */}
+      {/* In the reading column's right gutter; z-[60] keeps it above the floating selection
+          toolbar (z-40), which comes later in the tree. */}
       <div className="absolute right-2 top-2 z-[60] rounded-md bg-background/80 backdrop-blur-sm">
         <MarkdownViewToggle bufferId={bufferId} />
       </div>
-      {/* Deserialization and editor construction happen in the CHILD, not here —
-          a React error boundary never catches errors thrown by the component that
-          renders it, so `markdownToPlateValue`/`usePlateEditor` must run below this
-          boundary (inside `MarkdownRichEditor`) for a deserialize/construction
-          crash to actually hit the fallback instead of bypassing it.
-
-          Keyed by `bufferId` (C1): the pane tree renders the active buffer
-          WITHOUT a key, so switching between two `.md` tabs arrives here as a
-          prop update. The Plate editor and its parsed document are memoized for
-          the lifetime of the mount, so without this key the previous file's
-          document would stay on screen while `bufferId` — and therefore the
-          flush target — moved on, writing file A's text into file B. Keying the
-          boundary itself also clears a crash from the previous buffer, so a
-          file that broke Plate doesn't poison its neighbour's tab. */}
+      {/* Parsing runs in the child, since a boundary never catches its own render. Keyed by
+          buffer so a `.md` switch cannot write A's text into B, and a crash in one file's
+          tab does not poison the next. */}
       <ErrorBoundary key={bufferId} fallback={<FallbackToSource onMount={fallbackToSource} />}>
         <MarkdownRichEditor bufferId={bufferId} doc={doc} content={content} />
       </ErrorBoundary>
@@ -253,26 +238,15 @@ function MarkdownRichEditor({
     <MarkdownAssetContext.Provider value={assetInfo}>
       <LinkWorkspaceContext value={linkWorkspace}>
         <Plate editor={editor} onChange={onChange}>
-          {/* `crowbar-markdown-editor` is the scope for markdown-editor.css: the
-            reading column, the block rhythm and every node's typography hang
-            off it. It is ALSO the scroll container. The editable can't be:
-            Plate wraps `PlateContent` in a plain (non-flex) `w-full` div, so an
-            `overflow-auto`/`flex-1` on the editable never bounds it — with no
-            flex parent it grows to full content height and there's nothing to
-            scroll. This bounded `h-full` ancestor is the reliable scroll host;
-            the editable keeps its own padding, so the reading column still
-            centres and the frontmatter banner scrolls with the content. */}
+          {/* The scope of markdown-editor.css and the scroll host: Plate wraps the editable in
+            a non-flex div, so the editable itself can never be bounded to scroll. */}
           <div
             ref={scrollRef}
             className="crowbar-markdown-editor flex h-full flex-col overflow-y-auto"
           >
             {frontmatterText && <MarkdownFrontmatterBanner frontmatter={frontmatterText} />}
-            {/* Two placeholder mechanisms, deliberately non-overlapping:
-              BlockPlaceholderKit (markdown-plugins.ts) hints the FOCUSED empty
-              line once the document already has other content — but its own
-              `isPristineEmptyEditor` check suppresses it on a brand-new,
-              wholly-empty file, which is exactly what Slate's native
-              `placeholder` prop here covers instead. */}
+            {/* BlockPlaceholderKit hints an empty line in a non-empty document; this prop
+              covers the wholly empty file it deliberately skips. */}
             <PlateContent className="outline-none" placeholder="Write…" />
           </div>
         </Plate>

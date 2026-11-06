@@ -81,11 +81,10 @@ func TestAgent_ParseHookToleratesAFailedTurnWithNoDetail(t *testing.T) {
 	assert.Empty(t, ev.Failure.Detail)
 }
 
-// This test used to assert the opposite — "codex still declares no failure hook
-// at all — turn_failed has no wire event on either transport". That claim was
-// wrong against codex's own generated protocol schema
-// (codex-rs/app-server-protocol/schema/json/ServerNotification.json): turn/completed
-// is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
+// This test used to assert the opposite — "codex still declares no failure hook at all —
+// turn_failed has no wire event on either transport". That claim was wrong against codex's own
+// generated protocol schema (codex-rs/app-server-protocol/schema/json/ServerNotification.json):
+// turn/completed is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
 // plus a turn.error, and `failed` is the failure signal.
 //
 // While it went unmapped, a failed codex turn was ingested as an ordinary stop

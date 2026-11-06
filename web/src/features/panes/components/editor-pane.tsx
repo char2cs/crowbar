@@ -90,12 +90,8 @@ export function EditorPane({
         }
       >
         <Suspense fallback={null}>
-          {/* C1: the pane tree renders the active buffer WITHOUT a key, so a
-              `.md` -> `.md` tab switch arrives here as a prop update. The rich
-              editor parses its document once per mount, so it must be keyed by
-              buffer — otherwise file A's document stays live while `bufferId`
-              (and the flush target) moves to B, and the next edit writes A's
-              whole text into B. */}
+          {/* Keyed by buffer: the rich editor parses once per mount, so a `.md` -> `.md` switch
+              would otherwise write A's text into B. */}
           <MarkdownEditorPane key={bufferId} paneId={paneId} bufferId={bufferId} />
         </Suspense>
       </ErrorBoundary>

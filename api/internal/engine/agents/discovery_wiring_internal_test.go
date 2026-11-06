@@ -10,10 +10,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// discoveringDescriptor mirrors codex.yaml's shape enough to exercise the
-// Discover != nil branch of agent.Models/Efforts/DefaultModel — the actual
-// probe/mapping is modeldiscovery's own tests; this proves the WIRING from
-// its Cache into the Agent surface, without a real provider binary.
+// discoveringDescriptor mirrors codex.yaml's shape enough to exercise the Discover != nil branch of
+// agent.Models/Efforts/DefaultModel — the actual probe/mapping is modeldiscovery's own tests; this
+// proves the WIRING from its Cache into the Agent surface, without a real provider binary.
 func discoveringDescriptor() *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe"}
 	d.Model = &spec.ModelSpec{Discover: &spec.ModelDiscoverSpec{

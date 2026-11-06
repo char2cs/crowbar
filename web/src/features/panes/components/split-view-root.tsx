@@ -65,25 +65,9 @@ export function SplitViewRoot() {
 
   return (
     <>
-      {/* ONLY THE SHOWING VIEW OCCUPIES THE CONTENT AREA. The others take no
-          space and paint nothing, so "the active view fills the screen and
-          whatever was there goes away from view" is a property of the layout
-          itself, not of a visibility check inside each pane.
-
-          A parked view is KEPT MOUNTED and hidden with `display: none` — the
-          same dormancy `WorkspaceHost` already runs every retained workspace
-          under (workspace-slot-style.ts, where `content-visibility` is
-          recorded as tried and reverted for melting the CPU). Unmounting
-          would be cheaper on paper and is wrong in practice: a pane's shell
-          terminal disposes its xterm on unmount and remounts onto a live
-          transport that never re-attaches — blank, scrollback gone — and its
-          Monaco models are refcount-released with their undo history.
-          Switching views is a glance, not a close; it may not cost the state
-          of what you glanced away from. `closePane` / `closeView` remain the
-          only things that end a view, and they still run the full teardown.
-
-          `inert` so nothing off screen is focusable, clickable or reachable by
-          keyboard. */}
+      {/* Only the showing view takes space. Parked views stay mounted under `display: none`
+          (unmounting loses a terminal's scrollback and Monaco's undo history) and `inert` so
+          nothing off screen is reachable; closePane/closeView are the only teardown. */}
       {mountedViews.map((view) => (
         <div
           key={view.id}

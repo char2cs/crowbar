@@ -80,13 +80,8 @@ export function MarkdownCommentEditor({
 
   return (
     <Plate editor={editor} onChange={handleChange}>
-      {/* `relative` is load-bearing, not layout garnish. The selection toolbar
-          renders as a SIBLING of the editable (Plate's `afterEditable`) and
-          positions itself `absolute`, so without a positioned ancestor here its
-          containing block is whatever distant element happens to be positioned
-          — measured live, that put the toolbar ~670px right and ~230px below
-          the words it belongs to. The file editor gets this for free from the
-          `relative h-full` wrapper it uses for its view toggle. */}
+      {/* `relative` anchors the selection toolbar, an absolute sibling of the editable;
+          without it the toolbar lands hundreds of pixels from its words. */}
       <div className="relative">
         <PlateContent
           autoFocus={autoFocus}

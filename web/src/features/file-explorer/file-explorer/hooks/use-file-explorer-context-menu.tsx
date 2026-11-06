@@ -240,9 +240,8 @@ export function useFileExplorerContextMenu({
         })
       }
 
-      // "Add Folder to Workspace" is a workspace-level affordance: its impl takes
-      // no path (it opens a folder picker), so it belongs on the root target only,
-      // not on every subdirectory.
+      // "Add Folder to Workspace" is a workspace-level affordance: its impl takes no path (it opens
+      // a folder picker), so it belongs on the root target only, not on every subdirectory.
       if (isRootTarget && onAddFolderToWorkspace) {
         items.push({
           id: 'add-folder-to-workspace',
