@@ -31,50 +31,35 @@ describe('applyRow', () => {
   // the calls it made had started, and sometimes after they had ended.
   it('reads a message reported whole after its calls above them, a closing reply below', () => {
     const l = ledger()
+    const tools = (id: string) => [l.tool('turn-1', id, 'pre'), l.tool('turn-1', id, 'post')]
     const whole = (id: string) => l.text('turn-1', id, 0, id, true)
     const feed = applyRows(emptyFeed(), [
       l.start('turn-1'),
-      l.tool('turn-1', 'silent', 'pre'),
-      l.tool('turn-1', 'silent', 'post'),
-      l.tool('turn-1', 'slow', 'pre'),
-      whole('before-slow'),
-      l.tool('turn-1', 'slow', 'post'),
-      l.tool('turn-1', 'fast', 'pre'),
-      l.tool('turn-1', 'fast', 'post'),
-      whole('before-fast'),
-      l.tool('turn-1', 'last', 'pre'),
-      l.tool('turn-1', 'last', 'post'),
-      whole('closing'),
+      ...tools('s0'),
+      l.tool('turn-1', 's1', 'pre'),
+      whole('A'),
+      l.tool('turn-1', 's1', 'post'),
+      ...tools('f'),
+      whole('B'),
+      ...tools('z'),
+      whole('C'),
       l.end('turn-1'),
+      l.start('turn-2'),
+      l.tool('turn-2', 'g', 'pre'),
+      l.tool('turn-2', 'g', 'post'),
+      l.text('turn-2', 'D', 0, 'D', true),
+      ...[l.tool('turn-2', 'h', 'pre'), l.tool('turn-2', 'h', 'post'), l.end('turn-2')],
     ])
-    expect(feed.order).toEqual([
-      't:silent',
-      'm:turn-1:before-slow',
-      't:slow',
-      'm:turn-1:before-fast',
-      't:fast',
-      't:last',
-      'm:turn-1:closing',
-    ])
-    const l2 = ledger()
-    const wentOn = applyRows(emptyFeed(), [
-      l2.start('turn-1'),
-      l2.tool('turn-1', 'fast', 'pre'),
-      l2.tool('turn-1', 'fast', 'post'),
-      l2.text('turn-1', 'said', 0, 'said', true),
-      l2.tool('turn-1', 'next', 'pre'),
-      l2.tool('turn-1', 'next', 'post'),
-      l2.end('turn-1'),
-    ])
-    expect(wentOn.order).toEqual(['m:turn-1:said', 't:fast', 't:next'])
-    const l3 = ledger()
+    const turn1 = ['t:s0', 'm:turn-1:A', 't:s1', 'm:turn-1:B', 't:f', 't:z', 'm:turn-1:C']
+    expect(feed.order).toEqual([...turn1, 'm:turn-2:D', 't:g', 't:h'])
+    const m = ledger()
     const streamed = applyRows(emptyFeed(), [
-      l3.tool('turn-1', 'a', 'pre'),
-      l3.text('turn-1', 'chunked', 0, 'first part'),
-      l3.tool('turn-2', 'b', 'pre'),
-      l3.text('turn-2', 'complete', -1, 'reported complete'),
+      m.tool('turn-3', 'a', 'pre'),
+      m.text('turn-3', 'chunked', 0, 'first part'),
+      m.tool('turn-4', 'b', 'pre'),
+      m.text('turn-4', 'complete', -1, 'reported complete'),
     ])
-    expect(streamed.order).toEqual(['t:a', 'm:turn-1:chunked', 't:b', 'm:turn-2:complete'])
+    expect(streamed.order).toEqual(['t:a', 'm:turn-3:chunked', 't:b', 'm:turn-4:complete'])
   })
 
   it('keeps the p:<requestId> id from user_message through settle', () => {

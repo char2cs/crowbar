@@ -52,7 +52,6 @@ const emptyFacts: TurnFacts = {
   efforts: {},
   providers: {},
   calls: {},
-  closing: {},
 }
 
 export function emptyFeed(): ChatFeed {
@@ -73,16 +72,9 @@ export function emptyFeed(): ChatFeed {
 }
 
 // Markers a reader sees as a pill; the rest change facts only.
-type FactRecord =
-  | 'prompts'
-  | 'output'
-  | 'traceless'
-  | 'efforts'
-  | 'providers'
-  | 'subagentScopes'
-  | 'pendingScopes'
-  | 'calls'
-  | 'closing'
+type FactRecord = {
+  [K in keyof TurnFacts]: TurnFacts[K] extends Record<string, unknown> ? K : never
+}[keyof TurnFacts]
 
 /** Edits to a feed over one or many rows. Each part is copied on its first
  *  write, so what the rows leave alone keeps its identity, and a replay of
@@ -161,7 +153,7 @@ export class FeedFold {
     }
     this.order ??= [...this.base.order]
     // What a provider flushes after its turn ended still reads above that end.
-    let at = before ? this.order.indexOf(before) : -1
+    let at = this.order.indexOf(before ?? '')
     if (at < 0) at = this.order.length
     while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
     this.order.splice(at, 0, id)
@@ -388,9 +380,7 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
     if (item.settled) fold.put({ ...target, text: fuller(target.text, item.text) })
     return
   }
-  if (known && (known.seq !== 0 || fold.placed(id))) return
-  if (scope) fold.place(id, scope)
-  else placeMessage(fold, row, id)
+  if (!known || (known.seq === 0 && !fold.placed(id))) placeMessage(fold, row, id)
 }
 
 const applyPlan: Apply<'plan'> = (fold, row) => {

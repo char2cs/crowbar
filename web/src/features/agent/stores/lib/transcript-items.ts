@@ -171,10 +171,8 @@ export interface TurnFacts {
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */
   providers: Record<string, string>
-  /** turnId → the round of main-scope calls begun since its last message. */
+  /** turnId → its main-scope calls since its last message. */
   calls: Record<string, CallRound>
-  /** turnId → a message read above calls that had all ended; see `settleRound`. */
-  closing: Record<string, string>
 }
 
 export interface ChatFeed {
