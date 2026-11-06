@@ -318,12 +318,9 @@ func TestRegression_DeleteCascade_RefusesTheDefaultCheckoutAndTheHome(t *testing
 	}
 }
 
-// TestDeleteCascade_RefusesAWorkingChat closes invariant 9's own "no bypass"
-// hole: DeleteCascade is the verb behind the live DELETE .../workspaces/:wsId
-// route (the sidebar's removal tray) and behind merge --deleteSource, and it
-// checked only WorkspaceStatusLocked — so a subtree the chat tree's own delete
-// would refuse could be erased whole through the workspace door instead. It
-// now takes the SAME guardNotWorking Task 16 built for guardReparent.
+// TestDeleteCascade_RefusesAWorkingChat: DeleteCascade backs the workspace DELETE
+// route and merge --deleteSource, so it must refuse a subtree with a working chat
+// (guardNotWorking) or it would bypass the chat tree's own delete guard.
 func TestDeleteCascade_RefusesAWorkingChat(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root", Provisioning: domain.WorkspaceProvisioned},

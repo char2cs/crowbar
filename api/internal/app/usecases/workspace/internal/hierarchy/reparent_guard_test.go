@@ -103,10 +103,9 @@ func TestReparent_SelfLoopedChildIsStillALeaf(t *testing.T) {
 	require.NoError(t, err) // not blocked by a phantom self-child
 }
 
-// TestReparent_RefusesAWorkingChat pins the Task 11 → Task 16 closure:
-// guardReparent now refuses a leaf child whose workspace owns a currently
-// working chat, via the SAME cascade.Plan-over-subtree mechanism
-// usecases/chat/internal/tree's guardNotWorking already uses.
+// TestReparent_RefusesAWorkingChat: a reparent rewrites the workspace's git state,
+// so it must refuse before any git work while a chat there is mid-turn — the
+// same subtree rule the chat tree's guardNotWorking enforces (invariant 5).
 func TestReparent_RefusesAWorkingChat(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
