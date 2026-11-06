@@ -1,3 +1,4 @@
+import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
 import { useState, type KeyboardEvent } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -82,6 +83,7 @@ export function ComposerChoice({
   onOpenTerminal,
   position = 1,
   request,
+  family,
 }: {
   wsId: string
   chatId: string
@@ -99,6 +101,8 @@ export function ComposerChoice({
   position?: number
   /** What a permission would let run, from the ask's own copy of the call. */
   request?: AskRequest
+  /** The gated call's family, which names what the permission is for. */
+  family?: ToolFamily
 }) {
   const detail = choiceDetail(choice, toolTarget)
   const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
@@ -211,7 +215,7 @@ export function ComposerChoice({
         <span className="q">
           {/* Not "working…": waiting on a person is its own state. `alert`, like the
               interruption banner: it appears unasked and will not move until they act. */}
-          <span role="alert">{describeChoice(choice)}</span>
+          <span role="alert">{describeChoice(choice, family)}</span>
           {detail && (
             <span className="sub" data-testid="agent-choice-detail">
               {detail}

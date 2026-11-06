@@ -359,6 +359,7 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
               permissionLevels={props.permissionLevels}
               onOpenTerminal={props.onOpenTerminal}
               position={i + 1}
+              family={ask.family}
               request={{
                 toolName: ask.choice.toolName,
                 toolTarget: ask.toolTarget,

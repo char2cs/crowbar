@@ -84,6 +84,8 @@ export interface AskItem extends ItemBase {
   toolInput?: unknown
   toolInputTruncated?: boolean
   mcpServer?: string
+  /** The gated call's family, when its row came first: what kind of call is asked about. */
+  family?: ToolFamily
 }
 
 export type MarkerName =
