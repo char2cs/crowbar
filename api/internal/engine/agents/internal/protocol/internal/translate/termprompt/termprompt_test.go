@@ -143,3 +143,33 @@ func TestMatch_CarriesTheDeclaredAnswers(t *testing.T) {
 	assert.Equal(t, "accept", got.Answers[0].ID)
 	assert.Equal(t, "\r", got.Answers[0].Keys)
 }
+
+func aiming() *spec.Descriptor {
+	return &spec.Descriptor{ID: "claude", TerminalPrompts: []spec.TerminalPromptSpec{{
+		Kind: spec.TerminalPromptTrust, Needle: "I trust this folder", Cursor: "❯", Down: "D", Up: "U",
+		Answers: []spec.TerminalPromptAnswerSpec{{ID: "accept", Label: "Trust", Option: "Yes, I trust this folder", Keys: "\r"}},
+	}}}
+}
+
+func TestMatch_AimsAnOptionAnswerFromTheCursorsRow(t *testing.T) {
+	for name, tc := range map[string]struct{ screen, keys string }{
+		"preselected": {claudeTrustScreen, "\r"},
+		"below":       {"❯ No, exit\n  Yes, I trust this folder", "D\r"},
+		"above":       {"  Yes, I trust this folder\n  Maybe\n❯ No, exit", "UU\r"},
+	} {
+		got, ok := termprompt.Match(aiming(), tc.screen)
+
+		assert.True(t, ok, name)
+		if assert.Len(t, got.Answers, 1, name) {
+			assert.Equal(t, tc.keys, got.Answers[0].Keys, name)
+		}
+	}
+}
+
+// An answer that cannot be aimed is withheld rather than typed blind.
+func TestMatch_WithholdsAnAnswerWithNoCursorRow(t *testing.T) {
+	got, ok := termprompt.Match(aiming(), "  No, exit\n  Yes, I trust this folder")
+
+	assert.True(t, ok)
+	assert.Empty(t, got.Answers)
+}

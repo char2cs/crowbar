@@ -603,10 +603,15 @@ injected_prompts:
 terminal_prompts:
   - kind: workspace_trust
     needle: "I trust this folder"
-    # The dialog opens with "Yes, I trust this folder" selected; Enter takes it.
+    # Which row the dialog preselects varies by version (2.1.319: "No, exit"), so
+    # the answer aims at its option's text from the cursor's row.
+    cursor: "❯"
+    down: "\e[B"
+    up: "\e[A"
     answers:
       - id: accept
         label: "Trust workspace"
+        option: "Yes, I trust this folder"
         keys: "\r"
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".
