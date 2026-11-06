@@ -30,7 +30,7 @@ import { handleComposerKey } from '@/features/agent/chat/lib/composer-keys'
 import { useChatSend } from '@/features/agent/chat/use-chat-send'
 import { useConfirmedModel } from '@/features/agent/chat/use-confirmed-model'
 import { useComposerDraft } from '@/features/agent/chat/use-composer-draft'
-import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
+import { promptTexts, useComposerFacts } from '@/features/agent/chat/use-composer-facts'
 import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
@@ -155,7 +155,8 @@ export function AgentChatView({
     return () => cancelAnimationFrame(raf)
   }, [opened])
 
-  const history = usePromptHistory(facts.userTexts)
+  const readPrompts = useCallback(() => promptTexts(chatId), [chatId])
+  const history = usePromptHistory(readPrompts)
   const composer = useComposerDraft({
     wsId,
     chatId,

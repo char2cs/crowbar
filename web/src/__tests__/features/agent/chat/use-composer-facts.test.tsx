@@ -86,4 +86,28 @@ describe('useComposerFacts', () => {
     act(() => void applyFeedFrame('chat-1', { type: 'delta', delta: delta('m1', 1, 'Hel') }))
     expect(result.current.streaming).toBe(true)
   })
+
+  it('renders nothing for rows that change none of its facts', () => {
+    let renders = 0
+    renderHook(() => {
+      renders += 1
+      return useComposerFacts('chat-1')
+    })
+    const l = ledger()
+    push(l.start('turn-1'))
+    push(
+      l.row('subagent', { phase: 'start', type: 'explore' }, { turnId: 'turn-1', scope: 'sub-1' }),
+    )
+    const before = renders
+    for (let i = 0; i < 10; i++) {
+      push(
+        l.row(
+          'tool_call',
+          { toolId: `read-${i}`, phase: 'pre', kind: 'read', target: 'a.ts' },
+          { turnId: 'turn-1', scope: 'sub-1' },
+        ),
+      )
+    }
+    expect(renders).toBe(before)
+  })
 })

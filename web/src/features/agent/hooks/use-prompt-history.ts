@@ -1,8 +1,8 @@
 import { useCallback, useRef } from 'react'
 
-/** `texts` is the loaded window of the user's messages, oldest first; recall never
- *  reaches past what has been paged in. */
-export function usePromptHistory(texts: string[]) {
+/** `read` answers the loaded window of the user's messages, oldest first, when a
+ *  recall asks; recall never reaches past what has been paged in. */
+export function usePromptHistory(read: () => string[]) {
   // -1: not browsing (the box holds the live draft); otherwise steps back from newest.
   const indexRef = useRef(-1)
   const stashRef = useRef('')
@@ -14,6 +14,7 @@ export function usePromptHistory(texts: string[]) {
 
   const recallOlder = useCallback(
     (liveDraft: string): string | undefined => {
+      const texts = read()
       if (texts.length === 0) return undefined
       if (indexRef.current === -1) {
         stashRef.current = liveDraft
@@ -24,7 +25,7 @@ export function usePromptHistory(texts: string[]) {
       indexRef.current += 1
       return texts[texts.length - 1 - indexRef.current]
     },
-    [texts],
+    [read],
   )
 
   const recallNewer = useCallback((): string | undefined => {
@@ -34,8 +35,9 @@ export function usePromptHistory(texts: string[]) {
       return stashRef.current
     }
     indexRef.current -= 1
+    const texts = read()
     return texts[texts.length - 1 - indexRef.current]
-  }, [texts])
+  }, [read])
 
   return { recallOlder, recallNewer, reset }
 }
