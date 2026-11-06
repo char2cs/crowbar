@@ -126,7 +126,8 @@ export function SidebarRowActions({
           type="button"
           data-control="remove"
           className={subActionClass}
-          aria-label={`Remove ${row.label}`}
+          aria-label={removeLabel(row)}
+          title={removeLabel(row)}
           onClick={(e) => {
             e.stopPropagation()
             e.currentTarget.blur()
@@ -233,4 +234,11 @@ export function SidebarRowActions({
       )}
     </>
   )
+}
+
+// A branch row is titled by its owning chat, but removing it deletes the branch's worktree.
+function removeLabel(row: SidebarRowType): string {
+  if (row.kind === 'branch' && row.ownsWorktree && row.branchName)
+    return `Delete branch ${row.branchName} and its worktree`
+  return `Remove ${row.label}`
 }
