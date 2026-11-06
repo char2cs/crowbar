@@ -96,7 +96,10 @@ func (rs *Runners) spawnPaths(
 	// boot reap. It holds the CLI's hook config for the CLI's whole life (removed on PTY
 	// death) and never a credential: a provider owns those, and Crowbar never copies them.
 	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+	rs.runnerDirs.Lock()
+	err = os.MkdirAll(tmpDir, 0o700)
+	rs.runnerDirs.Unlock()
+	if err != nil {
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
 	}
 	return spawnPaths{

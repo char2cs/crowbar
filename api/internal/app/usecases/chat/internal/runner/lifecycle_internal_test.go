@@ -216,6 +216,8 @@ func TestRegression_BootEndsTheLedgersLiveRunnerAsADaemonRestart(t *testing.T) {
 	assert.Equal(t, domain.AgentExitDaemonRestart, retiredAs(t, rs))
 	assert.Equal(t, ledger.ReasonDaemonRestart, promptReceipt(t, rs.ledger, "req-1").Reason)
 	assert.NoDirExists(t, runnerDir)
+	assert.NoDirExists(t, chatsDir, "the runners and chats directories it emptied go with it")
+	assert.DirExists(t, home)
 
 	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
 	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)

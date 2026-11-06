@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -134,7 +136,7 @@ func (rs *Runners) endUnheld(ctx context.Context, runnerID string) {
 func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatch) func(engineterminal.Exit) {
 	return func(exit engineterminal.Exit) {
 		ctx := context.Background()
-		reapRunnerDir(ctx, home, tmpDir)
+		rs.reapRunnerDir(ctx, home, tmpDir)
 		// A dead PTY takes its api connection with it.
 		rs.apiConns.drop(runnerID)
 		rs.live.noteExit(runnerID, runnerExit{Exit: exit, resume: resume})
@@ -147,15 +149,24 @@ func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatc
 	}
 }
 
-// reapRunnerDir deletes a runner's own directory, best-effort: a reap that
-// cannot happen leaves disk behind, which must not fail the runner's teardown.
-func reapRunnerDir(
+// reapRunnerDir deletes a runner's own directory, then its runners and chats
+// parents once empty, best-effort: a reap that cannot happen leaves disk
+// behind, which must not fail the runner's teardown.
+func (rs *Runners) reapRunnerDir(
 	ctx context.Context,
 	home string,
 	dir string,
 ) {
+	rs.runnerDirs.Lock()
+	defer rs.runnerDirs.Unlock()
 	if err := worktreepath.RemoveUnderHome(home, dir); err != nil {
 		slog.WarnContext(ctx, "agent: reap a runner directory (best-effort)", "err", err)
+		return
+	}
+	for _, parent := range []string{filepath.Dir(dir), filepath.Dir(filepath.Dir(dir))} {
+		if !worktreepath.UnderHome(parent, home) || os.Remove(parent) != nil {
+			return
+		}
 	}
 }
 
@@ -211,5 +222,5 @@ func (rs *Runners) reapCrashOrphanRunnerTmp(
 			"runner_id", runner.ID, "workspace_id", workspaceID, "err", err)
 		return
 	}
-	reapRunnerDir(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
+	rs.reapRunnerDir(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
 }
