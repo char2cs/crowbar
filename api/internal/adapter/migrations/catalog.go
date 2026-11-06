@@ -82,6 +82,7 @@ func legacySteps() []migrate.Step {
 		// legacy records into again is converted at its next boot.
 		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, From: 1, To: 1, Plan: chatledger.Plan, Recurs: true},
 		{Number: StepPlacementTree, Name: "placement-tree", Phase: migrate.PostOpen, From: 1, To: 1, Plan: planPlacementTree},
+		{Number: StepChatAttachments, Name: "chat-attachments", Phase: migrate.PreOpen, Plan: planChatAttachments},
 		{Number: StepLedgerLayout, Name: "ledger-layout", Phase: migrate.PreOpen, From: 0, To: 1, Plan: planLedgerLayout},
 		{Number: StepRetireLegacy, Name: "retire-legacy", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planRetire, Recurs: true},
 	}
