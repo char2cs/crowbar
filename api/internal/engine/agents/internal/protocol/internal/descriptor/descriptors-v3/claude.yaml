@@ -283,7 +283,7 @@ events:
   # would open the same prompt twice.
   permission:
     required: [session_id, tool_name]
-    fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json]
+    fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json, PermissionRequest.ExitPlanMode.json]
     # No recorded PermissionRequest is an AskUserQuestion one yet.
     unverified_fields: [questions]
     ask: PermissionRequest
@@ -317,7 +317,8 @@ events:
       option_label:           label
       option_description:     description
     reply:
-      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+      # The input echoed back: on a bare allow claude still opens its own plan dialog.
+      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       # Allows this call and applies the grants picked from permission_suggestions.

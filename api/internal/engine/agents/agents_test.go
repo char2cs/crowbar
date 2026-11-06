@@ -857,12 +857,17 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 		"the daemon's budget must expire BEFORE the 300s timeout injected on the hook, "+
 			"or the relay is killed mid-write instead of exiting under its own control")
 
-	allow, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: "allow"})
+	// An allow echoes the input: claude's own plan dialog stays open on a bare allow.
+	plan, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "claude", "PermissionRequest.ExitPlanMode.json"))
 	require.NoError(t, err)
-	assert.JSONEq(t,
-		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
-			`"decision":{"behavior":"allow"}}}`,
-		string(allow))
+	allow, err := a.RenderAnswer(agents.HookPermission, plan, agents.AnswerDecision{Key: "allow"})
+	require.NoError(t, err)
+	var got struct {
+		HookSpecificOutput struct{ Decision map[string]any } `json:"hookSpecificOutput"`
+	}
+	require.NoError(t, json.Unmarshal(allow, &got))
+	assert.Equal(t, "allow", got.HookSpecificOutput.Decision["behavior"])
+	assert.Contains(t, got.HookSpecificOutput.Decision["updatedInput"], "plan")
 
 	deny, err := a.RenderAnswer(agents.HookPermission, nil,
 		agents.AnswerDecision{Key: "deny", Reason: "no"})

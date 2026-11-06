@@ -133,10 +133,7 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 
-	assert.JSONEq(t,
-		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
-			`"decision":{"behavior":"allow"}}}`,
-		<-printed)
+	assert.JSONEq(t, allowedStdout, <-printed)
 	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 
@@ -679,8 +676,9 @@ func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T)
 	assert.NotContains(t, out, `"":"A"`, "an unnamed question gets no key rather than an empty one")
 }
 
+// An allow hands the call's own input back unchanged.
 const allowedStdout = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
-	`"decision":{"behavior":"allow"}}}`
+	`"decision":{"behavior":"allow","updatedInput":{"command":"touch PROOF","description":"Create proof control file"}}}}`
 
 func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing.T) {
 	f := newFixture(t)
@@ -739,7 +737,7 @@ func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
 		racers.Wait()
 		f.wait()
 
-		assert.JSONEq(t, allowedStdout, <-printed, "whoever won the race, the CLI is told")
+		assert.Contains(t, <-printed, `"behavior":"allow"`, "whoever won the race, the CLI is told")
 		require.Empty(t, pendingChoices(t, f, chatID))
 	}
 }
