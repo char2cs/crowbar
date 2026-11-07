@@ -62,7 +62,7 @@ describe('ToolRow', () => {
     expect(screen.queryByTestId('agent-tool-output')).toBeNull()
   })
 
-  it('shows the last three segments of a path and keeps the whole in the tooltip', () => {
+  it('says a path outside the workspace whole, the tooltip with its line', () => {
     const l = ledger()
     seed([
       l.row(
@@ -77,7 +77,7 @@ describe('ToolRow', () => {
       ),
     ])
     draw('t:tool-1')
-    expect(screen.getByText('c/d/e.ts L4')).toHaveAttribute('title', '/a/b/c/d/e.ts:4')
+    expect(screen.getByText('/a/b/c/d/e.ts L4')).toHaveAttribute('title', '/a/b/c/d/e.ts:4')
   })
 
   it('reads Result unavailable for a tool its turn abandoned', () => {

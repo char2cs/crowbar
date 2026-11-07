@@ -47,11 +47,19 @@ describe('tool labels', () => {
       target: '/home/me/repo/d1.txt',
       diff: '--- a/home/me/repo/d1.txt\n+++ b/home/me/repo/d1.txt\n@@ -0,0 +1,1 @@\n+x\n',
     })
-    expect(liveLabel(write)).toBe('Creating me/repo/d1.txt')
-    expect(labelText({ ...write, status: 'ok' })).toBe('Created me/repo/d1.txt')
-    expect(labelText({ ...write, status: 'declined' })).toBe('Create me/repo/d1.txt')
+    expect(liveLabel(write)).toBe('Creating /home/me/repo/d1.txt')
+    expect(labelText({ ...write, status: 'ok' })).toBe('Created /home/me/repo/d1.txt')
+    expect(labelText({ ...write, status: 'declined' })).toBe('Create /home/me/repo/d1.txt')
     const edit = tool({ kind: 'edit', target: '/r/a.ts', diff: '@@ -3,1 +3,1 @@\n-a\n+b\n' }, 'ok')
-    expect(labelText(edit)).toBe('Edited r/a.ts')
+    expect(labelText(edit)).toBe('Edited /r/a.ts')
+  })
+
+  // The daemon names a file inside the workspace from there, so an absolute one lies outside it:
+  // its tail alone (".claude/plans/p.md") would read as a file in the workspace.
+  it('says a path outside the workspace whole, with its leading slash', () => {
+    const write = tool({ kind: 'edit', target: '/home/me/.claude/plans/p.md' }, 'ok')
+    expect(labelText(write)).toBe('Edited /home/me/.claude/plans/p.md')
+    expect(labelText(tool({ kind: 'edit', target: 'src/a.go' }, 'ok'))).toBe('Edited src/a.go')
   })
 
   it('labels a read live and settled with its file and line', () => {
@@ -59,8 +67,8 @@ describe('tool labels', () => {
       kind: 'read',
       locations: [{ path: '/home/me/repo/src/notes.ts', line: 10 }],
     })
-    expect(liveLabel(read)).toBe('Reading repo/src/notes.ts L10')
-    expect(labelText({ ...read, status: 'ok' })).toBe('Read repo/src/notes.ts L10')
+    expect(liveLabel(read)).toBe('Reading /home/me/repo/src/notes.ts L10')
+    expect(labelText({ ...read, status: 'ok' })).toBe('Read /home/me/repo/src/notes.ts L10')
   })
 
   it('quotes a search pattern and names a fetched host', () => {
@@ -77,9 +85,9 @@ describe('tool labels', () => {
       target: '/r/notes.md',
       diff: '--- /dev/null\n+++ b/notes.md\n',
     })
-    expect(liveLabel(write)).toBe('Creating r/notes.md')
-    expect(labelText({ ...write, status: 'ok' })).toBe('Created r/notes.md')
-    expect(labelText({ ...write, status: 'declined' })).toBe('Create r/notes.md')
+    expect(liveLabel(write)).toBe('Creating /r/notes.md')
+    expect(labelText({ ...write, status: 'ok' })).toBe('Created /r/notes.md')
+    expect(labelText({ ...write, status: 'declined' })).toBe('Create /r/notes.md')
     expect(labelText(tool({ kind: 'edit', target: 'a.md', diff: '--- a/a.md\n' }, 'ok'))).toBe(
       'Edited a.md',
     )

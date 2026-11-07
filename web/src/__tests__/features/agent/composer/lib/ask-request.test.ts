@@ -15,8 +15,18 @@ describe('requestView', () => {
       toolName: 'ExitPlanMode',
       toolInput: { plan: '# Plan\n1. Create a.txt', planFilePath: '/h/plans/p.md' },
     })
-    expect(view.code.map((line) => line.text)).toEqual(['# Plan', '1. Create a.txt'])
+    expect(view.markdown).toBe('# Plan\n1. Create a.txt')
+    expect(view.code).toEqual([])
     expect(view.note).toBeUndefined()
+  })
+
+  it('heads a file change with the path its call is named by, not the raw input path', () => {
+    const view = requestView({
+      toolName: 'Edit',
+      toolTarget: 'src/a.go',
+      toolInput: { file_path: '/ws/repo/src/a.go', old_string: 'a', new_string: 'b' },
+    })
+    expect(view.head).toBe('src/a.go')
   })
 })
 

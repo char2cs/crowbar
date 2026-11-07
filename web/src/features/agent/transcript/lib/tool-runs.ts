@@ -16,6 +16,9 @@ function sameRow(a: DisplayRow | undefined, b: DisplayRow): boolean {
   return x.length === y.length && x.every((id, i) => id === y[i])
 }
 
+/** A person decided on it, so its row is the record of what they approved. */
+const asked = (item: ToolItem) => item.askId !== undefined || item.askNote !== undefined
+
 const foldable = (item: TranscriptItem | undefined): item is ToolItem =>
   item?.kind === 'tool' && FOLDS.has(item.family)
 
@@ -28,7 +31,7 @@ export function displayRows(order: string[], items: ItemMap, prev?: DisplayRow[]
   let run: (DisplayRow & { members: string[]; turn?: string }) | null = null
   for (const id of order) {
     const item = items.get(id)
-    if (item?.kind === 'tool' && HIDDEN.has(item.family)) continue
+    if (item?.kind === 'tool' && HIDDEN.has(item.family) && !asked(item)) continue
     if (!foldable(item)) {
       run = null
       rows.push({ id })

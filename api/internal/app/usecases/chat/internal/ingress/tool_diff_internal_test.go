@@ -23,16 +23,17 @@ func TestEditDiff_NothingToShowIsEmpty(t *testing.T) {
 	assert.Empty(t, editDiff("f", "", "same", "same"))
 }
 
-func TestEditDiff_AbsolutePathHeadersAgreeOnOneFileName(t *testing.T) {
+// A file outside the session keeps its leading slash, so it never reads as one inside it.
+func TestEditDiff_AbsolutePathHeadersAgreeOnOneAbsoluteFileName(t *testing.T) {
 	got := editDiff("/repo/README.md", "", "a\n", "b\n")
-	assert.Equal(t, "--- a/repo/README.md\n+++ b/repo/README.md\n@@ -1,1 +1,1 @@\n-a\n+b\n", got)
+	assert.Equal(t, "--- a//repo/README.md\n+++ b//repo/README.md\n@@ -1,1 +1,1 @@\n-a\n+b\n", got)
 }
 
 func TestEditDiff_NamesAFileInTheSessionsDirectoryFromThere(t *testing.T) {
 	got := editDiff("/ws/repo/src/a.go", "/ws/repo", "a\n", "b\n")
 	assert.Equal(t, "--- a/src/a.go\n+++ b/src/a.go\n@@ -1,1 +1,1 @@\n-a\n+b\n", got)
-	assert.Contains(t, editDiff("/elsewhere/a.go", "/ws/repo", "a\n", "b\n"), "--- a/elsewhere/a.go\n")
-	assert.Contains(t, editDiff("/ws/repo2/a.go", "/ws/repo", "a\n", "b\n"), "--- a/ws/repo2/a.go\n")
+	assert.Contains(t, editDiff("/elsewhere/a.go", "/ws/repo", "a\n", "b\n"), "--- a//elsewhere/a.go\n")
+	assert.Contains(t, editDiff("/ws/repo2/a.go", "/ws/repo", "a\n", "b\n"), "--- a//ws/repo2/a.go\n")
 }
 
 func TestSessionPath_NamesAFileInsideTheSessionFromThereAndOthersAsGiven(t *testing.T) {

@@ -10,6 +10,19 @@ function show({ request, expanded = false }: { request: AskRequest; expanded?: b
 }
 
 describe('ChoiceRequest request body', () => {
+  it('renders the plan a plan approval carries as markdown, not its source', () => {
+    show({
+      request: {
+        toolName: 'ExitPlanMode',
+        toolInput: { plan: '# Add hello\n\n1. Create `hello.txt`\n2. Check it' },
+      },
+    })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(screen.getByRole('heading', { name: 'Add hello' })).toBeInTheDocument()
+    expect(body.querySelectorAll('ol li')).toHaveLength(2)
+    expect(body).not.toHaveTextContent('# Add hello')
+  })
+
   it('shows the command and its description for a command approval', () => {
     show({
       request: {

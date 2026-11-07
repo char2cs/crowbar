@@ -11,6 +11,8 @@ const RETIRED_SETTINGS = {
   'crowbar:settings:externalEditor': '"none"',
   'crowbar:settings:customEditorCommand': '""',
   'debug-scroll': 'true',
+  // Boot used to store every default, so a stored readout switch is not a choice anyone made.
+  'crowbar:settings:showBuildReadout': 'true',
 }
 
 describe('retireOrphanedStorage', () => {

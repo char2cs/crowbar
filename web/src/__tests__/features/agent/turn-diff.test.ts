@@ -46,6 +46,12 @@ describe('parseTurnDiff', () => {
     expect(files.map((f) => f && f.prevName)).toEqual([undefined, undefined])
   })
 
+  it('names a file outside the workspace by its absolute path', () => {
+    const edit = '--- /dev/null\n+++ b//home/me/.claude/plans/p.md\n@@ -0,0 +1 @@\n+one\n'
+    const files = parseTurnDiff(edit, 't').map((i) => i.type === 'diff' && i.fileDiff)
+    expect(files).toMatchObject([{ name: '/home/me/.claude/plans/p.md' }])
+  })
+
   it('declines oversized input before parsing', () => {
     expect(parseTurnDiff('x'.repeat(MAX_TURN_DIFF_PREVIEW_CHARS + 1), 'turn-1')).toEqual([])
   })

@@ -20,6 +20,8 @@ export interface RequestView {
   server?: string
   head?: string
   code: CodeLine[]
+  /** Prose the call carries, drawn as markdown rather than as lines of source. */
+  markdown?: string
   note?: string
 }
 
@@ -59,7 +61,7 @@ const replacement = (edit: Record<string, unknown>) => [
 
 /** A file change: an edit, every edit of a multi-edit, a write, a notebook cell. */
 function fileView(input: Record<string, unknown>, target: string): RequestView | null {
-  const head = str(input.file_path) || str(input.notebook_path) || target || undefined
+  const head = target || str(input.file_path) || str(input.notebook_path) || undefined
   if (Array.isArray(input.edits)) {
     return { head, code: (input.edits as Record<string, unknown>[]).flatMap(replacement) }
   }
@@ -81,7 +83,7 @@ export function requestView(req: AskRequest): RequestView {
   if (command) return { code: plain(command), note: str(input.description) || undefined }
   // A plan approval asks about the plan it carries.
   const plan = str(input.plan)
-  if (plan) return { code: plain(plan) }
+  if (plan) return { code: [], markdown: plan }
   return (
     fileView(input, req.toolTarget ?? '') ?? {
       head: req.toolTarget || undefined,

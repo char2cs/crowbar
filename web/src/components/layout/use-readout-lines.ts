@@ -52,7 +52,7 @@ export function useReadoutLines(
 /** The readout's text for the phone's sidebar page, or null while it is turned off. */
 export function useNativeReadout(): Pick<NativeReadout, 'lines' | 'net'> | null {
   const info = useResolvedBuildInfo()
-  const visible = useSettingsStore((s) => s.settings.showBuildReadout)
+  const visible = useSettingsStore((s) => s.settings.buildReadout)
   const frame = useFrameStats(visible)
   const parts = useReadoutLines(info, frame)
   // Keyed by value: the parts are rebuilt every render, and each change is a snapshot push.

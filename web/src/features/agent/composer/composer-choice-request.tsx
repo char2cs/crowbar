@@ -1,6 +1,7 @@
 import type { CodeLine, RequestView } from '@/features/agent/composer/lib/ask-request'
 import { foldCode, showAllLabel } from '@/features/agent/composer/lib/ask-request'
 import { Visible } from '@/features/agent/composer/visible-text'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
 
 const TONE: Record<NonNullable<CodeLine['tone']>, string> = { del: '- ', add: '+ ' }
@@ -48,6 +49,12 @@ export function ChoiceRequest({
             </span>
           ))}
         </pre>
+      )}
+      {view.markdown && (
+        // It scrolls inside its own bound, so the answers stay in reach.
+        <div className="choice-request-markdown">
+          <MarkdownMessageStatic variant="chat">{view.markdown}</MarkdownMessageStatic>
+        </div>
       )}
       {more && (
         <button type="button" className="choice-request-more" onClick={onExpand}>

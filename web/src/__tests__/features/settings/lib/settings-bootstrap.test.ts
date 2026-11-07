@@ -22,4 +22,15 @@ describe('initializeSettingsState', () => {
       'Geist Mono Variable',
     )
   })
+
+  // A default frozen into storage at boot would outlive a later build's different default.
+  it('writes back only what was stored, never a default', async () => {
+    localStorage.setItem('crowbar:settings:fontFamily', JSON.stringify('Geist Mono'))
+
+    await initializeSettingsState(() => {})
+
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i) ?? '')
+    const written = keys.filter((key) => key.startsWith('crowbar:settings:'))
+    expect(written).toEqual(['crowbar:settings:fontFamily'])
+  })
 })

@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  getDefaultPermissionLevel,
   PERMISSION_LEVEL_OPTIONS,
   type PermissionLevel,
 } from '@/features/agent/api/agent-providers-api'
@@ -7,6 +8,7 @@ import { setChatPermissionLevel } from '@/features/agent/api/agent-chat-commands
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
+import { useChatHost } from '@/lib/host-resolve'
 import {
   Select,
   SelectContent,
@@ -15,7 +17,33 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-/** Shows the level the chat is pinned to, and offers only levels the provider
+/** The default level of the chat's host while the chat pins none; null until it is known. */
+function useInheritedLevel(chatId: string, inherits: boolean): PermissionLevel | null {
+  const hostId = useChatHost(chatId)
+  const [known, setKnown] = useState<{ hostId: string; level: PermissionLevel } | null>(null)
+  useEffect(() => {
+    if (!inherits || hostId === null) return
+    let live = true
+    getDefaultPermissionLevel(hostId).then(
+      (level) => live && setKnown({ hostId, level }),
+      () => live && setKnown(null),
+    )
+    return () => {
+      live = false
+    }
+  }, [hostId, inherits])
+  return known?.hostId === hostId ? known.level : null
+}
+
+/** The level a spawn would run at: `wanted` if offered, else the nearest more
+ *  permissive offered one, as the daemon resolves it. */
+function offeredLevel(wanted: PermissionLevel, offered: PermissionLevel[]): PermissionLevel {
+  const order = PERMISSION_LEVEL_OPTIONS.map((opt) => opt.value)
+  const offers = new Set(offered)
+  return order.slice(order.indexOf(wanted)).find((l) => offers.has(l)) ?? offered.at(-1) ?? wanted
+}
+
+/** Shows the level the chat is pinned to (or inherits), and offers only levels the provider
  *  declares — the server rejects the rest. */
 export function PermissionLevelSwitcher({
   wsId,
@@ -29,7 +57,7 @@ export function PermissionLevelSwitcher({
   const pinned = useChatField<PermissionLevel | ''>(chatId, (c) => c?.permissionLevel ?? '')
   // The person's pick shows from the moment it is made; a failed one falls back.
   const [picked, setPicked] = useState<PermissionLevel | null>(null)
-  const level: PermissionLevel | '' = picked ?? pinned
+  const inherited = useInheritedLevel(chatId, !picked && !pinned)
   // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
@@ -53,6 +81,9 @@ export function PermissionLevelSwitcher({
 
   const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => availableLevels?.includes(opt.value))
   if (options.length === 0) return null
+  const offered = options.map((opt) => opt.value)
+  const level: PermissionLevel | '' =
+    picked ?? (pinned || (inherited ? offeredLevel(inherited, offered) : ''))
 
   return (
     <Select items={options} value={level} onValueChange={handleChange}>

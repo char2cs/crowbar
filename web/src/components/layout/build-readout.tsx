@@ -129,7 +129,7 @@ function Lines({ info, frame }: { info: BuildInfo; frame: FrameStats }) {
 // the frame loop and watchers run only while the setting shows it.
 export function BuildReadout({ className }: { className?: string }) {
   const info = useResolvedBuildInfo()
-  const visible = useSettingsStore((s) => s.settings.showBuildReadout)
+  const visible = useSettingsStore((s) => s.settings.buildReadout)
   const phone = hasNativeChrome()
   const frame = useFrameStats(visible && !phone)
   if (!visible || !info || phone) return null

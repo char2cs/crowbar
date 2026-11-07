@@ -210,12 +210,12 @@ export const AppearanceSettings = () => {
         <SettingRow
           label="Build readout"
           description="Show the build, daemon connection, frame rate and open terminal, agent and workspace counts at the foot of the sidebar, or in the tab strip while it is hidden"
-          onReset={() => updateSetting('showBuildReadout', getDefaultSetting('showBuildReadout'))}
-          canReset={settings.showBuildReadout !== getDefaultSetting('showBuildReadout')}
+          onReset={() => updateSetting('buildReadout', getDefaultSetting('buildReadout'))}
+          canReset={settings.buildReadout !== getDefaultSetting('buildReadout')}
         >
           <Switch
-            checked={settings.showBuildReadout}
-            onChange={(checked) => updateSetting('showBuildReadout', checked)}
+            checked={settings.buildReadout}
+            onChange={(checked) => updateSetting('buildReadout', checked)}
             size="sm"
           />
         </SettingRow>

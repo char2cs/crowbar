@@ -47,7 +47,7 @@ describe('SubagentShelf', () => {
     const shelf = screen.getByTestId('agent-subagent-shelf')
     expect(shelf).toHaveAccessibleName('2 subagents running')
     expect(shelf).toHaveTextContent('Scout')
-    expect(shelf).toHaveTextContent('Reading a/b')
+    expect(shelf).toHaveTextContent('Reading /a/b')
     const clock = screen.getAllByTestId('agent-subagent-clock')[0]!
     const before = clock.textContent
     act(() => void vi.advanceTimersByTime(1000))

@@ -31,6 +31,7 @@ const ASKED: Partial<Record<ToolFamily, string>> = {
   read: 'Read a file?',
   fetch: 'Fetch a web page?',
   search: 'Search?',
+  plan: 'Approve this plan?',
 }
 
 /** The headline of a prompt; a kind this build does not know falls through to
@@ -103,7 +104,9 @@ export function askNote(choice: AgentChoice): string {
   const picked = choice.options.filter((option) => ids.has(option.id))
   if (picked.some((option) => option.kind === 'deny')) return 'Denied'
   const allowed = picked.find((option) => option.kind === 'allow')
-  if (allowed) return allowed.label ? `Allowed · ${allowed.label}` : 'Allowed'
+  // A label that is only the kind's own word ("Allow") would say the verdict twice.
+  const extra = allowed?.label && allowed.label.toLowerCase() !== allowed.kind ? allowed.label : ''
+  if (allowed) return extra ? `Allowed · ${extra}` : 'Allowed'
   const labels = pickedOptionLabels(choice)
   return labels.length > 0 ? labels.join(', ') : 'Answered'
 }
