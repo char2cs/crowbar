@@ -3,7 +3,8 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { report } from '@/lib/errors/report'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
-import { compactChat, resumeChat } from '@/features/agent/api/agent-chat-commands'
+import { resumeChat } from '@/features/agent/api/agent-chat-commands'
+import { offeredCompact } from '@/features/agent/chat/lib/offered-compact'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { declaredModel } from '@/features/agent/lib/staged-selection'
 import { stopTurn } from '@/features/agent/stores/chat-outbox'
@@ -218,11 +219,9 @@ export function AgentChatView({
   // report's display name wins over the last confirmed raw launch id.
   const shownModel =
     declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
-  const offeredCompact =
-    provider?.compaction && live && !compacting && !onTerminalSurface
-      ? () => void compactChat(wsId, chatId)
-      : undefined
-  useNativeContext({ visible, telemetry, compacting, onCompact: offeredCompact })
+  const idle = !!provider?.compaction && live && !compacting && !working && !onTerminalSurface
+  const onCompact = offeredCompact(wsId, chatId, idle)
+  useNativeContext({ visible, telemetry, compacting, onCompact })
 
   // A chat recording no agent cannot start; it says what would let it.
   const agentNote =
@@ -457,7 +456,7 @@ export function AgentChatView({
                   model={shownModel}
                   telemetry={telemetry}
                   queued={prompts.waiting}
-                  onCompact={offeredCompact}
+                  onCompact={onCompact}
                 />
               )}
               {composer.error && (
