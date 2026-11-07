@@ -24,6 +24,7 @@ vi.mock('@/features/agent/api/agent-providers-api', () => ({
     { value: 'trusted', label: 'Trusted' },
     { value: 'full-auto', label: 'Full Auto' },
   ],
+  getDefaultPermissionLevel: () => Promise.resolve('guarded'),
 }))
 
 // jsdom has no PointerEvent, which base-ui's Select opens and commits with.

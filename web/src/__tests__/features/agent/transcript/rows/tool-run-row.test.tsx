@@ -142,7 +142,7 @@ describe('ToolRunRow with an ask on a member', () => {
       )
     }
     draw()
-    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Allowed · Allow')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent(/^Allowed$/)
     expect(screen.queryByTestId('agent-tool-run')).toBeNull()
   })
 
