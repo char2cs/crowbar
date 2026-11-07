@@ -230,6 +230,8 @@ export function AgentChatPaneBody({
     setSplitFocus,
     setReturnOffered,
     terminalApiRef,
+    dormant: attachment.state === 'idle',
+    startSession,
   })
 
   // Switch on the chat the runner is in now. Awaitable: a cross-provider model
@@ -246,7 +248,7 @@ export function AgentChatPaneBody({
       const surface = presentation === 'split' ? undefined : presentation
       await switchProvider(wsId, shownChatId, providerId, surface)
       // Only enterTerminal knows whether this provider needs a native view forked.
-      if (presentation === 'terminal') escort.enterTerminal(providerId)
+      if (presentation === 'terminal') void escort.enterTerminal(providerId)
       return true
     } catch (err: unknown) {
       toastSpawnFailure(err, name, 'switch to')

@@ -29,11 +29,14 @@ const records: string[] = []
 interface Props {
   recorded: LandingChatPresentation | null
   waiting?: boolean
+  dormant?: boolean
 }
+
+const startSession = vi.fn(() => records.push('start'))
 
 function renderPane(initial: Props) {
   return renderHook(
-    ({ recorded, waiting = false }: Props) => {
+    ({ recorded, waiting = false, dormant = false }: Props) => {
       const view = useChatPresentation('c1', { current: null }, null, recorded)
       const escort = useTerminalEscort({
         wsId: 'w1',
@@ -51,6 +54,8 @@ function renderPane(initial: Props) {
         setSplitFocus: view.setSplitFocus,
         setReturnOffered: view.setReturnOffered,
         terminalApiRef: { current: null },
+        dormant,
+        startSession,
       })
       return { ...view, ...escort }
     },
@@ -69,6 +74,7 @@ const preferring = (landing: LandingChatPresentation) =>
 
 beforeEach(() => {
   records.length = 0
+  startSession.mockClear()
   toTerminal.mockReset().mockImplementation(() => {
     records.push('terminal')
     return Promise.resolve('pty-1')
@@ -145,5 +151,26 @@ describe('useTerminalEscort — on the phone, which shows only the chat', () => 
     rerender({ recorded: 'terminal' })
 
     expect(records).toEqual([])
+  })
+})
+
+// The exited agent's Open terminal: a terminal with no CLI behind it is a dead end.
+describe('useTerminalEscort — opening the terminal of a chat whose CLI is gone', () => {
+  it('starts the CLI once the terminal is the recorded surface', async () => {
+    const { result } = renderPane({ recorded: 'chat', dormant: true })
+
+    await act(async () => result.current.openTerminal())
+
+    expect(result.current.presentation).toBe('terminal')
+    expect(records).toEqual(['terminal', 'start'])
+  })
+
+  it('starts nothing for a chat whose CLI still runs', async () => {
+    const { result } = renderPane({ recorded: 'chat' })
+
+    await act(async () => result.current.openTerminal())
+
+    expect(result.current.presentation).toBe('terminal')
+    expect(startSession).not.toHaveBeenCalled()
   })
 })
