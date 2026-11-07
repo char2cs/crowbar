@@ -1,3 +1,4 @@
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { apiFetch, apiFetchRaw } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
@@ -57,6 +58,8 @@ export interface AgentChat {
    *  the request. Absent exactly when liveRunnerId is. */
   launchModel?: string
   launchEffort?: string
+  /** The level this chat is pinned to; absent while it inherits the default. */
+  permissionLevel?: PermissionLevel
   /** Set while the CLI is blocked on a prompt with no hook (workspace trust, first-run, login).
    *  Unlike AgentChoice, it has no buttons the chat can press: the answer is to go to the terminal.
    *  Detected server-side against the daemon's screen model. */
@@ -161,6 +164,7 @@ export function mapChat(c: AgentChat): AgentChat {
     // Listed explicitly: the field list narrows silently, so a missing entry drops the field.
     launchModel: c.launchModel ?? '',
     launchEffort: c.launchEffort ?? '',
+    permissionLevel: c.permissionLevel,
     // Absent IS the answer (nothing blocking), so it stays undefined; `kind` is grounded because
     // identified and unidentified prompts are both real answers.
     terminalWait: c.terminalWait

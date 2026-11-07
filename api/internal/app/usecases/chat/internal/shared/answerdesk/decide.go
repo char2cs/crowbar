@@ -40,6 +40,9 @@ func Decide(
 	if key == domain.ChoiceOptionDeny && decision.Reason == "" {
 		decision.Reason = personDenied
 	}
+	if key == domain.ChoiceOptionSuggestion {
+		decision.Picked = optionIDs
+	}
 	if key == domain.ChoiceOptionAnswer {
 		decision.Answers = answersByQuestion(answers)
 	}

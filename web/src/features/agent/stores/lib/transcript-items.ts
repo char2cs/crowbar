@@ -147,7 +147,8 @@ export type PromptFact =
   /** `launch` when a CLI launch carries it: that launch's dividers read above it. */
   | { state: 'pending'; seq: number; launch?: true }
   | { state: 'delivered'; turnId: string }
-  | { state: 'settled' }
+  /** `builtin` when the CLI ran it itself (a command) and no turn took it. */
+  | { state: 'settled'; builtin?: true }
   | { state: 'refused'; reason: string }
   /** A refused prompt a later one (`by`) sent again: nothing more to do about it. */
   | { state: 'retried'; by: string }

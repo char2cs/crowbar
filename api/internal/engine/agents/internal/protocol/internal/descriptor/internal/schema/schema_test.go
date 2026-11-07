@@ -158,7 +158,7 @@ func TestValidate_ErrorIsDeterministic(t *testing.T) {
 func TestRepliesFor_NamesTheDecisionsAnAskEventAccepts(t *testing.T) {
 	v := load(t)
 	got := v.Events["permission"].Replies
-	want := map[string]bool{"allow": true, "deny": true, "answer": true}
+	want := map[string]bool{"allow": true, "deny": true, "answer": true, "suggestion": true}
 	if len(got) != len(want) {
 		t.Fatalf("permission replies = %v", got)
 	}

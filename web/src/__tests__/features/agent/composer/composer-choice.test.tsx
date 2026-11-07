@@ -107,12 +107,15 @@ describe('ComposerChoice that can be answered', () => {
 
   // Sent is NOT resolved. The terminal can decide the same prompt in the same
   // instant, so the card stays until the server says how it actually ended.
-  it('says the answer is sent and waits for the server to confirm it', async () => {
+  it('sends a Deny with its reason and waits for the server to confirm it', async () => {
     draw()
-
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    fireEvent.change(reason, { target: { value: 'name it b.txt' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
 
     await waitFor(() => expect(screen.getByTestId('agent-choice-sent')).toBeInTheDocument())
+    const sent = { optionIds: ['deny'], reason: 'name it b.txt' }
+    expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', sent)
     expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
   })
 
@@ -277,65 +280,39 @@ describe('ComposerChoice failures', () => {
 })
 
 describe('ComposerChoice suggestions', () => {
-  // No answer template exists for a suggestion, so pressing one could only 400; a
-  // disabled button still reads as a control, and a note cannot be pressed.
-  it('writes suggestions down as a plain list, with nothing on them to press', () => {
+  // A provider's broader grant ("allow edits for this session") is an answer of
+  // its own: pressing it allows this call and applies the grant.
+  it('offers each suggestion as a button that grants it', async () => {
     draw({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow edits this session' },
       ],
     })
 
-    const suggestions = screen.getByTestId('agent-choice-suggestions')
-    expect(suggestions).toHaveTextContent('Add a permanent rule for this')
-    // Nothing inside the list is interactive — not enabled, not disabled, absent.
-    expect(suggestions.querySelectorAll('button, input, [role="button"]')).toHaveLength(0)
-    expect(screen.queryByRole('button', { name: 'Add a permanent rule for this' })).toBeNull()
-    // The two real answers are untouched by it.
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /Allow edits this session/ }))
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', expect.any(String), {
+        optionIds: ['suggestion-0'],
+      }),
+    )
   })
 
-  // The Terminal button beside Allow/Deny is the answer, when a handler exists.
-  it('offers a terminal button in the bar alongside the real controls', () => {
-    const onOpenTerminal = vi.fn()
-    const options: AgentChoice['options'] = [
-      { id: 'allow', kind: 'allow', label: 'Allow' },
-      { id: 'deny', kind: 'deny', label: 'Deny' },
-      { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-    ]
-    show({ options }, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onOpenTerminal).toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
-  })
-
-  it('does not offer a terminal button without a handler to open one', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-      ],
-    })
+  it('needs no terminal for a permission it can answer whole', () => {
+    show(
+      {
+        options: [
+          { id: 'allow', kind: 'allow', label: 'Allow' },
+          { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        ],
+      },
+      { onOpenTerminal: vi.fn() },
+    )
 
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-  })
-
-  // The backend never sends a raw provider type name any more, but a stale poll
-  // could still be holding one — so nothing here reconstructs a control from a
-  // label whatever it says.
-  it('never turns a suggestion into a control, whatever it is labelled', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'addRules' },
-      ],
-    })
-
-    expect(screen.queryByRole('button', { name: 'addRules' })).toBeNull()
-    expect(screen.queryByRole('checkbox', { name: 'addRules' })).toBeNull()
+    expect(screen.getByRole('button', { name: /Add a permanent rule for this/ })).toBeEnabled()
   })
 })
 
@@ -649,6 +626,29 @@ describe('ComposerChoice keys', () => {
     fireEvent.keyDown(card, { key: '1', repeat: true })
     fireEvent.keyDown(card, { key: 'Enter', isComposing: true })
     expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  // The composer gives way to the card, so focus falls to the page: a digit then
+  // is meant for the card. An Enter is not: it may be the end of a message.
+  it('takes a digit pressed while nothing has focus, never an Enter', async () => {
+    show()
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: '2' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['deny'] }),
+    )
+  })
+
+  it('answers nothing for a digit typed into a field elsewhere', () => {
+    show()
+    const field = document.createElement('input')
+    document.body.append(field)
+    field.focus()
+    fireEvent.keyDown(field, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    field.remove()
   })
 
   it('shows which digit answers with which option', () => {

@@ -7,6 +7,7 @@ import type {
 const shapeOf = (text: string): ComposerShape => ({
   empty: text.trim() === '',
   slashQuery: text.startsWith('/') ? (text.slice(1).split('\n')[0] ?? '') : null,
+  mentionQuery: /(?:^|\s)@([^\s@]*)$/.exec(text)?.[1] ?? null,
 })
 
 /**
@@ -37,6 +38,11 @@ export function TextareaComposerEditor({
     settlePendingImage: () => {},
     getMarkdown: () => box.current?.value ?? '',
     setMarkdown: load,
+    completeMention: (text: string) =>
+      write(
+        typed().replace(/@[^\s@]*$/, () => text),
+        true,
+      ),
     appendMarkdown: (text: string) => (typed() ? write(`${typed()}\n\n${text}`, true) : load(text)),
     focus: () => box.current?.focus(),
     clear: () => load(''),

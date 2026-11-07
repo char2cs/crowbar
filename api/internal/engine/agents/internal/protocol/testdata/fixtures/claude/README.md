@@ -30,6 +30,13 @@ PreToolUse.json, not a fresh capture. Write's `content` key is unverified.
 a Crowbar dev chat's stored result blob and shortened/scrubbed. The envelope is
 reduced from PostToolUse.json. Write and MultiEdit results were not captured.
 
+## PermissionRequest.ExitPlanMode.json
+
+VERBATIM stdin of a `--settings` PermissionRequest hook on a real `claude`
+**2.1.319** started with `--permission-mode plan`, 2026-11-06, presenting a
+one-step plan. Only the path fields are scrubbed, as below (`planFilePath`
+-> `/h/.claude/plans/...`). It carries no `permission_suggestions`.
+
 ## Scrubbing
 
 `transcript_path`, `cwd`, `scratchpad_dir`, `tool_input.file_path`, and

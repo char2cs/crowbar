@@ -133,10 +133,7 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 
-	assert.JSONEq(t,
-		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
-			`"decision":{"behavior":"allow"}}}`,
-		<-printed)
+	assert.JSONEq(t, allowedStdout, <-printed)
 	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 
@@ -364,22 +361,20 @@ func TestAnswer_RefusesPicksOfDifferentKinds(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
-func TestAnswer_RefusesADecisionTheProviderCannotExpress(t *testing.T) {
+// A suggestion picked from Crowbar reaches the CLI as the grant it offered.
+func TestAnswer_ASuggestionReachesTheCLIAsTheGrantOffered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	suggestion := choice.Options[len(choice.Options)-1]
+	require.Equal(t, domain.ChoiceOptionSuggestion, suggestion.Kind, "claude's permission carries suggestions")
 
-	suggestion := ""
-	for _, option := range choice.Options {
-		if option.Kind == domain.ChoiceOptionSuggestion {
-			suggestion = option.ID
-			break
-		}
-	}
-	require.NotEmpty(t, suggestion, "claude's permission carries suggestions")
+	printed := await(f, ask)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion.ID}, "", nil))
+	f.wait()
 
-	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion}, "", nil)
-	require.ErrorIs(t, err, problem.ErrInvalidArgument)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, <-printed)
 }
 
 func TestAnswer_RefusesAnUnknownChatOrPrompt(t *testing.T) {
@@ -681,8 +676,9 @@ func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T)
 	assert.NotContains(t, out, `"":"A"`, "an unnamed question gets no key rather than an empty one")
 }
 
+// An allow hands the call's own input back unchanged.
 const allowedStdout = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
-	`"decision":{"behavior":"allow"}}}`
+	`"decision":{"behavior":"allow","updatedInput":{"command":"touch PROOF","description":"Create proof control file"}}}}`
 
 func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing.T) {
 	f := newFixture(t)
@@ -741,7 +737,7 @@ func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
 		racers.Wait()
 		f.wait()
 
-		assert.JSONEq(t, allowedStdout, <-printed, "whoever won the race, the CLI is told")
+		assert.Contains(t, <-printed, `"behavior":"allow"`, "whoever won the race, the CLI is told")
 		require.Empty(t, pendingChoices(t, f, chatID))
 	}
 }

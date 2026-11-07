@@ -285,7 +285,7 @@ events:
       - option_label
       - option_description
     extras: [answers_into]
-    replies: [allow, deny, answer]
+    replies: [allow, deny, answer, suggestion]
 
   elicitation:
     direction: ask

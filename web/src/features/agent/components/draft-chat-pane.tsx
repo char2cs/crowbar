@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
+import { draftOfPane } from '@/components/layout/draft-thread'
 import { AgentEmptyDocument } from '@/features/agent/chat/agent-empty-document'
 import { isSendKey } from '@/features/agent/chat/lib/send-key'
 import {
@@ -44,7 +45,18 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     }
     setError('')
     setSending(true)
-    void promoteDraftThread(paneId, { ...pick, text: prompt }).finally(() => setSending(false))
+    // The box empties as the prompt leaves; what is typed while the chat is created is
+    // the chat's next draft. A refused create gives the prompt back, ahead of that text.
+    const editor = editorRef.current
+    const draftId = draftOfPane(paneId)?.draftId
+    editor?.clear()
+    const typedSince = () => editor?.getMarkdown() ?? ''
+    void promoteDraftThread(paneId, { ...pick, text: prompt }, typedSince).finally(() => {
+      setSending(false)
+      if (draftOfPane(paneId)?.draftId !== draftId) return
+      const rest = typedSince().trim()
+      editor?.setMarkdown(rest ? `${prompt}\n\n${rest}` : prompt)
+    })
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => {

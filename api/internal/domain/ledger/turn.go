@@ -251,8 +251,8 @@ func Stop(st State, diff string) ([]Row, error) {
 
 // Leave is what runnerID leaves open when its CLI moves the chat onto another
 // session: the turn it was running, interrupted, and the prompts it carried,
-// unacknowledged. Nothing on this chat will close or acknowledge either.
-func Leave(st State, runnerID string) ([]Row, error) {
+// untaken (SettleUntaken). Nothing on this chat will close or acknowledge either.
+func Leave(st State, runnerID string, command func(text string) bool) ([]Row, error) {
 	var rows []Row
 	if t, ok := st.RunningTurn(); ok && t.RunnerID == runnerID {
 		ended, err := EndTurn(st, TurnStatusInterrupted, MarkerSessionChanged)
@@ -261,6 +261,6 @@ func Leave(st State, runnerID string) ([]Row, error) {
 		}
 		rows = ended
 	}
-	settled, err := SettleCarried(st, runnerID, false, ReasonNotAcknowledged)
+	settled, err := SettleUntaken(st, func(p Prompt) bool { return p.RunnerID == runnerID }, command)
 	return append(rows, settled...), err
 }

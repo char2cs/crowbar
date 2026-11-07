@@ -165,6 +165,8 @@ type Usecase interface {
 		childID string,
 		strategy gitdomain.MergeStrategy,
 	) (MergeResult, error)
+	// GuardMergeFold refuses a merge that would delete childID while a chat there works.
+	GuardMergeFold(ctx context.Context, childID string) error
 	// Reparent rebases a leaf child onto a new parent's tip.
 	Reparent(
 		ctx context.Context,

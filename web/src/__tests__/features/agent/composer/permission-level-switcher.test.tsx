@@ -7,6 +7,7 @@ import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registr
 import { toast } from '@/features/window/stores/toast-store'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const { setChatPermissionLevelFn } = vi.hoisted(() => ({ setChatPermissionLevelFn: vi.fn() }))
 
@@ -29,6 +30,7 @@ if (typeof window.PointerEvent !== 'function') {
 }
 
 beforeEach(() => {
+  resetChatStore()
   setChatPermissionLevelFn.mockReset()
   setChatPermissionLevelFn.mockResolvedValue(undefined)
 })
@@ -57,12 +59,18 @@ describe('PermissionLevelSwitcher', () => {
     expect(screen.queryByTestId('chat-permission-level-option-guarded')).toBeNull()
   })
 
-  // There is no per-chat GET, only the PUT: the dial never claims a level it cannot read.
-  it('starts on no level, never guessing at one the backend cannot report', () => {
+  // A chat that inherits the default has no level of its own to show.
+  it('starts on no level while the chat inherits the default', () => {
     draw()
     expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
       'Permission level',
     )
+  })
+
+  it('shows the level the chat is pinned to, as the daemon reports it', () => {
+    writeChat({ id: 'c1', permissionLevel: 'trusted' })
+    draw()
+    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('trusted')
   })
 
   it('picking a level PUTs it for this chat', async () => {
@@ -91,24 +99,5 @@ describe('PermissionLevelSwitcher', () => {
     toastError.mockRestore()
     destroyHostRuntime('h1')
     resetHostWorld()
-  })
-
-  it('remembers its own last confirmed pick across a remount of the same chat, keyed per chat', async () => {
-    const user = userEvent.setup()
-    const first = draw('persist-1')
-    await pickLevel(user, 'full-auto')
-    await waitFor(() =>
-      expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'persist-1', 'full-auto'),
-    )
-    first.unmount()
-
-    const second = draw('persist-1')
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('full-auto')
-    second.unmount()
-
-    draw('persist-2')
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
-      'Permission level',
-    )
   })
 })

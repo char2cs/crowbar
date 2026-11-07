@@ -284,7 +284,7 @@ events:
   # would open the same prompt twice.
   permission:
     required: [session_id, tool_name]
-    fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json]
+    fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json, PermissionRequest.ExitPlanMode.json]
     # No recorded PermissionRequest is an AskUserQuestion one yet.
     unverified_fields: [questions]
     ask: PermissionRequest
@@ -303,10 +303,12 @@ events:
       # claude's own machine name for a broader grant, never shown as itself.
       suggestion_type:        type
       suggestion_description: { first_present: [mode, destination] }
-      # Labels only — claude declares no reply template for a suggestion.
+      # A label for <type>.<description> names the grant exactly, in place of claude's word.
       suggestion_label.addRules:       "Add a permanent rule for this"
       suggestion_label.addDirectories: "Allow this directory from now on"
       suggestion_label.setMode:        "Switch to a more permissive mode"
+      suggestion_label.setMode.acceptEdits: "Allow edits for the rest of this session"
+      suggestion_label.setMode.plan:   "Switch to plan mode"
       suggestion_label.default:        "A broader permission than this one"
       questions:              tool_input.questions
       question_title:         header
@@ -316,9 +318,12 @@ events:
       option_label:           label
       option_description:     description
     reply:
-      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+      # The input echoed back: on a bare allow claude still opens its own plan dialog.
+      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
+      # Allows this call and applies the grants picked from permission_suggestions.
+      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":{suggestions_json}}}}'
 
   elicitation:
     required: [session_id]
@@ -628,6 +633,8 @@ terminal_prompts:
   # Footer of a dialog a command opens (/help, verified on 2.1.319): it holds the
   # CLI until closed in the terminal, and no hook says so.
   - needle: "Esc to cancel"
+  # /help's tab row: an unviewed 80x24 grid cuts the dialog above its footer.
+  - needle: "Help General Commands Custom commands"
   # First-run onboarding, painted before any hook by a claude never set up on
   # this machine (verified on 2.1.281 with an empty CLAUDE_CONFIG_DIR): the
   # theme picker, then the login method. Neither paints the footer above.

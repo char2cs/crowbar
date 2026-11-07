@@ -138,7 +138,7 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
   )
 
   /** Accept an item: the caller writes `insertText` into the composer. */
-  const accept = useCallback((item: SlashCatalogItem) => {
+  const accept = useCallback((item: Pick<SlashCatalogItem, 'insertText'>) => {
     leadingRef.current = item.insertText.startsWith('/')
     setOpen(false)
     return item.insertText

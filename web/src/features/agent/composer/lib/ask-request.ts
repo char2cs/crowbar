@@ -79,6 +79,9 @@ export function requestView(req: AskRequest): RequestView {
   const input = (req.toolInput ?? {}) as Record<string, unknown>
   const command = str(input.command)
   if (command) return { code: plain(command), note: str(input.description) || undefined }
+  // A plan approval asks about the plan it carries.
+  const plan = str(input.plan)
+  if (plan) return { code: plain(plan) }
   return (
     fileView(input, req.toolTarget ?? '') ?? {
       head: req.toolTarget || undefined,
