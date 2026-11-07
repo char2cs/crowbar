@@ -33,7 +33,8 @@ func (d *detector) evaluate(
 	if ends && busy && d.choicePending(ctx, runner.CurrentChatID) {
 		return domain.AgentTerminalWait{}, prev, false
 	}
-	if busy {
+	// A dialog over a running turn holds it too, unless it is one the chat already asks about.
+	if busy && screen.matched.Waiting && d.choicePending(ctx, runner.CurrentChatID) {
 		return domain.AgentTerminalWait{}, screen, ends
 	}
 	return screen.matched, screen, ends
