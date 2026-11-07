@@ -583,9 +583,16 @@ func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *test
 }
 
 func TestAgent_ToolDenialRefusesTheCallWithItsReasonAsJSON(t *testing.T) {
-	stdout, ok := get(t, "claude").ToolDenial(`write "elsewhere"`)
+	for _, id := range []string{"claude", "codex"} {
+		assertDenies(t, id)
+	}
+}
 
-	require.True(t, ok)
+func assertDenies(t *testing.T, id string) {
+	t.Helper()
+	stdout, ok := get(t, id).ToolDenial(`write "elsewhere"`)
+
+	require.True(t, ok, id)
 	var reply struct {
 		Out struct {
 			Event    string `json:"hookEventName"`

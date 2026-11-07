@@ -227,6 +227,10 @@ events:
         tool_input:  tool_input
         mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json, PreToolUse.applyPatch.json]
+    # Refuses one call before it runs (a write into a folder the chat moved out of); codex
+    # rejects a deny with no reason, so the reason is always set.
+    reply:
+      deny: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":{reason_json}}}'
 
   # tool_result is per variant: aggregatedOutput, result, changes, agentsStates.
   # receiverThreadIds[0] is the child thread (item_completed.collabAgentToolCall
