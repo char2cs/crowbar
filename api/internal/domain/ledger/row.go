@@ -113,8 +113,10 @@ var checks = map[Kind]func(Row) error{
 	KindSubagent: func(r Row) error {
 		return checkNamed(r, func(b SubagentBody) bool {
 			named := r.Scope != "" || b.SpawnToolID != ""
-			return named && slices.Contains([]string{SubagentStart, SubagentBound, SubagentResult, SubagentStop}, b.Phase) &&
-				(b.Phase != SubagentBound || r.Scope != "" && b.SpawnToolID != "")
+			phases := []string{SubagentStart, SubagentBound, SubagentResume, SubagentResult, SubagentStop}
+			return named && slices.Contains(phases, b.Phase) &&
+				(b.Phase != SubagentBound || r.Scope != "" && b.SpawnToolID != "") &&
+				(b.Phase != SubagentResume || r.Scope != "")
 		})
 	},
 	KindPlan: func(r Row) error {

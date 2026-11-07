@@ -11,6 +11,7 @@ import (
 const (
 	SubagentStart  = "start"  // a spawning call opened it, or it announced itself
 	SubagentBound  = "bound"  // its spawning call is known to run as Scope
+	SubagentResume = "resume" // a follow-up runs it again once it ended
 	SubagentResult = "result" // it handed its result back
 	SubagentStop   = "stop"   // it ended
 )
@@ -28,14 +29,18 @@ const (
 )
 
 // A Stop or a runner's exit interrupts a subagent that has not bound yet too.
+// One that ended runs again on a follow-up.
 var subagentEdges = map[SubagentStatus][]SubagentStatus{
-	SubagentStarting: {SubagentRunning, SubagentFailed, SubagentAbandoned, SubagentInterrupted},
-	SubagentRunning:  {SubagentDone, SubagentFailed, SubagentInterrupted},
+	SubagentStarting:    {SubagentRunning, SubagentFailed, SubagentAbandoned, SubagentInterrupted},
+	SubagentRunning:     {SubagentDone, SubagentFailed, SubagentInterrupted},
+	SubagentDone:        {SubagentRunning},
+	SubagentFailed:      {SubagentRunning},
+	SubagentInterrupted: {SubagentRunning},
 }
 
 // Next reports the status a transition lands in and whether the lifecycle
 // allows it: starting→running|failed|abandoned|interrupted,
-// running→done|failed|interrupted; nothing else.
+// running→done|failed|interrupted, done|failed|interrupted→running; nothing else.
 func (s SubagentStatus) Next(to SubagentStatus) (SubagentStatus, bool) {
 	if slices.Contains(subagentEdges[s], to) {
 		return to, true
@@ -164,6 +169,8 @@ func (b *SubagentBook) applyRow(r Row, body SubagentBody) {
 		b.start(r, body)
 	case SubagentBound:
 		b.bind(r, body)
+	case SubagentResume:
+		b.resume(r)
 	case SubagentResult, SubagentStop:
 		b.finish(r, body)
 	}
@@ -222,6 +229,19 @@ func (b *SubagentBook) bind(r Row, body SubagentBody) {
 	}
 	a.Type = cmp.Or(a.Type, body.Type)
 	b.agents[r.Scope] = a
+}
+
+// resume runs the subagent bound as r's scope again: its last run's end and
+// result are not this run's.
+func (b *SubagentBook) resume(r Row) {
+	a, ok := b.agents[r.Scope]
+	if !ok {
+		return
+	}
+	if next, moved := a.Status.Next(SubagentRunning); moved {
+		a.Status, a.EndedAt, a.EndSeq, a.Result, a.outlived = next, time.Time{}, 0, "", false
+		b.agents[r.Scope] = a
+	}
 }
 
 // finish ends a subagent with what it reported; a later report of one already

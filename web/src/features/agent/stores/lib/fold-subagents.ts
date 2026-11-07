@@ -14,6 +14,9 @@ import {
 const EDGES: Partial<Record<SubagentStatus, SubagentStatus[]>> = {
   starting: ['running', 'failed', 'abandoned', 'interrupted'],
   running: ['done', 'failed', 'interrupted'],
+  done: ['running'],
+  failed: ['running'],
+  interrupted: ['running'],
 }
 
 const live = (status: SubagentStatus) => status === 'starting' || status === 'running'
@@ -143,6 +146,13 @@ function claim(
   fold.place(card.id, '')
 }
 
+/** A follow-up runs an ended card again, where it is: its last end is not this run's. */
+function resume(fold: FeedFold, scope: string) {
+  const card = cardOf(fold, scope)
+  if (!card || !EDGES[card.status]?.includes('running')) return
+  putCard(fold, { ...card, status: 'running', endedAt: undefined, result: undefined })
+}
+
 function finish(fold: FeedFold, row: LedgerRow<'subagent'>) {
   const { status, result, usage, spawnToolId } = row.body
   const card = row.scope
@@ -170,6 +180,8 @@ export const applySubagent: Apply<'subagent'> = (fold, row) => {
     else announce(fold, row, scope)
   } else if (phase === 'bound' && scope && spawnToolId) {
     bind(fold, row, scope, spawnToolId)
+  } else if (phase === 'resume' && scope) {
+    resume(fold, scope)
   } else if (phase === 'stop' || phase === 'result') {
     finish(fold, row)
   }

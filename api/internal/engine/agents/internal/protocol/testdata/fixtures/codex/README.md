@@ -85,3 +85,6 @@ is no `collabAgentToolCall` spawnAgent: the parent's thread reports
 `agentThreadId` and `agentPath` ("/root/<name>"), and the child's own turn rides the
 same connection under that thread id with no `thread/started` of its own. The parent
 waits with a `collabAgentToolCall` wait whose `receiverThreadIds` is empty.
+`item_started.subAgentActivity.interacted.json` is the same kind of capture, verbatim,
+from a turn asked to send its agent a follow-up: codex reports it as
+`kind: "interacted"` (no collab tool call), then runs a second turn on the child's thread.

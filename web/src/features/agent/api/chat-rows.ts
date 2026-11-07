@@ -142,7 +142,7 @@ export interface RowBodies {
     optionIds?: string[]
   }
   subagent: {
-    phase: 'start' | 'stop' | 'bound' | 'result'
+    phase: 'start' | 'stop' | 'bound' | 'resume' | 'result'
     spawnToolId?: string
     type?: string
     title?: string

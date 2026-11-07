@@ -25,6 +25,9 @@ func TestSubagentStatus_Next(t *testing.T) {
 	allowed := map[ledger.SubagentStatus][]ledger.SubagentStatus{
 		ledger.SubagentStarting: {ledger.SubagentRunning, ledger.SubagentFailed, ledger.SubagentAbandoned, ledger.SubagentInterrupted},
 		ledger.SubagentRunning:  {ledger.SubagentDone, ledger.SubagentFailed, ledger.SubagentInterrupted},
+		// A follow-up runs an ended subagent again.
+		ledger.SubagentDone: {ledger.SubagentRunning}, ledger.SubagentFailed: {ledger.SubagentRunning},
+		ledger.SubagentInterrupted: {ledger.SubagentRunning},
 	}
 	all := []ledger.SubagentStatus{
 		ledger.SubagentStarting, ledger.SubagentRunning, ledger.SubagentDone, ledger.SubagentFailed,
@@ -242,6 +245,27 @@ func TestState_AStoppedScopeIsNeverReopened(t *testing.T) {
 	assert.False(t, st.ScopeOpen("A"))
 	a, _ := st.SubagentOf("A")
 	assert.Equal(t, ledger.SubagentDone, a.Status)
+}
+
+func TestState_AResumedScopeRunsAgainAndTakesItsNextResult(t *testing.T) {
+	stop := func(result string) ledger.Row {
+		return scoped(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStop, Result: result})
+	}
+	st := ledger.Fold("c1", sequenced(t,
+		turnStart(t, "T1"), subagent(t, "A", ledger.SubagentStart), stop("pong"), subagent(t, "A", ledger.SubagentResume),
+	))
+
+	assert.True(t, st.ScopeOpen("A"))
+	a, _ := st.SubagentOf("A")
+	assert.Equal(t, ledger.SubagentRunning, a.Status)
+	assert.Empty(t, a.Result, "its last run's result is not this one's")
+
+	st.Apply(ledger.Row{Seq: 5, Kind: ledger.KindSubagent, TurnID: "T1", Scope: "A", Body: stop("bye").Body})
+	a, _ = st.SubagentOf("A")
+	assert.Equal(t, ledger.SubagentDone, a.Status)
+	assert.Equal(t, "bye", a.Result)
+	require.ErrorIs(t, ledger.Check(ledger.State{}, spawned(t, "", ledger.SubagentResume, "tool-1")), ledger.ErrMalformedRow,
+		"a resume names the scope it resumes")
 }
 
 func TestCheck_ASubagentRowNeedsItsScopeOrItsCall(t *testing.T) {

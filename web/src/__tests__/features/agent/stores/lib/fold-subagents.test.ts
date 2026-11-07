@@ -171,6 +171,25 @@ describe('subagent cards', () => {
     expect(feed.items.get('s:call-1')).toMatchObject({ parentWaiting: false })
   })
 
+  it('runs a card that ended again on a follow-up, in its place, until its next result', () => {
+    const l = ledger()
+    const run = (phase: 'start' | 'resume' | 'stop', result?: string) =>
+      l.row('subagent', { phase, title: 'pong', result }, { turnId: 'turn-1', scope: 'thread-c' })
+    let feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      l.text('turn-1', 'm1', -1, 'Asking an agent.', true),
+      run('start'),
+      run('stop', 'pong'),
+      run('resume'),
+    ])
+    expect(feed.order).toEqual(['m:turn-1:m1', 's:thread-c'])
+    expect(feed.items.get('s:thread-c')).toMatchObject({ status: 'running', endedAt: undefined })
+    expect(feed.facts.liveSubagents).toEqual(['s:thread-c'])
+    feed = applyRows(feed, [run('stop', 'bye')])
+    expect(feed.items.get('s:thread-c')).toMatchObject({ status: 'done', result: 'bye' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
   it('folds the recorded session into two cards that each hold their own calls and result', () => {
     const feed = applyRows(emptyFeed(), subagentSessionRows())
     const cards = feed.order

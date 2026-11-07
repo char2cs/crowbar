@@ -34,8 +34,9 @@ func spawnRows(st ledger.State, call ledger.ToolCall, turnID string) ([]ledger.R
 }
 
 // mapSubagent records a subagent's own start or stop, once. A start no call
-// is known to have spawned runs at once; a stop of one never started is the
-// CLI's own housekeeping agent unless it names a type, acknowledged with no row.
+// is known to have spawned runs at once, and one of a subagent that ended is a
+// follow-up resuming it; a stop of one never started is the CLI's own
+// housekeeping agent unless it names a type, acknowledged with no row.
 func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	if ev.Subagent == nil || ev.Subagent.ID == "" {
 		return nil, nil
@@ -43,11 +44,7 @@ func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([
 	sub := ev.Subagent
 	known, seen := st.SubagentOf(sub.ID)
 	if ev.Kind == engineagents.HookSubagentPre {
-		if seen {
-			return nil, nil
-		}
-		turnID, _ := turnFor(st, src, "", ev.TurnID)
-		return started(turnID, sub)
+		return startOrResume(st, ev, src, known, seen)
 	}
 	if seen && !known.Status.Live() {
 		return nil, nil
@@ -67,6 +64,20 @@ func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([
 	}
 	row, err := ledger.NewRow(ledger.KindSubagent, turnID, sub.ID, ended(ledger.SubagentStop, sub))
 	return append(rows, row), err
+}
+
+func startOrResume(
+	st ledger.State, ev engineagents.CanonicalEvent, src Source, known ledger.Subagent, seen bool,
+) ([]ledger.Row, error) {
+	if !seen {
+		turnID, _ := turnFor(st, src, "", ev.TurnID)
+		return started(turnID, ev.Subagent)
+	}
+	if known.Status.Live() {
+		return nil, nil
+	}
+	row, err := ledger.NewRow(ledger.KindSubagent, known.TurnID, known.Scope, ledger.SubagentBody{Phase: ledger.SubagentResume})
+	return []ledger.Row{row}, err
 }
 
 func started(turnID string, sub *engineagents.SubagentEvent) ([]ledger.Row, error) {

@@ -150,3 +150,24 @@ func TestMap_AHandBackOfAnUnknownSubagentStartsIt(t *testing.T) {
 	z, _ := c.st.SubagentOf("Z")
 	assert.Equal(t, "late", z.Result)
 }
+
+// A start of a subagent that already ended is a follow-up running it again;
+// one of a subagent still running records nothing.
+func TestMap_AStartOfAnEndedSubagentResumesIt(t *testing.T) {
+	c := liveChatRows(t)
+	c.typed("delegate")
+	start := engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre, Subagent: &engineagents.SubagentEvent{ID: "A"}}
+	c.mapped(start, hooksSource())
+	again, _ := c.mapped(start, hooksSource())
+	require.Empty(t, again, "it runs already")
+	child := hooksSource()
+	child.Scope = "A"
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "pong"}, child)
+	require.False(t, c.st.ScopeOpen("A"))
+
+	rows, _ := c.mapped(start, hooksSource())
+
+	require.Equal(t, []ledger.Kind{ledger.KindSubagent}, kinds(rows))
+	assert.Equal(t, ledger.SubagentResume, bodyOf[ledger.SubagentBody](t, rows[0]).Phase)
+	assert.True(t, c.st.ScopeOpen("A"), "its next run's frames are its own")
+}

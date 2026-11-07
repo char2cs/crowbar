@@ -340,12 +340,15 @@ func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
 	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "delegate"})
 	refused := deadLetters(t, f)
 
-	hookAPI(t, f, runnerID, "codex", "subagent_pre", map[string]any{
-		"threadId": "thread-main", "turnId": "turn-main", "item": map[string]any{
-			"type": "subAgentActivity", "kind": "started", "id": "call_6cfb", "model": "gpt-6.1-sol",
-			"agentThreadId": "thread-child", "agentPath": "/root/pong",
-		},
-	})
+	activity := func(kind string) {
+		hookAPI(t, f, runnerID, "codex", "subagent_pre", map[string]any{
+			"threadId": "thread-main", "turnId": "turn-main", "item": map[string]any{
+				"type": "subAgentActivity", "kind": kind, "id": "call_6cfb", "model": "gpt-6.1-sol",
+				"agentThreadId": "thread-child", "agentPath": "/root/pong",
+			},
+		})
+	}
+	activity("started")
 	codexTurnStop(t, f, runnerID, "thread-child", "pong")
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
@@ -355,6 +358,14 @@ func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
 	assert.Equal(t, "pong", subs[0].Title, "the agent's name is the last part of its path")
 	require.NotNil(t, subs[0].EndedAt, "the child's own turn end closes it")
 	assert.Equal(t, []string{"pong"}, subs[0].Messages)
+
+	// A follow-up runs the same child again: its next reply is its result.
+	activity("interacted")
+	codexTurnStop(t, f, runnerID, "thread-child", "bye")
+	subs, err = f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "done", subs[0].Status)
+	assert.Contains(t, subs[0].Messages, "bye")
 	assert.Equal(t, refused, deadLetters(t, f), "nothing of the child is refused")
 }
 
