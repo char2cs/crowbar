@@ -1200,12 +1200,13 @@
   color: var(--warn-text);
   font-weight: 600;
 }
+/* Drawn from the button's own text colour: a fixed muted grey vanished on filled buttons. */
 .agent-chat .choice-key {
   margin-left: 6px;
   padding: 0 4px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   border-radius: 3px;
-  color: var(--muted-foreground);
+  color: color-mix(in srgb, currentColor 75%, transparent);
   font-family: var(--font-mono);
   font-size: 0.65rem;
 }
