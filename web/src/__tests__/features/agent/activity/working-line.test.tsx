@@ -107,10 +107,11 @@ describe('WorkingLine', () => {
     expect(heading()).toHaveTextContent('Waiting for 1 agent')
   })
 
-  it('shows nothing extra while answer text streams', () => {
-    render(<WorkingLine working streaming since="2026-08-18T12:00:00Z" />)
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
-    expect(screen.queryByTestId('agent-working-heading')).toBeNull()
+  it('says Writing while answer text streams, and a running tool over it', () => {
+    const { rerender } = render(<WorkingLine working streaming since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Writing…')
+    rerender(<WorkingLine working streaming toolLabel="Running npm test" />)
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Running npm test')
   })
 
   it('announces its heading politely, never the clock', () => {

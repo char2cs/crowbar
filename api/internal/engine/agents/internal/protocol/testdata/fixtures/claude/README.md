@@ -37,6 +37,13 @@ VERBATIM stdin of a `--settings` PermissionRequest hook on a real `claude`
 one-step plan. Only the path fields are scrubbed, as below (`planFilePath`
 -> `/h/.claude/plans/...`). It carries no `permission_suggestions`.
 
+## MessageDisplay.json
+
+VERBATIM stdin of a `--settings` MessageDisplay hook on a real `claude`
+**2.1.319**, 2026-11-07: the first of three chunks of a plain three-paragraph
+reply, scrubbed as below. Chunks arrive one per finished paragraph while the
+reply is written, not once at its end.
+
 ## Scrubbing
 
 `transcript_path`, `cwd`, `scratchpad_dir`, `tool_input.file_path`, and
