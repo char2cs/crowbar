@@ -21,11 +21,25 @@ const CODE_TEXT: Record<FailureKind, string> = {
   other: 'The provider stopped this turn.',
 }
 
+/** The message inside a provider error that arrived as its raw JSON body. */
+function jsonMessage(words: string): string | undefined {
+  if (!words.startsWith('{')) return undefined
+  try {
+    const body = JSON.parse(words) as { message?: unknown; error?: { message?: unknown } }
+    const message = body.error?.message ?? body.message
+    return typeof message === 'string' && message ? message : undefined
+  } catch {
+    return undefined // not JSON after all: the words stand as they are
+  }
+}
+
 export function describeFailure(reason = '', detail = ''): TurnFailure {
   const said = `${reason}\n${detail}`
   const kind: FailureKind = AUTH.test(said) ? 'auth' : LIMIT.test(said) ? 'limit' : 'other'
   const words = detail.trim() || (CODE.test(reason) ? '' : reason.trim())
   if (!words) return { kind, text: CODE_TEXT[kind] }
+  const message = jsonMessage(words)
+  if (message) return { kind, text: message, more: words }
   const [first = '', ...rest] = words.split('\n')
   return { kind, text: first, more: rest.join('\n').trim() || undefined }
 }
