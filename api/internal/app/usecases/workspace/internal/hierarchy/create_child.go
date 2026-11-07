@@ -27,7 +27,10 @@ type CreateChildInput struct {
 	OwnWorktree *bool
 	// ForceLocked marks the workspace locked regardless of branch protection, for a workspace the caller
 	// knows is immutable (a default-branch workspace adopted without a git provider).
-	ForceLocked    bool
+	ForceLocked bool
+	// FromParentHead starts a new branch at the commit the parent's checkout holds,
+	// never origin's tip: a thread made a branch keeps what its folder committed.
+	FromParentHead bool
 	parentWorktree string // the inherited parent's checkout: a branchless parent forks from its HEAD
 }
 

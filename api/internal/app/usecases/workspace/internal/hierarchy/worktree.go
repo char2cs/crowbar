@@ -105,7 +105,7 @@ func (u *hierarchyUsecase) parentStartPoint(
 	ctx context.Context,
 	in CreateChildInput,
 ) string {
-	if in.ParentBranch == "" {
+	if in.ParentBranch == "" || in.FromParentHead {
 		return u.detachedParentHead(ctx, in)
 	}
 	parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch)

@@ -5,9 +5,9 @@ import (
 	"log/slog"
 )
 
-// detachedParentHead is the commit a branchless (detached) parent's checkout
-// holds: there is no branch to fork from, only that commit. Unresolved, it
-// answers "" and the worktree add reports why.
+// detachedParentHead is the commit the parent's checkout holds: a branchless
+// (detached) parent has nothing else to fork from, and FromParentHead asks for
+// it. Unresolved, it answers "" and the worktree add reports why.
 func (u *hierarchyUsecase) detachedParentHead(
 	ctx context.Context,
 	in CreateChildInput,
