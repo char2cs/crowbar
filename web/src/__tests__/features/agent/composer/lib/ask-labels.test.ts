@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import {
+  askNote,
   choiceDetail,
   choiceQuestions,
   describeChoice,
@@ -207,5 +208,22 @@ describe('choiceDetail', () => {
 
     expect(choiceDetail(asked)).toBe('')
     expect(choiceDetail({ ...asked, title: 'Deploy target' })).toBe('Deploy target')
+  })
+})
+
+describe('askNote', () => {
+  it('says an allow once, not again in the option’s own word', () => {
+    expect(askNote(choice({ pending: false, answeredOptionIds: ['allow'] }))).toBe('Allowed')
+  })
+
+  it('keeps an allow option’s label when it says more than allow', () => {
+    const options = [
+      { id: 'allow', kind: 'allow', label: 'Allow' },
+      { id: 'session', kind: 'allow', label: 'Allow for this session' },
+      { id: 'deny', kind: 'deny', label: 'Deny' },
+    ]
+    expect(askNote(choice({ options, pending: false, answeredOptionIds: ['session'] }))).toBe(
+      'Allowed · Allow for this session',
+    )
   })
 })
