@@ -5,8 +5,13 @@ import type { CodeViewItem, FileDiffMetadata } from '@pierre/diffs'
 export const MAX_TURN_DIFF_PREVIEW_CHARS = 250_000
 
 /** The fingerprint changes with content while item IDs stay stable within a turn,
- *  so CodeView updates the same file as the snapshot advances. */
-export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefined>[] {
+ *  so CodeView updates the same file as the snapshot advances. `target` is the
+ *  tool call's own name for its file, absolute when it lies outside the workspace. */
+export function parseTurnDiff(
+  diff: string,
+  turnId: string,
+  target = '',
+): CodeViewItem<undefined>[] {
   if (!diff || diff.length > MAX_TURN_DIFF_PREVIEW_CHARS) return []
 
   try {
@@ -20,7 +25,7 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
         return {
           id: `${turnId}:${patchIndex}:${index}`,
           type: 'diff' as const,
-          fileDiff: bare ? unprefixed(fileDiff) : fileDiff,
+          fileDiff: bare ? unprefixed(fileDiff, target) : fileDiff,
           version,
         }
       }),
@@ -32,11 +37,13 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
 }
 
 /** A tool's edit arrives as a bare unified diff, whose `a/`/`b/` names the parser
- *  keeps, so every edit would read as a rename from a/ to b/. */
-function unprefixed(file: FileDiffMetadata): FileDiffMetadata {
-  const name = file.name.replace(/^b\//, '')
+ *  keeps, so every edit would read as a rename from a/ to b/. Git names a file
+ *  outside the workspace from the root, without the slash its call keeps. */
+function unprefixed(file: FileDiffMetadata, target: string): FileDiffMetadata {
+  const bare = file.name.replace(/^b\//, '')
+  const name = target === `/${bare}` ? target : bare
   const prev = file.prevName?.replace(/^a\//, '')
-  if (name === file.name || (prev !== undefined && prev !== name)) return file
+  if (bare === file.name || (prev !== undefined && prev !== bare)) return file
   return { ...file, name, prevName: undefined, type: prev === undefined ? file.type : 'change' }
 }
 

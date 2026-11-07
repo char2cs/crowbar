@@ -6,11 +6,13 @@ import { DiffCodeView } from '@/features/git/components/diff/diff-code-view'
 interface TurnDiffPreviewProps {
   diff: string
   turnId: string
+  /** The call's own name for its file. */
+  target?: string
   wsId?: string
 }
 
-export function TurnDiffPreview({ diff, turnId }: TurnDiffPreviewProps) {
-  const items = useMemo(() => parseTurnDiff(diff, turnId), [diff, turnId])
+export function TurnDiffPreview({ diff, turnId, target }: TurnDiffPreviewProps) {
+  const items = useMemo(() => parseTurnDiff(diff, turnId, target), [diff, turnId, target])
   const options = useMemo<CodeViewOptions<undefined, undefined>>(
     () => ({
       diffStyle: 'unified',

@@ -25,6 +25,12 @@ func toolResultDiff(tool *engineagents.ToolEvent) string {
 	return patchDiff(tool.Target, tool.Cwd, tool.Patch)
 }
 
+// diffName is how a diff header names path, git's way: from cwd when the file is
+// inside it, else from the root (a/abs/path); the call's target keeps the slash.
+func diffName(path, cwd string) string {
+	return strings.TrimPrefix(sessionPath(path, cwd), "/")
+}
+
 // toolTarget is the call's target; a read or edit's is its file, named from
 // the session's directory.
 func toolTarget(tool *engineagents.ToolEvent) string {
@@ -49,8 +55,7 @@ func editDiff(path, cwd, before, after string) string {
 	if path == "" || before == after {
 		return ""
 	}
-	// A file outside the session keeps its leading slash (a//abs): it is not one inside it.
-	path = sessionPath(path, cwd)
+	path = diffName(path, cwd)
 	oldLines, newLines := splitLines(before), splitLines(after)
 	prefix := 0
 	for prefix < len(oldLines) && prefix < len(newLines) && oldLines[prefix] == newLines[prefix] {
@@ -89,7 +94,7 @@ func editDiff(path, cwd, before, after string) string {
 
 // patchDiff renders the provider's own hunks, keeping their true line numbers.
 func patchDiff(path, cwd string, hunks []engineagents.PatchHunk) string {
-	path = sessionPath(path, cwd)
+	path = diffName(path, cwd)
 	if path == "" || len(hunks) == 0 {
 		return ""
 	}

@@ -182,7 +182,7 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
             </div>
             {patch && showDiff && (
               <div className="turn-diff tool-turn-diff" data-testid="agent-tool-diff">
-                <TurnDiffPreview diff={patch} turnId={item.toolId} />
+                <TurnDiffPreview diff={patch} turnId={item.toolId} target={body.target} />
               </div>
             )}
             {body.output && !running && !toggled && (
