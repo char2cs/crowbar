@@ -33,6 +33,7 @@ func PreOpenImpls() migrate.Impls {
 		StepRetireLegacy:       RetireImpl(),
 		StepOwnerOnly:          {Apply: narrowOwnerOnly},
 		StepRefusedDescriptors: {Apply: retireRefusedDescriptors},
+		StepWorktreeReach:      {Apply: reachWorktrees},
 	}
 }
 

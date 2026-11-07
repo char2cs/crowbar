@@ -25,21 +25,26 @@ func chmod(t *testing.T, root, rel string, m os.FileMode) {
 	require.NoError(t, os.Chmod(filepath.Join(root, rel), m))
 }
 
-func TestOwnerOnly_NarrowsWhatAnOlderBuildLeftOpenButNotACheckout(t *testing.T) {
+func TestOwnerOnly_NarrowsWhatAnOlderBuildLeftOpenButNotTheWayToACheckout(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	h := testutil.FixtureHome(t)
 	root := h.Root()
 	testutil.WriteFile(t, h, "model-manifest-cache/m.json", "{}")
 	testutil.WriteFile(t, h, "projects/p1/acme-app/main/worktree/README.md", "user")
+	testutil.WriteFile(t, h, "projects/p1/acme-app/main/chats/c1/state.json", "{}")
 	chmod(t, root, "model-manifest-cache/m.json", 0o644)
 	chmod(t, root, "model-manifest-cache", 0o750)
 	chmod(t, root, "projects/p1/acme-app/main/worktree/README.md", 0o644)
+	chmod(t, root, "projects/p1/acme-app/main/chats/c1/state.json", 0o644)
 	opened := []string{
+		".",
 		"projects",
 		"projects/p1",
 		"projects/p1/acme-app",
 		"projects/p1/acme-app/main",
 		"projects/p1/acme-app/main/worktree",
+		"projects/p1/acme-app/main/chats",
+		"projects/p1/acme-app/main/chats/c1",
 	}
 	for _, dir := range opened {
 		chmod(t, root, dir, 0o755)
@@ -49,10 +54,15 @@ func TestOwnerOnly_NarrowsWhatAnOlderBuildLeftOpenButNotACheckout(t *testing.T) 
 
 	assert.Equal(t, os.FileMode(0o600), mode(t, root, "model-manifest-cache/m.json"))
 	assert.Equal(t, os.FileMode(0o700), mode(t, root, "model-manifest-cache"))
-	assert.Equal(t, os.FileMode(0o700), mode(t, root, "projects/p1/acme-app/main"), "Crowbar's scaffolding above a checkout")
+	for _, dir := range opened[:5] {
+		assert.Equal(t, os.FileMode(0o755), mode(t, root, dir), "the way to a checkout is left as it was: %s", dir)
+	}
 	assert.Equal(t, os.FileMode(0o755), mode(t, root, "projects/p1/acme-app/main/worktree"), "a checkout is git's")
 	assert.Equal(t, os.FileMode(0o644), mode(t, root, "projects/p1/acme-app/main/worktree/README.md"))
-	assert.Equal(t, []migrate.Counts{{"narrowed": 6}}, migratetest.Applied(t, h)[StepOwnerOnly])
+	assert.Equal(t, os.FileMode(0o700), mode(t, root, "projects/p1/acme-app/main/chats"), "chat state is Crowbar's")
+	assert.Equal(t, os.FileMode(0o600), mode(t, root, "projects/p1/acme-app/main/chats/c1/state.json"))
+	assert.Equal(t, []migrate.Counts{{"narrowed": 5}}, migratetest.Applied(t, h)[StepOwnerOnly])
+	assert.Equal(t, []migrate.Counts{{"reachable": 0}}, migratetest.Applied(t, h)[StepWorktreeReach], "nothing on the way was narrowed")
 }
 
 func TestOwnerOnly_LeavesWhatItCannotReachAndStillBoots(t *testing.T) {

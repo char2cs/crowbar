@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/git"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestWorktreeAddBranch_CreatesBranchAndReturnsStartSha(
@@ -76,4 +77,35 @@ func TestWorktreeAdd_ParentsItCreatesAreOwnerOnly(
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
 	}
+}
+
+// In a Crowbar home the directories down to a checkout are traversable by other
+// users, never listable: an IDE or a container running as another uid reaches
+// the checkout as git made it, and nothing above the home changes.
+func TestWorktreeAdd_ACheckoutInACrowbarHomeStaysReachable(
+	t *testing.T,
+) {
+	testutil.RequirePermissionEnforcement(t)
+	repo := initRepo(t)
+	makeCommit(t, repo, "file.txt", "content\n", "init")
+	e := git.New()
+	above := t.TempDir()
+	home := filepath.Join(above, "crowbar")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "projects"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "LAYOUT"), []byte("1\n"), 0o600))
+	require.NoError(t, os.Chmod(home, 0o700))
+	require.NoError(t, os.Chmod(above, 0o700))
+
+	_, err := e.WorktreeAddBranch(context.Background(), repo,
+		filepath.Join(home, "projects", "p1", "acme", "main", "worktree"), "feature/a", "HEAD")
+	require.NoError(t, err)
+
+	for _, dir := range []string{"", "projects", "projects/p1", "projects/p1/acme", "projects/p1/acme/main"} {
+		info, err := os.Stat(filepath.Join(home, dir))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o711), info.Mode().Perm(), dir)
+	}
+	info, err := os.Stat(above)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "nothing above the home")
 }

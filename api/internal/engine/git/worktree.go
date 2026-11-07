@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -296,14 +297,20 @@ func parseWorktreeList(
 	return entries
 }
 
-// makeWorktreeParent creates the directories above a new checkout owner-only
-// before git runs, since git would make them with the umask. The checkout
-// itself is the user's and git creates it.
+// makeWorktreeParent creates the directories above a new checkout before git
+// runs, owner-only but for traverse when they lie in a Crowbar home, so another
+// uid still reaches the checkout. The checkout itself is the user's and git
+// creates it.
 func makeWorktreeParent(
 	worktreePath string,
 ) error {
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o700); err != nil {
 		return fmt.Errorf("worktree add: create parent of %s: %w", worktreePath, err)
+	}
+	if home, ok := worktreepath.HomeOf(worktreePath); ok {
+		if err := worktreepath.Reach(home, worktreePath); err != nil {
+			return fmt.Errorf("worktree add: %w", err)
+		}
 	}
 	return nil
 }

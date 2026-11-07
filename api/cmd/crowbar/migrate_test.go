@@ -37,7 +37,7 @@ func TestMigrateCmd_PlanPrintsAndChangesNothingOnDisk(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, out, "home      "+h.Root())
-	assert.Contains(t, out, "12 pending steps, in execution order")
+	assert.Contains(t, out, "13 pending steps, in execution order")
 	assert.Contains(t, out, "#2 workspace-paths-table   pre-open   layout 0")
 	assert.Contains(t, out, "state/view.db: drop table workspace_paths")
 	assert.Contains(t, out, "#9 ledger-layout   pre-open   layout 0 -> 1")
