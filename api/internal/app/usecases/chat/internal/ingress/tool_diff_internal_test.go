@@ -41,6 +41,15 @@ func TestSessionPath_NamesAFileInsideTheSessionFromThereAndOthersAsGiven(t *test
 	assert.Equal(t, "/ws/repo/a.go", sessionPath("/ws/repo/a.go", ""))
 }
 
+func TestToolTarget_NamesAReadOrEditedFileFromTheSessionAndLeavesOtherTargets(t *testing.T) {
+	call := func(kind, target string) *engineagents.ToolEvent {
+		return &engineagents.ToolEvent{Kind: kind, Target: target, Cwd: "/ws/repo"}
+	}
+	assert.Equal(t, "src/a.go", toolTarget(call("read", "/ws/repo/src/a.go")))
+	assert.Equal(t, "src/a.go", toolTarget(call("edit", "/ws/repo/src/a.go")))
+	assert.Equal(t, "/ws/repo/run.sh", toolTarget(call("execute", "/ws/repo/run.sh")))
+}
+
 func TestPatchDiff_KeepsTheProvidersTrueLineNumbers(t *testing.T) {
 	got := patchDiff("/ws/repo/a.go", "/ws", []engineagents.PatchHunk{
 		{OldStart: 8, NewStart: 8, Lines: []string{" ctx", "-old", "+new", " tail"}},

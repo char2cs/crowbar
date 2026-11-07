@@ -7,6 +7,7 @@ import {
   retractTurn,
   reviveTurn,
   setPrompt,
+  warningShown,
 } from '@/features/agent/stores/lib/fold-prompts'
 import {
   applyAsk,
@@ -51,6 +52,8 @@ const emptyFacts: TurnFacts = {
   traceless: {},
   efforts: {},
   providers: {},
+  model: '',
+  models: {},
   calls: {},
 }
 
@@ -204,6 +207,11 @@ export class FeedFold {
     return (this.order ?? this.base.order).includes(id)
   }
 
+  /** The main-scope order as placed so far. */
+  get placedOrder(): readonly string[] {
+    return this.order ?? this.base.order
+  }
+
   unplace(id: string) {
     // From the end: what moves or goes is nearly always among the newest.
     const at = (this.order ?? this.base.order).lastIndexOf(id)
@@ -265,6 +273,7 @@ function marker(
     reason,
   })
   fold.place(id, '')
+  return id
 }
 
 /** Settles the texts of `turnId` (every turn when null) and ends its running
@@ -289,6 +298,11 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
   fold.set('running', { turnId: row.turnId, requestId, startedAt: row.at, seq: row.seq })
   if (requestId) setPrompt(fold, requestId, { state: 'delivered', turnId: row.turnId })
   if (provider) fold.record('providers')[row.turnId] = provider
+  if (fold.facts.model) fold.record('models')[row.turnId] = fold.facts.model
+}
+
+const applyRunnerStarted: Apply<'runner_started'> = (fold, row) => {
+  fold.set('model', row.body.launchModel)
 }
 
 function closeRunning(fold: FeedFold, turnId: string | undefined) {
@@ -341,6 +355,8 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
   const { kind, detail } = row.body
   if (kind === 'compaction_started') fold.set('compacting', true)
   if (kind === 'compaction_ended') fold.set('compacting', false)
+  if (kind === 'model_changed' && !row.scope) fold.set('model', detail ?? '')
+  if (kind === 'warning' && warningShown(fold, detail)) return
   if (!row.scope) divider(fold, kind, () => marker(fold, row, kind, detail))
 }
 
@@ -423,7 +439,7 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   turn_failed: applyTurnFailed,
   session_bound: ignore,
   session_lost: applySessionLost,
-  runner_started: ignore,
+  runner_started: applyRunnerStarted,
   runner_exited: applyRunnerExited,
   assistant_text: applyAssistantText,
   reasoning: applyReasoning,

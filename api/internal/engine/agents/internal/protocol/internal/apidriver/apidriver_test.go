@@ -301,8 +301,7 @@ func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, stdio, nil)
+	drv, err := apidriver.Start(ctx, loadCodexAPIDescriptor(t), stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = drv.Close() }()
 
@@ -311,6 +310,7 @@ func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t
 		"permission.sandbox": "danger-full-access", "permission.approvalPolicy": "never",
 	})
 	require.NoError(t, err)
+	require.Contains(t, (*seen)[0], `"excludeTurns":true`, "a resume skips the history Crowbar never reads")
 	require.Contains(t, (*seen)[0], `"sandbox":"danger-full-access"`,
 		"a resumed thread must be handed the CURRENT permission level too, not just a fresh one")
 	require.Contains(t, (*seen)[0], `"approvalPolicy":"never"`)

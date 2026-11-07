@@ -148,10 +148,11 @@ events:
       map:
         session_id: threadId
         reason:     { first_present: [turn.error.message, turn.status] }
-        detail:     turn.error.additionalDetails
+        # additionalDetails is often null (a 401 when not logged in): the message is then all it says.
+        detail:     { first_present: [turn.error.additionalDetails, turn.error.message] }
         # See turn_stop's own turn_id comment — a compaction can fail too.
         turn_id:    turn.id
-      fixtures: [turn_completed.failed-schema.json]
+      fixtures: [turn_completed.failed-schema.json, turn_completed.failed.unauthorized.json]
 
   # item.type values are codex's ThreadItem variants. webSearch and dynamicToolCall
   # were missing, so a turn that searched the web showed NO activity for that step.
@@ -179,8 +180,9 @@ events:
   # NO spawns_scope here: receiverThreadIds[0] is EMPTY on spawnAgent's own
   # item/started (item_started.collabAgentToolCall.json); the spawn is bound
   # on its item/completed. tool_kind joins item.tool so wait/closeAgent are meta.
+  # listFiles is an `ls` it ran, not a search for something.
   tool_pre:
-    kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
+    kind_map: { read: read, listFiles: execute, search: search, unknown: execute, commandExecution: execute,
       fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
       collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     locations: { items: item.changes, path: path }
@@ -229,7 +231,7 @@ events:
   # receiverThreadIds[0] is the child thread (item_completed.collabAgentToolCall
   # and .wait): spawnAgent spawns it, wait/closeAgent address it.
   tool_post:
-    kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
+    kind_map: { read: read, listFiles: execute, search: search, unknown: execute, commandExecution: execute,
       fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
       collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     status_map: { completed: ok, failed: error, declined: declined }
@@ -292,7 +294,7 @@ events:
   # NO hooks: block — same reason as turn_failed: PostToolUse always names
   # canonical tool_post, never tool_fail.
   tool_fail:
-    kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
+    kind_map: { read: read, listFiles: execute, search: search, unknown: execute, commandExecution: execute,
       fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
       collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     status_map: { failed: error, declined: declined }
@@ -338,6 +340,16 @@ events:
   # — see runtime's own top comment on attach-without-hotswap) the user is
   # already watching this stream render there, so ingesting a second copy
   # into a chat surface nobody is looking at is pure waste.
+  # What codex warns its TUI user about (a resumed session's model, a sandbox
+  # problem); configWarning arrives before any thread, so it names none.
+  warning:
+    api:
+      in: [warning, configWarning]
+      map:
+        session_id: threadId
+        message:    { first_present: [message, summary] }
+      fixtures: [warning.json, configWarning.json]
+
   message_delta:
     surfaces: [chat]
     in: item/agentMessage/delta
@@ -576,12 +588,15 @@ events:
       # global default reaching an inherited chat — see selection.go) kept
       # resuming under whatever sandbox the thread was ORIGINALLY created
       # with forever, because resume never sent the new choice at all.
+      # excludeTurns: Crowbar's ledger is the transcript; hydrating the thread's
+      # history cost the first prompt after a restart seconds (live, 0.167).
       - call: thread/resume
         send:
           threadId:       "{session_id}"
           cwd:            "{cwd}"
           sandbox:        "{permission.sandbox}"
           approvalPolicy: "{permission.approvalPolicy}"
+          excludeTurns:   true
     action:
       - call: turn/start
         send:

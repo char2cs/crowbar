@@ -94,6 +94,8 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
+  /** A launch's switches (provider, model, effort) drawn as this one divider. */
+  parts?: { marker: MarkerName; detail?: string }[]
 }
 
 export type SubagentStatus =
@@ -143,7 +145,8 @@ export type PromptFact =
   /** `launch` when a CLI launch carries it: that launch's dividers read above it. */
   | { state: 'pending'; seq: number; launch?: true }
   | { state: 'delivered'; turnId: string }
-  | { state: 'settled' }
+  /** `builtin` when the CLI ran it itself (a command) and no turn took it. */
+  | { state: 'settled'; builtin?: true }
   | { state: 'refused'; reason: string }
   /** A refused prompt a later one (`by`) sent again: nothing more to do about it. */
   | { state: 'retried'; by: string }
@@ -175,6 +178,10 @@ export interface TurnFacts {
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */
   providers: Record<string, string>
+  /** The model the live CLI runs: its launch model, or the newest change. */
+  model: string
+  /** turnId → the model it ran on, where one was named. */
+  models: Record<string, string>
   /** turnId → its main-scope calls since its last message. */
   calls: Record<string, CallRound>
 }

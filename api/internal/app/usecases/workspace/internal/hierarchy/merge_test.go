@@ -392,3 +392,37 @@ func TestMergeIntoParent_RejectsUnprovisionedParent(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, g.calls, "no git runs against an unprovisioned parent")
 }
+
+// A merge that would fold a leaf away while its chat works is refused before any
+// git: nothing is left half-done. A non-leaf is never folded, so it may merge.
+func TestGuardMergeFold_RefusesOnlyAWorkingLeaf(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
+	observer := func(working bool) *fakeChatObserver {
+		return &fakeChatObserver{chats: []domain.Chat{{ID: "chat-1", WorkspaceID: "c"}}, working: map[string]bool{"chat-1": working}}
+	}
+	for name, tc := range map[string]struct {
+		working bool
+		kids    []domain.Workspace
+		want    error
+	}{
+		"a working leaf":   {working: true, want: hierarchy.ErrMergeSourceWorking},
+		"an idle leaf":     {},
+		"a working parent": {working: true, kids: []domain.Workspace{{ID: "gc", ParentID: "c"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := &fakeGit{}
+			uc := hierarchy.New(mergeWS(child, parent, tc.kids), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+			uc.SetChatObserver(observer(tc.working))
+
+			err := uc.GuardMergeFold(context.Background(), "c")
+
+			if tc.want == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.want)
+			}
+			assert.Empty(t, g.calls)
+		})
+	}
+}

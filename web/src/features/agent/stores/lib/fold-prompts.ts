@@ -3,6 +3,7 @@ import type { FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import {
   markerItemId,
   userItemId,
+  type MarkerItem,
   type PromptFact,
 } from '@/features/agent/stores/lib/transcript-items'
 
@@ -43,7 +44,11 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
 // A retracted prompt went back to the composer, so its row leaves the transcript.
 export function applyPromptSettled(fold: FeedFold, row: LedgerRow<'prompt_settled'>) {
   const { requestId, consumed, reason } = row.body
-  if (consumed) setPrompt(fold, requestId, { state: 'settled' })
+  if (consumed)
+    setPrompt(fold, requestId, {
+      state: 'settled',
+      ...(reason === 'provider_builtin' && { builtin: true }),
+    })
   else if (reason === 'retracted') {
     setPrompt(fold, requestId, { state: 'retracted' })
     fold.unplace(userItemId(requestId, row.seq))
@@ -80,13 +85,41 @@ const PILL_MARKERS = new Set([
   'effort_changed',
   'legacy_unreadable',
   'session_conflict',
+  'warning',
 ])
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
+
+/** A CLI repeats some warnings on every connection; the chat says each once. */
+export function warningShown(fold: FeedFold, detail: string | undefined) {
+  return fold.placedOrder.some((id) => {
+    const item = fold.item(id)
+    return item?.kind === 'marker' && item.marker === 'warning' && item.detail === detail
+  })
+}
+
+const LAUNCH_ORDER = ['provider_switched', 'model_changed', 'effort_changed']
+
+/** One launch's switches read as one divider, and a switch made with nothing
+ *  said since replaces the earlier one of its kind: a quiet chat reads as where
+ *  it landed. `drawn` joins the launch divider placed just before it, if any. */
+function joinLaunch(fold: FeedFold, drawn: string) {
+  const order = fold.placedOrder
+  const at = order.lastIndexOf(drawn)
+  const head = fold.item<MarkerItem>(order[at - 1] ?? '')
+  const item = fold.item<MarkerItem>(drawn)
+  if (!item || head?.kind !== 'marker' || !LAUNCH_DIVIDERS.has(head.marker)) return
+  const parts = (head.parts ?? [{ marker: head.marker, detail: head.detail }])
+    .filter((part) => part.marker !== item.marker)
+    .concat({ marker: item.marker, detail: item.detail })
+    .sort((a, b) => LAUNCH_ORDER.indexOf(a.marker) - LAUNCH_ORDER.indexOf(b.marker))
+  fold.put({ ...head, parts })
+  fold.unplace(drawn)
+}
 
 /** Draws a pill marker; a launch's lands above the prompt it carries, which
  *  the ledger records first so the new CLI can find it. A selection change
  *  takes no busy guard, so a queued prompt stays where it is. */
-export function divider(fold: FeedFold, kind: string, draw: () => void) {
+export function divider(fold: FeedFold, kind: string, draw: () => string) {
   if (!PILL_MARKERS.has(kind)) return
   let carried: string | undefined
   let newest = -1
@@ -95,8 +128,10 @@ export function divider(fold: FeedFold, kind: string, draw: () => void) {
     newest = fact.seq
     carried = userItemId(requestId, fact.seq)
   }
-  const move = LAUNCH_DIVIDERS.has(kind) && carried !== undefined && fold.placed(carried)
+  const launch = LAUNCH_DIVIDERS.has(kind)
+  const move = launch && carried !== undefined && fold.placed(carried)
   if (move) fold.unplace(carried!)
-  draw()
+  const drawn = draw()
+  if (launch) joinLaunch(fold, drawn)
   if (move) fold.place(carried!, '')
 }

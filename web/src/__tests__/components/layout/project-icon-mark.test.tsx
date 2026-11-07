@@ -108,7 +108,7 @@ describe('EditableProjectIcon', () => {
   })
 
   it('clicking the mark opens the picker, without folding the header it sits in', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const onHeaderClick = vi.fn()
     render(
       <div onClick={onHeaderClick}>
@@ -121,7 +121,7 @@ describe('EditableProjectIcon', () => {
   })
 
   it('has no GitHub owner-avatar action — a project has no origin remote', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<EditableProjectIcon project={project} size="lg" />)
     await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
     await screen.findByText('Icon')
@@ -129,7 +129,7 @@ describe('EditableProjectIcon', () => {
   })
 
   it('setting an emoji PUTs it to this project’s own REST base and persists it', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<EditableProjectIcon project={project} size="lg" />)
     await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
     await user.click(await screen.findByRole('button', { name: /emoji/i }))
@@ -206,7 +206,7 @@ describe('a project on a remote host', () => {
 
   it('edits against its own host: an emoji is PUT to the qualified base', async () => {
     loadProjects(row('host-2'))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<EditableProjectIcon project={project} size="lg" />)
     await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
     await user.click(await screen.findByRole('button', { name: /emoji/i }))

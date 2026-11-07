@@ -122,6 +122,12 @@ function keyEvent(
 }
 
 const grabbed: { editor?: PlateEditor } = {}
+const shape = (empty: boolean, slashQuery: string | null = null) => ({
+  empty,
+  slashQuery,
+  mentionQuery: null,
+})
+
 function GrabEditor() {
   grabbed.editor = useEditorRef()
   return null
@@ -167,7 +173,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     act(() => ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nhello world\n```'))
 
     expect(ref.current?.getMarkdown()).toContain('text-attachment:abc123')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
   })
 
   it('settles a pending image to its real ref, an image alone being something to send', async () => {
@@ -175,7 +181,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     const { ref } = await renderEditor(onShapeChange)
     act(() => ref.current?.insertPendingImage('blob:local-preview', 'photo.png'))
     expect(ref.current?.getMarkdown()).toContain('blob:local-preview')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
 
     act(() =>
       ref.current?.settlePendingImage(
@@ -201,7 +207,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(editable()).toBe(before)
     expect(editable()).toHaveTextContent('never mindsecond thought')
     expect(ref.current?.getMarkdown()).toBe('**never mind**\n\nsecond thought')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, false)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), false)
   })
 
   it('empties the box through clear, with nothing left to undo', async () => {
@@ -213,7 +219,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     act(() => grabbed.editor!.undo())
 
     expect(ref.current?.getMarkdown()).toBe('')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null }, false)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(true), false)
   })
 })
 
@@ -226,14 +232,14 @@ describe('ChatMarkdownEditor shape and commits', () => {
     const { type } = await renderEditor(onShapeChange)
 
     await type('/')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: '' }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false, ''), true)
     await type('Rev')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: 'Rev' }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false, 'Rev'), true)
     await act(async () => {
       const editor = grabbed.editor!
       editor.tf.delete({ at: { anchor: editor.api.start([])!, focus: editor.api.end([])! } })
     })
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(true), true)
     expect(serialize).not.toHaveBeenCalled()
   })
 
@@ -243,7 +249,7 @@ describe('ChatMarkdownEditor shape and commits', () => {
 
     await type('hi')
 
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
+    expect(onShapeChange).toHaveBeenLastCalledWith(shape(false), true)
     expect(counter.commits).toBe(1)
   })
 
@@ -279,25 +285,18 @@ describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
     expect(handled).toBe(true)
   })
 
-  it('does nothing for a drop that carries no Files', () => {
-    const onDrop = renderAndCapture()
-    const preventDefault = vi.fn()
+  it.each([{ types: ['text/plain'] }, null])(
+    'does nothing for a drop with no Files (dataTransfer %o)',
+    (dataTransfer) => {
+      const onDrop = renderAndCapture()
+      const preventDefault = vi.fn()
 
-    const handled = onDrop({ event: { dataTransfer: { types: ['text/plain'] }, preventDefault } })
+      const handled = onDrop({ event: { dataTransfer, preventDefault } })
 
-    expect(preventDefault).not.toHaveBeenCalled()
-    expect(handled).toBeUndefined()
-  })
-
-  it('does nothing when the drop event carries no dataTransfer at all', () => {
-    const onDrop = renderAndCapture()
-    const preventDefault = vi.fn()
-
-    const handled = onDrop({ event: { dataTransfer: null, preventDefault } })
-
-    expect(preventDefault).not.toHaveBeenCalled()
-    expect(handled).toBeUndefined()
-  })
+      expect(preventDefault).not.toHaveBeenCalled()
+      expect(handled).toBeUndefined()
+    },
+  )
 })
 
 describe('ChatMarkdownEditor key handling', () => {
@@ -324,10 +323,10 @@ describe('ChatMarkdownEditor key handling', () => {
     handleKeyDown({ editor, event })
 
     expect(onKeyDown).toHaveBeenCalledTimes(1)
-    const [passedEvent, readMarkdown, caret, shape] = onKeyDown.mock.calls[0]!
+    const [passedEvent, readMarkdown, caret, passedShape] = onKeyDown.mock.calls[0]!
     expect(passedEvent).toBe(event)
     expect(caret).toEqual({ atStart: false, atEnd: true })
-    expect(shape).toEqual({ empty: false, slashQuery: null })
+    expect(passedShape).toEqual(shape(false))
     expect(readMarkdown()).toBe('hi')
   })
 

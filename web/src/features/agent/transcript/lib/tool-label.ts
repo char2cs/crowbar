@@ -10,9 +10,15 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
   fetch: ['Fetching', 'Fetched', 'Fetch'],
 }
 
-/** An edit whose diff has no old side writes a new file. */
-const NEW_FILE = '--- /dev/null\n'
 const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']
+
+/** An edit writes a new file when its diff has no old side, or its one hunk starts
+ *  from nothing (how claude's Write reports a file that was not there). */
+const writesNewFile = (diff = '') => {
+  if (diff.startsWith('--- /dev/null\n')) return true
+  const hunks = diff.match(/^@@ .*$/gm) ?? []
+  return hunks.length === 1 && hunks[0]!.startsWith('@@ -0,0 ')
+}
 
 export interface ToolLabel {
   verb: string
@@ -109,7 +115,7 @@ export function toolLabel(item: ToolItem): ToolLabel {
     const tool = mcpTool(body)
     return { verb: body.mcpServer || 'MCP', subject: { full: tool, display: tool } }
   }
-  const verbs = family === 'edit' && body.diff?.startsWith(NEW_FILE) ? CREATE : VERBS[family]
+  const verbs = family === 'edit' && writesNewFile(body.diff) ? CREATE : VERBS[family]
   const verb = verbs
     ? verbs[status === 'running' ? 0 : done ? 1 : 2]
     : humanizeToolName(body.name ?? '') || 'Tool'

@@ -14,6 +14,8 @@ import { readSelect, selectRepos } from '@/core/entities/select'
 import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/core/entities/repo-queries'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
+import { stopChat } from '@/features/agent/api/agent-chat-commands'
+import { OperationFailedError } from '@/lib/errors/operation-failed'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
 /** Calls `go` once `wsId` has left the sidebar, whichever frame lands first, while
@@ -49,6 +51,8 @@ function postMergeTarget(wsId: string) {
 /** The merge strategy choice and the merge into the parent, run as an operation. */
 export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
   const [strategyError, setStrategyError] = useState<string | null>(null)
+  // The daemon's refusal of a merge that would delete a chat mid-turn; Stop and merge answers it.
+  const [working, setWorking] = useState<string | null>(null)
   const navigate = useNavigate()
   // One hierarchy verb at a time per workspace; the daemon refuses a second too.
   const busy = useOperations((s) => selectEntityBusy(s, wsId))
@@ -73,6 +77,7 @@ export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
   // A failure is the operations watcher's to show; the redirect waits for the fold.
   const merge = (deleteAfterMerge: boolean) => {
     if (busy) return
+    setWorking(null)
     const target = deleteAfterMerge ? postMergeTarget(wsId) : null
     const op = runOperation(
       {
@@ -83,6 +88,10 @@ export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
       },
       (opId) => mergeIntoParent(wsId, strategy, deleteAfterMerge, opId),
     )
+    whenSettled(op.id).catch((err: unknown) => {
+      if (err instanceof OperationFailedError && err.problem.code === 'chat_busy')
+        setWorking(err.problem.message)
+    })
     if (!target) return
     // Waits from the click: the fold's frame can land before the terminal one,
     // and the route guard would move off the vanished child first.
@@ -94,5 +103,14 @@ export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
     void whenSettled(op.id).catch(stop)
   }
 
-  return { strategy, selectStrategy, strategyError, merge, merging: busy }
+  // Stop records each turn's end before it answers, so the merge that follows is not refused.
+  const stopAndMerge = async () => {
+    const stops: Promise<void>[] = []
+    for (const c of Object.values(readSelect((s) => s.chats)))
+      if (c.workspaceId === wsId && c.working) stops.push(stopChat(wsId, c.id))
+    await Promise.all(stops)
+    merge(true)
+  }
+
+  return { strategy, selectStrategy, strategyError, merge, merging: busy, working, stopAndMerge }
 }

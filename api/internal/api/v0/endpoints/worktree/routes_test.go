@@ -69,6 +69,8 @@ func (stubHierarchy) CreateFromImport(
 	return nil
 }
 
+func (stubHierarchy) GuardMergeFold(context.Context, string) error { return nil }
+
 func (stubHierarchy) MergeIntoParent(
 	_ context.Context,
 	_ string,

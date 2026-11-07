@@ -27,6 +27,8 @@ type Usecase interface {
 		childID string,
 		strategy gitdomain.MergeStrategy,
 	) (MergeResult, error)
+	// GuardMergeFold refuses a merge that would delete childID while a chat there works.
+	GuardMergeFold(ctx context.Context, childID string) error
 	Reparent(
 		ctx context.Context,
 		childID string,

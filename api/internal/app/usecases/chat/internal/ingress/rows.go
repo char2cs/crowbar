@@ -26,6 +26,8 @@ type Source struct {
 	// Steer is the hook reply handing a steered prompt to the CLI; false when
 	// the event's channel cannot carry one.
 	Steer func(ledger.Prompt) ([]byte, bool)
+	// Command reports whether a prompt's text is one the CLI runs itself.
+	Command func(text string) bool
 	// Answerable: Crowbar can hold an ask's reply.
 	Answerable bool
 	// CompactsByPrompt: a compaction is asked for with a prompt no turn
@@ -113,7 +115,8 @@ var mappers = map[string]mapFunc{
 	engineagents.HookElicitation:     scoped(mapAsk),
 	engineagents.HookPlanUpdate:      scopedRows(mapPlan),
 	engineagents.HookPlanStep:        scopedRows(mapPlanStep),
-	engineagents.HookNotification:    mapNotification,
+	engineagents.HookNotification:    mapSaid(ledger.MarkerNotification),
+	engineagents.HookWarning:         mapSaid(ledger.MarkerWarning),
 }
 
 func withoutRefs(f func(ledger.State, engineagents.CanonicalEvent, Source) ([]ledger.Row, Effects, error)) mapFunc {
@@ -162,10 +165,11 @@ func mapToolCall(st ledger.State, ev engineagents.CanonicalEvent, src Source, re
 	return rows, Effects{}, err
 }
 
-func mapNotification(st ledger.State, ev engineagents.CanonicalEvent, _ Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
-	row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "",
-		ledger.Marker{Kind: ledger.MarkerNotification, Detail: ev.Message})
-	return []ledger.Row{row}, Effects{}, err
+func mapSaid(kind string) mapFunc {
+	return func(st ledger.State, ev engineagents.CanonicalEvent, _ Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+		row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "", ledger.Marker{Kind: kind, Detail: ev.Message})
+		return []ledger.Row{row}, Effects{}, err
+	}
 }
 
 func subagentScope(ev engineagents.CanonicalEvent) string {
@@ -447,9 +451,9 @@ func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 	if _, running := st.RunningTurn(); running || src.Channel == engineagents.ChannelAPI {
 		return nil, Effects{}, nil
 	}
-	settled, err := ledger.Settle(st, func(p ledger.Prompt) bool {
+	settled, err := ledger.SettleUntaken(st, func(p ledger.Prompt) bool {
 		return p.RunnerID == src.RunnerID && p.Delivery != ledger.DeliverySteer
-	}, false, ledger.ReasonNotAcknowledged)
+	}, src.Command)
 	return settled, Effects{}, err
 }
 

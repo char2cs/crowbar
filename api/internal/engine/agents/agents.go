@@ -104,6 +104,9 @@ type Agent interface {
 	// into a RUNNING turn (presentation.prompt_submit.steer); ok is false when
 	// the provider declares none or text is a command the descriptor excludes.
 	PromptSteer(text string) (stdout string, ok bool)
+	// PromptIsCommand reports whether text is a command the CLI runs itself
+	// (presentation.prompt_submit.steer.skip_prefixes), which may open no turn.
+	PromptIsCommand(text string) bool
 
 	ContextSteps(resuming bool) []InjectStep
 

@@ -17,7 +17,7 @@ describe('applyRow', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
       l.prompt('r1', 'hi'),
-      l.start('turn-1', 'r1'),
+      l.start('turn-1'),
       l.text('turn-1', 'm1', 0, 'Hel'),
       l.tool('turn-1', 'tool-1', 'pre'),
       l.text('turn-1', 'm1', 1, 'lo', true),
@@ -426,6 +426,31 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['k:2', 'k:3'])
   })
 
+  it("names the model each turn ran on: its CLI's launch model, then any change", () => {
+    const l = ledger()
+    const runner = (runnerId: string, launchModel: string) =>
+      l.row('runner_started', {
+        runnerId,
+        provider: 'p',
+        terminalSession: '',
+        launchModel,
+        launchEffort: '',
+        launchPermissionLevel: '',
+        resumeSessionId: '',
+      })
+    const feed = applyRows(emptyFeed(), [
+      runner('r1', 'sonnet'),
+      l.start('turn-1', 'r1'),
+      l.end('turn-1'),
+      l.row('marker', { kind: 'model_changed', detail: 'opus' }),
+      l.start('turn-2'),
+      l.end('turn-2'),
+      runner('r2', ''),
+      l.start('turn-3'),
+    ])
+    expect(feed.facts.models).toEqual({ 'turn-1': 'sonnet', 'turn-2': 'opus' })
+  })
+
   // A launch records its prompt, then the CLI that carries it says what it switched to.
   it('reads a launch switch above the prompt that caused it', () => {
     const l = ledger()
@@ -444,7 +469,7 @@ describe('applyRow', () => {
       l.start('turn-1', 'r1'),
       l.row('marker', { kind: 'compaction_ended' }),
     ])
-    expect(feed.order).toEqual(['p:r0', 'k:5', 'k:6', 'p:r1', 'k:8'])
+    expect(feed.order).toEqual(['p:r0', 'k:5', 'p:r1', 'k:8'])
   })
 
   it('leaves a queued prompt above a selection change made while it waits', () => {

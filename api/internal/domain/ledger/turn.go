@@ -99,6 +99,10 @@ func (s State) LastTurn() (Turn, bool) {
 	return s.turn.Turn, s.hasTurn
 }
 
+// ReportedEffort is the effort the newest main turn to report one ran at: what
+// a chat that never picked an effort runs as. "" when no turn reported one.
+func (s State) ReportedEffort() string { return s.effort }
+
 // Busy reports whether the chat is working: a main-scope turn runs, or a
 // subagent is starting or running, whatever turn spawned it.
 func (s State) Busy() bool {
@@ -154,6 +158,9 @@ func (s *State) applyTurnEnded(r Row) {
 		return
 	}
 	s.turn.Status, s.turn.closeSeq = next, r.Seq
+	if body.Effort != "" {
+		s.effort = body.Effort
+	}
 	outlived := s.SubagentRunning()
 	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID && !a.OutlivesEnd(outlived) })
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
@@ -244,8 +251,8 @@ func Stop(st State, diff string) ([]Row, error) {
 
 // Leave is what runnerID leaves open when its CLI moves the chat onto another
 // session: the turn it was running, interrupted, and the prompts it carried,
-// unacknowledged. Nothing on this chat will close or acknowledge either.
-func Leave(st State, runnerID string) ([]Row, error) {
+// untaken (SettleUntaken). Nothing on this chat will close or acknowledge either.
+func Leave(st State, runnerID string, command func(text string) bool) ([]Row, error) {
 	var rows []Row
 	if t, ok := st.RunningTurn(); ok && t.RunnerID == runnerID {
 		ended, err := EndTurn(st, TurnStatusInterrupted, MarkerSessionChanged)
@@ -254,6 +261,6 @@ func Leave(st State, runnerID string) ([]Row, error) {
 		}
 		rows = ended
 	}
-	settled, err := SettleCarried(st, runnerID, false, ReasonNotAcknowledged)
+	settled, err := SettleUntaken(st, func(p Prompt) bool { return p.RunnerID == runnerID }, command)
 	return append(rows, settled...), err
 }

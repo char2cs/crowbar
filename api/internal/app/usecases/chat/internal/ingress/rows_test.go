@@ -372,21 +372,22 @@ func TestMap_AnIdleThatEndsTheTurnKeepsWhatItSaid(t *testing.T) {
 	assert.Empty(t, c.st.PendingAsks())
 }
 
-// An idle with nothing running (a compaction is no turn) ends none; on hooks it settles what the CLI carried.
+// An idle with nothing running (a compaction is no turn) ends none; on hooks it settles what the CLI carried, its own commands as run.
 func TestMap_AnIdleWithNothingRunningEndsNoTurn(t *testing.T) {
 	c := liveChatRows(t)
-	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart))
+	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart), crowbarPrompt(t, "req-2", "/context", ledger.DeliveryRestart))
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookCompactPre, TurnID: "compact-1"}, hooksSource())
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookCompactPost, TurnID: "compact-1"}, hooksSource())
-	api := hooksSource()
-	api.Channel = engineagents.ChannelAPI
-
-	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, api)
+	src := hooksSource()
+	src.Channel = engineagents.ChannelAPI
+	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
 	assert.Empty(t, rows)
 	assert.Empty(t, fx.Ended)
-	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, hooksSource())
-	require.Equal(t, []ledger.Kind{ledger.KindPromptSettled}, kinds(rows))
-	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[0]).Reason)
+	src = hooksSource()
+	src.Command = func(text string) bool { return text == "/context" }
+	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, src)
+	require.Equal(t, []ledger.Kind{ledger.KindPromptSettled, ledger.KindPromptSettled}, kinds(rows))
+	assert.Equal(t, []string{ledger.ReasonProviderBuiltin, ledger.ReasonNotAcknowledged}, []string{bodyOf[ledger.PromptSettled](t, rows[0]).Reason, bodyOf[ledger.PromptSettled](t, rows[1]).Reason})
 }
 
 // A late turn_stop closes its turn no second time; what it said lands in it,
@@ -406,15 +407,16 @@ func TestMap_ALateTurnStopIsWrittenToItsTurn(t *testing.T) {
 	assert.Equal(t, turnID, fx.Ended)
 }
 
-func TestMap_ANotificationIsAMarker(t *testing.T) {
-	c := liveChatRows(t)
-	turnID := c.typed("go")
-
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookNotification, Message: "look"}, hooksSource())
-
-	require.Equal(t, []ledger.Kind{ledger.KindMarker}, kinds(rows))
-	assert.Equal(t, turnID, rows[0].TurnID)
-	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerNotification, Detail: "look"}, bodyOf[ledger.Marker](t, rows[0]))
+func TestMap_ANotificationOrAWarningIsAMarker(t *testing.T) {
+	said := map[string]string{engineagents.HookNotification: ledger.MarkerNotification, engineagents.HookWarning: ledger.MarkerWarning}
+	for hook, marker := range said {
+		c := liveChatRows(t)
+		turnID := c.typed("go")
+		rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: hook, Message: "look"}, hooksSource())
+		require.Equal(t, []ledger.Kind{ledger.KindMarker}, kinds(rows))
+		assert.Equal(t, turnID, rows[0].TurnID)
+		assert.Equal(t, ledger.Marker{Kind: marker, Detail: "look"}, bodyOf[ledger.Marker](t, rows[0]))
+	}
 }
 
 func TestMap_AnEventItDoesNotRecordWritesNothing(t *testing.T) {

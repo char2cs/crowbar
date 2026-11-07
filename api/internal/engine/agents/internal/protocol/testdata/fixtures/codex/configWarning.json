@@ -1,0 +1,7 @@
+{
+  "method": "configWarning",
+  "params": {
+    "summary": "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.",
+    "details": null
+  }
+}

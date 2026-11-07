@@ -13,6 +13,7 @@ import type {
   ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
+import { useFileMention } from '@/features/agent/hooks/use-file-mention'
 
 interface DraftDeps {
   wsId: string
@@ -30,6 +31,7 @@ interface DraftDeps {
 export function useComposerDraft({ wsId, chatId, providerId, catalogActive, history }: DraftDeps) {
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const slash = useSlashCatalog({ wsId, chatId, providerId, active: catalogActive })
+  const mention = useFileMention(wsId)
   // Read from storage, never copied: the outbox stashes a failed prompt while this is open.
   const stashes = useSyncExternalStore(subscribePromptStashes, () =>
     promptStashesSnapshot(wsId, chatId),
@@ -40,6 +42,10 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
   const read = useCallback(() => editorRef.current?.getMarkdown() ?? '', [])
   const load = useCallback((text: string) => editorRef.current?.setMarkdown(text), [])
   const clear = useCallback(() => editorRef.current?.clear(), [])
+  const completeMention = useCallback(
+    (text: string) => editorRef.current?.completeMention(text),
+    [],
+  )
 
   /** Puts text back after what was typed since; false when there is no box to take it. */
   const putBack = useCallback((text: string) => {
@@ -55,6 +61,7 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     if (error) setError('')
     if (stashPickerOpen) setStashPickerOpen(false)
     slash.noteQuery(shape.slashQuery)
+    mention.noteQuery(shape.mentionQuery)
   }
 
   const restoreStash = (item: PromptStash) => {
@@ -111,6 +118,8 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     load,
     clear,
     slash,
+    mention,
+    completeMention,
     putBack,
     noteShape,
     stashes,

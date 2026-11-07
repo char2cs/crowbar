@@ -53,6 +53,7 @@ export function ComposerField({
       ref={ref}
       wsId={wsId}
       chatId={chatId}
+      persistAs={chatId}
       placeholder={placeholder}
       ariaLabel={document ? 'Describe the change' : 'Message the agent'}
       expanded={expanded}
