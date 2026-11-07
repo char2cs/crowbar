@@ -69,6 +69,11 @@ describe('keymap registry — New Tab commands', () => {
   // The Keybindings tab renders ONLY the categories listed in CATEGORY_ORDER, so
   // a command in a category missing from it is invisible in settings — bound and
   // working, but unfindable and unrebindable. Every category in use must appear.
+  // Settings lists every command as a shortcut a person can press; nothing mounts a switcher.
+  it('offers no workspace switcher shortcut', () => {
+    expect(COMMANDS.map((c) => c.label)).not.toContain('Open workspace switcher')
+  })
+
   it('renders every category in use — CATEGORY_ORDER covers them all', () => {
     for (const command of COMMANDS) {
       expect(CATEGORY_ORDER).toContain(command.category)

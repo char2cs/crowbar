@@ -138,8 +138,10 @@ export function SidebarRow({
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
       <div
-        role="treeitem"
-        aria-level={depth + 1}
+        // A view tab is one of the strip's tabs; `hasView` marks a view that is open but not showing.
+        role={tab ? 'tab' : 'treeitem'}
+        aria-level={tab ? undefined : depth + 1}
+        aria-selected={tab ? !row.hasView : undefined}
         aria-label={row.label}
         tabIndex={0}
         data-sidebar-row-id={row.id}

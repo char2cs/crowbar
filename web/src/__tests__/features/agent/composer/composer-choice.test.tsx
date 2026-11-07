@@ -94,7 +94,6 @@ describe('ComposerChoice that can be answered', () => {
     draw()
 
     expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('true')
-    // A plain permission has nothing the terminal covers and this card doesn't.
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
@@ -103,8 +102,7 @@ describe('ComposerChoice that can be answered', () => {
     )
   })
 
-  // Sent is NOT resolved. The terminal can decide the same prompt in the same
-  // instant, so the card stays until the server says how it actually ended.
+  // Sent is not resolved: the card stays until the server says how the prompt ended.
   it('sends a Deny with its reason and waits for the server to confirm it', async () => {
     draw()
     const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
@@ -196,8 +194,7 @@ describe('ComposerChoice that cannot be answered from here', () => {
 })
 
 describe('ComposerChoice failures', () => {
-  // A 400 means retrying the same controls would only repeat it, so they come down
-  // and the one thing left is the place an answer can still land.
+  // A 400 would only repeat, so the controls come down for the place an answer can land.
   it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
     const onOpenTerminal = vi.fn()
@@ -272,8 +269,7 @@ describe('ComposerChoice failures', () => {
 })
 
 describe('ComposerChoice suggestions', () => {
-  // A provider's broader grant ("allow edits for this session") is an answer of
-  // its own: pressing it allows this call and applies the grant.
+  // A broader grant is an answer of its own: it allows this call and applies the grant.
   it('offers each suggestion as a button that grants it', async () => {
     draw({
       options: [
@@ -308,8 +304,7 @@ describe('ComposerChoice suggestions', () => {
   })
 })
 
-// One ask can carry several questions; drawing only the first left the agent
-// waiting on answers this surface could never send.
+// One ask can carry several questions; drawing only the first left answers unsendable.
 describe('ComposerChoice with several questions', () => {
   const threeQuestions = {
     kind: 'question',
@@ -352,8 +347,7 @@ describe('ComposerChoice with several questions', () => {
 
     expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(3)
     expect(screen.getByText('The agent has 3 questions')).toBeInTheDocument()
-    // Question 1 takes one answer, question 2 takes several: the flag is per
-    // question, so one card legitimately holds both control shapes.
+    // Single- vs multi-answer is per question, so one card holds both control shapes.
     expect(screen.getByRole('radio', { name: 'Go' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'SQLite' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Cloud' })).toBeInTheDocument()
@@ -408,8 +402,7 @@ describe('ComposerChoice with several questions', () => {
     )
   })
 
-  // The pane is retained across chat selection, so a re-render can hand it another
-  // prompt; picks carried over would name option ids that prompt never offered.
+  // A retained pane can get another prompt; old picks would name options it never offered.
   it('starts empty when a different prompt is rendered into the same card', () => {
     const { rerender } = draw(threeQuestions)
     fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
@@ -429,8 +422,7 @@ describe('ComposerChoice with several questions', () => {
     expect(screen.getByRole('button', { name: 'Send answers' })).toBeDisabled()
   })
 
-  // pending && !answerable: the CLI is asking at its own terminal. Every option of
-  // every question is still worth reading, and none of it is pressable.
+  // Asked at the CLI's own terminal: every option is readable and none is pressable.
   it('reads out every question’s options when it cannot be answered here', () => {
     draw({ ...threeQuestions, answerable: false })
 
@@ -488,8 +480,6 @@ describe('ComposerChoice elicitation', () => {
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
   })
 
-  // Why a form needs the terminal isn't written down any more — the Terminal
-  // button sits right beside Decline/Cancel in the same row.
   it('offers a terminal button alongside decline and cancel when the chat can open one', () => {
     const onOpenTerminal = vi.fn()
     show(elicitation, { onOpenTerminal })
@@ -499,8 +489,7 @@ describe('ComposerChoice elicitation', () => {
     expect(screen.getByRole('button', { name: 'Decline' })).toBeEnabled()
   })
 
-  // A prompt with no options is answered with the PROVIDER's own verb: the id is
-  // the decision key, because there is no option kind to read.
+  // With no options the provider's own verb answers: its id is the decision key.
   it('sends the provider’s verb as the option id', async () => {
     draw(elicitation)
 
@@ -545,8 +534,7 @@ describe('ComposerChoice permission-level switcher', () => {
   })
 })
 
-// The oldest pending choice is shown; a second (a parallel subagent's ask) must
-// still be signalled.
+// The oldest pending choice is shown; a second (a parallel subagent's) is signalled.
 describe('ComposerChoice in a stack of pending asks', () => {
   it('counts pending asks as i of n', () => {
     show({}, { pending: 3, position: 2 })
@@ -614,8 +602,7 @@ describe('ComposerChoice keys', () => {
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 
-  // The composer gives way to the card, so focus falls to the page: a digit then
-  // is meant for the card. An Enter is not: it may be the end of a message.
+  // With focus on the page a digit is for the card; an Enter may end a message.
   it('takes a digit pressed while nothing has focus, never an Enter', async () => {
     show()
     ;(document.activeElement as HTMLElement | null)?.blur()

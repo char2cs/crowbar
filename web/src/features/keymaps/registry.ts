@@ -28,8 +28,6 @@ export const AGENT_ZOOM_RESET = 'agent.zoomReset'
 export const EDITOR_SAVE = 'editor.save'
 export const EDITOR_SAVE_ALL = 'editor.saveAll'
 
-export const OPEN_WORKSPACE_SWITCHER = 'navigation.openWorkspaceSwitcher'
-
 export const TOGGLE_CONSOLE = 'navigation.toggleConsole'
 
 export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
@@ -210,13 +208,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   // --- Navigation (live-editable) ---
-  {
-    id: OPEN_WORKSPACE_SWITCHER,
-    label: 'Open workspace switcher',
-    category: 'Navigation',
-    defaultChord: 'mod+k',
-    liveEditable: true,
-  },
   {
     id: TOGGLE_CONSOLE,
     label: 'Toggle console',

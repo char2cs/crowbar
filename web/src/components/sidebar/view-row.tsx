@@ -167,7 +167,7 @@ function RecentsMemberRow({
       // Flex item: without `min-w-0 flex-1` it shrinks to its label. The
       // shell paints the hover, not the row.
       className={cn(
-        'relative min-w-0 flex-1 [&_[role=treeitem]]:hover:bg-transparent',
+        'relative min-w-0 flex-1 [&_[role=tab]]:hover:bg-transparent',
         fadesForClose &&
           '[mask-image:linear-gradient(to_right,black_calc(100%_-_34px),transparent_calc(100%_-_24px))]',
       )}
