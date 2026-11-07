@@ -1105,7 +1105,7 @@
   font-size: var(--ui-text-xs);
   font-variant-numeric: tabular-nums;
 }
-.agent-chat .blank-stash-picker {
+.agent-chat .blank-picker {
   position: absolute;
   z-index: 2;
   left: 50%;
@@ -1113,7 +1113,7 @@
   width: min(calc(100% - 48px), 720px);
   transform: translateX(-50%);
 }
-.agent-chat .blank-stash-picker .stash-picker {
+.agent-chat .blank-picker .stash-picker {
   margin-left: auto;
 }
 

@@ -421,7 +421,8 @@ export function AgentChatView({
               ))}
             </div>
           )}
-          {blank && stashPicker && <div className="blank-stash-picker">{stashPicker}</div>}
+          {blank && stashPicker && <div className="blank-picker">{stashPicker}</div>}
+          {blank && slashPicker && <div className="blank-picker">{slashPicker}</div>}
           {!settling && (
             <div ref={blank ? undefined : dock.dockRef} className={blank ? 'docframe' : 'dock'}>
               {!blank && <TodoStrip plan={facts.plan} />}
@@ -463,8 +464,6 @@ export function AgentChatView({
                 headerClearancePx={headerClearancePx}
                 documentRef={emptyDocRef}
               />
-              {/* The blank document's box is at the top: what it completes reads below it. */}
-              {blank && slashPicker}
               {!blank && (
                 <ProviderBar
                   {...selection}
