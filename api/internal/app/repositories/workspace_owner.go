@@ -64,6 +64,23 @@ func (c *Container) placedChat(ctx context.Context, chat domain.Chat) domain.Cha
 	return chat
 }
 
+// atItsNode is chat at its Tree node when it has one: the node outranks the chat's
+// own placement, as on every read, so a frame draws the row where a reload does.
+func (c *Container) atItsNode(ctx context.Context, chat domain.Chat) domain.Chat {
+	if c.Placement == nil {
+		return chat
+	}
+	n, err := c.Placement.GetNode(ctx, chat.ID)
+	if err != nil {
+		if !errors.Is(err, tree.ErrUnknownNode) {
+			slog.WarnContext(ctx, "repositories: owner placement: chat node", "chat_id", chat.ID, "err", err)
+		}
+		return chat
+	}
+	chat.ParentID, chat.Order = n.ParentID, n.Order
+	return chat
+}
+
 // RepublishOwnedBy republishes the workspace chatID owns once the chat moved to
 // p: a fork's row is drawn where its owning chat is.
 func (c *Container) RepublishOwnedBy(ctx context.Context, chatID string, p tree.Placement) {

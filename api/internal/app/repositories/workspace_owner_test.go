@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
@@ -82,10 +83,43 @@ func TestRepublishOwnedBy_AnOvertakenReadDoesNotWin(t *testing.T) {
 		c.Republish(ctx, "w1")
 	}()
 	<-hub.held
+	require.NoError(t, c.Placement.SetPlacement(ctx, "c1", "f1", 2))
 	c.RepublishOwnedBy(ctx, "c1", tree.Placement{ParentID: "f1", Order: 2})
 	close(hub.release)
 	<-stale
 
 	assert.Equal(t, "f1", hub.row("w1").FolderID)
 	assert.Equal(t, 2, hub.row("w1").Order)
+}
+
+// A thread made a branch keeps its row: the workspace it now owns is drawn at the
+// thread's Tree node, the place a reload reads.
+func TestOwnerMoved_ABranchedThreadsWorkspaceIsDrawnWhereTheThreadWas(t *testing.T) {
+	ctx := context.Background()
+	hub := &captureHub{}
+	c, err := newRepos(t, newAdapter(t), hub.publish)
+	require.NoError(t, err)
+	for _, id := range []string{"w0", "w1"} {
+		_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+			ID: id, RepoID: "r1", ProjectID: "p1", Branch: id, Provisioning: domain.WorkspacePlaceholder,
+		}, time.Unix(1, 0).UTC())
+		require.NoError(t, err)
+	}
+	_, err = c.AgentChat.Create(ctx, agentchat.CreateInput{
+		ID: "c1", WorkspaceID: "w0", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+	_, err = c.Placement.Create(ctx, "c1", tree.KindChat, "home", 2)
+	require.NoError(t, err)
+	c.WaitQuiescent()
+
+	_, err = c.AgentChat.SetWorkspace(ctx, "c1", "w1")
+	require.NoError(t, err)
+	c.WaitQuiescent()
+
+	row, ok := hub.last("w1")
+	require.True(t, ok)
+	assert.Equal(t, "c1", row.OwningChatID)
+	assert.Equal(t, "home", row.FolderID)
+	assert.Equal(t, 2, row.Order)
 }
