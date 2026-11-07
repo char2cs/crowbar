@@ -136,7 +136,8 @@ func TestRegression_CreateChatOwnWorktreeWithNoProviderIs400(t *testing.T) {
 
 // TestHome_EverythingCrowbarWritesIsOwnerOnly walks a home after a forked
 // worktree, two spawned CLIs and an attachment: every file Crowbar wrote is 0600
-// and every directory 0700. A checkout's contents are git's and keep the umask.
+// and every directory 0700, but those on the way to a checkout, which are 0711
+// so another uid reaches it. A checkout's contents are git's and keep the umask.
 func TestHome_EverythingCrowbarWritesIsOwnerOnly(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -152,6 +153,17 @@ func TestHome_EverythingCrowbarWritesIsOwnerOnly(t *testing.T) {
 	h.post(base+"/chats/"+forkID+"/attachments", map[string]string{"path": src, "id": "att1"}, http.StatusCreated, nil)
 	h.Quiesce()
 
+	way := map[string]bool{}
+	require.NoError(t, filepath.WalkDir(h.home, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || d.Name() != "worktree" {
+			return err
+		}
+		for dir := filepath.Dir(path); !way[dir] && dir != filepath.Dir(h.home); dir = filepath.Dir(dir) {
+			way[dir] = true
+		}
+		return fs.SkipDir
+	}))
+	require.NotEmpty(t, way, "the fork has a checkout under the home")
 	var loose []string
 	require.NoError(t, filepath.WalkDir(h.home, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -166,6 +178,8 @@ func TestHome_EverythingCrowbarWritesIsOwnerOnly(t *testing.T) {
 		}
 		want := fs.FileMode(0o600)
 		switch {
+		case d.IsDir() && way[path]:
+			want = 0o711
 		case d.IsDir():
 			want = 0o700
 		case !info.Mode().IsRegular():
