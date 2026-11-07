@@ -189,7 +189,7 @@ func specRoutes() []string {
 		"POST " + chat + "/terminals",
 		"DELETE " + chat + "/terminals/:sessionId",
 		// §2.12 System
-		"GET /v0/system/prerequisites",
+		"GET /v0/system/prerequisites/:tool",
 		"GET /v0/system/browse",
 		// §2.13 Health
 		"GET /v0/health",
@@ -443,7 +443,7 @@ func extraRoutes() []string {
 		// at birth so a CLI that detects its theme by querying the background (OSC 10/11)
 		// reads the truth on its first frame — the per-session push cannot cover that,
 		// since the process is already running by the time a client can attach.
-		"PUT /v0/settings/terminal/theme",
+		"GET /v0/settings/terminal/theme", "PUT /v0/settings/terminal/theme",
 		// Documents by ref (a workspace's file or a host file), and a host file's watch.
 		"GET /v0/documents/content", "PUT /v0/documents/content",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
