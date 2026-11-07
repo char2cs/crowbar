@@ -8,7 +8,7 @@ pub use paths::{daemon_log_path, resolve_or_explain, socket_path};
 pub use stop::shutdown_app;
 pub use watchdog::start_watchdog;
 
-use health::{announce_halt, wait_for_health};
+use health::{announce_halt, refuse_foreign, wait_for_health, OWN_BUILD};
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -131,8 +131,11 @@ pub async fn spawn<R: Runtime>(
     let pump_app = app.clone();
     tauri::async_runtime::spawn(pump_output(pump_app, rx));
 
-    let pid = wait_for_health(&socket, 30)
+    let (pid, build) = wait_for_health(&socket, 30)
         .await
+        .and_then(|(pid, build)| {
+            refuse_foreign(OWN_BUILD, spawned_pid, pid, build.as_deref()).map(|()| (pid, build))
+        })
         .inspect_err(|why| announce_halt(app, why))?;
     if let Some(reported) = pid.filter(|reported| *reported != spawned_pid) {
         // Someone else answers on our socket — a stale daemon from a previous run.
@@ -143,8 +146,9 @@ pub async fn spawn<R: Runtime>(
         );
     }
     log::info!(
-        "crowbar daemon is ready on {} (pid {spawned_pid})",
-        socket.display()
+        "crowbar daemon is ready on {} (pid {spawned_pid}, build {})",
+        socket.display(),
+        build.as_deref().unwrap_or("unknown")
     );
     Ok(())
 }
