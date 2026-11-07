@@ -28,7 +28,7 @@ function describeDormant(exitReason: string): string {
     case 'transport_overflow':
       return 'Crowbar lost its connection to the agent. Send a message to continue.'
     case 'resume_failed':
-      return 'The provider could not reopen its session. Start a new conversation to continue.'
+      return 'The provider could not reopen its session. Send a message to start a new conversation.'
     case 'moved':
       return 'This conversation was resumed in another chat. Send a message to start a new one here.'
     case 'displaced':
