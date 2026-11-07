@@ -10,7 +10,7 @@ import {
   type RowMenuHandlers,
 } from '@/components/sidebar/lib/row-menu'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop-targets'
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { useNativeReadout } from '@/components/layout/use-readout-lines'
@@ -114,6 +114,7 @@ function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['conf
 }
 
 const KILL_AGENT = 'kill-agent'
+const CANCEL_MOVE = 'cancel-move'
 
 type Running = ReadonlyMap<string, ActiveSession>
 
@@ -122,7 +123,7 @@ function activeRows(rows: readonly SidebarRow[], running: Running) {
   return rows.filter((r) => r.kind !== 'folder' && !r.operation && running.has(r.id))
 }
 
-function nativeRowActions(rows: SidebarRow[], running: Running) {
+function nativeRowActions(rows: SidebarRow[], running: Running, moving: ReadonlySet<string>) {
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
@@ -139,6 +140,15 @@ function nativeRowActions(rows: SidebarRow[], running: Running) {
         destructive: action.destructive,
         confirm: confirmFor(action.id, row),
       }))
+    if (moving.has(row.id)) {
+      actions[row.id].push({
+        id: CANCEL_MOVE,
+        title: 'Cancel move',
+        symbol: 'xmark.circle',
+        destructive: false,
+        confirm: null,
+      })
+    }
     const session = running.get(row.id)
     if (row.kind !== 'folder' && session) {
       actions[row.id].push({
@@ -227,6 +237,17 @@ function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
   return useMemo(() => new Set(key.split('\n')), [key])
 }
 
+/** The rows whose chat waits to move to another workspace after its turn. */
+function useMovingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
+  const key = useSelect((s) => {
+    const moving: string[] = []
+    for (const r of rows)
+      if (r.kind !== 'folder' && selectAgentChat(s, r.id)?.pendingMove) moving.push(r.id)
+    return moving.join('\n')
+  })
+  return useMemo(() => new Set(key.split('\n')), [key])
+}
+
 /** Keeps the phone's native chat list showing the sidebar and carries out its intents. The list
  *  holds no state: every push is the whole snapshot. */
 export function useNativeSidebar({
@@ -245,6 +266,7 @@ export function useNativeSidebar({
   const hostStreams = useConnectionStore((s) => s.hostStreams)
   const homeWsId = useHomeWorkspaceState(projectId).wsId
   const workingIds = useWorkingRowIds(rows)
+  const movingIds = useMovingRowIds(rows)
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
   const [dragSubjectId, setDragSubjectId] = useState<string | null>(null)
   const drop = useMemo(
@@ -273,7 +295,7 @@ export function useNativeSidebar({
       })),
       active: activeRows(rows, running).map((r) => ({ id: r.id })),
       collapsed: [...collapsed],
-      actions: nativeRowActions(rows, running),
+      actions: nativeRowActions(rows, running, movingIds),
       drop,
       readout: readout && {
         ...readout,
@@ -292,6 +314,7 @@ export function useNativeSidebar({
     hostStreams,
     hostVersion,
     workingIds,
+    movingIds,
     icons,
     running,
   ])
@@ -330,6 +353,10 @@ export function useNativeSidebar({
           },
           fork: (target) => void forkNatively(target, navigate),
           removeAtOnce: true,
+        }
+        if (intent.actionId === CANCEL_MOVE) {
+          void performCancelMove(row)
+          return
         }
         if (intent.actionId === KILL_AGENT) {
           const session = selectActiveSession(entityStore.getState(), row.id)

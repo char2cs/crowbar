@@ -22,6 +22,8 @@ import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-
 import { projectDTO, seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { resetOperations, streamOperation } from '@/__tests__/__fixtures__/operations'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
 
 const chrome = vi.hoisted(() => ({
   pushed: [] as NativeSidebar[],
@@ -233,6 +235,18 @@ describe('useNativeSidebar', () => {
       destructive: false,
       confirm: null,
     })
+  })
+
+  // A chat waiting to move after its turn can be kept where it is from the phone too.
+  it('offers Cancel move on a chat waiting to move, and withdraws it', () => {
+    const cancel = vi.spyOn(chatCommands, 'cancelChatMove').mockResolvedValue(undefined)
+    mount()
+    const alpha = last().rows.find((r) => r.label === 'Alpha')!
+    expect(last().actions[alpha.id].map((a) => a.id)).not.toContain('cancel-move')
+    act(() => writeChat({ id: alpha.id, pendingMove: { requestId: 'm1' } }))
+    expect(last().actions[alpha.id].map((a) => a.id)).toContain('cancel-move')
+    send({ type: 'rowAction', rowId: alpha.id, actionId: 'cancel-move' })
+    expect(cancel).toHaveBeenCalledWith('ws-a', alpha.id)
   })
 
   it('carries out a verb picked from a row menu', () => {
