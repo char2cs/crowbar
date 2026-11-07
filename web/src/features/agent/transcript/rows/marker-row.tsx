@@ -11,6 +11,7 @@ import {
   warningHeadline,
   type FailureKind,
 } from '@/features/agent/transcript/lib/turn-failure'
+import { MoveRetry, moveLabel } from '@/features/agent/transcript/rows/move-marker'
 
 /** What a marker row can do: re-send a failed turn, open the CLI, start over. */
 export interface MarkerActions {
@@ -94,6 +95,8 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
         label: warningHeadline(item.detail).text || 'The agent warned of a problem',
         testId: 'agent-warning',
       }
+    case 'move':
+      return { label: moveLabel(item.move), testId: 'agent-move-divider' }
     default:
       return { label: item.detail || item.marker, testId: 'agent-marker-divider' }
   }
@@ -272,6 +275,7 @@ function MarkerRowBody({
         <span className="wavy-rule" />
       </div>
       {item.marker === 'warning' && <WarningDetails detail={item.detail} />}
+      {item.move && <MoveRetry chatId={chatId} move={item.move} />}
       {item.marker === 'turn_failed' && (
         <FailedActions
           chatId={chatId}

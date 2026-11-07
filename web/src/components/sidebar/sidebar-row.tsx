@@ -21,6 +21,7 @@ import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
 import { OperationSidebarRow } from '@/components/sidebar/operation-sidebar-row'
 import { RemovingSidebarRow } from '@/components/sidebar/sidebar-row-removing'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import {
   rowBoxStyle,
   rowGlyphStyle,
@@ -101,6 +102,10 @@ export function SidebarRow({
     (s) =>
       s.renaming === row.id &&
       (inlineRenameDisabled ? s.renamingRole === 'recents' : s.renamingRole !== 'recents'),
+  )
+  // A chat dropped into another workspace mid-turn stays put until its turn ends; null: no move.
+  const pendingMove = useChatField(row.id, (c) =>
+    c?.pendingMove ? (c.pendingMove.label ?? '') : null,
   )
   // A create whose entity has not arrived (or is still being named) has no
   // chat/workspace behind it, so none of the interactive state below applies.
@@ -230,6 +235,18 @@ export function SidebarRow({
               {row.label}
             </span>
             <BranchSecondLine row={row} activeGround={activeGround} metrics={metrics} />
+          </span>
+        ) : pendingMove !== null && !tab ? (
+          <span data-sidebar-row-label="" className="flex min-w-0 flex-1 flex-col justify-center">
+            <span className="truncate" style={rowTitleStyle(metrics)}>
+              {row.label}
+            </span>
+            <span
+              className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}
+              style={rowSubStyle(metrics)}
+            >
+              {pendingMove ? `Moving to ${pendingMove} after this turn` : 'Moving after this turn'}
+            </span>
           </span>
         ) : (
           <span

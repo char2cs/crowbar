@@ -36,7 +36,16 @@ export type RowPlacementCall =
       parentId?: string
       order: number
     }
-  | { kind: 'chat'; workspaceId: string; chatId: string; parentId: string; order: number }
+  | {
+      kind: 'chat'
+      /** The chat's own workspace, which its placement is addressed by. */
+      workspaceId: string
+      chatId: string
+      parentId: string
+      order: number
+      /** Set when the container is in another workspace: the chat moves there. */
+      moveTo?: { workspaceId: string; label: string }
+    }
   | {
       kind: 'homeFolder'
       projectId: string

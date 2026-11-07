@@ -25,6 +25,7 @@ import {
 } from '@/features/agent/stores/lib/fold-subagents'
 import { ItemMap, type ItemDraft } from '@/features/agent/stores/lib/item-map'
 import { placeMessage, settleRound } from '@/features/agent/stores/lib/fold-rounds'
+import { applyMove } from '@/features/agent/stores/lib/fold-moves'
 import {
   liveKey,
   markerItemId,
@@ -467,6 +468,7 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   ask_resolved: applyAskResolved,
   subagent: applySubagent,
   plan: applyPlan,
+  move: applyMove,
 }
 
 /** Folds the row right after the feed's seq; any other is not applied. */

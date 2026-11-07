@@ -187,6 +187,13 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
   })
 }
 
+/** Withdraws the chat's pending move: it stays where it runs. */
+export async function cancelChatMove(wsId: string, chatId: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/move/cancel`, {
+    method: 'POST',
+  })
+}
+
 /** Deletes a chat and the threads hanging off it (a thread without its parent reads a context
  *  that is gone); resolves with the chats its git cascade also took. `init` carries `keepalive`
  *  for the removal tray's pagehide flush, so an undo window cut short by a reload still deletes. */
@@ -199,11 +206,13 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
   return Array.isArray(taken) ? taken.filter((id): id is string => typeof id === 'string') : []
 }
 
-/** Move a chat: under `parentId` (a chat, a folder, or '' for the root) at `order`. */
+/** Move a chat: under `parentId` (a chat, a folder, or '' for the root) at `order`. A
+ *  `workspaceId` other than `wsId` (the chat's own) asks for a move there at the chat's turn
+ *  boundary: the answer is the chat unchanged, carrying `pendingMove`. */
 export async function setChatPlacement(
   wsId: string,
   chatId: string,
-  patch: { parentId?: string; order?: number },
+  patch: { parentId?: string; order?: number; workspaceId?: string; label?: string },
 ): Promise<{ chat: AgentChat; shifted: AgentChatFolder[] }> {
   const raw = await apiFetch<{ chat: AgentChat } & Partial<FolderShift>>(
     `${chatBase(wsId)}/${encodeURIComponent(chatId)}/placement`,

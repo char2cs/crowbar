@@ -1,5 +1,11 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
-import type { MarkerKind, PlanItem, RowBodies, ToolCallBody } from '@/features/agent/api/chat-rows'
+import type {
+  MarkerKind,
+  MoveBody,
+  PlanItem,
+  RowBodies,
+  ToolCallBody,
+} from '@/features/agent/api/chat-rows'
 import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
 import type { CallRound } from '@/features/agent/stores/lib/fold-rounds'
@@ -90,7 +96,7 @@ export interface AskItem extends ItemBase {
 }
 
 export type MarkerName =
-  MarkerKind | 'turn_interrupted' | 'turn_failed' | 'session_lost' | 'runner_exited'
+  MarkerKind | 'turn_interrupted' | 'turn_failed' | 'session_lost' | 'runner_exited' | 'move'
 
 export interface MarkerItem extends ItemBase {
   kind: 'marker'
@@ -99,6 +105,8 @@ export interface MarkerItem extends ItemBase {
   reason?: string
   /** A launch's switches (provider, model, effort) drawn as this one divider. */
   parts?: { marker: MarkerName; detail?: string }[]
+  /** A 'move' marker's newest phase, over what its request named (where to, under what). */
+  move?: MoveBody
 }
 
 export type SubagentStatus =
@@ -223,6 +231,7 @@ export const textItemId = (turnId: string | undefined, messageId: string) =>
 export const toolItemId = (toolId: string) => `t:${toolId}`
 export const askItemId = (askId: string) => `a:${askId}`
 export const markerItemId = (seq: number) => `k:${seq}`
+export const moveItemId = (requestId: string) => `m:${requestId}`
 export const subagentItemId = (key: string) => `s:${key}`
 export const planItemId = (turnId: string) => `l:${turnId}`
 export const liveKey = (stream: string, id: string) => `${stream}:${id}`

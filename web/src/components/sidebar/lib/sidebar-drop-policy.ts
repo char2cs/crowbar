@@ -83,31 +83,74 @@ function nearestBranchAnchor(repo: Repo, rowId: string): string {
   return ''
 }
 
-// The workspace whose chat level a reorder past a BRANCH row lands in: project home for a repo
-// header, else the nearest branch anchor above it (root = the repo checkout). Chat placement is
-// workspace-scoped, so any other level is a cross-workspace edge the daemon refuses.
-export function levelWorkspaceOfBranchRow(
-  repos: readonly Repo[],
-  target: SidebarRow,
-): string | null {
-  const headerRepo = repoOfHeaderRow(repos, target.id)
-  if (headerRepo) return headerRepo.projectId ? getHomeWorkspaceId(headerRepo.projectId) : null
-  const scope = resolveRowRepo(repos, target.id)
-  const repo = scope && repos.find((r) => r.id === scope.repoId)
-  if (!repo) return null
-  const anchor = nearestBranchAnchor(repo, target.parentId ?? '')
-  if (anchor === '') return repo.defaultWorkspaceId ?? null
-  return workspaceIdOfBranchRow(repos, anchor) ?? anchor
+// The project whose panel draws `rowId`: a home row, a repo's row, or a repo chat.
+export function projectOfRow(repos: readonly Repo[], rowId: string): string | null {
+  return (
+    resolveHomeRowScope(rowId)?.projectId ??
+    resolveRowRepo(repos, rowId)?.projectId ??
+    resolveChatRepo(repos, rowId)?.projectId ??
+    null
+  )
 }
 
-// Which of before/after/into this drag may do to this target. No drag crosses a project; across
-// repos only rows owning no worktree move (§8.3). Working or busy rows refuse everything, and a
-// locked or ownerless branch may only move where its fork anchor stays the same.
+// The workspace a chat filed under `containerId` runs in, as the daemon's checkChatContainer reads
+// it: '' is the project home's root, a branch row or repo header its workspace, a folder the
+// nearest branch above it (else the repo checkout or its home), a chat its own. Null: unknown id.
+export function workspaceOfContainer(
+  repos: readonly Repo[],
+  projectId: string | null,
+  containerId: string,
+): string | null {
+  if (containerId === '') return projectId ? getHomeWorkspaceId(projectId) : null
+  const home = resolveHomeRowScope(containerId)
+  if (home) return home.homeWorkspaceId
+  const owned = workspaceIdOfBranchRow(repos, containerId)
+  if (owned) return owned
+  for (const repo of repos) {
+    if (repo.defaultWorkspaceId === containerId) return containerId
+    if (repo.workspaces.some((w) => w.id === containerId)) return containerId
+    if (repo.folders?.some((f) => f.id === containerId)) {
+      const anchor = nearestBranchAnchor(repo, containerId)
+      if (anchor === '') return repo.defaultWorkspaceId ?? null
+      return workspaceIdOfBranchRow(repos, anchor) ?? anchor
+    }
+    const chat = repo.chats?.find((c) => c.id === containerId)
+    if (chat) return chat.workspaceId ?? null
+  }
+  return null
+}
+
+// A chat drop: anywhere a chat may hang, in any workspace. A working chat may only leave its
+// workspace (the move waits for its turn boundary); within it the daemon refuses a running subtree.
+function chatModes(
+  repos: readonly Repo[],
+  subjects: readonly SidebarRow[],
+  target: DropTargetRow,
+): AllowedModes {
+  if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') {
+    return NO_MODES
+  }
+  // A tree chat row is built with `working: false` (deriveRows): ask the entity store.
+  const { chat } = entityStore.getState().byKind
+  if (!subjects.some((s) => s.working || chat[s.id]?.data.working)) return ALL_MODES
+  const projectId = projectOfRow(repos, target.id)
+  const leaves = (containerId: string) => {
+    const dest = workspaceOfContainer(repos, projectId, containerId)
+    return dest !== null && subjects.every((s) => s.workspaceId !== dest)
+  }
+  const reorder = leaves(target.parentId ?? '')
+  return { before: reorder, after: reorder, into: leaves(target.id) }
+}
+
+// Which of before/after/into this drag may do to this target. Only a chat crosses a project; across
+// repos only rows owning no worktree move (§8.3). Busy rows refuse everything, working ones all but
+// a chat's move out of its workspace, and a locked or ownerless branch keeps its fork anchor.
 export function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
   const ops = operationsState()
-  if (subjects.some((s) => s.working || (s.workspaceId && selectEntityBusy(ops, s.workspaceId))))
-    return NO_MODES
+  if (subjects.some((s) => s.workspaceId && selectEntityBusy(ops, s.workspaceId))) return NO_MODES
+  const allChats = subjects.every((s) => s.kind === 'chat')
+  if (subjects.some((s) => s.working) && (target.inRecents || !allChats)) return NO_MODES
   // Never drop a row onto itself.
   if (subjects.some((s) => s.id === target.id)) return NO_MODES
   // A mixed-kind selection is not a thing the sidebar can express; refuse
@@ -127,27 +170,9 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
   // One getState() per drag frame, shared by every branch below.
   const repos = readSelect(selectRepos)
 
-  // A chat is workspace-scoped, not repo-scoped, so the repo walk below doesn't apply. Moving
-  // across workspaces stays allowed (§8.3); planChatDrop explains the unsupported case in a toast.
-  // Gated on the DRAGGED kind only: a folder or branch dropped on a chat is scoped further down.
-  if (kind === 'chat') {
-    if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') {
-      return NO_MODES
-    }
-    // A tree chat row is built with `working: false` (deriveRows), so the
-    // refusal above cannot answer it: ask the entity store at the instant of the drag.
-    const { chat } = entityStore.getState().byKind
-    if (subjects.some((s) => chat[s.id]?.data.working)) return NO_MODES
-    // A branch row is never a container a chat threads into, but chats and branches share one
-    // sibling order, so a chat may reorder past one — only on its own workspace level, since any
-    // other pairing is a cross-workspace edge the daemon refuses with 409.
-    if (target.kind === 'branch') {
-      const level = levelWorkspaceOfBranchRow(repos, target)
-      if (level === null || subjects.some((s) => s.workspaceId !== level)) return NO_MODES
-      return REORDER_MODES
-    }
-    return ALL_MODES
-  }
+  // A chat is workspace-scoped, not repo-scoped, so the repo walk below doesn't apply. Gated on
+  // the DRAGGED kind only: a folder or branch dropped on a chat is scoped further down.
+  if (kind === 'chat') return chatModes(repos, subjects, target)
 
   // A project-home folder rides no repo, so resolveRowRepo can't see it; its only scope is the
   // project (one home, no fork lineage). Mixing home and repo-scoped subjects has no shared

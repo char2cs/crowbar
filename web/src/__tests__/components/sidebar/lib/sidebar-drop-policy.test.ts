@@ -483,25 +483,26 @@ describe('SIDEBAR_DROP_POLICY', () => {
       )
     })
 
-    it('allows a cross-workspace chat drop — §8.3 makes it legal for a row with no worktree', () => {
-      // The one case with no backend endpoint is answered by planChatDrop's own
-      // explicit toast, not by a silent refusal here (§8.3's refusal affordance
-      // does not exist yet, so a refusal would explain nothing).
+    it('allows a chat drop into another workspace — the placement moves it there', () => {
       const subject = chatRow('chat-a', { workspaceId: 'ws-1' })
       const target = chatRow('chat-b', { workspaceId: 'ws-2' })
       expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
     })
 
-    it('still refuses a WORKING chat — §8.3 outranks the exemption', () => {
+    // A working chat's move waits for its turn to end; within its workspace the daemon refuses it.
+    const ws1Branch = () => makeRow({ id: 'ws-1', parentId: 'home-1' })
+    const leavesOnly = { before: true, after: true, into: false }
+
+    it('lets a WORKING chat only out of its own workspace', () => {
       const subject = chatRow('chat-a', { working: true })
-      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], ws1Branch())).toEqual(leavesOnly)
     })
 
     // A tree chat row carries `working: false`; the ChatStore holds the live flag.
-    it('refuses a tree chat row that IS working despite its row saying false', () => {
+    it('reads a tree chat row as working off its entity, despite its row saying false', () => {
       setChatWorking('chat-a', true)
       const subject = chatRow('chat-a', { working: false })
-      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], ws1Branch())).toEqual(leavesOnly)
     })
 
     it('allows a tree chat row whose live turn state says idle', () => {
@@ -532,37 +533,21 @@ describe('SIDEBAR_DROP_POLICY', () => {
       )
     })
 
-    // Chats and branches share one dense order space at every level, so a chat
-    // may reorder PAST a branch row; "into" refuses (a branch is not a thread).
-    it('lets a chat reorder past a branch row on its own level, but never thread into one', () => {
-      // ws-1 sits under repo-1's header: its level is the repo's own checkout.
+    // A branch row is a container a chat can run in: into it, or beside it on its parent's level.
+    it('threads a chat into a branch row of another workspace', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
           [chatRow('chat-a', { workspaceId: 'home-1' })],
           makeRow({ id: 'ws-1', parentId: 'home-1' }),
         ),
-      ).toEqual(REORDER_MODES)
+      ).toEqual(ALL_MODES)
     })
 
-    // Past a branch row on another level, the daemon refuses the move with 409 ("a chat and its
-    // chat parent must be in the same workspace"), so the indicator must not offer it.
-    describe('a chat may only reorder past a branch row whose level is its own workspace', () => {
+    describe('a working chat beside a branch row', () => {
       beforeEach(() => {
         getHomeWorkspaceId.mockImplementation((projectId: string) =>
           projectId === 'proj-1' ? 'home-ws-1' : null,
         )
-        seedHomeTree('proj-1', {
-          folders: [],
-          chats: [
-            {
-              id: 'home-chat',
-              repoId: '',
-              workspaceId: 'home-ws-1',
-              title: 'h',
-              order: 0,
-            },
-          ],
-        })
       })
 
       const repoHeader = (id: string, repoId: string) =>
@@ -577,62 +562,22 @@ describe('SIDEBAR_DROP_POLICY', () => {
           },
         })
 
-      it('refuses a home chat beside a repo-internal locked branch', () => {
+      it('refuses a home chat beside a repo header — that level is its own project home', () => {
         expect(
           SIDEBAR_DROP_POLICY.allowedModes(
-            [chatRow('home-chat', { workspaceId: 'home-ws-1' })],
-            makeRow({ id: 'ws-locked', parentId: 'home-1' }),
-          ),
-        ).toEqual(NO_MODES)
-      })
-
-      it('allows a home chat beside a repo header — both sit at project home', () => {
-        expect(
-          SIDEBAR_DROP_POLICY.allowedModes(
-            [chatRow('home-chat', { workspaceId: 'home-ws-1' })],
+            [chatRow('home-chat', { workspaceId: 'home-ws-1', working: true })],
             repoHeader('home-1', 'repo-1'),
           ),
-        ).toEqual(REORDER_MODES)
+        ).toEqual({ before: false, after: false, into: true })
       })
 
-      it('refuses a repo chat beside a repo header — that level is project home', () => {
+      it('allows a repo chat beside a DIFFERENT repo’s locked branch', () => {
         expect(
           SIDEBAR_DROP_POLICY.allowedModes(
-            [chatRow('chat-a', { workspaceId: 'home-1' })],
-            repoHeader('home-1', 'repo-1'),
-          ),
-        ).toEqual(NO_MODES)
-      })
-
-      it('refuses a repo chat beside a DIFFERENT repo’s locked branch', () => {
-        expect(
-          SIDEBAR_DROP_POLICY.allowedModes(
-            [chatRow('chat-a', { workspaceId: 'home-2' })],
+            [chatRow('chat-a', { workspaceId: 'home-2', working: true })],
             makeRow({ id: 'ws-locked', parentId: 'home-1' }),
           ),
-        ).toEqual(NO_MODES)
-      })
-
-      it('allows a locked branch’s thread beside a fork filed under that same branch', () => {
-        seedRepos(
-          readSelect(selectRepos).map((r) =>
-            r.id === 'repo-1'
-              ? {
-                  ...r,
-                  workspaces: [
-                    ...r.workspaces,
-                    { id: 'ws-fork', branch: 'fork', age: '', parentId: 'ws-locked' },
-                  ],
-                }
-              : r,
-          ),
-        )
-        expect(
-          SIDEBAR_DROP_POLICY.allowedModes(
-            [chatRow('thread-a', { workspaceId: 'ws-locked' })],
-            makeRow({ id: 'ws-fork', parentId: 'ws-locked' }),
-          ),
-        ).toEqual(REORDER_MODES)
+        ).toEqual(ALL_MODES)
       })
     })
 

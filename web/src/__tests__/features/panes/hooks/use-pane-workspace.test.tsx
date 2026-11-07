@@ -9,6 +9,7 @@ import {
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 function setup() {
   const a = getOrCreateWorkspaceStore('ws-a')
@@ -23,6 +24,7 @@ function setup() {
 
 afterEach(() => {
   cleanup()
+  resetChatStore()
   setActiveWorkspaceId(null)
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
 })
@@ -46,6 +48,21 @@ describe('usePaneWorkspace', () => {
     act(() => setActiveWorkspaceId('ws-a'))
 
     expect(renders).toBe(before)
+  })
+
+  // The chat owns where it runs: a move to another workspace takes its pane along.
+  it('follows its chat to the workspace a move took it to', () => {
+    const { b, wrapper } = setup()
+    writeChat({ id: 'chat-1', workspaceId: 'ws-a' })
+    const { result } = renderHook(
+      () => usePaneWorkspace({ chatId: 'chat-1', workspaceId: 'ws-a' }),
+      { wrapper },
+    )
+
+    act(() => writeChat({ id: 'chat-1', workspaceId: 'ws-b' }))
+
+    expect(result.current.wsId).toBe('ws-b')
+    expect(result.current.chatStore).toBe(b)
   })
 
   it('makes a chatless pane follow the active workspace', () => {

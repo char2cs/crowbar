@@ -17,7 +17,6 @@ import {
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { HostNotResolvedError } from '@/lib/host-path'
-import { toast } from '@/features/window/stores/toast-store'
 import { toastManager } from '@/lib/toast-manager'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
@@ -947,25 +946,29 @@ describe('performSidebarDrop — chats', () => {
     })
   })
 
-  it('refuses a chat dropped onto a target in a different workspace — no placement endpoint can move it', async () => {
-    await expect(
-      performSidebarDrop([chatRow('c1', 'ws-x')], chatRow('c2', 'ws-y'), 'before'),
-    ).resolves.toBeUndefined()
+  // Which workspace a container runs in is drop-plan.test.ts's; here, what the PATCH carries.
+  const intoBranchA = () =>
+    performSidebarDrop([chatRow('c1', 'ws-x')], branchRow('ws-a', { parentId: 'home-1' }), 'into')
 
-    expect(setChatPlacement).not.toHaveBeenCalled()
-    expect(toast.error).toHaveBeenCalled()
+  it('moves a chat dropped into a branch row to run in that branch, named by its branch', async () => {
+    await intoBranchA()
+
+    expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'c1', {
+      parentId: 'ws-a',
+      order: 2,
+      workspaceId: 'ws-a',
+      label: 'a',
+    })
   })
 
-  it('a chat dropped onto a branch row is a no-op — a branch is not one of a chat’s threads', async () => {
-    await expect(
-      performSidebarDrop(
-        [chatRow('c1', 'ws-x')],
-        branchRow('ws-a', { parentId: 'home-1' }),
-        'into',
-      ),
-    ).resolves.toBeUndefined()
+  it('says why the daemon refused a move, in its words', async () => {
+    vi.mocked(setChatPlacement).mockRejectedValueOnce(
+      new ApiError("A branch's own thread moves with its branch", 409),
+    )
 
-    expect(setChatPlacement).not.toHaveBeenCalled()
+    await intoBranchA()
+
+    expectReported("A branch's own thread moves with its branch")
   })
 
   // A folder row is the same `AgentChatFolder` a chat files into, so the drop is a real placement.
@@ -987,12 +990,8 @@ describe('performSidebarDrop — chats', () => {
     })
   })
 
-  // A folder row carries no `workspaceId` of its own (pure organisation) —
-  // this pins that the dragged chat's OWN workspace is what the drop still
-  // resolves against, the same way it must for a project-home folder
-  // (deriveRows), which can never have a `workspaceId` to fall back
-  // on any other way.
-  it('a chat dropped onto a home folder still resolves the home workspace off the chat itself', async () => {
+  // A folder row carries no `workspaceId`: a home folder's tree names the home workspace.
+  it('a chat dropped onto a home folder resolves the home workspace off the folder’s tree', async () => {
     vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
     seedHomeTree('proj-1', {
       chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'c1', order: 0 }],
@@ -1011,8 +1010,7 @@ describe('performSidebarDrop — chats', () => {
     })
   })
 
-  // A chat may reorder before/after a branch row (never into: a branch is no
-  // thread parent), indexed over the combined tree this level renders.
+  // Beside a branch row is its parent's level, inside it the branch's: indexed over the drawn rows.
   describe('reordering past a branch row', () => {
     /** repo-1's header row as `deriveRows` draws it: `repoIcon` marks it. */
     const repoHeader = (id: string) =>
@@ -1067,7 +1065,8 @@ describe('performSidebarDrop — chats', () => {
       })
     })
 
-    it('reorders a home chat to land AFTER the repo header row sharing its level', async () => {
+    it('reorders a home chat to land AFTER the collapsed repo header row sharing its level', async () => {
+      treeUiStore.setState({ collapsed: new Set(['home-1']) })
       await performSidebarDrop([chatRow('home-chat-1', 'home-ws-1')], repoHeader('home-1'), 'after')
 
       expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', {
@@ -1097,25 +1096,16 @@ describe('performSidebarDrop — chats', () => {
       })
     })
 
-    it('never threads a chat INTO a branch row — the policy still refuses that mode', async () => {
+    // Inside a repo header is its checkout's level: the home chat moves to run there.
+    it('moves a home chat dropped INTO a repo header to the repo checkout', async () => {
       await performSidebarDrop([chatRow('home-chat-1', 'home-ws-1')], repoHeader('home-1'), 'into')
 
-      expect(setChatPlacement).not.toHaveBeenCalled()
-    })
-
-    // The daemon refuses a chat filed beside a row of ANOTHER workspace
-    // (`checkChatContainer`, 409) — answered here with the same explicit
-    // toast every other cross-workspace chat drop already gets, never a
-    // request that surfaces the raw Go error.
-    it('refuses a home chat reordered beside a repo-internal locked branch', async () => {
-      await performSidebarDrop(
-        [chatRow('home-chat-1', 'home-ws-1')],
-        branchRow('ws-a', { parentId: 'home-1' }),
-        'before',
-      )
-
-      expect(setChatPlacement).not.toHaveBeenCalled()
-      expect(toast.error).toHaveBeenCalled()
+      expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', {
+        parentId: 'home-1',
+        order: 5,
+        workspaceId: 'home-1',
+        label: 'repo-1',
+      })
     })
 
     // Two threads under a locked branch, reordered while a DIFFERENT workspace's pane is active.

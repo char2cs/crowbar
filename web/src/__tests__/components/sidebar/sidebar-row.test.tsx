@@ -9,6 +9,7 @@ import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/si
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import * as createActions from '@/components/layout/create-actions'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
@@ -794,20 +795,19 @@ describe('SidebarRow', () => {
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fold'])
   })
 
-  // A bubble chat's glyph is always plain: the promotion dropdown is gone.
-  describe('promotion dropdown removed', () => {
-    it('never renders on a bubble chat row (chat, no worktree, not working)', () => {
+  // A chat dropped into another workspace mid-turn stays put until the turn ends, and says so.
+  describe('a chat waiting to move', () => {
+    it('says where it moves after this turn, under its title', () => {
+      writeChat({ id: 'row-1', pendingMove: { requestId: 'm1', label: 'feature-b' } })
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
-      expect(screen.queryByText('Make workspace')).not.toBeInTheDocument()
+      expect(screen.getByText('Fix the thing')).toBeInTheDocument()
+      expect(screen.getByText('Moving to feature-b after this turn')).toBeInTheDocument()
     })
 
-    it('clicking the glyph opens the row like any other click, never a menu', async () => {
-      const user = userEvent.setup()
-      const onOpen = vi.fn()
-      render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
-      await user.click(screen.getByRole('treeitem'))
-      expect(onOpen).toHaveBeenCalledWith('row-1')
+    it('says nothing once the move has run', () => {
+      writeChat({ id: 'row-1', pendingMove: undefined })
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByText(/after this turn/)).not.toBeInTheDocument()
     })
   })
 

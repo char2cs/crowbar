@@ -1,10 +1,7 @@
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import type { Repo } from '@/core/entities/repo-types'
-import {
-  levelWorkspaceOfBranchRow,
-  resolveRowRepo,
-} from '@/components/sidebar/lib/sidebar-drop-policy'
+import { projectOfRow, workspaceOfContainer } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { readSelect, selectProjects } from '@/core/entities/select'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { homeOwnerRowId } from '@/features/workspace/tree/legacy-tree-index'
 import { getHomeTree, resolveHomeRowScope } from '@/core/entities/home-rows'
@@ -21,79 +18,68 @@ import {
   visibleRepos,
 } from '@/components/sidebar/lib/rendered-rows'
 
-/** A chat subject whose target lives in a different workspace — no endpoint
- *  can re-home a chat to another workspace's own aggregate (see `planChatDrop`). */
-export const UNSUPPORTED = 'unsupported' as const
-
-// A chat drop. Chat placement lives on the workspace-scoped AgentChat aggregate
-// (setChatPlacement). A chat lands beside or into a chat or folder, or past a branch row on its
-// own level — never into a branch. Indices come from the drawn rows, which hold all three kinds.
+// A chat drop. Chat placement lives on the workspace-scoped AgentChat aggregate (setChatPlacement):
+// it lands beside or into any chat, folder or branch row, and the container it lands in names the
+// workspace it runs in; another than its own makes the placement a move. Indices come from the
+// drawn rows, which hold all three kinds.
 function planChatDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
   mode: DropMode,
-): RowPlacementCall[] | typeof UNSUPPORTED {
+): RowPlacementCall[] {
   if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') return []
-  if (target.kind === 'branch' && mode === 'into') return []
-  // A folder/branch carries no chat workspace of its own — the dragged
-  // chat's OWN workspace is the only ground such a drop can mean, and every
-  // subject is required to share it (checked right below).
-  const destWorkspaceId = target.kind === 'chat' ? target.workspaceId : subjects[0].workspaceId
-  if (!destWorkspaceId) return []
-  // `setChatPlacement` is scoped to one workspace's own chat tree — there is
-  // no field on it that re-homes a chat to a different workspace's aggregate.
-  if (subjects.some((s) => s.workspaceId !== destWorkspaceId)) return UNSUPPORTED
-
   const repos = visibleRepos()
-  if (target.kind === 'branch' && levelWorkspaceOfBranchRow(repos, target) !== destWorkspaceId) {
-    return UNSUPPORTED
-  }
   const projectId =
-    resolveHomeRowScope(target.id)?.projectId ??
-    resolveRowRepo(repos, target.id)?.projectId ??
-    projectOfWorkspace(repos, destWorkspaceId)
+    projectOfRow(repos, target.id) ??
+    (target.workspaceId ? projectOfWorkspace(repos, target.workspaceId) : null)
   if (!projectId) return []
 
   const rows = renderedProjectRows(projectId)
-  // 'after' an EXPANDED chat/folder is the slot before its first child — where
-  // the line is drawn (`resolvesToFirstChild`). Never for a branch target: its
-  // children are another workspace's level, which a chat cannot join.
-  const firstChild =
-    target.kind !== 'branch' &&
-    resolvesToFirstChild(
-      {
-        kind: target.kind,
-        id: target.id,
-        expanded: !treeUiStore.getState().collapsed.has(target.id),
-        hasChildren: rows.some((r) => r.parentId === target.id),
-      },
-      mode,
-    )
+  // 'after' an EXPANDED row is the slot before its first child — where the line is drawn.
+  const firstChild = resolvesToFirstChild(
+    {
+      kind: target.kind,
+      id: target.id,
+      expanded: !treeUiStore.getState().collapsed.has(target.id),
+      hasChildren: rows.some((r) => r.parentId === target.id),
+    },
+    mode,
+  )
   // A Recents-sourced drop never reaches here (`performSidebarDrop` branches
   // it off to `performRecentsDrop` first), so a root-level target genuinely
   // means the tree root.
   const containerId = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
-  if (folderOutsideTree(repos, containerId, destWorkspaceId)) return UNSUPPORTED
+  // A chat the tree has not drawn yet still names its own workspace.
+  const destWorkspaceId =
+    workspaceOfContainer(repos, projectId, containerId) ??
+    (containerId === target.id && target.kind === 'chat' ? target.workspaceId : null)
+  if (!destWorkspaceId) return []
+  const label = containerLabel(rows, projectId, containerId)
   const lifted = new Set(subjects.map((s) => s.id))
   const rest = renderedSiblings(rows, containerId, lifted)
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, target.id, mode)
 
-  return subjects.map((subject, i) => ({
-    kind: 'chat' as const,
-    workspaceId: destWorkspaceId,
-    chatId: subject.id,
-    parentId: containerId,
-    order: at + i,
-  }))
+  return subjects.flatMap((subject, i): RowPlacementCall[] => {
+    if (!subject.workspaceId) return []
+    const moves = subject.workspaceId !== destWorkspaceId
+    return [
+      {
+        kind: 'chat',
+        workspaceId: subject.workspaceId,
+        chatId: subject.id,
+        parentId: containerId,
+        order: at + i,
+        ...(moves && { moveTo: { workspaceId: destWorkspaceId, label } }),
+      },
+    ]
+  })
 }
 
-// A folder belongs to one tree, its repo's or its project home's, and a chat can only be filed
-// in its own workspace's tree: anywhere else the daemon keeps a parent the sidebar never draws.
-function folderOutsideTree(repos: readonly Repo[], folderId: string, workspaceId: string): boolean {
-  const home = resolveHomeRowScope(folderId)
-  if (home?.kind === 'folder') return home.homeWorkspaceId !== workspaceId
-  const folderRepo = repos.find((r) => r.folders?.some((f) => f.id === folderId))
-  return !!folderRepo && resolveRowRepo(repos, workspaceId)?.repoId !== folderRepo.id
+// Where a moved chat lands, in the sidebar's words: its container row's, a branch by its branch.
+function containerLabel(rows: readonly SidebarRow[], projectId: string, containerId: string) {
+  const row = rows.find((r) => r.id === containerId)
+  if (row) return (row.kind === 'branch' && !row.repoIcon && row.branchName) || row.label
+  return readSelect(selectProjects).find((p) => p.id === projectId)?.name ?? 'the project home'
 }
 
 // A project-home folder drop: planTreeRowDrop's container/index math scoped to the home. Home
@@ -201,7 +187,7 @@ export function planRowDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
   mode: DropMode,
-): RowPlacementCall[] | typeof UNSUPPORTED {
+): RowPlacementCall[] {
   if (subjects.length === 0) return []
   if (subjects[0].kind === 'chat') return planChatDrop(subjects, target, mode)
   // Home never forks, so a home subject is always a folder; repo and home folder ids share the

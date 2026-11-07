@@ -55,8 +55,9 @@ beforeEach(() => {
 
 // The menu's Move to… is the drag's keyboard twin: it offers what a drop could do, no more.
 describe('moveTargets', () => {
-  it('offers a thread every other folder, never the folder it is already in', () => {
-    expect(labels('thread-1')).toEqual(['Old bugs'])
+  // A thread may run anywhere: the repo checkout, another folder, a branch by its branch name.
+  it('offers a thread every other folder, the repo and every branch, never where it is', () => {
+    expect(labels('thread-1')).toEqual(['repo', 'Old bugs', 'feature-x'])
   })
 
   it('never offers a folder itself or a folder inside it', () => {
@@ -69,9 +70,8 @@ describe('moveTargets', () => {
     expect(labels('ws-1')).not.toContain('feature-x')
   })
 
-  // A chat's placement lives in its own workspace's tree: a repo folder is not a place for a
-  // project-home chat, and dropping it there left it orphaned at the top of the sidebar.
-  it("never offers a home chat another tree's folders", () => {
+  // Filing a home chat into a repo's tree moves it to run there.
+  it("offers a home chat another tree's folders and branches beside its own", () => {
     const chat = makeChat({ id: 'home-chat', title: 'Plans', repoId: '' })
     const notes = makeFolder({ id: 'notes', name: 'Notes', repoId: '' })
     seedHome('proj-1', 'ws-proj-home')
@@ -79,6 +79,12 @@ describe('moveTargets', () => {
     const rows = [...homeRows('ws-proj-home', [chat], [notes]), ...repoRows(REPO)]
     const home = rows.find((r) => r.id === 'home-chat')!
 
-    expect(moveTargets(home, rows).map((t) => t.label)).toEqual(['Notes'])
+    expect(moveTargets(home, rows).map((t) => t.label)).toEqual([
+      'Notes',
+      'repo',
+      'Bugs',
+      'Old bugs',
+      'feature-x',
+    ])
   })
 })

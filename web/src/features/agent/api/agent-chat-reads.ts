@@ -64,6 +64,17 @@ export interface AgentChat {
    *  Unlike AgentChoice, it has no buttons the chat can press: the answer is to go to the terminal.
    *  Detected server-side against the daemon's screen model. */
   terminalWait?: AgentTerminalWait
+  /** A move to another workspace waiting for the chat's turn boundary; gone once it ran. */
+  pendingMove?: PendingMove
+}
+
+interface PendingMove {
+  requestId: string
+  /** The workspace the chat runs in once the move runs. */
+  workspaceId?: string
+  parentId?: string
+  /** Where, in the sidebar's words. */
+  label?: string
 }
 
 /** Where a chat is in its lifecycle. `dormant` and `live` follow placement;
@@ -172,6 +183,7 @@ export function mapChat(c: AgentChat): AgentChat {
     terminalWait: c.terminalWait
       ? { kind: c.terminalWait.kind ?? '', answers: c.terminalWait.answers }
       : undefined,
+    pendingMove: c.pendingMove,
   }
 }
 

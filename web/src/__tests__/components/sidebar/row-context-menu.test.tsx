@@ -15,6 +15,8 @@ import * as createActions from '@/components/layout/create-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
 
 // handleCreate's fallback needs a router `navigate`.
 vi.mock('@tanstack/react-router', () => ({
@@ -196,9 +198,8 @@ beforeEach(() => {
 })
 
 describe('SidebarRowContextMenu', () => {
-  // The rows this menu is driven by really do carry the ids this file asserts —
-  // if `deriveRows` ever stops giving a locked branch its owning chat's id,
-  // the fixture must follow it rather than the other way round.
+  // The rows really carry the ids this file asserts: if `deriveRows` stops giving a locked
+  // branch its owning chat's id, the fixture follows it, not the other way round.
   it('is driven by deriveRows’s real output, where a locked branch is id’d by its owning chat', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(
       [
@@ -260,9 +261,8 @@ describe('SidebarRowContextMenu', () => {
       expect(screen.queryByText('Lock')).not.toBeInTheDocument()
     })
 
-    // performRenameWorkspaceBranch (row-actions.ts) already refuses a locked
-    // workspace's rename write silently — the menu offering Rename here just
-    // meant the dialog opened, took a new name, and did nothing with it.
+    // performRenameWorkspaceBranch refuses a locked workspace's rename silently, so offering
+    // Rename here would take a new name and do nothing with it.
     it('does not offer Rename', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)
@@ -329,13 +329,22 @@ describe('SidebarRowContextMenu', () => {
     const offered = within(submenu)
       .getAllByRole('menuitem')
       .map((item) => item.textContent)
-    expect(offered).toContain('Bugs')
+    expect(offered).toEqual(expect.arrayContaining(['Bugs', 'feature-x', 'develop']))
     expect(offered).not.toContain('A thread')
   })
 
-  // Same gap, project-home side: a plain home chat rides no repo at all, so
-  // it goes through `performCreateHomeFolder` instead, same root-normalised
-  // parentId a home-scoped folder click already uses.
+  // A chat dropped into another workspace mid-turn waits; until then the move can be withdrawn.
+  it('offers Cancel move on a chat waiting to move, and withdraws it', () => {
+    writeChat({ id: THREAD_ROW_ID, workspaceId: 'ws-home', pendingMove: { requestId: 'm1' } })
+    const cancel = vi.spyOn(chatCommands, 'cancelChatMove').mockResolvedValue(undefined)
+    rows = rows.map((r) => (r.id === THREAD_ROW_ID ? { ...r, workspaceId: 'ws-home' } : r))
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.click(screen.getByText('Cancel move'))
+    expect(cancel).toHaveBeenCalledWith('ws-home', THREAD_ROW_ID)
+  })
+
+  // A home chat rides no repo: its folder is home-scoped and root-normalised.
   it('a plain home-scoped chat row offers New folder, HOME-scoped and root-normalised', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_THREAD_ROW_ID)
@@ -469,12 +478,7 @@ describe('SidebarRowContextMenu', () => {
   })
 })
 
-// THE BUG: "can't start chats directly on a CLI, it always obligates me to
-// use the native chat" — this menu had a Thread-shaped verb (New folder)
-// but nothing that landed a new chat on Terminal, and neither does the
-// row's own plain "+" button. This is the discoverable, visible affordance:
-// same handleCreate the "+" button calls, with the optional 4th
-// (presentation) argument the fix added.
+// A new chat can start on its CLI: the handleCreate the "+" button calls, on Terminal.
 describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
   beforeEach(() => {
     useAgentProvidersStore.setState({
@@ -530,11 +534,8 @@ describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
     expect(screen.getByText('New folder')).toBeInTheDocument()
   })
 
-  // THE surfaces: fix (design spec 2.5): hasTerminal alone used to gate this.
-  // codex HAS a terminal (attach) that is only reachable by switching to it
-  // after a turn — never a launch target for a chat that does not exist yet.
-  // terminalStartHere is the fact that distinguishes "has one" from "may
-  // launch straight onto it".
+  // A terminal reachable only by switching to it after a turn (codex's attach) is no launch
+  // target for a chat that does not exist yet (design spec 2.5).
   it('is ABSENT when the enabled provider has a terminal that is not a start_here surface', () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -546,9 +547,8 @@ describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
     expect(screen.getByText('New folder')).toBeInTheDocument()
   })
 
-  // No enabled provider resolved yet is not evidence of "no terminal" — the
-  // plain Thread button offers itself unconditionally too and lets the
-  // click-time `enabledProvider()` toast the refusal; this item matches it.
+  // No enabled provider yet is not "no terminal": like the plain Thread button, the click-time
+  // `enabledProvider()` toasts the refusal.
   it('is still offered when no provider is enabled — the refusal happens at click time, same as the plain Thread button', () => {
     useAgentProvidersStore.setState({ status: 'ready', providers: [] })
     const { treeRef } = renderMenu()

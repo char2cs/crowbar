@@ -19,8 +19,8 @@ import {
   placeRepo,
 } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
-import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
-import { planRowDrop, UNSUPPORTED } from '@/components/sidebar/lib/drop-plan'
+import { cancelChatMove, setChatPlacement } from '@/features/agent/api/agent-chat-commands'
+import { planRowDrop } from '@/components/sidebar/lib/drop-plan'
 import type { RowPlacementCall } from '@/components/sidebar/lib/drop-plan-tree'
 import { performRecentsDrop } from '@/components/sidebar/lib/pane-drop-actions'
 
@@ -80,6 +80,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       const { chat, shifted } = await setChatPlacement(call.workspaceId, call.chatId, {
         parentId: call.parentId,
         order: call.order,
+        ...(call.moveTo && { workspaceId: call.moveTo.workspaceId, label: call.moveTo.label }),
       })
       await applyChatPlacement(hostIdForChat(call.chatId), chat, shifted)
       return
@@ -107,10 +108,6 @@ export async function performSidebarDrop(
   }
   try {
     const plan = planRowDrop(subjects, target, mode)
-    if (plan === UNSUPPORTED) {
-      toast.error('Moving a chat to a different workspace is not supported yet')
-      return
-    }
     for (const call of plan) {
       // react-doctor-disable-next-line async-await-in-loop -- accepted: sequential on purpose (see this function's own doc above) — Promise.all would race the writes.
       await fireRowPlacementCall(call)
@@ -124,5 +121,15 @@ export async function performSidebarDrop(
       return
     }
     report(err, { action: 'Move' })
+  }
+}
+
+/** Withdraws the move a chat dropped into another workspace is waiting to make. */
+export async function performCancelMove(row: SidebarRow): Promise<void> {
+  if (!row.workspaceId) return
+  try {
+    await cancelChatMove(row.workspaceId, row.id)
+  } catch (err) {
+    report(err, { action: 'Cancel move' })
   }
 }

@@ -7,7 +7,8 @@ import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/cha
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 import { ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
-import { provider } from '@/__tests__/__fixtures__/agent-chat'
+import { provider, resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
 import * as chatEntity from '@/features/agent/hooks/use-chat-entity'
 
 function seed(rows: LedgerRow[]) {
@@ -329,6 +330,74 @@ describe('MarkerRow', () => {
     draw(markerOf(seed([ledger().row('marker', { kind: 'warning', detail: 'Model changed.' })]))!)
     expect(screen.getByTestId('agent-warning')).toHaveTextContent('Model changed.')
     expect(screen.queryByRole('button', { name: 'Details' })).toBeNull()
+  })
+
+  // A move is one line at its newest phase; what a later phase leaves out, its request named.
+  describe('a move', () => {
+    const asked = {
+      phase: 'requested' as const,
+      requestId: 'm1',
+      to: 'ws-b',
+      parentId: 'folder-b',
+      order: 2,
+      label: 'feature-b',
+    }
+    const moveLine = (feed: ReturnType<typeof seed>) => {
+      expect(feed.order.filter((id) => feed.items.get(id)?.kind === 'marker')).toHaveLength(1)
+      draw(markerOf(feed)!)
+      return screen.getByTestId('agent-move-divider')
+    }
+    beforeEach(() => resetChatStore())
+
+    it('says where it goes while it waits for the turn', () => {
+      const feed = seed([ledger().row('move', asked)])
+      expect(moveLine(feed)).toHaveTextContent('Moving to feature-b after this turn')
+    })
+
+    it('says where it went and the folder the chat now works in', () => {
+      const l = ledger()
+      const done = { phase: 'done' as const, requestId: 'm1', toDir: '/src/b', label: 'feature-b' }
+      const feed = seed([l.row('move', asked), l.row('move', done)])
+      expect(moveLine(feed)).toHaveTextContent('Moved to feature-b — now working in /src/b')
+    })
+
+    it('says a withdrawn move was cancelled', () => {
+      const l = ledger()
+      const feed = seed([
+        l.row('move', asked),
+        l.row('move', { phase: 'cancelled', requestId: 'm1' }),
+      ])
+      expect(moveLine(feed)).toHaveTextContent('Move cancelled')
+    })
+
+    it('says why a move failed and asks for it again where its request named', () => {
+      const place = vi.spyOn(chatCommands, 'setChatPlacement').mockResolvedValue({
+        chat: {} as never,
+        shifted: [],
+      })
+      writeChat({ id: 'chat-1', workspaceId: 'ws-a' })
+      const l = ledger()
+      const failed = { phase: 'failed' as const, requestId: 'm1', reason: 'branch is gone' }
+      const feed = seed([l.row('move', asked), l.row('move', failed)])
+      expect(moveLine(feed)).toHaveTextContent('Move to feature-b failed: branch is gone')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+      expect(place).toHaveBeenCalledWith('ws-a', 'chat-1', {
+        parentId: 'folder-b',
+        order: 2,
+        workspaceId: 'ws-b',
+        label: 'feature-b',
+      })
+    })
+
+    it('offers no retry while another move is waiting', () => {
+      writeChat({ id: 'chat-1', workspaceId: 'ws-a', pendingMove: { requestId: 'm2' } })
+      const l = ledger()
+      const failed = { phase: 'failed' as const, requestId: 'm1', reason: 'gone' }
+      moveLine(seed([l.row('move', asked), l.row('move', failed)]))
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    })
   })
 
   // Every marker kind the daemon accepts (written by the api's ledger tests),

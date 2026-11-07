@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { allowedModes } from '@/components/sidebar/lib/sidebar-drop-policy'
-import { NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-core'
+import { ALL_MODES, NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
@@ -116,28 +116,34 @@ describe('a project-home row against a live DOM-reconstructed repo header target
     })
   })
 
-  it('offers the reorder modes for a home chat past a repo header row', () => {
+  // A chat may land anywhere: beside the header is project home, inside it the repo checkout.
+  it('offers every mode for an idle home chat past a repo header row', () => {
     const modes = allowedModes(
       [homeChatSubject('homechat-1', 'projhome-1')],
       liveDomBranchTarget('beta-owner-chat'),
     )
-    expect(modes).toEqual(REORDER_MODES)
+    expect(modes).toEqual(ALL_MODES)
   })
 
-  it('still refuses a home chat past a repo-internal locked branch row', () => {
-    const modes = allowedModes(
-      [homeChatSubject('homechat-1', 'projhome-1')],
-      liveDomBranchTarget('alpha-locked-owner', 'alpha-owner-chat'),
-    )
-    expect(modes).toEqual(NO_MODES)
+  it('offers every mode past a repo-internal locked branch row and another project’s header', () => {
+    const subject = homeChatSubject('homechat-1', 'projhome-1')
+    expect(
+      allowedModes([subject], liveDomBranchTarget('alpha-locked-owner', 'alpha-owner-chat')),
+    ).toEqual(ALL_MODES)
+    expect(allowedModes([subject], liveDomBranchTarget('gamma-owner-chat'))).toEqual(ALL_MODES)
   })
 
-  it("still refuses a home chat past another project's repo header row", () => {
-    const modes = allowedModes(
-      [homeChatSubject('homechat-1', 'projhome-1')],
-      liveDomBranchTarget('gamma-owner-chat'),
-    )
-    expect(modes).toEqual(NO_MODES)
+  // Working, it may only leave project home: its move waits for the turn to end.
+  it('lets a working home chat only into a repo header, never beside it', () => {
+    const working = { ...homeChatSubject('homechat-1', 'projhome-1'), working: true }
+    expect(allowedModes([working], liveDomBranchTarget('beta-owner-chat'))).toEqual({
+      before: false,
+      after: false,
+      into: true,
+    })
+    expect(
+      allowedModes([working], liveDomBranchTarget('alpha-locked-owner', 'alpha-owner-chat')),
+    ).toEqual(ALL_MODES)
   })
 
   it('offers the reorder modes for a home folder past a repo header row', () => {
