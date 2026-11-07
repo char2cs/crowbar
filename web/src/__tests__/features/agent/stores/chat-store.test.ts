@@ -53,6 +53,19 @@ describe('chatStore', () => {
     expect(feed()?.live['answer:m1']).toBe('ab')
   })
 
+  // A restart can end a turn whose reply only ever streamed: no row of its own dates it.
+  it('dates a streamed reply its turn ended on by that end, when no row of its own came', () => {
+    openFeed('chat-1')
+    const l = ledger()
+    applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
+    applyFeedFrame('chat-1', { type: 'row', row: l.start('turn-1') })
+    applyFeedFrame('chat-1', { type: 'delta', delta: delta('m1', 1, 'Mountains rise') })
+    const end = l.end('turn-1', 'interrupted')
+    applyFeedFrame('chat-1', { type: 'row', row: end })
+    const reply = feed()?.items.get('m:turn-1:m1')
+    expect(reply).toMatchObject({ text: 'Mountains rise', settled: true, at: end.at })
+  })
+
   it('records a failure and drops the feed', () => {
     openFeed('chat-1')
     failFeed('chat-1', 'refused')

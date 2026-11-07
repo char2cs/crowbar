@@ -192,13 +192,14 @@ export class FeedFold {
 
   /** Moves `turn`'s streamed text into the order, above the turn's end, holding
    *  the words streamed so far: settled text no longer follows its stream. What
-   *  streamed is output the turn showed, so a retract keeps it and its prompt. */
-  placeLive(turn: string) {
+   *  streamed is output the turn showed, so a retract keeps it and its prompt.
+   *  The row ending the turn dates a reply no row of its own ever did. */
+  placeLive(turn: string, at = '') {
     for (const id of this.liveTail ?? this.base.liveTail) {
       const item = this.item(id)
       if (item?.kind !== 'text' || item.turnId !== turn) continue
       const live = this.base.live[liveKey('answer', item.messageId)] ?? ''
-      this.put({ ...item, text: fuller(item.text, live) })
+      this.put({ ...item, text: fuller(item.text, live), at: item.at || at })
       this.record('output')[turn] = true
       this.place(id, '')
     }
@@ -331,7 +332,7 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
-  fold.placeLive(row.turnId)
+  fold.placeLive(row.turnId, row.at)
   const interrupted = row.body.status === 'interrupted'
   endTurn(fold, row.turnId, interrupted ? 'interrupted' : 'abandoned')
   endPlan(fold, row.turnId)
