@@ -1,7 +1,6 @@
 package answerdesk_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,12 +78,9 @@ func TestDecide_ADenyWithNoReasonSaysThePersonDeniedIt(t *testing.T) {
 	assert.Equal(t, domain.ChoiceOptionDeny, decision.Key)
 	assert.Contains(t, decision.Reason, "user denied")
 
-	// A bare reason reads to the agent as tool output it should not trust; it must
-	// be attributed to the person who typed it.
-	given, err := answerdesk.Decide(permission(), []string{"opt-deny"}, "not that file", nil)
+	given, err := answerdesk.Decide(permission(), []string{"opt-deny"}, " not that file ", nil)
 	require.NoError(t, err)
-	assert.Contains(t, given.Reason, "user denied")
-	assert.True(t, strings.HasSuffix(given.Reason, "not that file"), given.Reason)
+	assert.Equal(t, "The user denied this request and said: not that file", given.Reason)
 
 	allowed, err := answerdesk.Decide(permission(), []string{"opt-allow"}, "", nil)
 	require.NoError(t, err)

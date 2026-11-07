@@ -40,7 +40,8 @@ func Decide(
 	// A provider reads a deny with no message as its own hook's refusal, and a bare
 	// reason as tool output it should not trust: both must read as the person's.
 	if key == domain.ChoiceOptionDeny {
-		decision.Reason = personDenial(decision.Reason)
+		said := strings.TrimSpace(decision.Reason)
+		decision.Reason = strings.TrimSuffix("The user denied this request and said: "+said, " and said: ")
 	}
 	if key == domain.ChoiceOptionSuggestion {
 		decision.Picked = optionIDs
@@ -49,17 +50,6 @@ func Decide(
 		decision.Answers = answersByQuestion(answers)
 	}
 	return decision, nil
-}
-
-// personDenied is what a deny says when the person gave no reason of their own.
-const personDenied = "The user denied this request."
-
-// personDenial is the deny message carrying what the person typed, if anything.
-func personDenial(reason string) string {
-	if strings.TrimSpace(reason) == "" {
-		return personDenied
-	}
-	return "The user denied this request and said: " + reason
 }
 
 // RefusalKey is the canonical reply that declines an ask of kind event without
