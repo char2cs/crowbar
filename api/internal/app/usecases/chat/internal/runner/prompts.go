@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -189,20 +190,27 @@ func priorPrompt(st ledger.State, requestID, text string) (ledger.Prompt, bool, 
 // recordPrompt appends requestID's user_message before any CLI is touched: from this
 // commit the prompt is owed an outcome. dispatch is what the CLI is handed if not
 // text; carrier is the delivering runner; admit, when set, may refuse the record.
+// It returns the move note the CLI must be handed ahead of the prompt.
 func (rs *Runners) recordPrompt(
 	ctx context.Context, chatID, requestID, text, dispatch, delivery, carrier string, admit func(ledger.State) error,
-) error {
+) (note string, _ error) {
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		if admit != nil {
 			if err := admit(st); err != nil {
 				return nil, err
 			}
 		}
+		if err := requireNoReadyMove(st); err != nil {
+			return nil, err
+		}
 		if _, replay, err := priorPrompt(st, requestID, text); err != nil || replay {
 			if err == nil {
 				err = ErrPromptRequestIDConflict
 			}
 			return nil, err
+		}
+		if note = st.MoveNote(); note != "" {
+			dispatch = note + cmp.Or(dispatch, text)
 		}
 		if dispatch == text {
 			dispatch = ""
@@ -214,9 +222,9 @@ func (rs *Runners) recordPrompt(
 		return []ledger.Row{row}, err
 	})
 	if err != nil {
-		return fmt.Errorf("agent: submit prompt: record: %w", err)
+		return "", fmt.Errorf("agent: submit prompt: record: %w", err)
 	}
-	return nil
+	return note, nil
 }
 
 // refusedRetry is retryOf when the ledger holds it as a prompt settled without running.
@@ -279,14 +287,15 @@ func (rs *Runners) submitPromptOverAPI(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, "", ledger.DeliveryAPI, live.ID, nil); err != nil {
+	note, err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, "", ledger.DeliveryAPI, live.ID, nil)
+	if err != nil {
 		return domain.AgentPromptSubmission{}, true, err
 	}
 	session, err := rs.boundSession(ctx, chat.ID, live.ProviderID)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
 	}
-	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, session, worktree, dispatchText)
+	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, session, worktree, note+dispatchText)
 	if pushErr != nil {
 		rs.loseAPISession(ctx, chat.ID, live, session, pushErr)
 		return domain.AgentPromptSubmission{}, true, rs.failPrompt(

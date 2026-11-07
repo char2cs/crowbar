@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
@@ -62,6 +63,34 @@ func TestRenderSpawnContext_ResolvesASymlinkedWorktree(t *testing.T) {
 	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{worktree: link})
 	if tctx.Cwd != want {
 		t.Fatalf("TemplateCtx.Cwd = %q, want %q", tctx.Cwd, want)
+	}
+}
+
+// The process starts in the folder {cwd} names, and PWD says so: a moved chat's
+// CLI must agree with itself about where it is.
+func TestSpawnPaths_TheProcessFolderIsTheResolvedOneAndPWDNamesIt(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	rs := &Runners{ws: stubWorkspaceForSpawn{home: home, worktree: link, chatsDir: home}}
+	paths, err := rs.spawnPaths(t.Context(), "chat-1", "ws-1", "run-1", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tctx, _ := rs.renderSpawnContext(spawnContext{worktree: paths.worktree})
+	if paths.worktree != want || tctx.Cwd != want {
+		t.Fatalf("process folder %q, {cwd} %q, want both %q", paths.worktree, tctx.Cwd, want)
+	}
+	env := withPWD([]string{"PWD=/daemon", "HOME=/h"}, tctx.Cwd)
+	if got := env[len(env)-1]; got != "PWD="+want || slices.Contains(env, "PWD=/daemon") {
+		t.Fatalf("env = %v, want one PWD=%s", env, want)
 	}
 }
 

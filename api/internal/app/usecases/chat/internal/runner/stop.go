@@ -82,7 +82,11 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 		turn, running := st.RunningTurn()
 		stopped = running
 		rows, err := ledger.Stop(st, rs.turns.LiveDiff(chatID, live.ID))
-		if err != nil || !running {
+		if err != nil {
+			return nil, err
+		}
+		cancelled, err := cancelPendingMove(st, "stopped")
+		if rows = append(rows, cancelled...); err != nil || !running {
 			return rows, err
 		}
 		divider, err := ledger.NewRow(ledger.KindMarker, turn.ID, "", ledger.Marker{Kind: ledger.MarkerStopped})

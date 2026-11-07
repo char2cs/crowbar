@@ -184,6 +184,7 @@ func (rs *Runners) spawnRunner(
 		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
+	plan.Env = withPWD(plan.Env, tctx.Cwd)
 	pointPlanAtAttach(plan, attachArgv)
 	if err := rs.bindAssigned(ctx, chatID, launch); err != nil {
 		rs.abandonUnforked(ctx, runnerID, paths)

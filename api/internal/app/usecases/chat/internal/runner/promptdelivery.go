@@ -176,16 +176,17 @@ func (rs *Runners) launchCarrying(
 	carrier := uuid.NewString()
 	rs.live.launching.Store(carrier, true)
 	defer rs.live.launching.Delete(carrier)
-	if err := rs.recordPrompt(ctx, chat.ID, requestID, text, "", ledger.DeliveryRestart, carrier, nil); err != nil {
+	note, err := rs.recordPrompt(ctx, chat.ID, requestID, text, "", ledger.DeliveryRestart, carrier, nil)
+	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
-	delivery, err := rs.displaceForDelivery(ctx, h, chat.ID, requestID, delivery)
+	delivery, err = rs.displaceForDelivery(ctx, h, chat.ID, requestID, delivery)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, err)
 	}
 	runnerID, err := rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, delivery.provider, spawnInput{
 		runnerID: carrier, launch: &delivery.launch, finalSteps: delivery.promptSteps,
-		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text,
+		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: note + text,
 		selection: delivery.selection,
 	})
 	if err != nil {

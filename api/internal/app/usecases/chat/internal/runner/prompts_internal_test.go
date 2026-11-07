@@ -105,7 +105,8 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
 	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
-	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryAPI, "runner-1", nil))
+	_, err0 := h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryAPI, "runner-1", nil)
+	require.NoError(t, err0)
 
 	got, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
 	require.NoError(t, err, "a runner whose api connection IS its process has a delivery identity")
@@ -117,13 +118,15 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 // failed delivery, whoever settles it.
 func TestFailPrompt_ALostSessionSettlesThePromptAsLost(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil))
+	_, err0 := h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil)
+	require.NoError(t, err0)
 
 	err := h.rs.failPrompt(t.Context(), "chat-1", "req-1", fmt.Errorf("spawn: %w", ErrPromptSessionLost))
 	require.ErrorIs(t, err, ErrPromptSessionLost)
 	assert.Equal(t, ledger.ReasonSessionLost, promptReceipt(t, h.rs.ledger, "req-1").Reason)
 
-	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-2", "again", "", ledger.DeliveryRestart, "runner-2", nil))
+	_, err0 = h.rs.recordPrompt(t.Context(), "chat-1", "req-2", "again", "", ledger.DeliveryRestart, "runner-2", nil)
+	require.NoError(t, err0)
 	require.ErrorIs(t, h.rs.failPrompt(t.Context(), "chat-1", "req-2", ErrPromptOutcomeUnknown), ErrPromptOutcomeUnknown)
 	assert.Equal(t, ledger.ReasonDeliveryFailed, promptReceipt(t, h.rs.ledger, "req-2").Reason)
 }
@@ -135,7 +138,8 @@ func TestFailPrompt_ALostSessionSettlesThePromptAsLost(t *testing.T) {
 func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
-	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil))
+	_, err0 := h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil)
+	require.NoError(t, err0)
 
 	_, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
 	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)

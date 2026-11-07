@@ -17,4 +17,7 @@ const (
 	// AgentExitMoved: its conversation was resumed in another chat, which
 	// took the session.
 	AgentExitMoved = "moved"
+	// AgentExitRebound: its chat moved to another folder; the next launch
+	// resumes the same session there.
+	AgentExitRebound = "rebound"
 )

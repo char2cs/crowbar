@@ -49,7 +49,7 @@ func (rs *Runners) submitPromptSteered(
 	}
 	// The dispatch text rides on the row: the turn's end hook hands the CLI
 	// what the ledger holds, so a failed commit leaves nothing behind.
-	err = rs.recordPrompt(ctx, chat.ID, clientRequestID, text, dispatchText, ledger.DeliverySteer, live.ID,
+	_, err = rs.recordPrompt(ctx, chat.ID, clientRequestID, text, dispatchText, ledger.DeliverySteer, live.ID,
 		requireTurnOn(live.ID))
 	if errors.Is(err, errNoTurnToSteer) {
 		return domain.AgentPromptSubmission{}, false, nil

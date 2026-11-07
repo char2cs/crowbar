@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/config"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
@@ -106,7 +108,7 @@ func (rs *Runners) spawnPaths(
 		crowbarHome: crowbarHome,
 		projectID:   projectID,
 		repoID:      repoID,
-		worktree:    worktree,
+		worktree:    canonicalDir(worktree),
 		tmpDir:      tmpDir,
 		chatsDir:    chatsDir,
 	}, nil
@@ -141,6 +143,13 @@ func canonicalDir(dir string) string {
 		return resolved
 	}
 	return dir
+}
+
+// withPWD is env with PWD naming dir, the folder the process starts in: an
+// inherited PWD names the daemon's own folder, and a shell trusts it over getcwd.
+func withPWD(env []string, dir string) []string {
+	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, "PWD=") })
+	return append(out, "PWD="+dir)
 }
 
 // hookBase is where the daemon published its hook server under home. Without one a
