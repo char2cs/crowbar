@@ -50,8 +50,8 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
   const parentBranch = ws?.parentBranch
   const { strategy, selectStrategy, strategyError, merge, merging, working, stopAndMerge } =
     useBranchMerge(wsId, parentBranch)
-  // Default ON: merging a child usually means it is done; the label says what goes with it.
-  const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
+  // Off until ticked: deleting the branch and its chats cannot be undone from here.
+  const [deleteAfterMerge, setDeleteAfterMerge] = useState(false)
 
   const uncommitted = gitStatus?.files.length ?? 0
   const action = resolveBranchAction({

@@ -92,11 +92,19 @@ function setup(opts: {
 const mergeButton = () =>
   screen.getByRole('button', { name: 'Create merge commit' }) as HTMLButtonElement
 
+const DELETE_AFTER = 'Delete this branch and its chats after merging'
+
+/** Merges with delete-after-merge ticked: it is off until the person asks for it. */
+async function mergeDeleting(user = userEvent.setup()) {
+  await user.click(screen.getByText(DELETE_AFTER))
+  await user.click(mergeButton())
+}
+
 /** Merges a child whose fold frame has not arrived yet. */
 async function mergeBeforeTheFold() {
   mocks.mergeIntoParent.mockResolvedValue({ items: [] })
   const view = setup({})
-  await userEvent.setup().click(mergeButton())
+  await mergeDeleting()
   return view
 }
 
@@ -118,7 +126,7 @@ describe('ReviewMergeBox', () => {
     setup({})
     expect(mergeButton().disabled).toBe(false)
 
-    await user.click(mergeButton())
+    await mergeDeleting(user)
 
     const [op] = Object.values(operationsState().ops)
     expect(op).toMatchObject({
@@ -146,12 +154,13 @@ describe('ReviewMergeBox', () => {
     expect(screen.getByText('Nothing to merge yet — this branch has no changes.')).toBeTruthy()
   })
 
-  it('keeps the workspace, stays put and refreshes it when delete-after-merge is unticked', async () => {
+  // Deleting a branch and its chats is destructive: the person ticks it, it is never the default.
+  it('keeps the workspace, stays put and refreshes it unless delete-after-merge is ticked', async () => {
     const refreshed = vi.fn()
     onGitRefreshRequested(WS, refreshed)
     const user = userEvent.setup()
     setup({})
-    await user.click(screen.getByText('Delete this branch and its chats after merging'))
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
     await user.click(mergeButton())
 
     expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', false, expect.any(String))
@@ -180,9 +189,8 @@ describe('ReviewMergeBox', () => {
   it('lands on the parent when the child leaves while the merge still runs', async () => {
     let settle: (reply: { items: never[] }) => void = () => undefined
     mocks.mergeIntoParent.mockImplementation(() => new Promise((resolve) => (settle = resolve)))
-    const user = userEvent.setup()
     setup({})
-    await user.click(mergeButton())
+    await mergeDeleting()
 
     act(() => removeTheChild())
     act(() => setActiveWorkspaceId('fallback'))
@@ -245,7 +253,7 @@ describe('ReviewMergeBox', () => {
       { id: 'chat-busy', workspaceId: WS, working: true },
       { id: 'chat-elsewhere', workspaceId: 'parent-ws', working: true },
     ])
-    await user.click(mergeButton())
+    await mergeDeleting(user)
 
     expect(await screen.findByText('the chat is working: stop it first')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Stop and merge' }))
