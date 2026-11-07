@@ -33,6 +33,14 @@ describe('describeChoice', () => {
     expect(describeChoice(choice({ toolName: '' }))).toBe('The agent is asking for permission')
   })
 
+  // A provider's internal tool name ("commandExecution") is not words; the call's kind is.
+  it('names the kind of call a permission gates when its call is known', () => {
+    const run = choice({ toolName: 'commandExecution' })
+    expect(describeChoice(run, 'execute')).toBe('Run a command?')
+    expect(describeChoice(choice({ toolName: 'fileChange' }), 'edit')).toBe('Edit files?')
+    expect(describeChoice(run, 'other')).toBe('Run commandExecution?')
+  })
+
   it('asks a question in the provider’s own words', () => {
     const asked = choice({ kind: 'question', question: 'Which option do you prefer?', options: [] })
 

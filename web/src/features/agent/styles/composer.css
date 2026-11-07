@@ -593,9 +593,8 @@
   text-overflow: ellipsis;
 }
 
-/* A stop notice REPLACES the input: what it reports is that there is nothing to type into. The
-   footer selectors stay live (a model switch can clear a usage limit). Right padding is tighter
-   than left so a trailing button or timestamp sits flush, as the send circle does. */
+/* A signpost REPLACES the input: what it reports is that there is nothing to type into.
+   Right padding is tighter than left so a trailing button sits flush, as the send circle does. */
 .agent-chat .pill.halted {
   display: flex;
   align-items: center;
@@ -642,13 +641,6 @@
   .agent-chat .pill.halted > button:last-child {
     margin-left: 0;
   }
-}
-.agent-chat .pill.halted .when {
-  margin-left: auto;
-  flex: none;
-  font-size: var(--ui-text-xs);
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
 }
 
 /* The bar as a QUESTION. Same box, same height; what changes is who is asking. */

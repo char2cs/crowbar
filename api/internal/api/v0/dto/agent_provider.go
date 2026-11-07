@@ -31,6 +31,8 @@ type AgentProviderDTO struct {
 	MCPEnabled  bool   `json:"mcpEnabled"`
 	Compaction  bool   `json:"compaction"`
 	Hotswap     bool   `json:"hotswap"`
+	// SignIn is the shell command that logs the CLI in, omitted when undeclared.
+	SignIn string `json:"signIn,omitempty"`
 	// PromptSteer says a message sent while a turn runs is delivered into that
 	// turn, so the composer need not hold it until the turn ends.
 	PromptSteer bool `json:"promptSteer"`

@@ -77,4 +77,18 @@ describe('divider', () => {
       'resumed on another model',
     ])
   })
+
+  it('draws a repeated warning once though each repeat names a fresh request id', () => {
+    const l = ledger()
+    const fallback = (ray: string, req: string) =>
+      l.row('marker', {
+        kind: 'warning',
+        detail: `Falling back to HTTPS. 401 Unauthorized, cf-ray: ${ray}-SCL, request id: ${req}`,
+      })
+    const feed = applyRows(emptyFeed(), [
+      fallback('a5678e78ccede79c', 'req_29b2bd5a9f54455d'),
+      fallback('a5678329cf05b4df', 'req_00ff11ee22dd33cc'),
+    ])
+    expect(feed.order.filter((id) => feed.items[id]?.kind === 'marker')).toHaveLength(1)
+  })
 })

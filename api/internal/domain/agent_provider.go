@@ -11,6 +11,9 @@ type AgentProvider struct {
 	Enabled     bool
 	MCPEnabled  bool
 
+	// SignIn is the descriptor's command that logs the CLI in; "" when it declares none.
+	SignIn string
+
 	// Compaction is whether the provider declares a gesture to compact its own context; a compact
 	// control must be gated on it, since a button that does nothing is worse than none.
 	Compaction bool

@@ -105,6 +105,7 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 			ID:                p.ID,
 			DisplayName:       p.DisplayName,
 			Icon:              p.Icon,
+			SignIn:            p.SignIn,
 			Connected:         p.Connected,
 			Enabled:           p.Enabled,
 			MCPEnabled:        p.MCPEnabled,

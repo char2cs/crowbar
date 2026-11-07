@@ -186,7 +186,7 @@ type agent struct {
 func (a *agent) ID() string { return a.spec.ID }
 
 func (a *agent) Display() Display {
-	return Display{Name: a.spec.DisplayName, Icon: a.spec.Icon}
+	return Display{Name: a.spec.DisplayName, Icon: a.spec.Icon, SignIn: a.spec.SignIn}
 }
 
 func (a *agent) Installed() bool { return protocol.Installed(a.spec.Spawn.Cmd) }
