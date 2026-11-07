@@ -112,9 +112,9 @@ type EventStore interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
-	// SetWorkspace fills a chat's WorkspaceID. It uses SendWait: Promote next
-	// resolves the respawn cwd from the read model, and a lagging row would
-	// spawn the CLI in the wrong directory.
+	// SetWorkspace fills a chat's WorkspaceID. It uses SendWait: the next launch
+	// resolves its cwd from the read model, and a lagging row would spawn the CLI
+	// in the wrong directory.
 	SetWorkspace(
 		ctx context.Context,
 		chatID string,

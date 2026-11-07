@@ -263,33 +263,6 @@ func lineageNoteText(
 		"rewrites nothing it has already read."
 }
 
-// NotePromotion records, in a chat's own conversation, that it was just promoted into
-// its own worktree. Appended after the respawn, so the new CLI's handoff never sees it;
-// a chat that has said nothing gets no note.
-func (c *Conversations) NotePromotion(
-	ctx context.Context,
-	chatID string,
-) error {
-	chat, err := c.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: note promotion: chat: %w", err)
-	}
-	turns, err := c.ChatTurns(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: note promotion: turns: %w", err)
-	}
-	if len(turns) == 0 {
-		return nil
-	}
-	return c.appendNote(ctx, chat.ID, promotionNoteText())
-}
-
-func promotionNoteText() string {
-	return "[Crowbar] This chat was just promoted to its own git worktree. " +
-		"Everything above this line was said BEFORE the promotion, running with no worktree of its own; " +
-		"from this point on it runs in the new worktree the promotion created."
-}
-
 // Ancestors returns the CHAT ancestors of chatID, nearest parent first — what a
 // thread inherits and the spawn path composes prior context from. Folders are
 // transparent; empty at the panel root or merely filed in a folder.

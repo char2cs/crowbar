@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
+
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -40,4 +42,24 @@ func (u *Usecase) RunIn(ctx context.Context, chatID, workspaceID string) error {
 // MoveSite is workspaceID's resolved folder and the project and repo it is in.
 func (u *Usecase) MoveSite(ctx context.Context, workspaceID string) (dir, projectID, repoID string, _ error) {
 	return u.runners.MoveSite(ctx, workspaceID)
+}
+
+// BranchOutWorkspace cuts a branch from workspaceID's own HEAD for a thread made a branch.
+func (u *Usecase) BranchOutWorkspace(ctx context.Context, workspaceID, branch string) (domain.Workspace, error) {
+	ws, err := u.worktree.CreateBranchOutWorkspace(ctx, workspaceID, branch)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("agent: branch out: %w", err)
+	}
+	return ws, nil
+}
+
+// DiscardWorkspace removes a workspace a failed branch-out cut and nothing owns.
+func (u *Usecase) DiscardWorkspace(ctx context.Context, workspaceID string) error {
+	return u.worktree.DiscardChildWorkspace(ctx, workspaceID)
+}
+
+// RequestBranchOut records that chatID becomes a branch cut from workspaceID at its
+// turn boundary; an agent's repeat while one is pending is the same request.
+func (u *Usecase) RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error) {
+	return u.runners.RequestBranchOut(ctx, chatID, workspaceID, branch, by)
 }

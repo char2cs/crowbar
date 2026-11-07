@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
+
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -13,11 +15,14 @@ import (
 // moves done, and which chats are mid-turn. Every chat is in project "p1" unless
 // Projects names another.
 type MoveLedger struct {
-	mu       sync.Mutex
-	Pending  map[string]ledger.Move
-	Done     map[string][]ledger.Move
-	Busy     map[string]bool
-	Projects map[string]string // workspace id -> project id
+	mu           sync.Mutex
+	Pending      map[string]ledger.Move
+	Done         map[string][]ledger.Move
+	Busy         map[string]bool
+	Projects     map[string]string // workspace id -> project id
+	BranchOuts   []string
+	BranchOutErr error
+	Discarded    []string
 	// Finished is signalled with the chat id after each ExecuteMove that ran.
 	Finished chan string
 }
@@ -117,4 +122,32 @@ func (s *AgentChatPlacements) SetBusy(chatID string, busy bool) {
 		l.Busy = map[string]bool{}
 	}
 	l.Busy[chatID] = busy
+}
+
+// BranchOuts records each BranchOutWorkspace call's source workspace; BranchOutErr fails it,
+// and Discarded records what DiscardWorkspace removed.
+func (s *AgentChatPlacements) RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error) {
+	dir, _, _, _ := s.MoveSite(ctx, workspaceID)
+	return s.RequestMove(ctx, chatID, ledger.Move{
+		RequestID: "branch-" + chatID, BranchOut: true, Branch: branch, From: workspaceID, FromDir: dir, By: by,
+	})
+}
+
+func (s *AgentChatPlacements) BranchOutWorkspace(_ context.Context, workspaceID, branch string) (domain.Workspace, error) {
+	l := s.moveLedger()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.BranchOuts = append(l.BranchOuts, workspaceID)
+	if l.BranchOutErr != nil {
+		return domain.Workspace{}, l.BranchOutErr
+	}
+	return domain.Workspace{ID: "ws-cut", Branch: branch, ForkPointSha: "abc1234", WorktreePath: "/dirs/ws-cut"}, nil
+}
+
+func (s *AgentChatPlacements) DiscardWorkspace(_ context.Context, workspaceID string) error {
+	l := s.moveLedger()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Discarded = append(l.Discarded, workspaceID)
+	return nil
 }

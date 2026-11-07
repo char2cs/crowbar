@@ -372,7 +372,6 @@ var notes = map[string]struct {
 	"lineage": {func(c *conversation.Conversations, ctx context.Context, chatID string) error {
 		return c.NoteThreadLineage(ctx, chatID, []string{"parent-1"})
 	}, "parent-1"},
-	"promotion": {(*conversation.Conversations).NotePromotion, "promoted"},
 }
 
 func TestNotes_WriteNothingIntoAChatThatHasNotSpoken(t *testing.T) {

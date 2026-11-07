@@ -36,6 +36,7 @@ type fakeChatTree struct {
 	gotCreate  agentusecase.CreateInput
 	gotMove    agentusecase.MoveInput
 	gotPlace   agentusecase.PlaceInput
+	gotBranch  string
 	gotRepoID  string
 	gotRename  string
 	gotID      string
@@ -160,6 +161,11 @@ func (f *fakeChatTree) PlaceChat(
 	f.gotPlaceID = chatID
 	f.gotPlace = in
 	return f.placed, f.shifted, f.err
+}
+
+func (f *fakeChatTree) BranchOut(_ context.Context, chatID, branch string) error {
+	f.gotPlaceID, f.gotBranch = chatID, branch
+	return f.err
 }
 
 func (f *fakeChatTree) CancelMove(_ context.Context, chatID string) error {
@@ -474,6 +480,28 @@ func TestPlaceChat_ForwardsTheWorkspaceAMoveRunsIn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ws-b2", tree.gotPlace.WorkspaceID)
 	assert.Equal(t, "b2", tree.gotPlace.Label)
+}
+
+func TestBranchOut_AcceptsTheRequestAndNamesTheBranch(t *testing.T) {
+	tree := &fakeChatTree{}
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/c2/branch-out", []byte(`{"branch":" fix-it "}`))
+	ctx.Params = gin.Params{{Key: "id", Value: "c2"}}
+
+	newFolderHandlers(tree).BranchOut(ctx)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, "c2", tree.gotPlaceID)
+	assert.Equal(t, "fix-it", tree.gotBranch)
+}
+
+func TestBranchOut_AHomeThreadIsRefusedWithTheReason(t *testing.T) {
+	tree := &fakeChatTree{err: agentusecase.ErrNoRepoToBranch}
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/c2/branch-out", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "c2"}}
+
+	newFolderHandlers(tree).BranchOut(ctx)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
 // The placement endpoint is where a chat becomes a THREAD of another, so the

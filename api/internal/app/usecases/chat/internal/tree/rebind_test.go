@@ -97,7 +97,7 @@ func TestMoveChat_ABranchsOwnThreadDoesNotMoveAlone(t *testing.T) {
 	chats, uc := rebindWorld(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "own", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-c"})
 	_, _, err := uc.PlaceChat(context.Background(), "ws-c", "own", tree.PlaceInput{WorkspaceID: "ws-b"})
-	require.ErrorIs(t, err, problem.ErrConflict)
+	assert.Equal(t, problem.Conflict, problem.CodeOf(err))
 }
 
 func TestResumeMoves_RunsWhatAPreviousDaemonLeftAskedFor(t *testing.T) {

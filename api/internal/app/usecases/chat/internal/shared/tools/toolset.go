@@ -20,9 +20,11 @@ type Deps struct {
 	// Resolver is built by the chat usecase from Scope and its own runners.
 	Resolver *Resolver
 	// Scope is the workspace store a caller is scoped against.
-	Scope        WorkspaceLister
-	Chats        ChatRenamer
-	Workspaces   WorkspaceBranchRenamer
+	Scope      WorkspaceLister
+	Chats      ChatRenamer
+	Workspaces WorkspaceBranchRenamer
+	// Branches makes the calling thread a branch at its turn's end; nil withdraws branch_out.
+	Branches     BranchOuter
 	Review       ReviewReader
 	Threads      ThreadReader
 	ThreadWrites ThreadWriter
@@ -94,6 +96,7 @@ func NewToolSet(deps Deps, runnerID, token string) *ToolSet {
 	ts := &ToolSet{deps: deps, runnerID: runnerID, token: token}
 	ts.defs = append(ts.defs, chatTools(deps)...)
 	ts.defs = append(ts.defs, branchNameTools(deps)...)
+	ts.defs = append(ts.defs, branchOutTools(deps)...)
 	ts.defs = append(ts.defs, reviewTools(deps)...)
 	ts.defs = append(ts.defs, contextTools(deps)...)
 	ts.defs = append(ts.defs, browserTools(deps)...)

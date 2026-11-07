@@ -353,6 +353,14 @@ type fakeWorktreeCreator struct {
 	importErr  error
 }
 
+func (f *fakeWorktreeCreator) CreateBranchOutWorkspace(
+	ctx context.Context,
+	forkParentID string,
+	branch string,
+) (domain.Workspace, error) {
+	return f.CreateChildWorkspace(ctx, forkParentID, branch)
+}
+
 func (f *fakeWorktreeCreator) CreateChildWorkspace(
 	_ context.Context,
 	forkParentID string,
@@ -1243,4 +1251,25 @@ func (r *snapshotFrames) forChat(chatID string) []agentusecase.ChatSnapshotFrame
 		}
 	}
 	return out
+}
+
+// seedBubbleChat mints a workspace-less chat ("bubble") threaded under a
+// workspace-anchored one and starts a runner on it: placed first, since the
+// spawn resolves a bubble's cwd through its ancestors.
+func seedBubbleChat(
+	t *testing.T,
+	f testFixture,
+	provider string,
+) (bubbleID, runnerID, rootChatID string) {
+	t.Helper()
+	rootChatID, _ = f.spawn(t, provider)
+
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
+	require.NoError(t, err)
+	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
+	require.NoError(t, err)
+	runnerID, err = f.usecase.StartRunner(f.ctx, bubbleID, provider)
+	require.NoError(t, err)
+	f.wait()
+	return bubbleID, runnerID, rootChatID
 }

@@ -68,8 +68,8 @@ func (rs *Runners) switchProviderLocked(
 			continue
 		}
 		// Resolve the target while the outgoing CLI lives: a bad descriptor must not
-		// destroy the session. Via cwdWorkspaceID because a bubble (Promote's only
-		// target) has no workspace of its own.
+		// destroy the session. Via cwdWorkspaceID because a bubble has no
+		// workspace of its own.
 		cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chatID, chat.WorkspaceID)
 		if err != nil {
 			return "", err

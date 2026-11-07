@@ -78,6 +78,8 @@ func (stubChatTree) Delete(context.Context, string) ([]domain.Chat, error) { ret
 
 func (stubChatTree) CancelMove(context.Context, string) error { return nil }
 
+func (stubChatTree) BranchOut(context.Context, string, string) error { return nil }
+
 func (stubChatTree) PlaceChat(
 	_ context.Context,
 	_ string,
@@ -229,13 +231,6 @@ func (s stubUsecase) DispatchMCP(
 
 func (stubUsecase) PurgeChat(context.Context, string) error { return nil }
 
-func (stubUsecase) Promote(
-	_ context.Context,
-	chatID string,
-) (domain.Chat, error) {
-	return domain.Chat{ID: chatID, WorkspaceID: "ws-promoted"}, nil
-}
-
 func (stubUsecase) DescriptorReports(
 	context.Context,
 ) ([]descriptorcheck.Report, error) {
@@ -296,6 +291,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
 		{http.MethodPost, base + "/chats/c1/move/cancel"},
+		{http.MethodPost, base + "/chats/c1/branch-out"},
 		{http.MethodDelete, base + "/chats/c1"},
 		{http.MethodPut, base + "/chats/c1/permission-level"},
 		{http.MethodGet, base + "/chats/folders"},

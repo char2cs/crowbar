@@ -78,14 +78,6 @@ type ChatUsecase interface {
 		chatID, model, effort string,
 	) error
 
-	// Promote fills a bubble's empty workspace slot with a worktree forked from its fork parent and
-	// respawns its provider there, keeping the chat's id, title, placement and turns. It refuses
-	// ErrAlreadyPromoted, ErrNoForkParent and ErrNothingToPromote.
-	Promote(
-		ctx context.Context,
-		chatID string,
-	) (domain.Chat, error)
-
 	// PurgeChat hard-deletes chatID, gone from every read once it returns, then best-effort kills its
 	// CLI. No route calls it directly: DELETE goes through ChatTreeUsecase, which knows the chat's threads.
 	PurgeChat(

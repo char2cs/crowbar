@@ -32,7 +32,7 @@ type Deps struct {
 	// Workspace resolves the on-disk locations one workspace's agent work happens
 	// in. It is the only seam this feature has onto the workspace layer.
 	Workspace WorkspaceReader
-	Worktree  WorktreeCreator // Promote's seam onto the worktree hierarchy usecase
+	Worktree  WorktreeCreator // the seam onto the worktree hierarchy usecase
 	// Lineage answers "what does this chat read" at spawn time.
 	Lineage ChatLineage
 	// Folders/Nodes let the placement-tree ancestor walks see past a folder, which
@@ -135,6 +135,7 @@ func New(d Deps) *Usecase {
 	// not exist when the caller builds the Deps.
 	u.tools.Chats = u
 	u.tools.ChatLogs = u
+	u.tools.Branches = u
 	u.tools.Lineage = u
 	u.tools.ToolAccess = u.providerMCPEnabled
 	u.tools.Resolver = agenttools.NewResolver(d.Minter, u, u.tools.Scope)

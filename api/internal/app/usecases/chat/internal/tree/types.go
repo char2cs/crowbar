@@ -122,6 +122,11 @@ type Agent interface {
 	MoveSite(ctx context.Context, workspaceID string) (dir, projectID, repoID string, err error)
 	// MovesWaiting are the chats whose move a previous daemon left unfinished.
 	MovesWaiting(ctx context.Context) ([]string, error)
+	// RequestBranchOut records that the chat becomes a branch cut from workspaceID's HEAD.
+	RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error)
+	// BranchOutWorkspace cuts that branch's worktree; DiscardWorkspace removes one nothing owns.
+	BranchOutWorkspace(ctx context.Context, workspaceID, branch string) (domain.Workspace, error)
+	DiscardWorkspace(ctx context.Context, workspaceID string) error
 }
 
 // WorkspaceGitStatus is defined in home_ports.go.
@@ -193,6 +198,8 @@ type Usecase interface {
 	ResumeMoves(ctx context.Context) error
 	// CancelMove withdraws the chat's pending move.
 	CancelMove(ctx context.Context, chatID string) error
+	// BranchOut makes the thread a branch at its turn boundary.
+	BranchOut(ctx context.Context, chatID, branch string) error
 	// ListInRepo returns a repo's folder rows ("" for project home).
 	ListInRepo(
 		ctx context.Context,

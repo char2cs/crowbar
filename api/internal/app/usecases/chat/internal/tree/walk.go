@@ -193,7 +193,7 @@ func freshForest(
 }
 
 // ResolveForkParent is the cwd walk started one row up, over freshForest's read, for a caller with no
-// snapshot of its own to walk (Promote, own_worktree.go).
+// snapshot of its own to walk (own_worktree.go).
 func ResolveForkParent(
 	ctx context.Context,
 	chats Chats,

@@ -152,11 +152,6 @@ type ChatUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (string, error)
-	// Promote fills a bubble's empty workspace slot (promote.go).
-	Promote(
-		ctx context.Context,
-		chatID string,
-	) (domain.Chat, error)
 }
 
 var _ ChatUsecase = (*Usecase)(nil)

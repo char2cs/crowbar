@@ -62,9 +62,9 @@ func Register(
 	// thread of another and back.
 	repoScoped.PATCH("/chats/:id/placement", h.PlaceChat)
 	repoScoped.POST("/chats/:id/move/cancel", h.CancelMove)
-	// A POST, not a PATCH field: promotion cuts a branch, adds a worktree and respawns the CLI, and
-	// is one-way (a worktree is never demoted).
-	repoScoped.POST("/chats/:id/promote", h.Promote)
+	// Cuts a branch from the thread's folder at its own HEAD and moves the thread there, at its
+	// turn boundary; one-way (a branch is never made a thread again).
+	repoScoped.POST("/chats/:id/branch-out", h.BranchOut)
 	repoScoped.DELETE("/chats/:id", h.Delete)
 	// Folders share one sibling space with the repo's chats; home.Register re-mounts them too.
 	repoScoped.GET("/chats/folders", h.ListFolders)

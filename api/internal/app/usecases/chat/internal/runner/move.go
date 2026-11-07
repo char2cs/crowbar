@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
@@ -48,6 +50,26 @@ func (rs *Runners) RequestMove(ctx context.Context, chatID string, m ledger.Move
 	}
 	rs.touch(ctx, chatID)
 	return ready, nil
+}
+
+// RequestBranchOut records that chatID becomes a branch cut from workspaceID's own
+// HEAD; a pending branch-out answers for a repeat, so an agent retrying asks once.
+func (rs *Runners) RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error) {
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: branch out: %w", err)
+	}
+	if m, ok := st.PendingMove(); ok && m.BranchOut {
+		_, ready := st.MoveReady()
+		return ready, nil
+	}
+	dir, _, _, err := rs.MoveSite(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return rs.RequestMove(ctx, chatID, ledger.Move{
+		RequestID: uuid.NewString(), BranchOut: true, Branch: branch, From: workspaceID, FromDir: dir, By: by,
+	})
 }
 
 // CancelMove closes chatID's pending move, if any, for reason.

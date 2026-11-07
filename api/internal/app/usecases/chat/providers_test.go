@@ -243,6 +243,7 @@ func TestDispatchMCP_ListsTheChatTools(
 	}
 	assert.ElementsMatch(t, []string{
 		"set_chat_title",
+		"branch_out",
 		"list_review_threads",
 		"wait_for_review_comments",
 		"get_review_scope",

@@ -38,6 +38,22 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 	})
 }
 
+// CreateBranchOutWorkspace implements agentusecase.WorktreeCreator: a child cut at
+// the commit its parent's checkout holds.
+func (w worktreeChildCreator) CreateBranchOutWorkspace(
+	ctx context.Context,
+	forkParentID string,
+	branch string,
+) (domain.Workspace, error) {
+	ownWorktree := true
+	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
+		ParentID:       forkParentID,
+		Branch:         branch,
+		OwnWorktree:    &ownWorktree,
+		FromParentHead: true,
+	})
+}
+
 // CreateImportedWorkspace implements agentusecase.WorktreeCreator and fills in nothing: an import
 // already knows repo, branch and lineage parent, which inherited defaults would get wrong.
 // OwnWorktree is forced true for the same reason as above.

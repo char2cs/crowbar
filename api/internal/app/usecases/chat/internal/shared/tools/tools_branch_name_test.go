@@ -80,3 +80,27 @@ func TestSetBranchName_TrimWhitespace(t *testing.T) {
 		t.Fatalf("renamer not called with trimmed branch name: got %q, want %q", fakeRenamer.calledWithBranch, "fix-the-thing")
 	}
 }
+
+type fakeBranchOuter struct{ chatID, workspaceID, branch, by string }
+
+func (f *fakeBranchOuter) RequestBranchOut(_ context.Context, chatID, workspaceID, branch, by string) (bool, error) {
+	f.chatID, f.workspaceID, f.branch, f.by = chatID, workspaceID, branch, by
+	return false, nil
+}
+
+func TestBranchOut_SchedulesTheCallersThreadAsABranchForItsTurnsEnd(t *testing.T) {
+	res, minter := resolverOn(t, "ws-a")
+	outer := &fakeBranchOuter{}
+	ts := tools.NewToolSet(tools.Deps{Resolver: res, Branches: outer}, "RUN", minter.Mint("RUN"))
+
+	got, err := ts.Call(context.Background(), "branch_out", []byte(`{"name":" fix-it "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outer.workspaceID != "ws-a" || outer.branch != "fix-it" || outer.by != "agent" {
+		t.Fatalf("requested %+v", outer)
+	}
+	if got == "" {
+		t.Fatal("the agent is told what happens next")
+	}
+}

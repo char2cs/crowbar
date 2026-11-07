@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
 // Rename handles POST .../chats/:id/rename. `?source=agent` yields to a user-locked title; the default
@@ -35,33 +34,6 @@ func (h *Handlers) Rename(
 		return
 	}
 	libs.WriteNoContent(ctx)
-}
-
-// Promote handles POST .../chats/:id/promote. It answers with the promoted chat rather than 204
-// because the workspace it now owns is minted server-side and only knowable from the reply.
-func (h *Handlers) Promote(
-	ctx *gin.Context,
-) {
-	id := ctx.Param("id")
-
-	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
-		return
-	}
-
-	promoted, err := h.chats.Promote(ctx.Request.Context(), id)
-	if err != nil {
-		libs.Fail(ctx, err)
-		return
-	}
-
-	_, rt, err := h.chatSnapshot(ctx.Request.Context(), promoted.ID)
-	if err != nil {
-		libs.Fail(ctx, err)
-		return
-	}
-
-	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(
-		promoted, rt, h.chatWorktree(ctx.Request.Context(), promoted)))
 }
 
 // SetSelection handles PATCH .../chats/:id/selection with the WHOLE model+effort pair (empty clears to

@@ -226,8 +226,8 @@ func (u *Usecase) KillChat(
 }
 
 // SwitchProvider replaces the chat's CLI with another provider's, waiting out any turn
-// in flight. A same-provider switch is deliberately NOT a no-op: it is Promote's
-// respawn primitive, rebuilding a CLI whose worktree just changed. A non-empty surface
+// in flight. A same-provider switch is deliberately NOT a no-op: it rebuilds
+// the CLI from scratch. A non-empty surface
 // becomes the chat's before the incoming CLI starts; "" keeps the chat's own.
 func (u *Usecase) SwitchProvider(
 	ctx context.Context,

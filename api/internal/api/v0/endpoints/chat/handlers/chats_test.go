@@ -149,12 +149,6 @@ type configurableListGetUsecase struct {
 	// refusal can be proved to have landed BEFORE the write.
 	renamed []string
 
-	// promoted records the chat ids Promote was called with, and promoteErr is
-	// the refusal branch (an already-promoted chat, a bubble with no fork
-	// parent).
-	promoted   []string
-	promoteErr error
-
 	// liveRunners maps a chat id to the runner live on it; a chat ABSENT from
 	// the map is DORMANT. liveErr is the genuine-failure branch (a read that
 	// blew up).
@@ -272,22 +266,6 @@ func (u *configurableListGetUsecase) CwdWorkspaceID(
 		return "", false, u.cwdErr
 	}
 	return u.cwdWorkspaceID, u.cwdWorkspaceID != "", nil
-}
-
-// Promote answers with the chat the fixture holds, its workspace slot filled by
-// promoted, so a handler test can tell a promotion apart from a plain read.
-func (u *configurableListGetUsecase) Promote(
-	_ context.Context,
-	chatID string,
-) (domain.Chat, error) {
-	if u.promoteErr != nil {
-		return domain.Chat{}, u.promoteErr
-	}
-	u.promoted = append(u.promoted, chatID)
-	out := u.chat
-	out.ID = chatID
-	out.WorkspaceID = "ws-promoted"
-	return out, nil
 }
 
 func (u *configurableListGetUsecase) TerminalWait(chatID string) domain.AgentTerminalWait {

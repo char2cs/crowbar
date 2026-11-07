@@ -17,9 +17,7 @@ import (
 
 // ErrOwnerMoves refuses moving a branch's own thread: it is the branch, and a
 // branch moves by reparenting its workspace.
-var ErrOwnerMoves = &problem.Error{
-	Code: problem.Conflict, Message: "A branch's own thread moves with its branch", Err: problem.ErrConflict,
-}
+var ErrOwnerMoves = problem.New(problem.Conflict, "A branch's own thread moves with its branch")
 
 // moveSite is where a workspace's chats run: the resolved folder and what it belongs to.
 type moveSite struct {
@@ -154,9 +152,12 @@ func (u *chatFolderUsecase) ResumeMoves(ctx context.Context) error {
 func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 	var inherited, lineage []string
 	var left string
-	_, ran, err := u.agent.ExecuteMove(ctx, chatID, func(ctx context.Context, m ledger.Move) (ledger.Move, error) {
+	done, ran, err := u.agent.ExecuteMove(ctx, chatID, func(ctx context.Context, m ledger.Move) (ledger.Move, error) {
 		var err error
 		left = m.From
+		if m.BranchOut {
+			return u.applyBranchOut(ctx, chatID, m)
+		}
 		inherited, lineage, err = u.applyMove(ctx, chatID, m)
 		if err != nil {
 			return ledger.Move{}, err
@@ -179,8 +180,17 @@ func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 		return
 	}
 	for _, c := range stayed {
-		if c.ParentID == chatID {
+		if c.ParentID != chatID {
+			continue
+		}
+		if !done.BranchOut {
 			u.MoveWhenReady(ctx, c.ID)
+			continue
+		}
+		follow := ledger.Move{RequestID: uuid.NewString(), To: done.To, From: left, FromDir: done.FromDir,
+			ParentID: chatID, Label: done.Branch, By: done.By}
+		if err := u.askMove(ctx, c.ID, follow); err != nil {
+			slog.WarnContext(ctx, "agent chat folder: branch out: a thread under it", "chat_id", c.ID, "err", err)
 		}
 	}
 }

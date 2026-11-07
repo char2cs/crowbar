@@ -57,6 +57,11 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	BranchOut(
+		ctx context.Context,
+		chatID string,
+		branch string,
+	) error
 	DeleteChat(
 		ctx context.Context,
 		chatID string,

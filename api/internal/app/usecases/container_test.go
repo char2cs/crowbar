@@ -170,6 +170,7 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	require.ElementsMatch(t, []string{
 		"set_chat_title",
 		"set_branch_name",
+		"branch_out",
 		"list_review_threads",
 		"wait_for_review_comments",
 		"get_review_scope",

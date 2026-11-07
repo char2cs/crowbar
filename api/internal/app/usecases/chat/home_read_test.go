@@ -105,10 +105,6 @@ func (f *fakeChatUsecase) AssembleHandoff(context.Context, string) (string, erro
 	panic("unused")
 }
 
-func (f *fakeChatUsecase) Promote(context.Context, string) (domain.Chat, error) {
-	panic("unused")
-}
-
 const homeWorkspaceID = "home-ws-1"
 
 // TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat is

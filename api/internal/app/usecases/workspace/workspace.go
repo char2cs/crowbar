@@ -226,7 +226,7 @@ type Usecase interface {
 		repo domain.Repository,
 	) ([]domain.WorkAtRisk, error)
 	// SetChatObserver wires the chat surface guardReparent's working-chat check needs; a setter because
-	// the chat usecase itself depends on this one (Promote forks through it).
+	// the chat usecase itself depends on this one (a branch-out forks through it).
 	SetChatObserver(observer ChatWorkObserver)
 	// SetOwningChats wires the chat-side surface every workspace this usecase
 	// creates is minted under — see hierarchy.Usecase.SetOwningChats.

@@ -132,7 +132,7 @@ func newAgentWiring(
 		chat,
 		workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 		// The same adapter as the chat usecase's WorktreeCreator, so a cascading delete
-		// and a failed promotion's rollback tear a workspace down through one call.
+		// and a failed branch-out's cleanup tear a workspace down through one call.
 		worktreeChildCreator{worktree: workspaceUsecase},
 		// And the census that gates it: Chat.WorkspaceID names the worktree a
 		// chat is anchored to, never that it is anchored there alone, so the

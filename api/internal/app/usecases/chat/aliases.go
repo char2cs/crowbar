@@ -193,6 +193,8 @@ var (
 	ErrStopped = runner.ErrStopped
 	// ErrTreeNameRequired is a folder create or rename with a blank name.
 	ErrTreeNameRequired = tree.ErrNameRequired
+	// ErrNoRepoToBranch refuses making a branch of a thread in the project home.
+	ErrNoRepoToBranch = tree.ErrNoRepoToBranch
 	// ErrTreeCycle is a move that would make a node its own ancestor.
 	ErrTreeCycle = tree.ErrCycle
 	// ErrTreeCrossWorkspace is a move whose destination belongs to another

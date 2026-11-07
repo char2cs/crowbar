@@ -10,7 +10,7 @@ import (
 
 // SpawnChatWithOwnWorktree fills a just-minted chat's empty workspace slot with a
 // fresh worktree forked from its resolved fork parent and opens providerID on it
-// (OpenChat: a CLI now only on the terminal). Unlike Promote there is no live CLI to respawn.
+// (OpenChat: a CLI now only on the terminal).
 func (u *Usecase) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
@@ -55,7 +55,7 @@ func (u *Usecase) discardUnclaimedWorkspace(
 }
 
 // discardMintedWorkspace discards a workspace chatID already points at, even if the
-// clear fails: unlike Promote's unpromote, the caller purges chatID on error, so a kept
+// clear fails: the caller purges chatID on error, so a kept
 // workspace would be unreachable. The clear only narrows the window a reader sees it.
 func (u *Usecase) discardMintedWorkspace(
 	ctx context.Context,
