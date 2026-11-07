@@ -98,7 +98,6 @@ events:
       message:    last_assistant_message
 
   message_delta:
-    unverified: true
     in: MessageDisplay
     map:
       session_id: session_id
@@ -107,6 +106,7 @@ events:
       index:      index
       final:      final
       text:       delta
+    fixtures: [MessageDisplay.json]
 
   tool_pre:
     kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
