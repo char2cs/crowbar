@@ -60,6 +60,7 @@ type moves struct {
 	left    []string // folders the chat ran in and left, oldest first
 	owed    *Move    // the newest move no delivered prompt has told the agent about
 	fromDir string   // where the first move of the owed run started
+	here    string   // the folder the last move entered
 }
 
 func (m moves) clone() moves {
@@ -82,6 +83,7 @@ func (s *State) applyMove(r Row) {
 	if body.Phase != MoveDone {
 		return
 	}
+	s.moves.here = body.ToDir
 	s.moves.left = slices.DeleteFunc(s.moves.left, func(d string) bool { return d == body.ToDir })
 	if body.FromDir != "" && body.FromDir != body.ToDir && !slices.Contains(s.moves.left, body.FromDir) {
 		s.moves.left = append(s.moves.left, body.FromDir)
@@ -119,6 +121,9 @@ func (s State) MoveReady() (Move, bool) {
 
 // LeftDirs are the folders the chat ran in before and no longer owns.
 func (s State) LeftDirs() []string { return slices.Clone(s.moves.left) }
+
+// MovedTo is the folder the chat's last move entered, "" when it never moved.
+func (s State) MovedTo() string { return s.moves.here }
 
 // MoveNote is what the next prompt opens with after a move, "" when owed none.
 func (s State) MoveNote() string {

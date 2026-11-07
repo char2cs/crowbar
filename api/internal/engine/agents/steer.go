@@ -3,6 +3,8 @@ package agents
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
 // PromptSteer renders text as the turn-end hook stdout that delivers it into a
@@ -33,4 +35,17 @@ func (a *agent) PromptIsCommand(text string) bool {
 		}
 	}
 	return false
+}
+
+// ToolDenial renders tool_pre's declared deny reply around reason.
+func (a *agent) ToolDenial(reason string) (string, bool) {
+	ev, ok := a.spec.Events[spec.HookToolPre]
+	if !ok || ev.Reply["deny"] == "" {
+		return "", false
+	}
+	quoted, err := json.Marshal(reason)
+	if err != nil {
+		return "", false
+	}
+	return strings.Replace(ev.Reply["deny"], "{reason_json}", string(quoted), 1), true
 }

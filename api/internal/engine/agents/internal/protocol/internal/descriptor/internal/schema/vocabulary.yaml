@@ -53,6 +53,8 @@ events:
     required: []
     optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, spawns_scope, addresses_scope, scope_id, tool_title, mcp_server, mcp_tool, exit_code, interrupted, cwd]
     extras: [kind_map, locations, diff_files]
+    # deny: the hook's answer refusing the call before it runs.
+    replies: [deny]
 
   tool_post:
     direction: in

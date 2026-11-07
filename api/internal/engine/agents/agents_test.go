@@ -582,6 +582,23 @@ func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *test
 	assert.False(t, ok, "a provider that declares no steering is never steered")
 }
 
+func TestAgent_ToolDenialRefusesTheCallWithItsReasonAsJSON(t *testing.T) {
+	stdout, ok := get(t, "claude").ToolDenial(`write "elsewhere"`)
+
+	require.True(t, ok)
+	var reply struct {
+		Out struct {
+			Event    string `json:"hookEventName"`
+			Decision string `json:"permissionDecision"`
+			Reason   string `json:"permissionDecisionReason"`
+		} `json:"hookSpecificOutput"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &reply))
+	assert.Equal(t, "PreToolUse", reply.Out.Event)
+	assert.Equal(t, "deny", reply.Out.Decision)
+	assert.Equal(t, `write "elsewhere"`, reply.Out.Reason)
+}
+
 func TestAgent_ProbeTelemetryIsUnsupportedForBothShippedAgents(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		_, err := get(t, id).ProbeTelemetry(

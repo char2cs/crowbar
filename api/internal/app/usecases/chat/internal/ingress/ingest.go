@@ -144,6 +144,11 @@ func (r *Recorder) Dispatch(
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: ingest hook: read the chat's bound session: %w", err)
 	}
+	if dir := leftFolderWrite(st, ev); dir != "" && channel == engineagents.ChannelHooks {
+		if body, ok := agent.ToolDenial(guardReason(dir, st.MovedTo())); ok {
+			return []byte(body), "", nil
+		}
+	}
 	src := Source{
 		RunnerID: runner.ID, Provider: runner.ProviderID, SessionID: boundSession(st, runner.ProviderID),
 		Persists: agent.SessionPersists(), Channel: channel,

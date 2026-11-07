@@ -132,6 +132,9 @@ events:
       edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
     fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json, PreToolUse.Bash.json,
                PreToolUse.mcp.json, PreToolUse.TaskUpdate.json]
+    # Refuses one call before it runs: a write into a folder the chat moved out of.
+    reply:
+      deny: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":{reason_json}}}'
 
   tool_post:
     kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
