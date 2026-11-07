@@ -68,6 +68,7 @@ type RecorderDeps struct {
 type Frames interface {
 	FeedDelta(chatID string, d ledger.FeedDelta)
 	Telemetry(chatID, workspaceID string, report engineagents.Telemetry)
+	TelemetryGone(chatID string)
 }
 
 // Recorder records what a CLI's hooks report as rows of its chat's ledger.
@@ -380,6 +381,13 @@ func (r *Recorder) RecordTelemetry(
 		r.frames.Telemetry(chat.ID, chat.WorkspaceID, report)
 	}
 	return nil
+}
+
+// ForgetTelemetry drops chatID's report once another provider took the chat over:
+// it describes the CLI that left, and the incoming one may never report at all.
+func (r *Recorder) ForgetTelemetry(ctx context.Context, chatID string) {
+	r.telemetry.Forget(ctx, chatID)
+	r.frames.TelemetryGone(chatID)
 }
 
 // Telemetry is the chat provider's last usage report.

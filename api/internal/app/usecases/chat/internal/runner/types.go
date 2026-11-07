@@ -73,6 +73,8 @@ type Turns interface {
 	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (ask string, err error)
 	// ForgetChat drops every piece of in-memory turn state held for chatID.
 	ForgetChat(chatID string)
+	// ForgetTelemetry drops chatID's usage report, its outgoing provider's.
+	ForgetTelemetry(ctx context.Context, chatID string)
 	// ExitRows are the rows a runner's end records of the answers it streamed
 	// that no row holds; they commit with the end, and Retire follows.
 	ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error)

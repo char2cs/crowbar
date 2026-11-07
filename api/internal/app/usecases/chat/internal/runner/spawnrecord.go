@@ -115,6 +115,7 @@ func (rs *Runners) recordChatProvider(
 			"chat_id", chatID, "provider", providerID, "err", err)
 		return
 	}
+	rs.turns.ForgetTelemetry(ctx, chatID)
 	rs.divide(ctx, chatID, ledger.MarkerProviderSwitched, providerID)
 }
 

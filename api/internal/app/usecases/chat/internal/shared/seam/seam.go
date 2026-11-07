@@ -21,6 +21,8 @@ var ErrHookNotRecorded = errors.New("agent: hook acknowledged, not recorded")
 type ChatFeed struct {
 	// Telemetry is the provider's newest usage report for the chat.
 	Telemetry func(chatID, workspaceID string, report engineagents.Telemetry)
+	// TelemetryGone says the chat's report was forgotten: it was another provider's.
+	TelemetryGone func(chatID string)
 }
 
 // TerminalCommander is the PTY seam every vendor CLI is started, ended and

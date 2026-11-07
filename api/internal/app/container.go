@@ -229,7 +229,8 @@ func startTerminalWaitSweep(
 	ucs *usecases.Container,
 ) {
 	ucs.AgentRunner.StartTerminalWaitSweep(ctx, agentusecase.ChatFeed{
-		Telemetry: late.telemetry,
+		Telemetry:     late.telemetry,
+		TelemetryGone: late.telemetryGone,
 	})
 }
 

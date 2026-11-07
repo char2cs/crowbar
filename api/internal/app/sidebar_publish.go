@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
@@ -26,6 +27,12 @@ func (l *lateStream) workspace(w dto.WorkspaceDTO, rev int64) {
 func (l *lateStream) telemetry(chatID, _ string, report agents.Telemetry) {
 	scope := domainstream.Scope{Kind: domainstream.KindChat, Key: chatID}
 	l.hub.Entity(scope, domainstream.KindTelemetry, chatID, report, report.ObservedAt.UnixMicro())
+}
+
+// telemetryGone retracts a chat's report, as of now: the report it replaces was observed before.
+func (l *lateStream) telemetryGone(chatID string) {
+	scope := domainstream.Scope{Kind: domainstream.KindChat, Key: chatID}
+	l.hub.Gone(scope, domainstream.KindTelemetry, chatID, time.Now().UnixMicro())
 }
 
 // workspaceGetter reads the workspace a chat's scope comes from.

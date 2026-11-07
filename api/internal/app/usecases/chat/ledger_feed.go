@@ -21,3 +21,9 @@ func (h hubFrames) Telemetry(chatID, workspaceID string, report engineagents.Tel
 		feed.Telemetry(chatID, workspaceID, report)
 	}
 }
+
+func (h hubFrames) TelemetryGone(chatID string) {
+	if feed := h.feed.Load(); feed != nil && feed.TelemetryGone != nil {
+		feed.TelemetryGone(chatID)
+	}
+}

@@ -144,6 +144,8 @@ func (f *feedSpy) FeedDelta(_ string, d ledger.FeedDelta) {
 	f.deltas = append(f.deltas, d)
 }
 
+func (f *feedSpy) TelemetryGone(string) {}
+
 func (f *feedSpy) Telemetry(string, string, engineagents.Telemetry) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

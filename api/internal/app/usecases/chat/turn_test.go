@@ -527,34 +527,37 @@ func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
 	got, ok = f.usecase.Telemetry(chatID)
 	require.True(t, ok)
 	assert.InDelta(t, 42, *got.Context.UsedPercent, 0.001)
+	turns, err := f.activity.Turns(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, turns, "a report is not a turn")
 }
 
-// §6a: the gauge is pushed, not polled. Every report the chat's surface
-// carries is published on the chat feed the moment it lands.
-func TestTelemetry_IsPushedOnTheChatFeed(t *testing.T) {
+// §6a: the gauge is pushed, not polled: every report lands on the chat feed. A report
+// is its provider's, so a switch retracts it until the incoming one reports.
+func TestTelemetry_IsPushedOnTheChatFeedAndRetractedBySwitch(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	var mu sync.Mutex
-	var pushed []engineagents.Telemetry
+	pushed, gone := make(chan engineagents.Telemetry, 1), make(chan string, 1)
 	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
-		Telemetry: func(id, _ string, report engineagents.Telemetry) {
-			mu.Lock()
-			defer mu.Unlock()
-			if id == chatID {
-				pushed = append(pushed, report)
-			}
-		},
+		Telemetry:     func(_, _ string, report engineagents.Telemetry) { pushed <- report },
+		TelemetryGone: func(id string) { gone <- id },
 	})
 
 	hook(t, f, runnerID, "claude", engineagents.HookTelemetry, map[string]any{
 		"context_window": map[string]any{"context_window_size": 200000, "used_percentage": 19},
 	})
-
-	mu.Lock()
-	defer mu.Unlock()
 	require.Len(t, pushed, 1)
-	require.NotNil(t, pushed[0].Context)
-	assert.InDelta(t, 19, *pushed[0].Context.UsedPercent, 0.001)
+	got := <-pushed
+	require.NotNil(t, got.Context)
+	assert.InDelta(t, 19, *got.Context.UsedPercent, 0.001)
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
+	require.NoError(t, err)
+	f.wait()
+	_, ok := f.usecase.Telemetry(chatID)
+	assert.False(t, ok, "codex never said it runs claude's model")
+	require.Len(t, gone, 1, "the clients are told to drop it")
+	assert.Equal(t, chatID, <-gone)
 }
 
 func TestTelemetry_AnEmptyReportDoesNotOverwriteTheLastOne(t *testing.T) {
@@ -572,19 +575,6 @@ func TestTelemetry_AnEmptyReportDoesNotOverwriteTheLastOne(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, got.Context)
 	assert.InDelta(t, 19, *got.Context.UsedPercent, 0.001)
-}
-
-func TestTelemetry_IsNotRecordedAsATurn(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-
-	hook(t, f, runnerID, "claude", engineagents.HookTelemetry, map[string]any{
-		"context_window": map[string]any{"used_percentage": 19},
-	})
-
-	turns, err := f.activity.Turns(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.Empty(t, turns)
 }
 
 func TestTelemetry_ForAProviderWithNoChannelIsSilentlyIgnored(t *testing.T) {
