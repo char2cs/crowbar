@@ -18,12 +18,8 @@ vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
   setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
 }))
-vi.mock('@/features/agent/api/agent-providers-api', () => ({
-  PERMISSION_LEVEL_OPTIONS: [
-    { value: 'guarded', label: 'Guarded' },
-    { value: 'trusted', label: 'Trusted' },
-    { value: 'full-auto', label: 'Full Auto' },
-  ],
+vi.mock('@/features/agent/api/agent-providers-api', async (real) => ({
+  ...(await real<object>()),
   getDefaultPermissionLevel: () => Promise.resolve('guarded'),
 }))
 
