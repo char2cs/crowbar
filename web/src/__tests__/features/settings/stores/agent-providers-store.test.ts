@@ -25,6 +25,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { deferred } from '@/__tests__/__fixtures__/deferred'
 
 const provider = (id: string, enabled = true): AgentProvider => ({
   id,
@@ -40,16 +41,6 @@ const provider = (id: string, enabled = true): AgentProvider => ({
   hotswap: false,
   terminalStartHere: false,
 })
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 const state = () => useAgentProvidersStore.getState()
 

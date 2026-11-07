@@ -17,6 +17,7 @@ import { toastManager } from '@/lib/toast-manager'
 import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { readSelect, selectAgentChat } from '@/core/entities/select'
 import { resetChatStore, setChatTerminalWait, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { deferred } from '@/__tests__/__fixtures__/deferred'
 let submit: MockInstance<typeof commands.submitAgentPrompt>
 let retract: MockInstance<typeof commands.retractPrompt>
 let stop: MockInstance<typeof commands.stopChat>
@@ -54,16 +55,6 @@ function busy() {
   const l = ledger('c1')
   seedFeed('c1', [l.prompt('r0', 'earlier'), l.start('turn-0', 'r0')])
   return l
-}
-
-function deferred<T>() {
-  let resolve: (value: T) => void = () => {}
-  let reject: (error: unknown) => void = () => {}
-  const promise = new Promise<T>((yes, no) => {
-    resolve = yes
-    reject = no
-  })
-  return { promise, resolve, reject }
 }
 
 describe('chat outbox', () => {

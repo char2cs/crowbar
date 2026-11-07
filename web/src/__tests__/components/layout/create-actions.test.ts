@@ -92,13 +92,27 @@ beforeEach(() => {
 
 const ANY = expect.any(String)
 
-const offerProviders = (...providers: { id: string; enabled: boolean }[]) =>
+const offerProviders = (...providers: { id: string; enabled: boolean; [k: string]: unknown }[]) =>
   useAgentProvidersStore.setState({ status: 'ready', providers: providers as never })
 
 /** Confirms the naming input `handleCreate` opened, as the row's input does. */
 function confirmArmedBranchName(name = 'typed-branch', navigate = vi.fn()): void {
   if (!treeUiStore.getState().draft) throw new Error('no draft is open')
   confirmCreateDraft(name, navigate)
+}
+
+/** The one own-worktree create, typed-branch off `parent` in r1 of p1. */
+const expectForked = (provider: string, parent: string, surface?: 'terminal') =>
+  expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+    ...[ANY, ANY, 'p1', 'r1', provider, parent, 'typed-branch', surface],
+  )
+
+/** The user prefers Terminal, and codex can start there. */
+function preferTerminalOnCodex() {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: false },
+  }))
+  offerProviders({ id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true })
 }
 
 /** The chat id the client minted for the last own-worktree create. */
@@ -149,16 +163,7 @@ describe('creating a workspace off the repo-home row', () => {
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'p1',
-      'r1',
-      'claude',
-      'home-1',
-      'typed-branch',
-      undefined,
-    )
+    expectForked('claude', 'home-1')
     expect(postWorkspace).not.toHaveBeenCalled()
   })
 
@@ -170,16 +175,7 @@ describe('creating a workspace off the repo-home row', () => {
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'p1',
-      'r1',
-      'claude',
-      'ws-a',
-      'typed-branch',
-      undefined,
-    )
+    expectForked('claude', 'ws-a')
   })
 
   it('picks the first ENABLED provider from the global provider store', async () => {
@@ -190,60 +186,26 @@ describe('creating a workspace off the repo-home row', () => {
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'p1',
-      'r1',
-      'codex',
-      'home-1',
-      'typed-branch',
-      undefined,
-    )
+    expectForked('codex', 'home-1')
   })
 
   // A workspace's first chat lands on the user's default surface like any other create: born on
   // codex's default (no PTY), a terminal-preferring pane would relaunch it on the terminal.
   it("creates the workspace's chat on the user's default terminal surface", async () => {
-    useSettingsStore.setState((state) => ({
-      settings: { ...state.settings, chatIsDefaultPresentation: false },
-    }))
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [
-        { id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true },
-      ] as never,
-    })
+    preferTerminalOnCodex()
     seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'p1',
-      'r1',
-      'codex',
-      'home-1',
-      'typed-branch',
-      'terminal',
-    )
+    expectForked('codex', 'home-1', 'terminal')
   })
 
   // One default: with Terminal preferred, a New thread starts on the terminal as a fork's
   // chat does, instead of a Chat draft whose first prompt the terminal would hold unsent.
   it("starts a new thread on the user's default terminal surface, like a fork", async () => {
-    useSettingsStore.setState((state) => ({
-      settings: { ...state.settings, chatIsDefaultPresentation: false },
-    }))
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [
-        { id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true },
-      ] as never,
-    })
+    preferTerminalOnCodex()
     seedRepos([repo()])
 
     await handleCreate('home-1', 'thread', vi.fn())
@@ -331,16 +293,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      ANY,
-      ANY,
-      'p1',
-      'r1',
-      'claude',
-      'c-owner',
-      'typed-branch',
-      undefined,
-    )
+    expectForked('claude', 'c-owner')
   })
 
   // The daemon sends the branch's entities before the operation's succeeded.

@@ -39,6 +39,33 @@ export function ledger(chatId = 'chat-1', from = 1) {
       row('turn_ended', { status }, { turnId }),
     settle: (requestId: string, consumed = true, reason = '') =>
       row('prompt_settled', { requestId, consumed, reason }),
+    /** The turn ended because its prompt was taken back. */
+    retract: (turnId: string) =>
+      row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId }),
+    /** A CLI launched on the chat, on `launchModel`. */
+    runner: (runnerId: string, launchModel = '') =>
+      row('runner_started', {
+        ...{ runnerId, provider: 'p', terminalSession: '', launchModel },
+        ...{ launchEffort: '', launchPermissionLevel: '', resumeSessionId: '' },
+      }),
+    /** A permission ask for Bash with one allow option, `y`. */
+    ask: (askId: string, turnId = 'turn-1') =>
+      row(
+        'ask',
+        {
+          ...{ askId, event: 'permission', kind: 'tool_permission', toolName: 'Bash' },
+          ...{ answerable: true, options: [{ id: 'y', kind: 'allow' }] },
+        },
+        { turnId },
+      ),
+    answer: (askId: string, ...optionIds: string[]) =>
+      row('ask_resolved', { askId, resolution: 'answered', optionIds }),
+    /** A prompt delivered some other way than as a turn's opener. */
+    delivered: (requestId: string, text: string, delivery: 'api' | 'restart') =>
+      row('user_message', { requestId, text, origin: 'crowbar', delivery }),
+    /** A prompt steered into a running turn (`turnId`), or parked for the next one. */
+    steer: (requestId: string, text: string, turnId: string) =>
+      row('user_message', { requestId, text, origin: 'crowbar', delivery: 'steer' }, { turnId }),
   }
 }
 

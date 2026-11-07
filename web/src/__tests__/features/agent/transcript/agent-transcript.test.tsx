@@ -52,6 +52,22 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+/** The message list laid out as a box this tall and that high on screen. */
+function layList(scrollHeight: number, clientHeight: number) {
+  const list = screen.getByTestId('agent-message-list')
+  const box = { scrollHeight, clientHeight }
+  layOut(list, box)
+  return { list, box }
+}
+
+const seedPrompts = (n: number) => {
+  const l = ledger()
+  seedFeed(
+    'chat-1',
+    Array.from({ length: n }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
+  )
+}
+
 const outboxItem = (requestId: string): OutboxItem => ({
   requestId,
   wsId: 'ws-1',
@@ -116,7 +132,6 @@ describe('AgentTranscript', () => {
       l.end('turn-1', 'interrupted'),
     ])
     draw()
-
     expect(screen.getByTestId('agent-compaction-divider')).toHaveTextContent('Compacted')
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
@@ -144,7 +159,6 @@ describe('AgentTranscript', () => {
       l.start('turn-3', 'r3'),
     ])
     draw({ working: true })
-
     expect(screen.getAllByTestId('message-turn-actions')).toHaveLength(2)
   })
 
@@ -159,7 +173,6 @@ describe('AgentTranscript', () => {
       l.end('turn-1'),
     ])
     draw()
-
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
   })
 
@@ -167,7 +180,6 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'first'), l.start('turn-1', 'r1'), l.prompt('r2', 'last')])
     draw()
-
     expect(screen.getByText('first')).toBeVisible()
     expect(screen.getByText('last')).toBeVisible()
   })
@@ -244,9 +256,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'look'), l.start('turn-1', 'r1')])
     const { redraw } = draw({ working: true })
-    const box = { scrollHeight: 2000, clientHeight: 800 }
-    layOut(screen.getByTestId('agent-message-list'), box)
-    const list = screen.getByTestId('agent-message-list')
+    const { list, box } = layList(2000, 800)
 
     act(() => applyFeedFrame('chat-1', { type: 'delta', delta: delta('m1', 1, 'Found ') }))
     expect(list.scrollTop).toBe(1200)
@@ -265,9 +275,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'look'), l.prompt('r2', 'again')])
     const { redraw } = draw()
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 2000, clientHeight: 800 }
-    layOut(list, box)
+    const { list, box } = layList(2000, 800)
     redraw({ tail: 'a' })
     box.scrollHeight = 2300
     redraw({ tail: 'b' })
@@ -292,9 +300,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'look'), l.prompt('r2', 'again'), l.prompt('r3', 'more')])
     const { redraw } = draw()
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 2600, clientHeight: 800 }
-    layOut(list, box)
+    const { list } = layList(2600, 800)
     redraw({ tail: 'a' })
     expect(list.scrollTop).toBe(1800)
 
@@ -310,9 +316,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'look'), l.prompt('r2', 'again'), l.prompt('r3', 'more')])
     const { redraw } = draw()
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 2700, clientHeight: 800 }
-    layOut(list, box)
+    const { list } = layList(2700, 800)
     redraw({ tail: 'a' })
     list.scrollTop = 1700
     fireEvent.scroll(list)
@@ -328,9 +332,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'look')])
     draw()
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 2000, clientHeight: 0 }
-    layOut(list, box)
+    const { list, box } = layList(2000, 0)
     const resize = (width: number, height: number) =>
       act(() =>
         observed.get(list)?.(
@@ -349,9 +351,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
     const { redraw } = draw({ working: true })
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 3000, clientHeight: 800 }
-    layOut(list, box)
+    const { list, box } = layList(3000, 800)
     redraw({ tail: 'a' })
     list.scrollTop = 500
     fireEvent.scroll(list)
@@ -368,9 +368,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
     const { redraw } = draw({ working: true })
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 3000, clientHeight: 800 }
-    layOut(list, box)
+    const { list, box } = layList(3000, 800)
     redraw({ tail: 'a' })
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
     list.scrollTop = 500
@@ -409,9 +407,7 @@ describe('AgentTranscript', () => {
     seedFeed('chat-1', [l.prompt('r1', 'one')])
     const { container, redraw } = draw({ dockHeight: 92 })
     const stream = container.querySelector<HTMLElement>('.stream')!
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 3200, clientHeight: 800 }
-    layOut(list, box)
+    const { list } = layList(3200, 800)
     act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
     act(() => {
       seedFeed('chat-1', [l.prompt('r2', 'two'), l.start('turn-2', 'r2')])
@@ -446,11 +442,7 @@ describe('AgentTranscript', () => {
   it('draws the newest rows on the commit that lands the opening', () => {
     // jsdom fires no scroll event for a write, as an engine fires it only a frame later.
     restoreRows = measureRows({ row: 150, viewport: 600 })
-    const l = ledger()
-    seedFeed(
-      'chat-1',
-      Array.from({ length: 40 }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
-    )
+    seedPrompts(40)
     draw()
     const list = screen.getByTestId('agent-message-list')
     // Rows above the window keep their estimates: the bottom is the list's own.
@@ -462,11 +454,7 @@ describe('AgentTranscript', () => {
     const observed = observeResizes()
     const box = { viewport: 0 }
     restoreRows = measureRows({ row: 150, viewport: () => box.viewport })
-    const l = ledger()
-    seedFeed(
-      'chat-1',
-      Array.from({ length: 40 }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
-    )
+    seedPrompts(40)
     draw()
     const list = screen.getByTestId('agent-message-list')
     box.viewport = 600
@@ -484,9 +472,7 @@ describe('AgentTranscript', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'look'), l.start('turn-1', 'r1'), l.end('turn-1')])
     const { redraw } = draw({ dockHeight: 0 })
-    const list = screen.getByTestId('agent-message-list')
-    const box = { scrollHeight: 2000, clientHeight: 800 }
-    layOut(list, box)
+    const { list, box } = layList(2000, 800)
     redraw({ tail: 'a' })
     expect(list.scrollTop).toBe(1200)
 
@@ -499,7 +485,6 @@ describe('AgentTranscript', () => {
   it('says it is still trying when the feed cannot be reached', () => {
     openFeed('chat-1')
     draw({ status: 'error' })
-
     expect(screen.getByText(/couldn’t reach this chat/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
   })
@@ -508,7 +493,6 @@ describe('AgentTranscript', () => {
     openFeed('chat-1')
     failFeed('chat-1', "This chat's history could not be read")
     draw({ status: 'error' })
-
     expect(screen.getByText("This chat's history could not be read")).toBeInTheDocument()
     expect(screen.queryByText(/keeps trying/i)).not.toBeInTheDocument()
   })

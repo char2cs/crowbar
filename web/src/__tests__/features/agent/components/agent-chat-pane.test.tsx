@@ -144,6 +144,7 @@ import {
   setProviders,
   provider,
 } from '@/__tests__/__fixtures__/agent-chat'
+import { deferred } from '@/__tests__/__fixtures__/deferred'
 
 /**
  * Land this pane on the TERMINAL surface.
@@ -238,15 +239,6 @@ function liveChatNoTerminal(o: { id: string; runnerId: string; title?: string })
 /** A promise this test resolves by hand. The pane is asserted MID-FLIGHT (the spinner is
  *  a real state, not a frame of one), and nothing here waits on a clock — the test drives
  *  the request's completion itself. */
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 // ── Harness ──────────────────────────────────────────────────────────
 // PaneHost does what pane-container.tsx does: read the window-level `PaneGroup`

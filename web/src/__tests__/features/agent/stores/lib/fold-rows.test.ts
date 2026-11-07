@@ -11,6 +11,8 @@ import { applyRows, delta, ledger, recordedRows } from '@/__tests__/__fixtures__
 
 /** A recording cut mid-ledger: the feed already holds every row before it. */
 const feedAt = (seq: number): ChatFeed => ({ ...emptyFeed(), seq })
+/** What the transcript draws: the folded order, then what is still streaming. */
+const shown = (f: ChatFeed) => [...f.order, ...f.liveTail]
 
 describe('applyRow', () => {
   it('orders items by the seq of their first row and never re-sorts', () => {
@@ -100,7 +102,7 @@ describe('applyRow', () => {
     const feed = applyRows(emptyFeed(), [
       l.prompt('r1', 'a'),
       l.start('turn-1', 'r1'),
-      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+      l.retract('turn-1'),
     ])
     expect(feed.facts.prompts.r1).toEqual({ state: 'retracted' })
     expect(feed.facts.running).toBeNull()
@@ -113,7 +115,7 @@ describe('applyRow', () => {
       l.prompt('r1', 'a'),
       l.start('turn-1', 'r1'),
       l.text('turn-1', 'm1', 0, 'partial'),
-      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+      l.retract('turn-1'),
     ])
     expect(feed.facts.prompts.r1).toEqual({ state: 'retracted', turnId: 'turn-1' })
     expect(feed.order).toEqual(['p:r1', 'm:turn-1:m1', 'k:4'])
@@ -148,7 +150,6 @@ describe('applyRow', () => {
     const text = `m:${prompt.turnId}:${reply.body.messageId}`
     let feed = applyRows(feedAt(prompt.seq - 1), rows.slice(0, 2))
     feed = applyLive(feed, delta(reply.body.messageId, 1, '1. Apple', { turnId: prompt.turnId! }))
-    const shown = (f: ChatFeed) => [...f.order, ...f.liveTail]
     const thought = `r:${prompt.turnId}:${reply.body.messageId}`
     for (const row of rows.slice(2)) {
       feed = applyRow(feed, row)
@@ -168,14 +169,8 @@ describe('applyRow', () => {
       const feed = applyRows(emptyFeed(), [
         l.prompt('r1', 'a'),
         l.start('turn-1', 'r1'),
-        l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
-        late === 'text'
-          ? l.row(
-              'assistant_text',
-              { messageId: 'm1', index: -1, text: 'partial' },
-              { turnId: 'turn-1' },
-            )
-          : l.tool('turn-1', 'tool-1', 'pre'),
+        l.retract('turn-1'),
+        late === 'text' ? l.text('turn-1', 'm1', -1, 'partial') : l.tool('turn-1', 'tool-1', 'pre'),
         l.end('turn-1', 'interrupted'),
       ])
       expect(feed.order).toEqual(['p:r1', late === 'text' ? 'm:turn-1:m1' : 't:tool-1', 'k:3'])
@@ -188,11 +183,11 @@ describe('applyRow', () => {
     const traceless = applyRows(emptyFeed(), [
       l.prompt('r1', 'a'),
       l.start('turn-1', 'r1'),
-      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+      l.retract('turn-1'),
     ])
     expect(traceless.order).toEqual([])
     const feed = applyLive(traceless, delta('m1', 1, 'late'))
-    expect([...feed.order, ...feed.liveTail]).toEqual(['p:r1', 'm:turn-1:m1', 'k:3'])
+    expect(shown(feed)).toEqual(['p:r1', 'm:turn-1:m1', 'k:3'])
   })
 
   it('never folds a turn that streamed text traceless', () => {
@@ -201,16 +196,9 @@ describe('applyRow', () => {
       applyRows(emptyFeed(), [l.prompt('r1', 'a'), l.start('turn-1', 'r1')]),
       delta('m1', 1, 'Work'),
     )
-    const shown = (f: ChatFeed) => [...f.order, ...f.liveTail]
-    const ended = applyRow(
-      streaming,
-      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
-    )
+    const ended = applyRow(streaming, l.retract('turn-1'))
     expect(shown(ended)).toEqual(['p:r1', 'm:turn-1:m1', 'k:3'])
-    const flushed = applyRow(
-      ended,
-      l.row('assistant_text', { messageId: 'm1', index: -1, text: 'Work' }, { turnId: 'turn-1' }),
-    )
+    const flushed = applyRow(ended, l.text('turn-1', 'm1', -1, 'Work'))
     expect(shown(flushed)).toEqual(['p:r1', 'm:turn-1:m1', 'k:3'])
   })
 
@@ -219,11 +207,7 @@ describe('applyRow', () => {
     const feed = applyRows(emptyFeed(), [
       l.prompt('r1', 'a'),
       l.start('turn-1', 'r1'),
-      l.row(
-        'user_message',
-        { requestId: 'r2', text: 'b', origin: 'crowbar', delivery: 'steer' },
-        { turnId: 'turn-1' },
-      ),
+      l.steer('r2', 'b', 'turn-1'),
     ])
     expect(feed.facts.prompts.r2).toEqual({ state: 'delivered', turnId: 'turn-1' })
   })
@@ -251,30 +235,20 @@ describe('applyRow', () => {
       l.prompt('r1', 'a'),
       l.start('turn-1', 'r1'),
       l.tool('turn-1', 'tool-1', 'pre'),
-      l.row(
-        'user_message',
-        { requestId: 'r2', text: 'b', origin: 'crowbar', delivery: 'steer' },
-        { turnId: 'turn-2' },
-      ),
+      l.steer('r2', 'b', 'turn-2'),
       l.tool('turn-1', 'tool-1', 'post'),
       l.tool('turn-1', 'tool-2', 'pre'),
       l.text('turn-1', 'm1', 0, 'DONE-A', true),
     ])
     expect(waiting.facts.prompts.r2).toMatchObject({ state: 'pending' })
-    expect(waiting.order).toEqual(['p:r1', 't:tool-1', 'm:turn-1:m1', 't:tool-2', 'p:r2'])
+    const parked = ['p:r1', 't:tool-1', 'm:turn-1:m1', 't:tool-2', 'p:r2']
+    expect(waiting.order).toEqual(parked)
     const taken = applyRows(waiting, [
       l.end('turn-1'),
       l.start('turn-2', 'r2'),
       l.text('turn-2', 'm2', 0, 'BANANA', true),
     ])
-    expect(taken.order).toEqual([
-      'p:r1',
-      't:tool-1',
-      'm:turn-1:m1',
-      't:tool-2',
-      'p:r2',
-      'm:turn-2:m2',
-    ])
+    expect(taken.order).toEqual([...parked, 'm:turn-2:m2'])
   })
 
   it('folds numbered chunks into one text and settles on the final chunk', () => {
@@ -368,11 +342,7 @@ describe('applyRow', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
       l.row('subagent', { phase: 'start', type: 'explore' }, { turnId: 'turn-1', scope: 'sub-1' }),
-      l.row(
-        'tool_call',
-        { toolId: 'inner', phase: 'pre', name: 'Grep' },
-        { turnId: 'turn-1', scope: 'sub-1' },
-      ),
+      { ...l.tool('turn-1', 'inner', 'pre', 'Grep'), scope: 'sub-1' },
     ])
     expect(feed.order).toEqual(['s:sub-1'])
     expect(feed.scoped['sub-1']).toEqual(['t:inner'])
@@ -381,31 +351,14 @@ describe('applyRow', () => {
 
   it('opens an ask as a pending choice and resolves it', () => {
     const l = ledger()
-    let feed = applyRow(
-      emptyFeed(),
-      l.row(
-        'ask',
-        {
-          askId: 'q1',
-          event: 'permission',
-          kind: 'tool_permission',
-          toolName: 'Bash',
-          answerable: true,
-          options: [{ id: 'y', kind: 'allow' }],
-        },
-        { turnId: 'turn-1' },
-      ),
-    )
+    let feed = applyRow(emptyFeed(), l.ask('q1'))
     expect(feed.facts.openAsks).toEqual(['a:q1'])
     expect((feed.items.get('a:q1') as AskItem).choice).toMatchObject({
       id: 'q1',
       pending: true,
       answerable: true,
     })
-    feed = applyRow(
-      feed,
-      l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['y'] }),
-    )
+    feed = applyRow(feed, l.answer('q1', 'y'))
     expect(feed.facts.openAsks).toEqual([])
     expect((feed.items.get('a:q1') as AskItem).choice).toMatchObject({
       pending: false,
@@ -428,24 +381,14 @@ describe('applyRow', () => {
 
   it("names the model each turn ran on: its CLI's launch model, then any change", () => {
     const l = ledger()
-    const runner = (runnerId: string, launchModel: string) =>
-      l.row('runner_started', {
-        runnerId,
-        provider: 'p',
-        terminalSession: '',
-        launchModel,
-        launchEffort: '',
-        launchPermissionLevel: '',
-        resumeSessionId: '',
-      })
     const feed = applyRows(emptyFeed(), [
-      runner('r1', 'sonnet'),
+      l.runner('r1', 'sonnet'),
       l.start('turn-1', 'r1'),
       l.end('turn-1'),
       l.row('marker', { kind: 'model_changed', detail: 'opus' }),
       l.start('turn-2'),
       l.end('turn-2'),
-      runner('r2', ''),
+      l.runner('r2'),
       l.start('turn-3'),
     ])
     expect(feed.facts.models).toEqual({ 'turn-1': 'sonnet', 'turn-2': 'opus' })
@@ -458,12 +401,7 @@ describe('applyRow', () => {
       l.prompt('r0', 'earlier'),
       l.start('turn-0', 'r0'),
       l.end('turn-0'),
-      l.row('user_message', {
-        requestId: 'r1',
-        text: 'on',
-        origin: 'crowbar',
-        delivery: 'restart',
-      }),
+      l.delivered('r1', 'on', 'restart'),
       l.row('marker', { kind: 'provider_switched', detail: 'p2' }),
       l.row('marker', { kind: 'model_changed', detail: 'big' }),
       l.start('turn-1', 'r1'),
@@ -477,12 +415,7 @@ describe('applyRow', () => {
     const feed = applyRows(emptyFeed(), [
       l.prompt('r0', 'earlier'),
       l.start('turn-0', 'r0'),
-      l.row('user_message', {
-        requestId: 'r1',
-        text: 'queued',
-        origin: 'crowbar',
-        delivery: 'api',
-      }),
+      l.delivered('r1', 'queued', 'api'),
       l.row('marker', { kind: 'model_changed', detail: 'big' }),
     ])
     expect(feed.order).toEqual(['p:r0', 'p:r1', 'k:4'])
@@ -535,7 +468,6 @@ describe('FeedFold', () => {
     const { prompts, efforts, output } = first.facts
     for (let i = 1; i < 50; i++) for (const row of turn(i)) fold.apply(row)
     const last = fold.finish()
-
     expect(last.order).toHaveLength(150)
     expect(last.items).toBe(first.items)
     expect(last.order).toBe(first.order)
@@ -558,7 +490,6 @@ describe('FeedFold', () => {
     ])
       fold.apply(row)
     const { items } = fold.finish()
-
     expect((items.get('m:turn-a:ma') as TextItem).settled).toBe(true)
     expect((items.get('t:tool-a') as ToolItem).status).toBe('abandoned')
     expect((items.get('m:turn-b:mb') as TextItem).settled).toBe(false)
