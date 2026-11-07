@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"os"
 	"path"
 	"sort"
@@ -31,7 +32,7 @@ func staticItems(sc *spec.SlashCatalogSpec, cwd string) []models.SlashCatalogIte
 	if err != nil {
 		return items
 	}
-	defer root.Close()
+	defer closeRead(root)
 	for _, dir := range sc.Workspace {
 		items = append(items, workspaceItems(root, dir)...)
 	}
@@ -62,7 +63,7 @@ func dirNames(root *os.Root, dir string) []string {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer closeRead(f)
 	names, err := f.Readdirnames(spec.MaxCatalogItems)
 	if err != nil && len(names) == 0 {
 		return nil
@@ -80,7 +81,7 @@ func readMeta(root *os.Root, file string) (commandMeta, bool) {
 	if err != nil {
 		return commandMeta{}, false
 	}
-	defer f.Close()
+	defer closeRead(f)
 	if info, statErr := f.Stat(); statErr != nil || !info.Mode().IsRegular() {
 		return commandMeta{}, false
 	}
@@ -132,5 +133,12 @@ func staticItem(kind, name, description, source string, terminal bool) models.Sl
 		InsertText: insert,
 		Source:     normalize.Source(source),
 		Terminal:   terminal,
+	}
+}
+
+// closeRead closes what was opened only for reading: a failure loses nothing.
+func closeRead(c io.Closer) {
+	if err := c.Close(); err != nil {
+		slog.Debug("agents: catalog: close a workspace command file", "err", err)
 	}
 }
