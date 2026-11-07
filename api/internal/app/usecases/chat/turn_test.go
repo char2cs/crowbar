@@ -313,13 +313,7 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Equal(t, "spawnAgent", parent.Name)
 	require.NotNil(t, nested, "the child's own tool call must be recorded")
 	assert.Equal(t, "thread-child", nested.SubagentID)
-	// "commandExecution", not a specific binary name: a real commandExecution
-	// item carries no item.tool field at all (confirmed live — see the
-	// item_started/item_completed.commandExecution.json fixtures), so
-	// tool_name's first_present chain falls through to item.type, same as
-	// any other unmapped codex tool call (codex.yaml's own tool_target
-	// comment: "unmapped every codex tool call read as the bare word
-	// 'commandExecution'").
+	// A real commandExecution item carries no item.tool: its name is its type.
 	assert.Equal(t, "commandExecution", nested.Name)
 	assert.Equal(t, domain.ToolStatusOK, nested.Status)
 
@@ -335,6 +329,33 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, turns, 1, "only the prompt: the child's reply is the subagent's")
+}
+
+// codex on multi-agent v2 reports a spawn as a subAgentActivity item naming
+// the child's thread (live, 0.164): the child's reply was dead-lettered.
+func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "thread-main")
+	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "delegate"})
+	refused := deadLetters(t, f)
+
+	hookAPI(t, f, runnerID, "codex", "subagent_pre", map[string]any{
+		"threadId": "thread-main", "turnId": "turn-main", "item": map[string]any{
+			"type": "subAgentActivity", "kind": "started", "id": "call_6cfb", "model": "gpt-6.1-sol",
+			"agentThreadId": "thread-child", "agentPath": "/root/pong",
+		},
+	})
+	codexTurnStop(t, f, runnerID, "thread-child", "pong")
+
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Equal(t, "thread-child", subs[0].ID)
+	assert.Equal(t, "pong", subs[0].Title, "the agent's name is the last part of its path")
+	require.NotNil(t, subs[0].EndedAt, "the child's own turn end closes it")
+	assert.Equal(t, []string{"pong"}, subs[0].Messages)
+	assert.Equal(t, refused, deadLetters(t, f), "nothing of the child is refused")
 }
 
 // TestRegression_SpawnAgentCompletionOpensTheNestedSubagent is the bug
@@ -2244,9 +2265,9 @@ type markView struct {
 type choiceView struct{ ID, Kind, Resolution string }
 
 type subagentView struct {
-	ID, AgentType, Status string
-	EndedAt               *time.Time
-	Messages              []string
+	ID, AgentType, Title, Status string
+	EndedAt                      *time.Time
+	Messages                     []string
 }
 
 func (a activityReads) rows(ctx context.Context, chatID string) ([]ledger.Row, error) {
@@ -2350,7 +2371,7 @@ func (a activityReads) Subagents(ctx context.Context, chatID string) ([]subagent
 	}
 	var out []subagentView
 	for _, s := range book.All() {
-		v := subagentView{ID: s.Scope, AgentType: s.Type, Status: string(s.Status)}
+		v := subagentView{ID: s.Scope, AgentType: s.Type, Title: s.Title, Status: string(s.Status)}
 		if !s.Status.Live() {
 			at := s.EndedAt
 			v.EndedAt = &at

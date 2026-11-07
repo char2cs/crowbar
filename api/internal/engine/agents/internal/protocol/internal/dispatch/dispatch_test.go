@@ -83,6 +83,17 @@ func TestResolve_SumTypeDisambiguatesByItemType(t *testing.T) {
 	assert.Equal(t, "user_prompt", canonical)
 }
 
+// On multi-agent v2 a spawn is no spawnAgent call: codex reports the agent it
+// started as a subAgentActivity item, the only frame naming the child's thread.
+func TestResolve_ACodexV2SpawnIsASubagentStart(t *testing.T) {
+	d := loadCodexAPIDescriptor(t)
+
+	canonical, ok := dispatch.Resolve(d, "item/started", loadParams(t, "item_started.subAgentActivity"))
+
+	require.True(t, ok)
+	assert.Equal(t, "subagent_pre", canonical)
+}
+
 func TestResolve_UnknownWireMethodIsNotOK(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	_, ok := dispatch.Resolve(d, "some/method/nobody/declared", map[string]any{})

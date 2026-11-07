@@ -74,3 +74,14 @@ over-the-wire proof.
 `item_started.mcpToolCall.json` and `item_completed.mcpToolCall.json` are live app-server
 captures, paths mapped to `/ws`, thread and turn ids replaced by placeholders. The
 `-schema` twins stay until a live failed MCP call and a live web search are captured.
+
+## Multi-agent v2 captures (codex-cli 0.164.0, 2026-11-07)
+
+`item_started.subAgentActivity.json` is a live app-server capture, verbatim (it
+carries no path): model gpt-6.1-sol, whose `model/list` entry reports
+`multiAgentVersion: "v2"`, asked to spawn one agent and wait for it. On v2 a spawn
+is no `collabAgentToolCall` spawnAgent: the parent's thread reports
+`subAgentActivity` items (`kind` started, interacted, completed) naming the child's
+`agentThreadId` and `agentPath` ("/root/<name>"), and the child's own turn rides the
+same connection under that thread id with no `thread/started` of its own. The parent
+waits with a `collabAgentToolCall` wait whose `receiverThreadIds` is empty.

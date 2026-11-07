@@ -678,11 +678,19 @@ events:
       in: PostCompact
       map: { session_id: session_id }
 
-  # The api channel's subagents are collabAgentToolCall calls (above): a spawn
-  # binds the child thread, whose own frames ride this connection under its
-  # threadId and whose own turn_stop ends it. These two are the TUI's hooks.
+  # The api channel's subagents: a v1 spawnAgent call (tool_post above) binds the
+  # child thread; on multi-agent v2 a subAgentActivity item announces it, named by
+  # its path's last part. Its own turn_stop ends it either way.
   subagent_pre:
     required: [session_id]
+    api:
+      in: item/started
+      when: { item.type: subAgentActivity, item.kind: started }
+      map:
+        session_id: threadId
+        scope_id:   item.agentThreadId
+        title:      { from: item.agentPath, pattern: '(?P<v>[^/]+)$' }
+      fixtures: [item_started.subAgentActivity.json]
     hooks:
       unverified: true
       in: SubagentStart

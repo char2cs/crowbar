@@ -433,7 +433,12 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 
 	// Only the TUI's hook relay reports these: they have a hooks: block and no
 	// api: block, so the api driver never resolves them.
-	hooksOnly := []string{"subagent_pre", "subagent_post", "session_end"}
+	hooksOnly := []string{"subagent_post", "session_end"}
+	// A subagent's start is both: the TUI's hook, and multi-agent v2's subAgentActivity.
+	for _, ch := range []spec.Channel{spec.ChannelAPI, spec.ChannelHooks} {
+		wire, _ := d.Events["subagent_pre"].WireEventFor(ch)
+		assert.False(t, wire.Empty(), "subagent_pre is reported over %s", ch)
+	}
 	for _, name := range hooksOnly {
 		wire, _ := d.Events[name].WireEventFor(spec.ChannelAPI)
 		assert.True(t, wire.Empty(), "event %q must not be resolvable from the api channel", name)

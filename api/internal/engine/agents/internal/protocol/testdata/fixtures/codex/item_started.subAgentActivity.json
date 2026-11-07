@@ -1,0 +1,18 @@
+{
+  "method": "item/started",
+  "params": {
+    "item": {
+      "type": "subAgentActivity",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "low",
+      "id": "call_6cfb40e422494c7c8fc27660aff9700b",
+      "kind": "started",
+      "agentThreadId": "01a1b5d0-6047-7491-a9fc-0fcb2c30cff6",
+      "agentPath": "/root/pong"
+    },
+    "threadId": "01a1b5d0-4b76-7652-8e9d-0c47099019cb",
+    "turnId": "01a1b5d0-505a-78e3-b3dd-4f519ef1e84e",
+    "startedAtMs": 1794051694779
+  },
+  "emittedAtMs": 1794051694779
+}
