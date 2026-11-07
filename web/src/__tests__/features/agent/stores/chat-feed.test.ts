@@ -144,9 +144,11 @@ describe('attachFeed', () => {
     const [r2, r3] = [l.prompt('r2', 'r2'), l.prompt('r3', 'r3')]
 
     push({ t: 'row', row: r3 })
+    vi.advanceTimersToNextFrame()
     expect(feed()).toMatchObject({ seq: 1, order: ['p:r1'] })
     push({ t: 'row', row: r2 })
     push({ t: 'row', row: r3 })
+    vi.advanceTimersToNextFrame()
     expect(feed()).toMatchObject({ seq: 3, order: ['p:r1', 'p:r2', 'p:r3'] })
   })
 
@@ -233,22 +235,54 @@ describe('attachFeed', () => {
     expect(feed('chat-2')).toMatchObject({ epoch: 'e2', liveTail: [], live: {} })
   })
 
-  it('coalesces deltas into one write per frame and flushes them before a row', () => {
+  it('applies live rows and deltas once per frame, in the order they came', () => {
     attachFeed('chat-1')
     push({ t: 'synced' })
     const writes = vi.fn()
     const stop = chatStore.subscribe(writes)
+    const l = ledger('chat-1')
     push({ t: 'delta', delta: delta('m1', 1, 'a') })
     push({ t: 'delta', delta: delta('m1', 2, 'b') })
+    push({ t: 'row', row: l.prompt('r1', 'hi') })
+    push({ t: 'delta', delta: delta('m1', 3, 'c') })
+    push({ t: 'row', row: l.text('turn-1', 'm1', 0, 'abc') })
     expect(writes).not.toHaveBeenCalled()
     vi.advanceTimersToNextFrame()
     expect(writes).toHaveBeenCalledTimes(1)
-    expect(feed()?.live['answer:m1']).toBe('ab')
-    push({ t: 'delta', delta: delta('m1', 3, 'c') })
-    push({ t: 'row', row: ledger('chat-1').text('turn-1', 'm1', 0, 'abc') })
-    expect(feed()?.live['answer:m1']).toBe('abc')
-    expect(feed()?.order).toEqual(['m:turn-1:m1'])
+    expect(feed()?.order).toEqual(['p:r1', 'm:turn-1:m1'])
+    expect(feed()?.seq).toBe(2)
     stop()
+  })
+
+  it('applies what is queued before a synced checks the head', () => {
+    attachFeed('chat-1')
+    push({ t: 'synced' })
+    push({ t: 'row', row: ledger('chat-1').prompt('r1', 'hi') })
+    push({ t: 'synced', seq: 1 })
+    expect(feed()).toMatchObject({ seq: 1, order: ['p:r1'] })
+    expect(subs()).toHaveLength(1)
+  })
+
+  it('applies what is queued as the tab hides, and frames as they come while hidden', () => {
+    attachFeed('chat-1')
+    push({ t: 'synced' })
+    const l = ledger('chat-1')
+    push({ t: 'row', row: l.prompt('r1', 'hi') })
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(feed()?.order).toEqual(['p:r1'])
+    push({ t: 'row', row: l.prompt('r2', 'again') })
+    expect(feed()?.order).toEqual(['p:r1', 'p:r2'])
+    hidden.mockRestore()
+  })
+
+  it('drops what is queued with the feed when the last view detaches', () => {
+    const detach = attachFeed('chat-1')
+    push({ t: 'synced' })
+    push({ t: 'row', row: ledger('chat-1').prompt('r1', 'hi') })
+    detach()
+    vi.advanceTimersToNextFrame()
+    expect(feed()).toBeUndefined()
   })
 })
 

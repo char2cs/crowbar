@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  applyFeedDeltas,
+  applyFeedBatch,
   applyFeedFrame,
   chatStore,
   dropFeed,
@@ -46,7 +46,10 @@ describe('chatStore', () => {
   it('applies coalesced deltas in one write', () => {
     openFeed('chat-1')
     applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
-    applyFeedDeltas('chat-1', [delta('m1', 1, 'a'), delta('m1', 2, 'b')])
+    applyFeedBatch('chat-1', [
+      { type: 'delta', delta: delta('m1', 1, 'a') },
+      { type: 'delta', delta: delta('m1', 2, 'b') },
+    ])
     expect(feed()?.live['answer:m1']).toBe('ab')
   })
 

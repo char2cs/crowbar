@@ -1,5 +1,5 @@
 import { createStore, useStore } from 'zustand'
-import type { FeedDelta, FeedFrame } from '@/features/agent/api/chat-rows'
+import type { FeedFrame } from '@/features/agent/api/chat-rows'
 import { applyReady } from '@/features/agent/stores/lib/fold-live'
 import { applyLive, applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
@@ -57,10 +57,24 @@ export function dropFeed(chatId: string) {
   chatStore.setState({ feeds: rest })
 }
 
-/** Applies coalesced deltas in one store write. */
-export function applyFeedDeltas(chatId: string, deltas: FeedDelta[]) {
+/** A frame the live feed folds as it comes: a row past the replay, or a delta. */
+export type LiveFrame = Extract<FeedFrame, { type: 'row' | 'delta' }>
+
+/** Whether a row would publish at once: the feed is live and no replay is folding. */
+export function foldsLive(chatId: string): boolean {
+  return chatStore.getState().feeds[chatId]?.status === 'live' && !drafts.has(chatId)
+}
+
+/** Applies one animation frame's live rows and deltas, in order, in one store write.
+ *  Rows are queued only while the feed folds live, and a replay starts behind a flush. */
+export function applyFeedBatch(chatId: string, frames: LiveFrame[]) {
   const feed = chatStore.getState().feeds[chatId]
-  if (feed) publish(chatId, deltas.reduce(applyLive, feed))
+  if (!feed) return
+  let next = feed
+  for (const frame of frames) {
+    next = frame.type === 'row' ? applyRow(next, frame.row) : applyLive(next, frame.delta)
+  }
+  publish(chatId, next)
 }
 
 /** Replays the chat afresh behind what is shown: the feed it publishes at ready

@@ -4,6 +4,7 @@ import {
   placeRestoredPanesOnceSynced,
 } from '@/lib/persistence/hydrate'
 import { preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
+import { holdShownChatFeeds } from '@/features/panes/lib/shown-chat-feeds'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
@@ -28,6 +29,8 @@ export async function hydrateCriticalStores(): Promise<void> {
   // The chat surface chunk loads beside the IndexedDB reads below, and render
   // waits for it, so the restored chat mounts in the first commit.
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
+  // The shown chats' rows replay while that chunk loads and evaluates.
+  holdShownChatFeeds()
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
   if (remoteHosts) await remoteHosts
