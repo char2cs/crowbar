@@ -9,13 +9,15 @@ import {
 import type { Frame } from '@/core/stream/frames'
 import type { FeedDelta, FeedFrame, LedgerRow } from '@/features/agent/api/chat-rows'
 import {
-  applyFeedDeltas,
+  applyFeedBatch,
   applyFeedFrame,
   chatStore,
   dropFeed,
   failFeed,
+  foldsLive,
   openFeed,
   refoldFeed,
+  type LiveFrame,
 } from '@/features/agent/stores/chat-store'
 import { streamFailureWords } from '@/features/hosts/lib/host-failure-notice'
 
@@ -23,7 +25,8 @@ interface Attachment {
   hostId: string
   refs: number
   release: () => void
-  pending: FeedDelta[]
+  /** Live rows and deltas since the last animation frame, applied there in one write. */
+  pending: LiveFrame[]
   frame: number | null
   /** A synced disagreed with the last applied row and the scope was asked for again. */
   reasked: boolean
@@ -48,9 +51,16 @@ function flush(chatId: string, attachment: Attachment) {
   if (attachment.frame !== null) cancelAnimationFrame(attachment.frame)
   attachment.frame = null
   if (attachment.pending.length === 0) return
-  const deltas = attachment.pending
+  const frames = attachment.pending
   attachment.pending = []
-  applyFeedDeltas(chatId, deltas)
+  applyFeedBatch(chatId, frames)
+}
+
+// No frame callback runs in a hidden tab: what is queued applies as the tab hides.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) for (const [chatId, attachment] of attachments) flush(chatId, attachment)
+  })
 }
 
 function release(chatId: string, attachment: Attachment) {
@@ -72,9 +82,18 @@ function feedFrameOf(hostId: string, f: Frame): FeedFrame | undefined {
   return undefined
 }
 
+/** A live row or delta, queued for the next animation frame; anything else, or any
+ *  frame of a replay, applies at once behind what is queued. */
+function liveFrameOf(chatId: string, f: Frame): LiveFrame | undefined {
+  if (f.t === 'delta') return { type: 'delta', delta: f.delta as unknown as FeedDelta }
+  if (f.t !== 'row' || f.from !== undefined || !foldsLive(chatId)) return undefined
+  return { type: 'row', row: f.row as unknown as LedgerRow }
+}
+
 function onFrame(chatId: string, attachment: Attachment, f: Frame) {
-  if (f.t === 'delta') {
-    attachment.pending.push(f.delta as unknown as FeedDelta)
+  const live = liveFrameOf(chatId, f)
+  if (live && !document.hidden) {
+    attachment.pending.push(live)
     attachment.frame ??= requestAnimationFrame(() => {
       attachment.frame = null
       flush(chatId, attachment)
@@ -82,7 +101,7 @@ function onFrame(chatId: string, attachment: Attachment, f: Frame) {
     return
   }
   flush(chatId, attachment)
-  const frame = feedFrameOf(attachment.hostId, f)
+  const frame = live ?? feedFrameOf(attachment.hostId, f)
   if (frame) applyFeedFrame(chatId, frame)
   if (f.t !== 'synced') return
   attachment.widening = false
@@ -133,6 +152,7 @@ export function loadOlder(chatId: string) {
   if (!attachment || attachment.widening || !chatStore.getState().feeds[chatId]?.from) return
   attachment.rows += OLDER_ROWS
   attachment.widening = true
+  flush(chatId, attachment)
   refoldFeed(chatId)
   resubscribe(attachment.hostId, scopeOf(chatId))
 }
