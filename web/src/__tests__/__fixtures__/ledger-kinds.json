@@ -18,6 +18,7 @@
     "ask_resolved",
     "assistant_text",
     "marker",
+    "move",
     "plan",
     "prompt_settled",
     "reasoning",

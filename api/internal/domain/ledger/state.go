@@ -29,6 +29,7 @@ type State struct {
 	agents  SubagentBook
 	plan    []PlanItem // the main agent's plan
 	effort  string     // the effort the newest main turn to report one ran at
+	moves   moves
 
 	keys keys // what a retried hook's fact is recognised by
 }
@@ -152,6 +153,7 @@ var appliers = map[Kind]func(*State, Row){
 	KindAskResolved:   (*State).applyAskResolved,
 	KindSubagent:      (*State).applySubagent,
 	KindPlan:          (*State).applyPlan,
+	KindMove:          (*State).applyMove,
 }
 
 // Apply advances s by one row. It never fails: a row naming a prompt that is
@@ -169,6 +171,7 @@ func (s *State) Apply(r Row) {
 func (s *State) startTurn(r Row) {
 	if body, err := DecodeBody[TurnStarted](r); err == nil && s.startsTurn(r) {
 		s.advance(body.RequestID, func(p *Prompt) { p.Status = PromptStatusDelivered })
+		s.noteDelivered(body.RequestID)
 		s.applyTurnStarted(r, body)
 	}
 }
@@ -220,6 +223,7 @@ func (s State) Clone() State {
 	s.keys = s.keys.clone()
 	s.agents = s.agents.clone()
 	s.plan = slices.Clone(s.plan)
+	s.moves = s.moves.clone()
 	return s
 }
 
@@ -228,10 +232,10 @@ func (s State) Head() int64 { return s.head }
 
 // HasOpenWork reports whether something in the chat is still unfinished: a
 // prompt awaiting the provider, a running turn or subagent, or a runner that
-// has not exited.
+// has not exited, or a move still to make.
 func (s State) HasOpenWork() bool {
 	_, running := s.RunningTurn()
-	return len(s.pending) > 0 || running || s.hasLive || len(s.Subagents()) > 0
+	return len(s.pending) > 0 || running || s.hasLive || len(s.Subagents()) > 0 || s.moves.pending != nil
 }
 
 // PendingPrompts are the crowbar prompts not yet acknowledged, oldest first.

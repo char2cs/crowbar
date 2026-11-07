@@ -151,6 +151,26 @@ export interface RowBodies {
     usage?: { tokens?: number; toolUses?: number; durationMs?: number }
   }
   plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
+  /** The chat changing the folder its CLI runs in (api/internal/domain/ledger/move.go). */
+  move: MoveBody
+}
+
+export interface MoveBody {
+  phase: 'requested' | 'done' | 'failed' | 'cancelled'
+  requestId: string
+  to?: string
+  parentId?: string
+  order?: number
+  label?: string
+  branchOut?: boolean
+  branch?: string
+  by?: 'user' | 'agent'
+  from?: string
+  fromDir?: string
+  toDir?: string
+  base?: string
+  repo?: string
+  reason?: string
 }
 
 export interface FeedDelta {
