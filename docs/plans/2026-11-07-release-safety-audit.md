@@ -1,8 +1,9 @@
 # Release safety: install, upgrade and rollback on real homes
 
 Status: audited 2026-11-07 on Linux with the embedded production binary, isolated
-`CROWBAR_HOME`s and copies only. macOS was read, not run. The two serious open items
-(first-upgrade memory, version skew) are fixed; the residual risks are ranked below.
+`CROWBAR_HOME`s and copies only. macOS was read, not run. First-upgrade memory, turns an older build adds after
+the upgrade, worktree access for other uids and long socket paths are fixed; version
+skew was dropped by the owner. The residual risks are ranked below.
 
 ## Matrix
 
@@ -23,11 +24,14 @@ Status: audited 2026-11-07 on Linux with the embedded production binary, isolate
 | Moved repo, deleted worktree, worktree without `.git` | ok: boots, all chats listed | live |
 | Rollback: develop on a migrated, retired home | as documented: chats listed, history empty; nothing corrupted | API |
 | Restore from the newest backup (README steps), then develop, then this build | ok: develop sees the exact pre-upgrade history; re-upgrade gives the identical ledger | API + ledger diff |
-| Develop turns added after the upgrade, then this build again | kept in the legacy files (retire keeps changed files) but not shown | ledger query |
+| Develop turns added after the upgrade, then this build again | was kept but not shown; fixed: imported after the chat's ledger, once | ledger + API diff |
+| Develop on a retired home (legacy files recreated), then this build | fixed: every develop turn and prompt imported, no duplicate, seqs contiguous | ledger query |
+| kill -9 across the re-import (100–1500 ms) | ok: every run ends with the same 2282 rows | row hash |
+| Another uid reading a worktree through the home | was denied after step 11; fixed, and repaired on homes narrowed earlier | Docker as uid 1001 |
+| Home path long enough that `crowbar.sock` exceeds sun_path | was "bind: invalid argument"; fixed: short socket, CLI finds it | live |
 | 500 chats / 112k legacy records | 40 s in step 6, peak RSS 310 MB, progress shown | /proc sampling |
 | 500 chats / 443k legacy records | was 1.0 GB peak, ready in 114 s; now 81 MB peak, ready in 125 s, same ledger | /proc sampling, row diff |
 | Old develop tab left open across the upgrade | stuck on "Backend unavailable" until reloaded (a develop bundle cannot be fixed) | screenshot |
-| Tab of this build left open across a later upgrade | offers Reload on reconnect; reloads only when asked | Playwright |
 | Runner tokens | argv clean; `mcp.token`, `hook.curl`, `settings.json` 0600 in 0700 dirs, removed on stop; not in logs | live |
 
 ## Fixed: `chat-ledger` held the whole legacy history in memory
@@ -40,39 +44,56 @@ and order are unchanged; the 37-point kill sweep and a row-by-row ledger diff on
 443k home match the old build, except `runner_exited` times, which are stamped at
 boot either way.
 
-## Fixed: no way to tell a stale bundle from the daemon
+## Fixed: turns an older build added after the upgrade were hidden
 
-`/v0/health` (served or behind the boot gate) now carries `build`: the commit from
-the Go VCS stamp, `dev` for a binary built outside a plain checkout (a git worktree
-counts). The web bundle already carries its short commit. A page the daemon served
-compares the two on its first and every resumed socket and, on a mismatch, pins a
-"Crowbar was updated" toast with Reload; it never reloads by itself, because an
-unsent prompt lives only in the composer. `index.html` is served `no-cache`. The
-desktop shell stamps its own commit and refuses a daemon it did not spawn whose
-build differs (or which names none), showing why on the halt screen; `dev` on
-either side is not compared.
+Running develop on an upgraded home writes new turns into the legacy files (or
+recreates them after `retire-legacy`). The next boot of this build used to note the
+change and show nothing. Step 6 now re-reads such a chat and imports only the rows
+beyond what its ledger already holds: the longest end of the ledger that matches
+the start of the conversion gives the rows after it, or, when every legacy row is
+newer and none is in the ledger yet, all of them. The rows keep their own times and
+are appended atomically at the head the step read. A chat the newer build has
+written to since, or one develop deleted, keeps its ledger and is noted once.
+Verified with the develop binary: added turns, a chat created on develop, a chat
+deleted on develop, a retired-then-recreated home, and a kill -9 sweep.
+
+## Fixed: owner-only locked other uids out of worktrees
+
+Step 11 made every directory above a checkout 0700, and opening the home narrowed
+the root again at each boot. Step 11 now narrows only Crowbar's own state and leaves
+checkouts and the directories on the way to them as they were; a worktree add gives
+that way traverse (`--x`) only; step 13 `worktree-reach` gives traverse back once on
+a home an earlier build narrowed. `chats/` and `state/` stay owner-only.
+
+## Fixed: a socket path too long to bind
+
+A home whose `crowbar.sock` path is over 107 bytes (103 on macOS) now binds
+`$XDG_RUNTIME_DIR/crowbar-<hash>.sock`, or `/tmp/crowbar-<uid>/crowbar-<hash>.sock`
+in a 0700 directory. The CLI, the desktop shell (through `crowbar paths`) and MCP
+callbacks resolve the same path from the home. The daemon refuses a socket directory
+another user owns or may write to.
+
+## Dropped: version skew
+
+The owner dropped the stale-bundle check (no build id, no shell change). A tab left
+open across an upgrade must be reloaded by hand.
+
+## Sizing a home before the upgrade
+
+`scripts/legacy-size.sh [home]` prints the chats, legacy records (as step 6 counts
+them) and bytes, opening each database read-only. On the 443k-record home step 6
+peaks at 81 MB.
 
 ## Residual risks, ranked
 
-1. Turns made by an older build after the upgrade are not shown. Running develop on
-   an upgraded home before `retire-legacy` writes new turns into the legacy files;
-   the next boot of this build imports chats it never converted, but for a
-   converted chat it only notes the change (`changed/<chat>`), since its ledger may
-   have grown since and an incremental import would interleave two histories. The
-   files are kept (retire keeps changed files), so nothing is lost, only hidden; the
-   restore README says so. Not fixed: no cheap, safe merge exists.
-2. A develop tab left open across the upgrade must be reloaded by hand (release
-   notes); builds from this one on offer the reload.
-3. The first-run screen shows no toasts, so a tab left on it across an upgrade gets
-   no reload offer (it has nothing to lose; the next navigation loads the new page).
-4. The skew check compares only stamped builds: `dev` builds (worktrees, `go run`)
-   are never refused or offered a reload.
-5. The restore does not move attachments or `.refused` overrides back; the README
-   now says so.
-6. Step 11 makes the scaffolding above checkouts 0700: another local user or a
-   container uid can no longer reach a worktree through the home.
-7. A unix socket path over 108 bytes (long `TMPDIR` or `HOME`) fails to bind, with
-   the path in the error.
+1. A chat both builds wrote to after the upgrade keeps this build's history; the
+   older build's turns stay in its files (the daemon log names the chat; the restore
+   README says so).
+2. A tab left open across the upgrade must be reloaded by hand (release notes).
+3. The restore does not move attachments or `.refused` overrides back; the README
+   says so.
+4. `chat-ledger` on the 443k home is ready in 125 s against 114 s before the
+   streaming change (one run each; memory went from 1.0 GB to 81 MB).
 
 Not run: macOS (paths, keychain, sidecar: read only; no updater plugin is
 configured), Windows (unsupported), the owner's real home, a home with no `git`
