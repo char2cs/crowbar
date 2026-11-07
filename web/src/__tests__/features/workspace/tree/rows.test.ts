@@ -121,7 +121,7 @@ describe('deriveRows', () => {
       ['f1', 2],
     ])
     const byId = new Map(rows.map((r) => [r.id, r]))
-    expect(byId.get('c1')).toMatchObject({ canFork: false, workspaceId: 'project-home-ws' })
+    expect(byId.get('c1')).toMatchObject({ canBranchOut: false, workspaceId: 'project-home-ws' })
     expect(byId.get('f1')).toMatchObject({ ownsWorktree: false, workspaceId: 'project-home-ws' })
   })
 

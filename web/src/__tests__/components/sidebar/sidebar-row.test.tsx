@@ -202,20 +202,18 @@ describe('SidebarRow', () => {
     }
   })
 
-  // `row.canFork` false (a project-home chat with no repo) hides Fork; Thread into
-  // the home workspace stays real.
-  it('hides Fork (never Thread) on a chat row whose canFork is explicitly false', () => {
-    const onCreate = vi.fn()
-    render(
-      <SidebarRow
-        row={{ ...baseRow, canFork: false }}
-        depth={0}
-        onOpen={vi.fn()}
-        onCreate={onCreate}
-      />,
-    )
-    expect(screen.queryByRole('button', { name: /fork/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
+  // The thread's own title becomes the branch-name input: the row is not replaced by another.
+  it("Make this thread a branch turns the row's title into the branch-name input", () => {
+    const onOpen = vi.fn()
+    render(<SidebarRow row={{ ...baseRow, canBranchOut: true }} depth={0} onOpen={onOpen} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Make this thread a branch' }))
+    const input = screen.getByRole('textbox')
+    expect(input).toHaveFocus()
+    expect(screen.getByRole('treeitem', { name: 'Fix the thing' })).toContainElement(input)
+    fireEvent.click(input)
+    expect(onOpen).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.getByText('Fix the thing')).toBeInTheDocument()
   })
 
   it('both Fork and Thread render on a row that owns a worktree too', () => {

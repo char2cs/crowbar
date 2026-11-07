@@ -32,7 +32,7 @@ import { retryProvision } from '@/lib/api/workspace'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** The verbs the desktop puts on a row's hover buttons rather than in its menu. */
-export type RowButtonVerb = 'detach' | 'retry' | 'remove' | 'new-thread' | 'fork'
+export type RowButtonVerb = 'detach' | 'retry' | 'remove' | 'new-thread' | 'fork' | 'branch-out'
 
 export type RowMenuActionId =
   | 'rename'
@@ -61,6 +61,8 @@ export interface RowMenuHandlers {
   importBranches: (row: SidebarRow) => void
   /** Starts a fork of `row`; the desktop names it inline, the phone asks first. */
   fork: (row: SidebarRow) => void
+  /** Makes the thread `row` a branch; the desktop names it in place, the phone asks first. */
+  branchOut: (row: SidebarRow) => void
   /** The phone confirms natively first, so a removal there commits at once instead of draining. */
   removeAtOnce?: boolean
 }
@@ -107,13 +109,29 @@ const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
     destructive: false,
   },
   fork: { label: 'Fork branch', icon: GitBranch, symbol: 'arrow.branch', destructive: false },
+  'branch-out': {
+    label: 'Make a branch',
+    icon: GitBranch,
+    symbol: 'arrow.triangle.branch',
+    destructive: false,
+  },
   remove: { label: 'Remove', icon: X, symbol: 'trash', destructive: true },
+}
+
+/** A repo thread owning no worktree, not already moving, can be made a branch of its own. */
+export function canBranchOut(row: SidebarRow, movePending: boolean): boolean {
+  return row.kind === 'chat' && row.canBranchOut === true && !movePending
 }
 
 // The hover buttons a row earns, in the desktop's left-to-right order. A holder leaves Detach as
 // the only remedy, a failed provision Retry; no worktree, nothing that needs one; a chat never
-// forks; the project home is removed via Delete Repo, and a locked branch not at all.
-export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButtonVerb[] {
+// forks but a repo thread can become a branch; the project home is removed via Delete Repo, and
+// a locked branch not at all.
+export function rowButtonVerbs(
+  row: SidebarRow,
+  isProjectHome: boolean,
+  movePending = false,
+): RowButtonVerb[] {
   const verbs: RowButtonVerb[] = []
   const isBranch = row.kind === 'branch'
   if (isBranch && row.workspaceId && row.heldByPath) verbs.push('detach')
@@ -124,6 +142,7 @@ export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButt
   if (!row.isPlaceholder) {
     verbs.push('new-thread')
     if (row.kind === 'folder' ? row.ownsWorktree : isBranch) verbs.push('fork')
+    if (canBranchOut(row, movePending)) verbs.push('branch-out')
   }
   return verbs
 }
@@ -161,11 +180,11 @@ export function rowMenuActions(
 // destructive verb goes last, as iOS menus put it.
 export function rowVerbs(
   row: SidebarRow,
-  ctx: { locked: boolean; canStartOnTerminal: boolean },
+  ctx: { locked: boolean; canStartOnTerminal: boolean; movePending: boolean },
 ): RowMenuAction[] {
   const ids = [
     ...rowMenuActions(row, ctx).map((a) => a.id),
-    ...rowButtonVerbs(row, row.repoIcon !== undefined),
+    ...rowButtonVerbs(row, row.repoIcon !== undefined, ctx.movePending),
   ]
   const ordered = [
     ...ids.filter((id) => !ACTIONS[id].destructive),
@@ -239,6 +258,8 @@ export function runRowMenuAction(
       return
     case 'fork':
       return handlers.fork(row)
+    case 'branch-out':
+      return handlers.branchOut(row)
     case 'remove':
       if (!handleTrash(row.id, handlers.removeAtOnce ? 0 : undefined))
         toast.error(`Can't remove ${row.label}`)

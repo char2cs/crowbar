@@ -26,12 +26,13 @@ const provisioned: SidebarRowType = {
   isPlaceholder: false,
 }
 
-function renderActions(row: SidebarRowType, isProjectHome = false) {
+function renderActions(row: SidebarRowType, isProjectHome = false, movePending = false) {
   return render(
     <SidebarRowActions
       row={row}
       isProjectHome={isProjectHome}
       expanded={false}
+      movePending={movePending}
       subActionClass=""
       onCreate={vi.fn()}
       onTrash={vi.fn()}
@@ -40,14 +41,27 @@ function renderActions(row: SidebarRowType, isProjectHome = false) {
   )
 }
 
-function controlsOf(row: SidebarRowType, isProjectHome = false): string[] {
-  const { container } = renderActions(row, isProjectHome)
+function controlsOf(row: SidebarRowType, isProjectHome = false, movePending = false): string[] {
+  const { container } = renderActions(row, isProjectHome, movePending)
   return Array.from(container.querySelectorAll('[data-control]')).map(
     (el) => el.getAttribute('data-control') ?? '',
   )
 }
 
 describe('SidebarRowActions', () => {
+  // A repo thread can become a branch; a home chat has no repo, and a moving one already moves.
+  it('offers Make this thread a branch on a repo thread only, and not while it moves', () => {
+    const thread = { ...provisioned, kind: 'chat' as const, ownsWorktree: false }
+    expect(controlsOf({ ...thread, canBranchOut: true })).toEqual([
+      'remove',
+      'thread',
+      'branch-out',
+      'fold',
+    ])
+    expect(controlsOf({ ...thread, canBranchOut: false })).not.toContain('branch-out')
+    expect(controlsOf({ ...thread, canBranchOut: true }, false, true)).not.toContain('branch-out')
+  })
+
   it('offers Thread and Fork on a branch row whose workspace is provisioned', () => {
     expect(controlsOf(provisioned)).toEqual(['thread', 'fork', 'fold'])
   })

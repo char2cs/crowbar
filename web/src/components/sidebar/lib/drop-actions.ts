@@ -19,11 +19,7 @@ import {
   placeRepo,
 } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
-import {
-  branchOutChat,
-  cancelChatMove,
-  setChatPlacement,
-} from '@/features/agent/api/agent-chat-commands'
+import { cancelChatMove, setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { planRowDrop } from '@/components/sidebar/lib/drop-plan'
 import type { RowPlacementCall } from '@/components/sidebar/lib/drop-plan-tree'
 import { performRecentsDrop } from '@/components/sidebar/lib/pane-drop-actions'
@@ -135,15 +131,5 @@ export async function performCancelMove(row: SidebarRow): Promise<void> {
     await cancelChatMove(row.workspaceId, row.id)
   } catch (err) {
     report(err, { action: 'Cancel move' })
-  }
-}
-
-/** Makes a thread a branch of its own; its threads follow it. */
-export async function performBranchOut(row: SidebarRow): Promise<void> {
-  if (!row.workspaceId) return
-  try {
-    await branchOutChat(row.workspaceId, row.id)
-  } catch (err) {
-    report(err, { action: 'Make a branch' })
   }
 }

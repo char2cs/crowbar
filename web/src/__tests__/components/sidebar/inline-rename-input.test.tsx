@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 
 describe('InlineRenameInput', () => {
@@ -122,5 +122,38 @@ describe('InlineRenameInput', () => {
     } finally {
       scrollIntoView.mockRestore()
     }
+  })
+
+  it('stays open after a refused confirm, takes no second Enter while one is out, and retries', async () => {
+    let refuse!: (err: Error) => void
+    const onConfirm = vi
+      .fn<(value: string) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)))
+      .mockResolvedValueOnce(undefined)
+    const onCancel = vi.fn()
+    render(<InlineRenameInput defaultValue="" onConfirm={onConfirm} onCancel={onCancel} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'taken' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+
+    await act(async () => refuse(new Error('A branch named "taken" already exists')))
+    expect(input).toHaveFocus()
+    fireEvent.change(input, { target: { value: 'free' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onConfirm).toHaveBeenLastCalledWith('free')
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('with cancelOnBlur, leaving the input drops the edit', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    render(
+      <InlineRenameInput defaultValue="x" cancelOnBlur onConfirm={onConfirm} onCancel={onCancel} />,
+    )
+    fireEvent.blur(screen.getByRole('textbox'))
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })

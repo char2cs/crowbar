@@ -10,6 +10,9 @@ import {
   type RowMenuHandlers,
 } from '@/components/sidebar/lib/row-menu'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
+import { CREATE_ROW_PLACEHOLDER } from '@/components/layout/workspace-row-base'
+import { branchOutChat } from '@/features/agent/api/agent-chat-commands'
+import { userWords } from '@/lib/errors/report'
 import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop-targets'
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
@@ -95,6 +98,34 @@ async function forkNatively(row: SidebarRow, navigate: RowMenuHandlers['navigate
   if (trimmed) await handleCreate(row.id, 'workspace', navigate, undefined, trimmed)
 }
 
+// The desktop names the branch in place on the thread's row; the phone asks, and asks again
+// with the daemon's reason while the name it typed cannot be taken.
+async function branchOutNatively(row: SidebarRow) {
+  const wsId = row.workspaceId
+  if (!wsId) return
+  let value = ''
+  let message: string | null = null
+  for (;;) {
+    const name = (
+      await nativePrompt({
+        title: 'Make a branch',
+        message,
+        value,
+        placeholder: CREATE_ROW_PLACEHOLDER,
+        confirmLabel: 'Make branch',
+      })
+    )?.trim()
+    if (!name) return
+    try {
+      await branchOutChat(wsId, row.id, name)
+      return
+    } catch (err) {
+      value = name
+      message = userWords(err) ?? "Couldn't make the branch"
+    }
+  }
+}
+
 const NOUN: Record<SidebarRow['kind'], string> = {
   chat: 'thread',
   folder: 'folder',
@@ -133,13 +164,15 @@ function nativeRowActions(rows: SidebarRow[], running: Running, moving: Readonly
       continue
     }
     actions[row.id] = // The phone has no terminal threads.
-      rowVerbs(row, { locked, canStartOnTerminal: false }).map((action) => ({
-        id: action.id,
-        title: action.label,
-        symbol: action.symbol,
-        destructive: action.destructive,
-        confirm: confirmFor(action.id, row),
-      }))
+      rowVerbs(row, { locked, canStartOnTerminal: false, movePending: moving.has(row.id) }).map(
+        (action) => ({
+          id: action.id,
+          title: action.label,
+          symbol: action.symbol,
+          destructive: action.destructive,
+          confirm: confirmFor(action.id, row),
+        }),
+      )
     if (moving.has(row.id)) {
       actions[row.id].push({
         id: CANCEL_MOVE,
@@ -352,6 +385,7 @@ export function useNativeSidebar({
             setImportRepoRowId(target.id)
           },
           fork: (target) => void forkNatively(target, navigate),
+          branchOut: (target) => void branchOutNatively(target),
           removeAtOnce: true,
         }
         if (intent.actionId === CANCEL_MOVE) {

@@ -18,7 +18,7 @@ export interface TreeInput {
   ui: { removals: readonly RemovalEntry[]; draft: CreateDraft | null }
 }
 
-/** What a level inherits: whether it sits in a repo (so can fork) and the workspace it runs in. */
+/** What a level inherits: whether it sits in a repo (so can branch) and the workspace it runs in. */
 interface Context {
   inRepo: boolean
   workspaceId: string | null
@@ -127,7 +127,7 @@ function drawNode(
     kind: 'chat',
     ownsWorktree: false,
     workspaceId: chat.workspaceId ?? ctx.workspaceId,
-    canFork: ctx.inRepo,
+    canBranchOut: ctx.inRepo,
   })
   walk(node.id, node.id, ctx)
 }

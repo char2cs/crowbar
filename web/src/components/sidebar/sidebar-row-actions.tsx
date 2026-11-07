@@ -14,11 +14,14 @@ import { runOperation } from '@/core/entities/run-operation'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { rowButtonVerbs } from '@/components/sidebar/lib/row-menu'
 import { rowHitStyle, useRowMetrics } from '@/components/sidebar/lib/row-metrics'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 interface SidebarRowActionsProps {
   row: SidebarRowType
   isProjectHome: boolean
   expanded: boolean
+  /** The chat waits to move, so it is not made a branch over that. */
+  movePending?: boolean
   subActionClass: string
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
   onTrash?: (id: string) => void
@@ -33,6 +36,7 @@ export function SidebarRowActions({
   row,
   isProjectHome,
   expanded,
+  movePending = false,
   subActionClass,
   onCreate,
   onTrash,
@@ -46,7 +50,7 @@ export function SidebarRowActions({
   // One source for "does this row get the tree-dots menu", gating both that button and Remove.
   const showRepoMenu = isProjectHome && Boolean(row.repoIcon)
   // Which verbs the row earns is decided once, in row-menu.ts, for the phone's menu too.
-  const verbs = new Set(rowButtonVerbs(row, isProjectHome))
+  const verbs = new Set(rowButtonVerbs(row, isProjectHome, movePending))
   return (
     <>
       {/* A holder makes Detach… the only working verb (RetryProvision refuses a held branch).
@@ -177,6 +181,24 @@ export function SidebarRowActions({
         >
           {/* Forking is a git operation, so it draws RowGlyph's GitBranch mark (bold, matching
               Thread's weight; "fill" reads too heavy here). */}
+          <GitBranch aria-hidden="true" className="size-3" weight="bold" />
+        </button>
+      )}
+
+      {verbs.has('branch-out') && (
+        <button
+          type="button"
+          data-control="branch-out"
+          className={subActionClass}
+          aria-label="Make this thread a branch"
+          title="Make this thread a branch"
+          onClick={(e) => {
+            e.stopPropagation()
+            e.currentTarget.blur()
+            treeUiStore.getState().startBranching(row.id)
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <GitBranch aria-hidden="true" className="size-3" weight="bold" />
         </button>
       )}

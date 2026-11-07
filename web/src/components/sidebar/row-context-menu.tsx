@@ -3,20 +3,20 @@ import { useNavigate } from '@tanstack/react-router'
 import { ArrowsOutCardinal, Folder, GitBranch, XCircle } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { rowIsLocked, rowMenuActions, runRowMenuAction } from '@/components/sidebar/lib/row-menu'
+import {
+  canBranchOut,
+  rowIsLocked,
+  rowMenuActions,
+  runRowMenuAction,
+} from '@/components/sidebar/lib/row-menu'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
 import { handleCreate } from '@/components/layout/create-actions'
 import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
 import { moveTargets } from '@/components/sidebar/lib/move-targets'
-import {
-  performBranchOut,
-  performCancelMove,
-  performSidebarDrop,
-} from '@/components/sidebar/lib/drop-actions'
+import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { readSelect, selectAgentChat } from '@/core/entities/select'
-import { entityStore } from '@/core/entities/entity-store'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
@@ -63,10 +63,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       if (!row) return null
       const locked = rowIsLocked(rowId)
       const movePending = !!readSelect((s) => selectAgentChat(s, rowId))?.pendingMove
-      // Only a thread in a repository has a HEAD to cut a branch from.
-      const inRepo = !!entityStore.getState().byKind.chat[rowId]?.data.repoId
-      const canBranch = row.kind === 'chat' && !row.ownsWorktree && inRepo && !movePending
-      return { row, locked, movePending, canBranch }
+      return { row, locked, movePending, canBranch: canBranchOut(row, movePending) }
     }
     const onContextMenu = (e: MouseEvent) => {
       if (!(e.target instanceof HTMLElement)) return
@@ -111,6 +108,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     rename: (target: SidebarRow) => treeUiStore.getState().startRenaming(target.id),
     importBranches: (target: SidebarRow) => onImport(target.id),
     fork: (target: SidebarRow) => void handleCreate(target.id, 'workspace', navigate),
+    branchOut: (target: SidebarRow) => treeUiStore.getState().startBranching(target.id),
   }
   const items: ContextMenuItem[] = rowMenuActions(row, {
     locked,
@@ -182,6 +180,6 @@ function branchOutItem(row: SidebarRow): ContextMenuItem {
     id: 'branch-out',
     label: 'Make a branch',
     icon: <GitBranch />,
-    onClick: () => void performBranchOut(row),
+    onClick: () => treeUiStore.getState().startBranching(row.id),
   }
 }

@@ -16,9 +16,9 @@ export interface SidebarRow {
   labelProvisional?: boolean
   ownsWorktree: boolean
   workspaceId: string | null
-  /** Chat rows only (branch/folder rows answer via `ownsWorktree`): false for a project-home
-   *  chat, which rides no repo and so has no worktree to fork. Undefined means true. */
-  canFork?: boolean
+  /** Chat rows only: the thread sits in a repo, so Make a branch can cut one from its folder's
+   *  HEAD (what the daemon's branch-out accepts). False for a project-home chat. */
+  canBranchOut?: boolean
   working: boolean
   hasView: boolean
   branchName?: string
