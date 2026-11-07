@@ -33,6 +33,15 @@ Crowbar finds the home as it was before. An older Crowbar started on a home
 that was not restored finds its own databases gone and shows chats without
 their history.
 
+A restore puts back only what is listed above: files a migration moved
+elsewhere in the home without changing them (chat attachments, descriptor
+overrides renamed to .refused) stay where it moved them; move them back by hand
+if an older Crowbar needs them. migrate/ledger.jsonl and the daemon log name
+what was moved.
+
+Turns an older Crowbar adds to a chat after the migration are kept in its own
+files but are not shown by a newer Crowbar.
+
 A directory instead of a .tar.gz is a backup from an earlier build: copy its
 state/, LAYOUT and ledger.jsonl back to state/, LAYOUT and migrate/ledger.jsonl.
 `
