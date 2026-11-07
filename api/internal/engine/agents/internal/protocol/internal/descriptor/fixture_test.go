@@ -328,9 +328,9 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 	// The placeholders a reply template may carry, and a stand-in that keeps the
 	// document valid once substituted.
 	fillers := map[string]string{
-		"{reason_json}":     `"denied by a human"`,
-		"{content_json}":    `{"field":"value"}`,
-		"{tool_input_json}": `{"command":"ls"}`,
+		"{reason_json}":      `"denied by a human"`,
+		"{content_json}":     `{"field":"value"}`,
+		"{tool_input_json}":  `{"command":"ls"}`,
 		"{suggestions_json}": `[{"type":"setMode","mode":"acceptEdits"}]`,
 	}
 
