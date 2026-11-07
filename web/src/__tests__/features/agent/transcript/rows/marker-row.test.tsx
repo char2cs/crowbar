@@ -196,7 +196,7 @@ describe('MarkerRow', () => {
         { turnId: 'turn-1' },
       ),
       l.start('turn-1', 'r1'),
-      l.row('assistant_text', { text: 'Once upon a' }, { turnId: 'turn-1' }),
+      l.text('turn-1', 'm1', 0, 'Once upon a', false),
       l.row(
         'turn_ended',
         { status: 'interrupted', reason: 'runner_exited' },
