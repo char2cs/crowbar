@@ -39,8 +39,8 @@ function useInheritedLevel(chatId: string, inherits: boolean): PermissionLevel |
  *  permissive offered one, as the daemon resolves it. */
 function offeredLevel(wanted: PermissionLevel, offered: PermissionLevel[]): PermissionLevel {
   const order = PERMISSION_LEVEL_OPTIONS.map((opt) => opt.value)
-  const from = order.indexOf(wanted)
-  return order.slice(from).find((l) => offered.includes(l)) ?? offered.at(-1) ?? wanted
+  const offers = new Set(offered)
+  return order.slice(order.indexOf(wanted)).find((l) => offers.has(l)) ?? offered.at(-1) ?? wanted
 }
 
 /** Shows the level the chat is pinned to (or inherits), and offers only levels the provider

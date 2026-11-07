@@ -52,7 +52,7 @@ export function ChoiceRequest({
       )}
       {view.markdown && (
         // It scrolls inside its own bound, so the answers stay in reach.
-        <div className="choice-request-markdown" tabIndex={0}>
+        <div className="choice-request-markdown">
           <MarkdownMessageStatic variant="chat">{view.markdown}</MarkdownMessageStatic>
         </div>
       )}
