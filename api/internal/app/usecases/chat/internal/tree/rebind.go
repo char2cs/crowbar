@@ -100,6 +100,9 @@ func (u *chatFolderUsecase) checkMoveTarget(
 	if err := u.checkChatContainer(ctx, snapshot, workspaceID, destination, false); err != nil {
 		return err
 	}
+	if err := u.checkContainerRunsIn(ctx, snapshot, destination, workspaceID); err != nil {
+		return err
+	}
 	ok, err := u.workspaces.Provisioned(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("agent chat folder: move target %s: %w", workspaceID, err)
@@ -109,6 +112,45 @@ func (u *chatFolderUsecase) checkMoveTarget(
 	}
 	return nil
 }
+
+// checkContainerRunsIn refuses a destination whose chats run elsewhere than workspaceID: the nearest
+// row above it that runs in a workspace decides; a folder at a repo's root runs in its checkout.
+func (u *chatFolderUsecase) checkContainerRunsIn(
+	ctx context.Context, snapshot *treeSnapshot, destination, workspaceID string,
+) error {
+	runsIn, err := u.containerWorkspace(ctx, snapshot, destination)
+	if err != nil || runsIn == "" || runsIn == workspaceID {
+		return err
+	}
+	return fmt.Errorf("agent chat folder: move into %s, whose chats run in %s, not %s: %w",
+		destination, runsIn, workspaceID, ErrCrossWorkspace)
+}
+
+// containerWorkspace is the workspace chats filed under id run in, "" when the tree root decides.
+func (u *chatFolderUsecase) containerWorkspace(ctx context.Context, snapshot *treeSnapshot, id string) (string, error) {
+	repo := ""
+	for hops := 0; id != "" && hops < maxContainerDepth; hops++ {
+		row, err := u.resolveRow(ctx, snapshot, id)
+		if err != nil {
+			return "", fmt.Errorf("agent chat folder: container %s: %w", id, err)
+		}
+		if row.Type != domain.ChatTypeFolder {
+			return row.WorkspaceID, nil
+		}
+		repo, id = row.RepoID, row.ParentID
+	}
+	if repo == "" {
+		return "", nil
+	}
+	root, err := u.workspaces.DefaultWorkspaceOf(ctx, repo)
+	if err != nil {
+		return "", fmt.Errorf("agent chat folder: container: checkout of %s: %w", repo, err)
+	}
+	return root, nil
+}
+
+// maxContainerDepth bounds the walk up a container chain the cycle check already keeps finite.
+const maxContainerDepth = 64
 
 // crossedInto names the repository workspaceID is in when it is another project than from's, "" otherwise.
 func (u *chatFolderUsecase) crossedInto(ctx context.Context, from moveSite, workspaceID string) (string, error) {

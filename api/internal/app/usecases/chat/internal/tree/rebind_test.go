@@ -153,3 +153,19 @@ func TestStopMoves_ADaemonShuttingDownLeavesTheMoveForTheNextBoot(t *testing.T) 
 	assert.Contains(t, waiting, "c1")
 	assert.Equal(t, "ws-a", rowOf(chats, "c1").WorkspaceID)
 }
+
+// The container a thread lands in decides where it runs: one inside branch b runs in b's
+// workspace, so a drop naming another workspace is refused, not half-made.
+func TestMoveChat_RefusesAContainerOfAnotherWorkspace(t *testing.T) {
+	chats, uc := rebindWorld(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "f", Type: domain.ChatTypeFolder, ParentID: "b", RepoID: repoID})
+	for _, parent := range []string{"b", "f"} {
+		_, _, err := uc.PlaceChat(context.Background(), "ws-a", "c1",
+			tree.PlaceInput{ParentID: &parent, WorkspaceID: "ws-c"})
+		require.ErrorIs(t, err, tree.ErrCrossWorkspace, parent)
+	}
+	waiting, err := chats.MovesWaiting(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, waiting)
+}
