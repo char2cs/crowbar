@@ -299,21 +299,28 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
 }
 
 /** Stops the running turn, which reads as stopping from this frame on. */
-export async function stopTurn(wsId: string, chatId: string): Promise<void> {
+export function stopTurn(wsId: string, chatId: string): Promise<void> {
   setStopping(chatId, true)
   // Stop settles every prompt the turn would carry: those steered in are taken back
   // first and sent after it, as typed, as a prompt held for the next turn already is.
-  const taken = await Promise.all(
-    steeredInto(chatId).map((p) => takeBack(wsId, chatId, p.requestId, p.text)),
+  const steered = steeredInto(chatId)
+  if (steered.length === 0) return stop(wsId, chatId)
+  return Promise.all(steered.map((p) => takeBack(wsId, chatId, p.requestId, p.text))).then(
+    async (taken) => {
+      await stop(wsId, chatId)
+      for (const text of taken) if (text !== null) sendPrompt(wsId, chatId, { text, steer: false })
+    },
   )
-  try {
-    await stopChat(wsId, chatId)
-  } catch (error) {
-    setStopping(chatId, false)
-    report(error, { action: 'Couldn’t stop the turn' })
-  }
-  for (const text of taken) if (text !== null) sendPrompt(wsId, chatId, { text, steer: false })
 }
+
+const stop = (wsId: string, chatId: string) =>
+  stopChat(wsId, chatId).then(
+    () => undefined,
+    (error: unknown) => {
+      setStopping(chatId, false)
+      report(error, { action: 'Couldn’t stop the turn' })
+    },
+  )
 
 /** The prompts the daemon holds for the running turn, oldest first. */
 function steeredInto(chatId: string): { requestId: string; text: string }[] {

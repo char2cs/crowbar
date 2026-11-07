@@ -4,6 +4,7 @@ import {
   retractNewest,
   retryPrompt,
   sendPrompt,
+  stopTurn,
   type PromptInput,
 } from '@/features/agent/stores/chat-outbox'
 import { useChatStore } from '@/features/agent/stores/chat-store'
@@ -43,5 +44,12 @@ export function useChatSend(
     actions,
     send: (input: Omit<PromptInput, 'steer'>) => sendPrompt(wsId, chatId, { ...input, steer }),
     retract: () => retractNewest(wsId, chatId),
+    /** Stop before the turn runs: the prompt comes back, or, once its provider
+     *  has it and nothing can take it back, the turn it starts is stopped. */
+    withdraw: async () => {
+      const text = await (retractNewest(wsId, chatId) ?? null)
+      if (text === null) await stopTurn(wsId, chatId)
+      return text
+    },
   }
 }
