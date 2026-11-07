@@ -41,11 +41,18 @@
      here: WebKit can leave a padding out of `scrollHeight` in borderline cases, leaving a chat
      with nothing to scroll. */
   scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 32px);
-  /* Text under the dock fades by OPACITY over the same --agent-dock-h + 24px band as composer.css's
-     blur. A second layer keeps the scrollbar strip opaque (masks union). The mask must stay on
-     `.scroll` itself: moving it to a wrapper broke the pin's floor sizing. */
+  /* Text is gone under the dock and the overlay header, fading in over the 24px band above the
+     dock and over the header's dissolve reach: a webview without backdrop blur still never shows
+     text through either. A second layer keeps the scrollbar strip opaque (masks union). The mask
+     must stay on `.scroll` itself: moving it to a wrapper broke the pin's floor sizing. */
   mask-image:
-    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
+    linear-gradient(
+      to top,
+      transparent var(--agent-dock-h, 92px),
+      black calc(var(--agent-dock-h, 92px) + 24px),
+      black calc(100% - var(--agent-transcript-header-clearance, 0px)),
+      transparent calc(100% - var(--agent-header-clearance, 0px))
+    ),
     linear-gradient(
       to left,
       black 0,
@@ -53,7 +60,13 @@
       transparent var(--agent-scrollbar-w, 0px)
     );
   -webkit-mask-image:
-    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
+    linear-gradient(
+      to top,
+      transparent var(--agent-dock-h, 92px),
+      black calc(var(--agent-dock-h, 92px) + 24px),
+      black calc(100% - var(--agent-transcript-header-clearance, 0px)),
+      transparent calc(100% - var(--agent-header-clearance, 0px))
+    ),
     linear-gradient(
       to left,
       black 0,
