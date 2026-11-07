@@ -236,7 +236,11 @@ func (c *Container) resolveOwningChat(
 	if err != nil {
 		return domain.Chat{}, false
 	}
-	return domain.ResolveOwningChat(heard.over(rows, ws.ID))
+	owner, owned := domain.ResolveOwningChat(heard.over(rows, ws.ID))
+	if !owned {
+		return owner, false
+	}
+	return c.atItsNode(ctx, owner), true
 }
 
 // WorkingFor reports whether an agent chat in the workspace is mid-turn. The
