@@ -16,6 +16,7 @@ import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
 import { seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { ApiError } from '@/lib/errors/api-error'
+import { onGitRefreshRequested } from '@/features/git/stores/git-refresh'
 
 const mocks = vi.hoisted(() => ({
   setMergeStrategy: vi.fn(),
@@ -145,6 +146,20 @@ describe('ReviewMergeBox', () => {
 
     expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', false, expect.any(String))
     expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  // The parent now holds the branch's commits, so the kept branch's changed files are stale.
+  it('asks for a git refresh of the kept branch once its merge lands', async () => {
+    mocks.mergeIntoParent.mockResolvedValue({ items: [] })
+    const refreshed = vi.fn()
+    const stop = onGitRefreshRequested(WS, refreshed)
+    const user = userEvent.setup()
+    setup({})
+    await user.click(screen.getByText('Delete this branch and its chats after merging'))
+    await user.click(mergeButton())
+
+    await waitFor(() => expect(refreshed).toHaveBeenCalled())
+    stop()
   })
 
   it('a merge that kept the child (conflicts) does not redirect', async () => {

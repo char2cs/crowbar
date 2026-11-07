@@ -14,6 +14,7 @@ import { readSelect, selectRepos } from '@/core/entities/select'
 import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/core/entities/repo-queries'
 import { runOperation, whenSettled } from '@/core/entities/run-operation'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
+import { requestGitRefresh } from '../stores/git-refresh'
 import { stopChat } from '@/features/agent/api/agent-chat-commands'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
@@ -88,10 +89,17 @@ export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
       },
       (opId) => mergeIntoParent(wsId, strategy, deleteAfterMerge, opId),
     )
-    whenSettled(op.id).catch((err: unknown) => {
-      if (err instanceof OperationFailedError && err.problem.code === 'chat_busy')
-        setWorking(err.problem.message)
-    })
+    // A kept branch's changes now sit in its parent, yet its own status is unchanged,
+    // so no status frame says its changed files went stale.
+    whenSettled(op.id).then(
+      () => {
+        if (!deleteAfterMerge) requestGitRefresh(wsId)
+      },
+      (err: unknown) => {
+        if (err instanceof OperationFailedError && err.problem.code === 'chat_busy')
+          setWorking(err.problem.message)
+      },
+    )
     if (!target) return
     // Waits from the click: the fold's frame can land before the terminal one,
     // and the route guard would move off the vanished child first.
