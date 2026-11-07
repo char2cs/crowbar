@@ -2,9 +2,12 @@ package migrations
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
+	"strconv"
 
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
@@ -48,11 +51,31 @@ func retireRefusedDescriptors(ctx context.Context, env migrate.Env, _ *migrate.C
 		return nil, err
 	}
 	for _, path := range paths {
-		if err := os.Rename(path, path+refusedSuffix); err != nil {
+		target, err := freeName(path + refusedSuffix)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.Rename(path, target); err != nil {
 			return nil, fmt.Errorf("refused descriptors: %w", err)
 		}
 		slog.WarnContext(ctx, "migrate: descriptor override refused by this build; moved aside, the shipped descriptor runs",
-			"from", path, "to", path+refusedSuffix)
+			"from", path, "to", target)
 	}
 	return migrate.Counts{"retired": int64(len(paths))}, nil
+}
+
+// freeName is name, or name.N for the first N from 2 that is free: a step run
+// again on a restored home must not replace the copy the first run kept.
+func freeName(name string) (string, error) {
+	candidate := name
+	for n := 2; ; n++ {
+		_, err := os.Lstat(candidate)
+		if errors.Is(err, fs.ErrNotExist) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("refused descriptors: %w", err)
+		}
+		candidate = name + "." + strconv.Itoa(n)
+	}
 }

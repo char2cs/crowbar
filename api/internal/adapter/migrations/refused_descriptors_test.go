@@ -32,6 +32,25 @@ func TestRefusedDescriptors_MovesARefusedOverrideAsideButNotACustomProvider(t *t
 	assert.Equal(t, []migrate.Counts{{"retired": 1}}, migratetest.Applied(t, h)[StepRefusedDescriptors])
 }
 
+// A restored home runs the step again while the first run's copy is still there:
+// the newer refused override is set beside it, never over it.
+func TestRefusedDescriptors_KeepsAnEarlierRefusedCopy(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "descriptors/claude.yaml", "id: claude\nsession:\n  locate: {}\n# second\n")
+	testutil.WriteFile(t, h, "descriptors/claude.yaml.refused", "# first\n")
+
+	finish(t, boot(t, h))
+
+	root := h.Root()
+	first, err := os.ReadFile(filepath.Join(root, "descriptors/claude.yaml.refused"))
+	require.NoError(t, err)
+	assert.Equal(t, "# first\n", string(first))
+	second, err := os.ReadFile(filepath.Join(root, "descriptors/claude.yaml.refused.2"))
+	require.NoError(t, err)
+	assert.Contains(t, string(second), "# second")
+	assert.NoFileExists(t, filepath.Join(root, "descriptors/claude.yaml"))
+}
+
 func TestRefusedDescriptors_HasNothingToDoWithoutOverrides(t *testing.T) {
 	h := testutil.FixtureHome(t)
 
