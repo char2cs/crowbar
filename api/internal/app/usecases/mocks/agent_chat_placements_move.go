@@ -15,7 +15,10 @@ import (
 // moves done, and which chats are mid-turn. Every chat is in project "p1" unless
 // Projects names another.
 type MoveLedger struct {
-	mu           sync.Mutex
+	mu sync.Mutex
+	// exec runs one move at a time: the fake's rows, unlike the real stores, are not
+	// safe for concurrent writers.
+	exec         sync.Mutex
 	Pending      map[string]ledger.Move
 	Done         map[string][]ledger.Move
 	Busy         map[string]bool
@@ -63,7 +66,9 @@ func (s *AgentChatPlacements) ExecuteMove(
 	if !ok || busy {
 		return ledger.Move{}, false, nil
 	}
+	l.exec.Lock()
 	done, err := apply(ctx, m)
+	l.exec.Unlock()
 	if errors.Is(err, ledger.ErrMoveWaits) {
 		return ledger.Move{}, false, nil
 	}
@@ -127,7 +132,10 @@ func (s *AgentChatPlacements) SetBusy(chatID string, busy bool) {
 // BranchOuts records each BranchOutWorkspace call's source workspace; BranchOutErr fails it,
 // and Discarded records what DiscardWorkspace removed.
 func (s *AgentChatPlacements) RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error) {
-	dir, _, _, _ := s.MoveSite(ctx, workspaceID)
+	dir, _, _, err := s.MoveSite(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
 	return s.RequestMove(ctx, chatID, ledger.Move{
 		RequestID: "branch-" + chatID, BranchOut: true, Branch: branch, From: workspaceID, FromDir: dir, By: by,
 	})

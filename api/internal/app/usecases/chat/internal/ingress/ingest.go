@@ -136,18 +136,12 @@ func (r *Recorder) Dispatch(
 	if r.surfaceGated(runner.ID, agent, ev.Kind) {
 		return nil, "", nil
 	}
-	chat, err := r.chatForRunner(ctx, runner)
+	chat, st, err := r.chatState(ctx, runner)
 	if err != nil {
 		return nil, "", err
 	}
-	st, err := r.ledger.State(ctx, chat.ID)
-	if err != nil {
-		return nil, "", fmt.Errorf("agent: ingest hook: read the chat's bound session: %w", err)
-	}
-	if dir := leftFolderWrite(st, ev); dir != "" && channel == engineagents.ChannelHooks {
-		if body, ok := agent.ToolDenial(guardReason(dir, st.MovedTo())); ok {
-			return []byte(body), "", nil
-		}
+	if denial, ok := guardLeftFolder(st, agent, ev, channel); ok {
+		return denial, "", nil
 	}
 	src := Source{
 		RunnerID: runner.ID, Provider: runner.ProviderID, SessionID: boundSession(st, runner.ProviderID),
@@ -181,6 +175,19 @@ func (r *Recorder) Dispatch(
 		})
 	}
 	return fx.Reply, fx.HoldAsk, nil
+}
+
+// chatState is runner's chat and its ledger as it stands.
+func (r *Recorder) chatState(ctx context.Context, runner engineagents.Runner) (domain.Chat, ledger.State, error) {
+	chat, err := r.chatForRunner(ctx, runner)
+	if err != nil {
+		return domain.Chat{}, ledger.State{}, err
+	}
+	st, err := r.ledger.State(ctx, chat.ID)
+	if err != nil {
+		return domain.Chat{}, ledger.State{}, fmt.Errorf("agent: ingest hook: read the chat's bound session: %w", err)
+	}
+	return chat, st, nil
 }
 
 // acknowledgedOnly reports whether ev records nothing: a runner's end is

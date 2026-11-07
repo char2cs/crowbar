@@ -86,8 +86,8 @@ func TestMove_ACancelOrFailureClosesTheRequest(t *testing.T) {
 }
 
 func TestMove_CheckRefusesAnUnknownPhaseOrAMissingRequest(t *testing.T) {
-	assert.ErrorIs(t, ledger.Check(ledger.State{}, moveRow(t, ledger.Move{Phase: "maybe", RequestID: "m"})), ledger.ErrMalformedRow)
-	assert.ErrorIs(t, ledger.Check(ledger.State{}, moveRow(t, ledger.Move{Phase: ledger.MoveRequested})), ledger.ErrMalformedRow)
+	require.ErrorIs(t, ledger.Check(ledger.State{}, moveRow(t, ledger.Move{Phase: "maybe", RequestID: "m"})), ledger.ErrMalformedRow)
+	require.ErrorIs(t, ledger.Check(ledger.State{}, moveRow(t, ledger.Move{Phase: ledger.MoveRequested})), ledger.ErrMalformedRow)
 	assert.NoError(t, ledger.Check(ledger.State{}, moveRow(t, ledger.Move{Phase: ledger.MoveRequested, RequestID: "m", To: "w"})))
 }
 

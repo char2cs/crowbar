@@ -61,21 +61,32 @@ func (u *chatFolderUsecase) requestMove(
 		return domain.Chat{}, nil, err
 	}
 	base := ledger.Move{To: in.WorkspaceID, From: workspaceID, FromDir: from.Dir, Label: in.Label, Repo: repo, By: "user"}
+	if err := u.askSubtreeMoves(ctx, snapshot, chatID, destination, in.Order, base); err != nil {
+		return domain.Chat{}, nil, err
+	}
+	return current, nil, nil
+}
+
+// askSubtreeMoves asks base's move of chatID, to destination at order, and of every thread under it
+// still in base.From, each keeping its parent.
+func (u *chatFolderUsecase) askSubtreeMoves(
+	ctx context.Context, snapshot *treeSnapshot, chatID, destination string, order *int, base ledger.Move,
+) error {
 	for _, id := range snapshot.subtreeIDs(chatID) {
 		row := snapshot.row(id)
-		if row == nil || !row.IsChat() || row.WorkspaceID != workspaceID || row.OwnsWorkspace {
+		if row == nil || !row.IsChat() || row.WorkspaceID != base.From || row.OwnsWorkspace {
 			continue
 		}
 		m := base
 		m.RequestID, m.ParentID = uuid.NewString(), row.ParentID
 		if id == chatID {
-			m.ParentID, m.Order = destination, in.Order
+			m.ParentID, m.Order = destination, order
 		}
 		if err := u.askMove(ctx, id, m); err != nil {
-			return domain.Chat{}, nil, err
+			return err
 		}
 	}
-	return current, nil, nil
+	return nil
 }
 
 // checkMoveTarget refuses what no move could make: a drop into the chat's own subtree, a container
@@ -170,8 +181,10 @@ func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 			return ledger.Move{}, err
 		}
 		to, err := u.siteOf(ctx, m.To)
-		return ledger.Move{From: m.From, To: m.To, FromDir: m.FromDir, ToDir: to.Dir, Repo: m.Repo,
-			ParentID: m.ParentID, By: m.By}, err
+		return ledger.Move{
+			From: m.From, To: m.To, FromDir: m.FromDir, ToDir: to.Dir, Repo: m.Repo,
+			ParentID: m.ParentID, By: m.By,
+		}, err
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "agent chat folder: move failed", "chat_id", chatID, "err", err)
@@ -186,8 +199,10 @@ func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 			u.MoveWhenReady(ctx, c.ID)
 			continue
 		}
-		follow := ledger.Move{RequestID: uuid.NewString(), To: done.To, From: left, FromDir: done.FromDir,
-			ParentID: chatID, Label: done.Branch, By: done.By}
+		follow := ledger.Move{
+			RequestID: uuid.NewString(), To: done.To, From: left, FromDir: done.FromDir,
+			ParentID: chatID, Label: done.Branch, By: done.By,
+		}
 		if err := u.askMove(ctx, c.ID, follow); err != nil {
 			slog.WarnContext(ctx, "agent chat folder: branch out: a thread under it", "chat_id", c.ID, "err", err)
 		}
@@ -215,12 +230,21 @@ func (u *chatFolderUsecase) applyMove(ctx context.Context, chatID string, m ledg
 		placeMode{rebind: true}); err != nil {
 		return nil, nil, errors.Join(err, u.agent.RunIn(ctx, chatID, current.WorkspaceID))
 	}
+	return inherited, u.movedLineage(ctx, chatID), nil
+}
+
+// movedLineage is the chats chatID reads from its new place; nil when unreadable, which only
+// skips the best-effort lineage note: the move itself stands.
+func (u *chatFolderUsecase) movedLineage(ctx context.Context, chatID string) []string {
 	moved, err := u.chats.LoadChat(ctx, chatID)
-	if err != nil {
-		return inherited, nil, nil
+	if err == nil {
+		var lineage []string
+		if lineage, err = u.lineageOf(ctx, moved); err == nil {
+			return lineage
+		}
 	}
-	lineage, _ := u.lineageOf(ctx, moved)
-	return inherited, lineage, nil
+	slog.WarnContext(ctx, "agent chat folder: move: read the new lineage", "chat_id", chatID, "err", err)
+	return nil
 }
 
 // threadsUnder are the chats directly under chatID, as the placement tree files them, in workspaceID.

@@ -152,7 +152,7 @@ func (f *MessageFold) Apply(r Row) {
 	case KindRunnerExited:
 		f.settle(r, func(*message) bool { return true })
 	case KindUserMessage, KindTurnStarted, KindPromptSettled, KindSessionBound, KindSessionLost, KindMarker,
-		KindRunnerStarted, KindReasoning, KindToolCall, KindAsk, KindAskResolved, KindSubagent, KindPlan:
+		KindRunnerStarted, KindReasoning, KindToolCall, KindAsk, KindAskResolved, KindSubagent, KindPlan, KindMove:
 		// neither says nor settles a message
 	}
 }

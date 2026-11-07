@@ -49,6 +49,19 @@ func within(dirs []string, path, cwd string) string {
 	return ""
 }
 
+// guardLeftFolder is the reply refusing ev when it writes into a folder the chat left: only a
+// hook's reply can refuse a call before it runs.
+func guardLeftFolder(
+	st ledger.State, agent engineagents.Agent, ev engineagents.CanonicalEvent, channel engineagents.Channel,
+) ([]byte, bool) {
+	dir := leftFolderWrite(st, ev)
+	if dir == "" || channel != engineagents.ChannelHooks {
+		return nil, false
+	}
+	body, ok := agent.ToolDenial(guardReason(dir, st.MovedTo()))
+	return []byte(body), ok
+}
+
 // guardReason is what the agent is told when a write into dir is refused.
 func guardReason(dir, now string) string {
 	return fmt.Sprintf("Crowbar moved this conversation out of %s; it is no longer yours to write to. "+

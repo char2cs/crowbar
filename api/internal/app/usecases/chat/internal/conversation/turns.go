@@ -111,7 +111,7 @@ func (f *turnFold) apply(r ledger.Row) {
 		}
 	case ledger.KindPromptSettled, ledger.KindSessionBound, ledger.KindSessionLost, ledger.KindMarker,
 		ledger.KindRunnerExited, ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall,
-		ledger.KindAsk, ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan:
+		ledger.KindAsk, ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove:
 		// the message fold reads the text; the rest says no message
 	}
 }

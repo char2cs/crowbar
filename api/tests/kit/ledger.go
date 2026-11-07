@@ -84,7 +84,7 @@ func providersOf(rows []ledger.Row) map[string]string {
 		case ledger.KindUserMessage, ledger.KindPromptSettled, ledger.KindSessionBound, ledger.KindSessionLost,
 			ledger.KindMarker, ledger.KindRunnerExited, ledger.KindTurnFailed, ledger.KindAssistantText,
 			ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk, ledger.KindAskResolved,
-			ledger.KindSubagent, ledger.KindPlan:
+			ledger.KindSubagent, ledger.KindPlan, ledger.KindMove:
 			// names no provider
 		}
 	}

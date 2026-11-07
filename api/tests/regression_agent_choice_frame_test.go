@@ -138,7 +138,7 @@ func asksOf(t *testing.T, h *harness, chatID string) []askState {
 		case ledger.KindUserMessage, ledger.KindTurnStarted, ledger.KindPromptSettled, ledger.KindSessionBound,
 			ledger.KindSessionLost, ledger.KindMarker, ledger.KindRunnerStarted, ledger.KindRunnerExited,
 			ledger.KindTurnEnded, ledger.KindTurnFailed, ledger.KindAssistantText, ledger.KindReasoning,
-			ledger.KindToolCall, ledger.KindSubagent, ledger.KindPlan:
+			ledger.KindToolCall, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove:
 			// not an ask
 		}
 	}
