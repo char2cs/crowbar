@@ -277,11 +277,13 @@ export function OobeScreen() {
                 className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 text-center"
               >
                 <CrowbarWordmark className="w-[min(360px,44vw)] text-white" />
+                {/* The gradient is pastel in both themes, so white body text cannot reach 4.5:1 on
+                    it; the button's ink can (about 6:1 on its lightest blob). */}
                 <m.p
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.15 }}
-                  className="max-w-xs text-base text-white/70"
+                  className="max-w-xs text-base text-black/80"
                 >
                   {OOBE_TAGLINE}
                 </m.p>
