@@ -100,7 +100,8 @@ func TestWait_ClampsAnAbsentOrAbsurdBudget(t *testing.T) {
 
 	assert.Equal(t, 120*time.Second, answerdesk.Wait(0))
 	assert.Equal(t, 120*time.Second, answerdesk.Wait(-time.Second))
-	assert.Equal(t, 15*time.Minute, answerdesk.Wait(time.Hour))
+	assert.Equal(t, 23*time.Hour, answerdesk.Wait(23*time.Hour), "a person may take a day to decide")
+	assert.Equal(t, 24*time.Hour, answerdesk.Wait(48*time.Hour))
 	assert.Equal(t, 30*time.Second, answerdesk.Wait(30*time.Second))
 }
 

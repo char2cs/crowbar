@@ -857,9 +857,8 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 	require.True(t, ok, "claude declares an answer channel for its permission hook")
 	assert.Equal(t, []string{"allow", "answer", "deny", "suggestion"}, capability.Keys)
 	assert.Positive(t, capability.Wait)
-	assert.Less(t, capability.Wait, 300*time.Second,
-		"the daemon's budget must expire BEFORE the 300s timeout injected on the hook, "+
-			"or the relay is killed mid-write instead of exiting under its own control")
+	assert.GreaterOrEqual(t, capability.Wait, 23*time.Hour,
+		"a person may take long over a plan: the hook is held for as long as they may take")
 
 	// An allow echoes the input: claude's own plan dialog stays open on a bare allow.
 	plan, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "claude", "PermissionRequest.ExitPlanMode.json"))
@@ -975,12 +974,13 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 		} `json:"hooks"`
 	}
 	require.NoError(t, json.Unmarshal(settings, &decoded))
-	for _, event := range []string{"PermissionRequest", "Elicitation"} {
-		matchers := decoded.Hooks[event]
+	for event, hook := range map[string]string{"PermissionRequest": agents.HookPermission, "Elicitation": agents.HookElicitation} {
+		capability, _ := get(t, "claude").AnswerCapability(hook)
+		matchers, held := decoded.Hooks[event], capability.Wait
 		require.NotEmpty(t, matchers, event)
 		require.NotEmpty(t, matchers[0].Hooks, event)
-		assert.Positive(t, matchers[0].Hooks[0].Timeout,
-			"%s is held open while a human decides and must declare its own budget", event)
+		// The daemon's budget ends before the CLI kills the hook mid-write.
+		assert.Greater(t, time.Duration(matchers[0].Hooks[0].Timeout)*time.Second, held, event)
 	}
 }
 

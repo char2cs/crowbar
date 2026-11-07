@@ -22,9 +22,9 @@ type Ledger interface {
 const (
 	// waitFallback is how long a relay waits when its provider declared no budget.
 	waitFallback = 120 * time.Second
-	// maxWait caps a declared budget. A provider asking Crowbar to hold a hook open
-	// for an hour is holding a process hostage, not asking a question.
-	maxWait = 15 * time.Minute
+	// maxWait caps a declared budget. A person may take hours over a plan, and a
+	// lapsed hold strands the CLI on a dialog only its terminal answers.
+	maxWait = 24 * time.Hour
 	// DefaultRetention is how long a verdict lingers for a relay that has not asked
 	// for it yet: one answered between its hook being recorded and its wait
 	// starting. Past it the answer is stale and the provider has moved on.

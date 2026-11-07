@@ -288,7 +288,7 @@ events:
     # No recorded PermissionRequest is an AskUserQuestion one yet.
     unverified_fields: [questions]
     ask: PermissionRequest
-    timeout_seconds: 270
+    timeout_seconds: 86340
     answers_into: answers
     map:
       session_id:             session_id
@@ -336,7 +336,7 @@ events:
     required: [session_id]
     unverified: true
     ask: Elicitation
-    timeout_seconds: 270
+    timeout_seconds: 86340
     map:
       session_id: session_id
       message:    message
@@ -523,8 +523,9 @@ hooks_injection:
   # on 2.1.310, interactive), only to a command, so it goes through curl.
   #
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
-  # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
-  # rather than abandoned. The held request IS the answer channel: the daemon
+  # hooks Crowbar HOLDS OPEN while a human decides, for as long as one may take
+  # (a day, just past the ask's own budget), and an overrun is KILLED rather
+  # than abandoned. The held request IS the answer channel: the daemon
   # answers it when the human decides, and a CLI that hangs up has been decided
   # at the terminal.
   #
@@ -565,9 +566,9 @@ hooks_injection:
             "url":"{hook_url}/notification","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}},
             {"type":"http",
             "url":"{hook_url}/idle","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
-          "PermissionRequest":[{"hooks":[{"type":"http","timeout":300,
+          "PermissionRequest":[{"hooks":[{"type":"http","timeout":86400,
             "url":"{hook_url}/permission","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
-          "Elicitation":[{"hooks":[{"type":"http","timeout":300,
+          "Elicitation":[{"hooks":[{"type":"http","timeout":86400,
             "url":"{hook_url}/elicitation","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "PreCompact":[{"hooks":[{"type":"http",
             "url":"{hook_url}/compact_pre","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
