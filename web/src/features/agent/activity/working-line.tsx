@@ -22,7 +22,7 @@ export interface WorkingLineProps {
   agents?: number
   /** What the agent is thinking right now. */
   reasoning?: string
-  /** Answer text is streaming: it is the signal, so the line names nothing. */
+  /** Answer text is streaming: the reply is being written. */
   streaming?: boolean
   /** The CLI the chat is moving onto is still connecting. */
   connecting?: string
@@ -31,7 +31,7 @@ export interface WorkingLineProps {
 const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatElapsed(seconds)}` : '')
 
 /** The most specific true thing the turn is doing, never a guess, beside its clock. */
-function headingOf(p: WorkingLineProps, thought: string | undefined): string | null {
+function headingOf(p: WorkingLineProps, thought: string | undefined): string {
   if (p.stopping) return 'Stopping…'
   if (p.asking) return 'Waiting for your answer'
   if (p.compacting) return 'Compacting…'
@@ -40,7 +40,7 @@ function headingOf(p: WorkingLineProps, thought: string | undefined): string | n
   if (p.toolLabel) return p.toolLabel
   if (p.agents) return `Waiting for ${p.agents} ${p.agents === 1 ? 'agent' : 'agents'}`
   if (thought) return thought
-  if (p.streaming) return null
+  if (p.streaming) return 'Writing…'
   return ''
 }
 
@@ -68,18 +68,16 @@ export function WorkingLine(props: WorkingLineProps) {
       <div className="hd">
         {!asking && <FlickerSpinner className="size-4" />}
         <span>
-          {heading !== null && (
-            // Announced on change; the clock beside it stays out of the live region,
-            // and the rotating verb is announced once as "Working".
-            <b className="verb" data-testid="agent-working-heading" aria-live="polite">
-              {heading || (
-                <>
-                  <span className="sr-only">Working</span>
-                  <span aria-hidden="true">{`${verbAt(tick)}…`}</span>
-                </>
-              )}
-            </b>
-          )}
+          {/* Announced on change; the clock beside it stays out of the live region,
+              and the rotating verb is announced once as "Working". */}
+          <b className="verb" data-testid="agent-working-heading" aria-live="polite">
+            {heading || (
+              <>
+                <span className="sr-only">Working</span>
+                <span aria-hidden="true">{`${verbAt(tick)}…`}</span>
+              </>
+            )}
+          </b>
           {!asking && <span className="dim" ref={clockRef} />}
         </span>
       </div>
