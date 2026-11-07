@@ -25,6 +25,10 @@ type Descriptor struct {
 
 	MCPInject InjectSteps `yaml:"mcp_injection"`
 
+	// AddDirs hands an interactive CLI the directories outside its workspace it may
+	// read without asking: the chat's attachment store ({attachments_dir}).
+	AddDirs InjectSteps `yaml:"add_dirs"`
+
 	ContextInject InjectSteps `yaml:"context_inject"`
 
 	ResumeContextInject InjectSteps `yaml:"resume_context_inject"`

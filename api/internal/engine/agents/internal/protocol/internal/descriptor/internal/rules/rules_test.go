@@ -374,7 +374,9 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 		},
 		{
 			"builtin name carrying its slash",
-			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{{Name: "/help"}} },
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{{Name: "/help"}}
+			},
 			"builtins[0].name",
 		},
 		{

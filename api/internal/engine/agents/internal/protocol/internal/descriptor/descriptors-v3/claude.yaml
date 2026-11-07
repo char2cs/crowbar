@@ -584,6 +584,10 @@ mcp_injection:
   - pass_arg:
       arg: "--mcp-config"
       value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
+# A pasted image lives in Crowbar's home, outside the workspace, and claude asks to
+# Read each one otherwise. `=`: --add-dir is variadic, and the joined form takes one value.
+add_dirs:
+  - pass_arg: { arg: "--add-dir={attachments_dir}" }
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 # NOT --append-system-prompt on resume: confirmed live, a resumed session's

@@ -517,7 +517,7 @@ func spawnArgvShape(
 		f.setPrefs(t, *pref)
 	}
 	chatID, runnerID := f.spawn(t, provider)
-	pairs := []string{f.ws.home, "<HOME>", runnerID, "<RUNNER>", f.minter.Mint(runnerID), "<TOKEN>"}
+	pairs := []string{f.ws.home, "<HOME>", runnerID, "<RUNNER>", chatID, "<CHAT>", f.minter.Mint(runnerID), "<TOKEN>"}
 	if session := f.conversation(t, chatID, provider).SessionID; session != "" {
 		pairs = append(pairs, session, "<SESSION>")
 	}
