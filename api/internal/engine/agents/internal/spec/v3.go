@@ -114,6 +114,9 @@ type EventSpec struct {
 	RateLimits []RateLimitSpec `yaml:"rate_limits"`
 	// AnswersInto is permission's structured extra.
 	AnswersInto string `yaml:"answers_into"`
+	// ToolSuggestions is permission's other extra: per tool, the grants its own
+	// dialog offers when the payload lists none (map's suggestions).
+	ToolSuggestions map[string][]map[string]any `yaml:"tool_suggestions"`
 	// Steps is plan_update's structured extra: a field map cannot express a LIST
 	// of {text, status} pairs.
 	Steps *StepsSpec `yaml:"steps"`

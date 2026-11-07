@@ -873,6 +873,39 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 		string(deny))
 }
 
+// claude's plan dialog offers "Yes, and use auto mode" and "Yes, manually approve
+// edits", which its payload never lists: the descriptor declares them, and picking
+// one both approves the plan (the input echoed) and sets the mode.
+func TestAgent_ClaudeOffersItsPlanDialogsModesOnAPlanApproval(t *testing.T) {
+	a := get(t, "claude")
+	plan, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "claude", "PermissionRequest.ExitPlanMode.json"))
+	require.NoError(t, err)
+
+	ev, err := a.ParseHook(agents.HookPermission, plan, agents.ChannelHooks)
+	require.NoError(t, err)
+	require.NotNil(t, ev.Choice)
+	labels := map[string]string{}
+	for _, o := range ev.Choice.Options {
+		labels[o.ID] = o.Label
+	}
+	assert.Equal(t, "Yes, and use auto mode", labels["suggestion-0"])
+	assert.Equal(t, "Yes, manually approve edits", labels["suggestion-1"])
+
+	got, err := a.RenderAnswer(agents.HookPermission, plan,
+		agents.AnswerDecision{Key: "suggestion", Picked: []string{"suggestion-0"}})
+	require.NoError(t, err)
+	assert.Contains(t, string(got), `"updatedPermissions":[{"destination":"session","mode":"auto","type":"setMode"}]`)
+	assert.Contains(t, string(got), `"updatedInput":{"plan":`)
+
+	edit, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "claude", "PermissionRequest.Edit.json"))
+	require.NoError(t, err)
+	ev, err = a.ParseHook(agents.HookPermission, edit, agents.ChannelHooks)
+	require.NoError(t, err)
+	for _, o := range ev.Choice.Options {
+		assert.NotEqual(t, "Yes, and use auto mode", o.Label, "only the plan dialog offers its modes")
+	}
+}
+
 func TestAgent_ClaudeAnswersAQuestionByEchoingTheToolInput(t *testing.T) {
 	raw := []byte(`{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"A or B?"}]}}`)
 

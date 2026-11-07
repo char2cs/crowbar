@@ -308,6 +308,8 @@ events:
       suggestion_label.setMode:        "Switch to a more permissive mode"
       suggestion_label.setMode.acceptEdits: "Allow edits for the rest of this session"
       suggestion_label.setMode.plan:   "Switch to plan mode"
+      suggestion_label.setMode.auto:   "Yes, and use auto mode"
+      suggestion_label.setMode.default: "Yes, manually approve edits"
       suggestion_label.default:        "A broader permission than this one"
       questions:              tool_input.questions
       question_title:         header
@@ -316,13 +318,18 @@ events:
       question_multi:         multiSelect
       option_label:           label
       option_description:     description
+    # ExitPlanMode lists no permission_suggestions; these are its TUI dialog's own options.
+    tool_suggestions:
+      ExitPlanMode:
+        - { type: setMode, mode: auto, destination: session }
+        - { type: setMode, mode: default, destination: session }
     reply:
       # The input echoed back: on a bare allow claude still opens its own plan dialog.
       allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       # Allows this call and applies the grants picked from permission_suggestions.
-      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":{suggestions_json}}}}'
+      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json},"updatedPermissions":{suggestions_json}}}}'
 
   elicitation:
     required: [session_id]

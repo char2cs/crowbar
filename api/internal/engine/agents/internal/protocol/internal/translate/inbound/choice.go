@@ -65,7 +65,6 @@ func toolChoice(fields spec.FieldMap, decoded map[string]any) *models.ChoiceProm
 			{ID: models.ChoiceOptionDeny, Kind: models.ChoiceOptionDeny, Label: "Deny"},
 		},
 	}
-	prompt.Options = append(prompt.Options, suggestionOptions(fields, decoded)...)
 	return prompt
 }
 
@@ -119,8 +118,7 @@ func choiceQuestion(
 	return out
 }
 
-func suggestionOptions(fields spec.FieldMap, decoded map[string]any) []models.ChoiceOption {
-	suggestions := mapping.Objects(decoded, fields["suggestions"])
+func suggestionOptions(fields spec.FieldMap, suggestions []map[string]any) []models.ChoiceOption {
 	out := make([]models.ChoiceOption, 0, len(suggestions))
 	for i, suggestion := range suggestions {
 		if len(out) >= maxChoiceOptions {
