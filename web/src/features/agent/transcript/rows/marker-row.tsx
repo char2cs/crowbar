@@ -27,12 +27,14 @@ const EXIT_TEXT: Record<string, string> = {
   spawn_failed: 'The agent could not start',
 }
 
+const stoppedByYou = (reason: string | undefined) => reason === 'stopped' || reason === 'retracted'
+
 function interruptPill(reason: string | undefined) {
   // Closed on the provider going quiet, not by anyone: never worded as the user's doing.
   if (reason === 'provider_idle') {
     return { label: 'Interrupted unexpectedly', testId: 'agent-inferred-interrupt-divider' }
   }
-  const byYou = reason === 'stopped' || reason === 'retracted'
+  const byYou = stoppedByYou(reason)
   return {
     label: byYou ? 'Interrupted · you stopped this turn' : 'Interrupted',
     testId: 'agent-interrupted-divider',
@@ -151,6 +153,33 @@ function FailureHint({
   )
 }
 
+/** Sends the prompt that started the turn again, once, while nothing was asked since. */
+function RetryButton({
+  chatId,
+  item,
+  actions,
+  wrap = false,
+}: MarkerProps & { actions: MarkerActions; wrap?: boolean }) {
+  const [sent, setSent] = useState(false)
+  const requestId = usePromptOf(chatId, item.turnId)
+  const newest = useNewestFailure(chatId, item.id)
+  if (requestId === undefined || !newest) return null
+  const button = (
+    <Button
+      size="sm"
+      variant="secondary"
+      disabled={sent}
+      onClick={() => {
+        setSent(true)
+        actions.retry(requestId)
+      }}
+    >
+      Retry
+    </Button>
+  )
+  return wrap ? <div className="marker-actions">{button}</div> : button
+}
+
 // The reason shows on the row itself: a failure read only behind a toggle reads as a hang.
 function FailedActions({
   chatId,
@@ -159,8 +188,6 @@ function FailedActions({
   provider,
 }: MarkerProps & { actions: MarkerActions; provider?: AgentProvider }) {
   const [open, setOpen] = useState(false)
-  const [sent, setSent] = useState(false)
-  const requestId = usePromptOf(chatId, item.turnId)
   const newest = useNewestFailure(chatId, item.id)
   const failure = describeFailure(item.reason, item.detail)
   return (
@@ -181,19 +208,7 @@ function FailedActions({
             <CaretRightIcon size={12} />
           </button>
         )}
-        {requestId !== undefined && newest && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={sent}
-            onClick={() => {
-              setSent(true)
-              actions.retry(requestId)
-            }}
-          >
-            Retry
-          </Button>
-        )}
+        <RetryButton chatId={chatId} item={item} actions={actions} />
         <Button size="sm" variant="outline" onClick={actions.openTerminal}>
           Open terminal
         </Button>
@@ -236,6 +251,10 @@ function MarkerRowBody({
           actions={actions}
           provider={providers.find((p) => p.id === provider)}
         />
+      )}
+      {/* A turn its CLI's exit cut short keeps what it said; the prompt can go again. */}
+      {item.marker === 'turn_interrupted' && !stoppedByYou(item.reason) && (
+        <RetryButton chatId={chatId} item={item} actions={actions} wrap />
       )}
       {item.marker === 'session_lost' && latest && (
         <div className="marker-actions">

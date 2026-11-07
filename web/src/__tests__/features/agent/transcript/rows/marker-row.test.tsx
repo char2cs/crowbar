@@ -186,6 +186,45 @@ describe('MarkerRow', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 
+  // The CLI died under the turn: what it said stays above, and the prompt can go again.
+  it('offers Retry on a turn its CLI’s exit interrupted, below the reply it had begun', () => {
+    const l = ledger()
+    const feed = seed([
+      l.row(
+        'user_message',
+        { requestId: 'r1', text: 'write a story', origin: 'crowbar' },
+        { turnId: 'turn-1' },
+      ),
+      l.start('turn-1', 'r1'),
+      l.row('assistant_text', { text: 'Once upon a' }, { turnId: 'turn-1' }),
+      l.row(
+        'turn_ended',
+        { status: 'interrupted', reason: 'runner_exited' },
+        { turnId: 'turn-1' },
+      ),
+      l.row('runner_exited', { runnerId: 'run-1', reason: 'exited', exitCode: 137 }),
+    ])
+    const [interrupted] = markers(feed)
+    const actions = { ...noRowActions, retry: vi.fn() }
+    draw(interrupted!, actions)
+
+    expect(feed.order.some((id) => feed.items.get(id)?.kind === 'text')).toBe(true)
+    expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(actions.retry).toHaveBeenCalledWith('r1')
+  })
+
+  it('offers no Retry on a turn the person stopped', () => {
+    const l = ledger()
+    const feed = seed([
+      l.row('user_message', { requestId: 'r1', text: 'x', origin: 'crowbar' }, { turnId: 't1' }),
+      l.start('t1', 'r1'),
+      l.row('turn_ended', { status: 'interrupted', reason: 'stopped' }, { turnId: 't1' }),
+    ])
+    draw(markerOf(feed)!)
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  })
+
   it('reads Interrupted · you stopped this turn after Stop', () => {
     const l = ledger()
     const feed = seed([
