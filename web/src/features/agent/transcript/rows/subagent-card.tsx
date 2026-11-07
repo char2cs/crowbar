@@ -80,6 +80,24 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
   const clockRef = useTextClock(live ? card?.startedAt : undefined)
   if (card?.kind !== 'subagent') return null
   const usage = live ? '' : spent(card)
+  const head = (
+    <>
+      {live ? (
+        <FlickerSpinner className="size-3" />
+      ) : card.status === 'done' ? (
+        <CheckIcon size={12} />
+      ) : (
+        <CloseIcon size={12} />
+      )}
+      <SubagentIcon size={12} />
+      <span className="subagent-title">{card.title || card.type || 'Subagent'}</span>
+      {card.type && card.title && <span className="subagent-type">{card.type}</span>}
+      <span className="subagent-clock" ref={clockRef}>
+        {live ? '' : took(card)}
+      </span>
+      {usage && <span className="subagent-usage">· {usage}</span>}
+    </>
+  )
   return (
     <article
       className="row subagent-card"
@@ -88,33 +106,22 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
       data-status={card.status}
     >
       <div className="assistant">
-        <div className="subagent-head">
-          {live ? (
-            <FlickerSpinner className="size-3" />
-          ) : card.status === 'done' ? (
-            <CheckIcon size={12} />
-          ) : (
-            <CloseIcon size={12} />
-          )}
-          <SubagentIcon size={12} />
-          <span className="subagent-title">{card.title || card.type || 'Subagent'}</span>
-          {card.type && card.title && <span className="subagent-type">{card.type}</span>}
-          <span className="subagent-clock" ref={clockRef}>
-            {live ? '' : took(card)}
-          </span>
-          {usage && <span className="subagent-usage">· {usage}</span>}
-          {card.scope && (
-            <button
-              type="button"
-              className="tool-row-toggle"
-              aria-label="Show the subagent’s work"
-              aria-expanded={open}
-              onClick={() => setOpen((o) => !o)}
-            >
+        {card.scope ? (
+          // The whole header is the toggle; the caret only shows which way it points.
+          <button
+            type="button"
+            className="subagent-head"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+          >
+            {head}
+            <span className="tool-row-toggle" aria-hidden="true">
               <CaretRightIcon size={12} />
-            </button>
-          )}
-        </div>
+            </span>
+          </button>
+        ) : (
+          <div className="subagent-head">{head}</div>
+        )}
         {live && (
           <p className="subagent-action" data-testid="agent-subagent-action">
             ▸ {action}

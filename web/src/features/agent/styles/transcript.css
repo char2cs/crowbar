@@ -699,6 +699,27 @@
   padding-right: 26px;
   color: var(--muted-foreground);
 }
+.agent-chat button.subagent-head {
+  width: 100%;
+  padding: 0 26px 0 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-chat button.subagent-head:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.agent-chat .subagent-head:hover .tool-row-toggle {
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .subagent-head[aria-expanded='true'] .tool-row-toggle svg {
+  transform: rotate(90deg);
+}
 .agent-chat .subagent-title {
   min-width: 0;
   overflow: hidden;

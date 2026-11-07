@@ -24,7 +24,7 @@ describe('SubagentCard', () => {
     const card = screen.getByTestId('agent-subagent-card')
     expect(card).toHaveAttribute('data-status', 'done')
     expect(card).toHaveTextContent('Read a.txt and echo')
-    fireEvent.click(within(card).getByRole('button', { name: 'Show the subagent’s work' }))
+    fireEvent.click(within(card).getByText('Read a.txt and echo'))
     const tools = within(card).getAllByTestId('agent-activity-tool')
     expect(tools.map((tool) => tool.getAttribute('aria-label'))).toEqual([
       'Read a.txt',
@@ -33,6 +33,21 @@ describe('SubagentCard', () => {
     expect(within(card).getByTestId('agent-subagent-result')).toHaveTextContent(
       'a.txt contains "alpha" (one line)',
     )
+  })
+
+  it('toggles from anywhere on its header, one button named by the subagent', () => {
+    const rows = subagentSessionRows()
+    seed('id-1', rows)
+    const spawn = rows.find((row) => row.kind === 'tool_call')!.body as { toolId: string }
+    render(<SubagentCard chatId="id-1" id={`s:${spawn.toolId}`} />)
+    const card = screen.getByTestId('agent-subagent-card')
+    const head = within(card).getByRole('button', { name: /Read a\.txt and echo/ })
+    expect(within(card).getAllByRole('button')).toEqual([head])
+    expect(head).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(head)
+    expect(head).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(head)
+    expect(within(card).queryByTestId('agent-subagent-result')).toBeNull()
   })
 
   it('derives the current action from the newest running child', () => {
