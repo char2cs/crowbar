@@ -27,4 +27,30 @@ describe('applyAsk', () => {
     ])
     expect((feed.items.get('a:q1') as AskItem).family).toBe('execute')
   })
+
+  // The call's row names a file inside the workspace from there; the ask's raw path does not.
+  it('names the file an ask gates as the gated call’s row names it', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      l.row(
+        'tool_call',
+        { toolId: 'c1', phase: 'pre', name: 'Edit', kind: 'edit', target: 'src/a.go' },
+        { turnId: 'turn-1' },
+      ),
+      l.row(
+        'ask',
+        {
+          askId: 'q1',
+          event: 'permission',
+          toolId: 'c1',
+          toolName: 'Edit',
+          toolTarget: '/ws/repo/src/a.go',
+          answerable: true,
+        },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    expect((feed.items.get('a:q1') as AskItem).toolTarget).toBe('src/a.go')
+  })
 })

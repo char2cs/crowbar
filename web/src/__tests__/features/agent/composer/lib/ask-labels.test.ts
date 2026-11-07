@@ -42,6 +42,10 @@ describe('describeChoice', () => {
     expect(describeChoice(run, 'other')).toBe('Run commandExecution?')
   })
 
+  it('asks to approve a plan when the gated call is a plan’s', () => {
+    expect(describeChoice(choice({ toolName: 'ExitPlanMode' }), 'plan')).toBe('Approve this plan?')
+  })
+
   it('asks a question in the provider’s own words', () => {
     const asked = choice({ kind: 'question', question: 'Which option do you prefer?', options: [] })
 

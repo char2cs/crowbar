@@ -35,13 +35,6 @@ function humanizeToolName(name: string): string {
   return words ? `${words[0]?.toUpperCase()}${words.slice(1)}` : ''
 }
 
-/** The last three segments name a file; the full path stays in the tooltip. */
-function compactPath(path: string): string {
-  const normalized = path.replaceAll('\\', '/').replace(/\/+$/, '')
-  if (!normalized.startsWith('/')) return normalized
-  return normalized.split('/').filter(Boolean).slice(-3).join('/') || path
-}
-
 const WORDS = /"([^"]*)"|'([^']*)'|(\S+)/g
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
 const basename = (word: string) => word.split('/').pop() ?? word
@@ -85,7 +78,7 @@ function subjectOf(item: ToolItem, done: boolean): ToolLabel['subject'] {
     const more = (body.locations?.length ?? 0) > 1 ? ` +${body.locations!.length - 1}` : ''
     return {
       full: `${location.path}${location.line ? `:${location.line}` : ''}${more}`,
-      display: `${compactPath(location.path)}${line}${more}`,
+      display: `${location.path}${line}${more}`,
     }
   }
   const target = body.target?.trim() ?? ''
@@ -100,8 +93,8 @@ function subjectOf(item: ToolItem, done: boolean): ToolLabel['subject'] {
     const url = hostOf(target)
     if (url) return { full: target, display: done && url.more ? `${url.host}/…` : url.host }
   }
-  const path = (family === 'read' || family === 'edit') && target.startsWith('/')
-  return { full: target, display: path && !target.includes('\n') ? compactPath(target) : target }
+  // The daemon names a file inside the workspace from there; an absolute path lies outside it.
+  return { full: target, display: target }
 }
 
 /** The tool an MCP call named. */

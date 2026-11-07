@@ -108,6 +108,13 @@ describe('displayRows', () => {
     const b = tool({ kind: 'read', target: '/b' })
     expect(rowsOf([a, meta, plan, b])).toEqual([{ id: `g:${a.id}`, members: [a.id, b.id] }])
   })
+
+  // The person decided on it: its row is the record of what was approved.
+  it('draws a plan call a person was asked about', () => {
+    const asked = { ...tool({ kind: 'plan', name: 'ExitPlanMode' }), askId: 'q1' }
+    const answered = { ...tool({ kind: 'plan', name: 'ExitPlanMode' }), askNote: 'Allowed' }
+    expect(rowsOf([asked, answered])).toEqual([{ id: asked.id }, { id: answered.id }])
+  })
 })
 
 describe('runSentence', () => {

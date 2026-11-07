@@ -88,7 +88,8 @@ export const applyAsk: Apply<'ask'> = (fold, row) => {
     at: row.at,
     scope,
     choice,
-    toolTarget: body.toolTarget || tool?.body.target || '',
+    // The call's row names a file inside the workspace from there; the ask's copy is raw.
+    toolTarget: tool?.body.target || body.toolTarget || '',
     toolId: body.toolId,
     toolInput: body.toolInput,
     toolInputTruncated: body.toolInputTruncated,

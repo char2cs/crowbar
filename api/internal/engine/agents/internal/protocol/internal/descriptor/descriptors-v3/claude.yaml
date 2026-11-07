@@ -111,7 +111,7 @@ events:
   tool_pre:
     kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
       Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
-      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     in: PreToolUse
@@ -136,7 +136,7 @@ events:
   tool_post:
     kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
       Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
-      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     in: PostToolUse
@@ -166,7 +166,7 @@ events:
   tool_fail:
     kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
       Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
-      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     # No fixture: the real failure leaves scope_id, mcp_server and mcp_tool unresolved; the

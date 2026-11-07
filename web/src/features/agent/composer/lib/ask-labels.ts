@@ -31,6 +31,7 @@ const ASKED: Partial<Record<ToolFamily, string>> = {
   read: 'Read a file?',
   fetch: 'Fetch a web page?',
   search: 'Search?',
+  plan: 'Approve this plan?',
 }
 
 /** The headline of a prompt; a kind this build does not know falls through to
