@@ -46,7 +46,6 @@ function renderPane(initial: Props) {
         onTerminalSurface: false,
         recordedSurface: recorded,
         waiting,
-        isActivePane: true,
         isVisible: true,
         presentation: view.presentation,
         setPresentation: view.setPresentation,
@@ -106,15 +105,16 @@ describe('useTerminalEscort — a hot-swap chat records every surface it is show
     expect(records).toEqual(['terminal', 'chat', 'terminal', 'chat'])
   })
 
-  it('records the terminal the wait escorts the user to, and the chat it brings them back to', () => {
+  // A TUI dialog is the banner's to signpost: the surface moves only by the person's hand.
+  it('neither moves nor records a surface when the CLI starts or stops waiting', () => {
     const { result, rerender } = renderPane({ recorded: 'chat' })
 
     rerender({ recorded: 'chat', waiting: true })
-    expect(result.current.presentation).toBe('terminal')
-    rerender({ recorded: 'terminal', waiting: false })
+    expect(result.current.presentation).toBe('chat')
+    rerender({ recorded: 'chat', waiting: false })
 
     expect(result.current.presentation).toBe('chat')
-    expect(records).toEqual(['terminal', 'chat'])
+    expect(records).toEqual([])
   })
 
   it.each(['chat', 'terminal'] as const)(

@@ -50,7 +50,7 @@ export const defaultSettings: Settings = {
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
   // Agents
-  chatIsDefaultPresentation: false,
+  chatIsDefaultPresentation: true,
   chatSplitPresentationEnabled: false,
   // Theme
   theme: 'crowbar',

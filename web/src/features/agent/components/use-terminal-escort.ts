@@ -6,7 +6,6 @@ import type {
   ChatPresentation,
   LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { IS_MOBILE } from '@/utils/platform'
 
 interface EscortOptions {
@@ -19,7 +18,6 @@ interface EscortOptions {
   recordedSurface: LandingChatPresentation | null
   /** The CLI is blocked on a prompt only its terminal can answer. */
   waiting: boolean
-  isActivePane: boolean
   isVisible: boolean
   presentation: ChatPresentation
   setPresentation: (next: ChatPresentation) => void
@@ -38,13 +36,13 @@ export function isHotswap(providers: AgentProvider[], providerId: string) {
   return { provider, hotswap: provider ? provider.hotswap === true : true }
 }
 
-// Moves between the chat and its terminal, escorting the user there while the CLI waits. 'sent':
-// Crowbar moved them and may move them back; 'released': they chose a surface since, so Crowbar
-// only offers the way back.
+// Moves between the chat and its terminal, only ever by the person's hand: a CLI waiting on its
+// terminal is the banner's to signpost. 'sent': they followed that banner there, so once the wait
+// clears Crowbar offers the way back; it never takes them.
 export function useTerminalEscort(options: EscortOptions) {
   const { wsId, chatId, providers, activeProviderId, presentation, setPresentation } = options
   const { setReturnOffered, setSplitFocus, terminalApiRef, splitting } = options
-  const escortRef = useRef<'none' | 'sent' | 'released'>('none')
+  const escortRef = useRef<'none' | 'sent'>('none')
 
   // A hot-swap chat moves in the pane alone; the daemon records where, so a reload lands there.
   const showHotswap = (next: ChatPresentation): Promise<void> => {
@@ -68,10 +66,6 @@ export function useTerminalEscort(options: EscortOptions) {
   useEffect(() => {
     takeChatOnPhone()
   }, [chatId, options.isVisible, recordedKnown])
-
-  const userIsWatching = useEffectEvent(
-    () => options.isActivePane && options.isVisible && getActiveWorkspaceId() === wsId,
-  )
 
   // Only a provider that talks over its api connection asks the daemon to fork a
   // terminal view. The override covers a switch that resolved before a re-render.
@@ -117,37 +111,22 @@ export function useTerminalEscort(options: EscortOptions) {
 
   // An effect event: it fires on the agent's edge, never on a focus or visibility change.
   const onWaitEdge = useEffectEvent((nowWaiting: boolean) => {
-    if (nowWaiting) {
-      // In split the terminal is already on screen, so there is no escort at all.
-      if (presentation !== 'chat' || !userIsWatching()) return
-      // react-doctor-disable-next-line no-adjust-state-on-prop-change -- a navigation on an edge: the surface outlives the value that moved it
-      void enterTerminal()
-      escortRef.current = 'sent'
-      return
-    }
-    const escort = escortRef.current
+    if (nowWaiting) return
+    const sent = escortRef.current === 'sent'
     escortRef.current = 'none'
+    // The banner sent them here and the reason has gone: say so, and leave the move to them.
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- the offer belongs to one edge and is dismissible
-    setReturnOffered(false)
-    if (escort === 'none') return
-    if (escort === 'sent' && presentation === 'terminal' && userIsWatching()) {
-      // react-doctor-disable-next-line no-adjust-state-on-prop-change -- see above
-      leaveTerminal('chat')
-      return
-    }
-    // They moved on, so Crowbar does not move them, but says why they are here.
-    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- see above
-    if (presentation === 'terminal') setReturnOffered(true)
+    setReturnOffered(sent && presentation === 'terminal')
   })
 
   useEffect(() => {
     onWaitEdge(options.waiting)
   }, [options.waiting])
 
-  // Picking a surface ends Crowbar's claim on it; split shows the chat, so it
-  // counts as being back. A non-hotswap provider forks or drops its terminal view.
+  // Picking a surface ends the banner's claim to offer the way back; split shows the
+  // chat, so it counts as being back. A non-hotswap provider forks or drops its terminal view.
   const chooseSurface = (next: ChatPresentation) => {
-    if (escortRef.current !== 'none') escortRef.current = next === 'terminal' ? 'released' : 'none'
+    escortRef.current = 'none'
     if (next !== 'terminal') setReturnOffered(false)
     if (next === 'split') setSplitFocus(presentation === 'terminal' ? 'terminal' : 'chat')
     if (next === presentation) {
@@ -195,7 +174,7 @@ export function useTerminalEscort(options: EscortOptions) {
       focusSplitTerminal()
       return
     }
-    escortRef.current = 'released'
+    escortRef.current = 'sent'
     void enterTerminal()
   }
 

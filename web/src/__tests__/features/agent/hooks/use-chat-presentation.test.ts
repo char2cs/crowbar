@@ -116,21 +116,19 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
       ({ chatId }) => useChatPresentation(chatId, container),
       { initialProps: { chatId: 'chat-a' } },
     )
-    expect(result.current.presentation).toBe('terminal') // the global default
+    expect(result.current.presentation).toBe('chat') // the global default
 
-    act(() => result.current.setPresentation('chat'))
-    expect(result.current.presentation).toBe('chat')
-
-    // Switch to a different chat in the same pane — the ordinary re-seed path
-    // (a runner move, or picking another tab) that already ran before this fix.
-    rerender({ chatId: 'chat-b' })
+    act(() => result.current.setPresentation('terminal'))
     expect(result.current.presentation).toBe('terminal')
 
-    // ...and back to chat A. Before this fix `chosen` was thrown away on every
-    // re-seed unless it was 'split', so this landed back on the global default
-    // ('terminal') instead of the 'chat' the user had actually left it on.
-    rerender({ chatId: 'chat-a' })
+    // Switch to a different chat in the same pane — the ordinary re-seed path
+    // (a runner move, or picking another tab).
+    rerender({ chatId: 'chat-b' })
     expect(result.current.presentation).toBe('chat')
+
+    // ...and back to chat A, on the 'terminal' the user left it on, not the default.
+    rerender({ chatId: 'chat-a' })
+    expect(result.current.presentation).toBe('terminal')
   })
 
   it('keeps a chat on its own pick across a real unmount/remount — a Recents row reopening a closed chat', () => {
@@ -187,23 +185,23 @@ describe('presetChatLandingPresentation — choosing a new chat’s surface at c
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
-  it('lands a specific brand-new chat on Chat, with the global default untouched', () => {
-    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(false)
+  it('lands a specific brand-new chat on Terminal, with the global default untouched', () => {
+    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(true)
 
-    presetChatLandingPresentation('new-chat-1', 'chat')
+    presetChatLandingPresentation('new-chat-1', 'terminal')
 
     const container = { current: null }
     const { result } = renderHook(() => useChatPresentation('new-chat-1', container))
-    expect(result.current.presentation).toBe('chat')
+    expect(result.current.presentation).toBe('terminal')
 
     // The preset named exactly one chat — everyone else still lands on
     // whatever the (untouched) global default says.
-    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)
+    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
     const otherContainer = { current: null }
     const { result: other } = renderHook(() =>
       useChatPresentation('some-other-chat', otherContainer),
     )
-    expect(other.current.presentation).toBe('terminal')
+    expect(other.current.presentation).toBe('chat')
   })
 
   it('is a one-time seed: an explicit pick made afterward still wins', () => {

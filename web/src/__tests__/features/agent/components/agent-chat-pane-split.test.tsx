@@ -457,27 +457,15 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     expect(showing()).toBe('split')
     expect(terminalHalf()).toHaveAttribute('data-surface-focused', 'true')
   })
-
-  // The control: with the split OFF this is the escort that has always run.
-  it('still escorts a user who is on Chat alone', async () => {
-    const store = seed()
-    setSplitEnabled(false)
-    await renderPane(store)
-    expect(showing()).toBe('chat')
-
-    await setWait({ kind: 'workspace_trust' })
-    expect(showing()).toBe('terminal')
-
-    await setWait(null)
-    expect(showing()).toBe('chat')
-  })
 })
 
 // A reload empties the pane's memory: a hot-swap chat lands where the daemon
 // recorded it was last shown, even when that record arrives after the mount.
 describe('AgentChatPane — a hot-swap chat after a reload', () => {
   it('lands on the recorded surface over the default, and records the next pick', async () => {
-    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() }) // lands on the terminal
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: false },
+    }) // lands on the terminal
     resetChatPresentationMemoryForTests()
     const store = seed()
     await renderPane(store)

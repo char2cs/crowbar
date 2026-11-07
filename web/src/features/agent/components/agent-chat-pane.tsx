@@ -222,7 +222,6 @@ export function AgentChatPaneBody({
     onTerminalSurface,
     recordedSurface,
     waiting,
-    isActivePane,
     isVisible,
     presentation,
     setPresentation,
