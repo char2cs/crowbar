@@ -2,7 +2,6 @@ package gateway_test
 
 import (
 	"net"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,7 +38,7 @@ func TestGatewayUnknownScheme(t *testing.T) {
 }
 
 func TestGatewayUnix_ExplicitPath(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	sockPath := testutil.ShortSocket(t)
 	ls, err := gateway.New("unix://"+sockPath, "", nil)
 	require.NoError(t, err)
 	closeAll(t, ls)
