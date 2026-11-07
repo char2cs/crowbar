@@ -197,11 +197,7 @@ describe('MarkerRow', () => {
       ),
       l.start('turn-1', 'r1'),
       l.text('turn-1', 'm1', 0, 'Once upon a', false),
-      l.row(
-        'turn_ended',
-        { status: 'interrupted', reason: 'runner_exited' },
-        { turnId: 'turn-1' },
-      ),
+      l.row('turn_ended', { status: 'interrupted', reason: 'runner_exited' }, { turnId: 'turn-1' }),
       l.row('runner_exited', { runnerId: 'run-1', reason: 'exited', exitCode: 137 }),
     ])
     const [interrupted] = markers(feed)
