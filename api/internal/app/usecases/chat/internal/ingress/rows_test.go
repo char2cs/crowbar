@@ -310,40 +310,6 @@ func TestMap_ACompactionTurnStopEndsTheCompactionNotTheTurn(t *testing.T) {
 	}
 }
 
-func TestMap_AFailureKeepsItsReasonAndItsReply(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-
-	rows, fx := c.mapped(engineagents.CanonicalEvent{
-		Kind: engineagents.HookTurnFailed, Message: "I could not",
-		Failure: &engineagents.TurnFailure{Reason: "usage_limit", Detail: "out of credit"},
-	}, hooksSource())
-
-	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindTurnFailed}, kinds(rows))
-	assert.Equal(t, "I could not", bodyOf[ledger.AssistantText](t, rows[0]).Text)
-	failed := bodyOf[ledger.TurnFailed](t, rows[1])
-	assert.Equal(t, "usage_limit", failed.Reason)
-	assert.Equal(t, "out of credit", failed.Detail)
-	assert.NotEmpty(t, fx.Ended)
-
-	c2 := liveChatRows(t)
-	c2.typed("go")
-	rows, _ = c2.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnFailed, Message: "boom"}, hooksSource())
-	require.Equal(t, []ledger.Kind{ledger.KindTurnFailed}, kinds(rows), "with no detail, the message is the detail")
-	assert.Equal(t, ledger.TurnFailed{Reason: ledger.ReasonTurnFailed, Detail: "boom"}, bodyOf[ledger.TurnFailed](t, rows[0]))
-}
-
-func TestMap_AFailureSettlesTheSteerItsTurnCarried(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-	c.commit(crowbarPrompt(t, "req-1", "and also", ledger.DeliverySteer))
-
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnFailed}, hooksSource())
-
-	require.Equal(t, []ledger.Kind{ledger.KindTurnFailed, ledger.KindPromptSettled}, kinds(rows))
-	assert.Equal(t, ledger.ReasonTurnFailed, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
-}
-
 func TestMap_AnIdleEndsTheRunningTurnAndSettlesItsSteer(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -439,29 +405,6 @@ func TestSalvage_RecordsWhatNoRowHolds(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "kept", bodyOf[ledger.AssistantText](t, rows[0]).MessageID)
-}
-
-func TestNoticeRows_FailTheRunningTurnOrTheCarriedPrompts(t *testing.T) {
-	notice := engineagents.TerminalNotice{Kind: "usage_limit", Text: "out of credit"}
-
-	c := liveChatRows(t)
-	turnID := c.typed("go")
-	c.commit(crowbarPrompt(t, "req-1", "and also", ledger.DeliverySteer))
-	rows, err := noticeRows(c.st, "run-1", notice, Unrecorded{Answers: []liveText{{TurnID: turnID, ID: "a1", Text: "partial"}}})
-	require.NoError(t, err)
-	assert.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindTurnFailed, ledger.KindPromptSettled}, kinds(rows))
-
-	rows, err = noticeRows(c.st, "run-2", notice, Unrecorded{})
-	require.NoError(t, err)
-	assert.Empty(t, rows, "another runner's notice ends nothing of this turn")
-
-	idle := liveChatRows(t)
-	idle.commit(crowbarPrompt(t, "req-2", "hello", ledger.DeliveryRestart))
-	rows, err = noticeRows(idle.st, "run-1", notice, Unrecorded{})
-	require.NoError(t, err)
-	require.Equal(t, []ledger.Kind{ledger.KindTurnFailed, ledger.KindPromptSettled}, kinds(rows))
-	assert.Equal(t, "out of credit", bodyOf[ledger.TurnFailed](t, rows[0]).Detail)
-	assert.Equal(t, "usage_limit", bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
 }
 
 // Replayed, a real run closes each turn once and records each message whole

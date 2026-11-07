@@ -185,14 +185,16 @@ func TestEndTurnOf_ATurnClosesOnce(t *testing.T) {
 		assert.Empty(t, rows, "%s closes it no second time", name)
 	}
 
-	r, closes, err := ledger.FailTurnOf(ledger.Fold("c1", nil), "r1", "", ledger.TurnFailed{Reason: "overloaded"})
+	r, closes, fresh, err := ledger.FailTurnOf(ledger.Fold("c1", nil), "r1", "", ledger.TurnFailed{Reason: "overloaded"})
 	require.NoError(t, err)
 	assert.False(t, closes)
+	assert.True(t, fresh, "no turn to name: the failure is of one the chat never saw")
 	require.NoError(t, ledger.Check(ledger.State{}, r), "a late failure with no turn to name gets one")
 
-	r, closes, err = ledger.FailTurnOf(running, "r1", "p1", ledger.TurnFailed{Reason: "overloaded"})
+	r, closes, fresh, err = ledger.FailTurnOf(running, "r1", "p1", ledger.TurnFailed{Reason: "overloaded"})
 	require.NoError(t, err)
 	assert.True(t, closes)
+	assert.False(t, fresh)
 	assert.Equal(t, "T1", r.TurnID)
 }
 
@@ -228,7 +230,7 @@ func TestEndTurn_ClosesOnlyARunningTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped", RunnerID: "run-1"}, body)
 
-	r, closes, err := ledger.FailTurnOf(st, "run-1", "", ledger.TurnFailed{Reason: "usage_limit", Detail: "limit reached"})
+	r, closes, _, err := ledger.FailTurnOf(st, "run-1", "", ledger.TurnFailed{Reason: "usage_limit", Detail: "limit reached"})
 	require.NoError(t, err)
 	assert.True(t, closes)
 	failed, err := ledger.DecodeBody[ledger.TurnFailed](r)

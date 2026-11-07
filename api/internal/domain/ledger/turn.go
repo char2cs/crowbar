@@ -203,11 +203,12 @@ func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (string
 }
 
 // FailTurnOf is runnerID's report that the turn providerTurnID names failed. A
-// late failure is still written: it is a notice of its own.
-func FailTurnOf(st State, runnerID, providerTurnID string, fail TurnFailed) (Row, bool, error) {
-	turnID, running, _ := st.turnOf(runnerID, providerTurnID)
-	r, err := NewRow(KindTurnFailed, turnID, "", fail)
-	return r, running, err
+// late failure is still written: it is a notice of its own. fresh says the
+// ledger holds no such turn: it failed before the chat saw it start.
+func FailTurnOf(st State, runnerID, providerTurnID string, fail TurnFailed) (r Row, running, fresh bool, err error) {
+	turnID, running, closed := st.turnOf(runnerID, providerTurnID)
+	r, err = NewRow(KindTurnFailed, turnID, "", fail)
+	return r, running, !running && !closed, err
 }
 
 // turnOf is the turn a report by runnerID naming providerTurnID is about, and
