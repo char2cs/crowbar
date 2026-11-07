@@ -43,6 +43,7 @@ func TestSocketPath_SpelledOutDefaultHomeIsNotAnOverride(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("HOME does not set the user home on windows")
 	}
+	t.Setenv("TMPDIR", "/tmp") // a home short enough for its socket to bind inside it
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv(home.EnvVar, "")

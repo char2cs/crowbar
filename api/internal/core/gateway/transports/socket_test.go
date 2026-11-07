@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -164,4 +165,40 @@ func TestNewSocket_CrowbarHomeOverride_BindsShortPath(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
 	assert.Greater(t, 104, len(l.Addr().String()), "socket path must fit sun_path")
+}
+
+// A default home too deep for sun_path binds in a per-user directory only its
+// owner can enter, and the CLI resolves the same path to reach it.
+func TestNewSocket_ADefaultHomeTooDeepBindsInAPrivateDir(t *testing.T) {
+	base, err := os.MkdirTemp("", "cb")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv("HOME", filepath.Join(base, strings.Repeat("deep-segment/", 9)))
+	t.Setenv(home.EnvVar, "")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+
+	l, err := NewSocket("unix://")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	dialed, err := SocketPath("unix://")
+	require.NoError(t, err)
+	assert.Equal(t, dialed, l.Addr().String())
+	assert.Equal(t, filepath.Join("/tmp", "crowbar-"+strconv.Itoa(os.Getuid())), filepath.Dir(dialed))
+	info, err := os.Stat(filepath.Dir(dialed))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
+
+// A directory others can write to without the sticky bit lets them swap the
+// socket for their own, so the daemon refuses to bind there.
+func TestNewSocket_RefusesADirectoryOthersCanReplaceTheSocketIn(t *testing.T) {
+	dir, err := os.MkdirTemp("", "cb")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o777))
+
+	_, err = NewSocket("unix://" + filepath.Join(dir, "s.sock"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), dir)
 }

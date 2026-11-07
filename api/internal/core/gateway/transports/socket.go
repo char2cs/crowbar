@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 )
 
 // chmod is indirected so tests can simulate a chmod failure.
@@ -31,6 +32,9 @@ func NewSocket(
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("gateway: socket: create dir for %s: %w", path, err)
 	}
+	if err := privateDir(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
 
 	if err := handleStale(path); err != nil {
 		return nil, err
@@ -48,6 +52,23 @@ func NewSocket(
 	}
 
 	return &socketListener{Listener: ln, path: path}, nil
+}
+
+// privateDir refuses a socket directory another user owns, or others may write
+// to without the sticky bit, such as one made ahead of the daemon: they could
+// put their own socket in it, and every client would dial that.
+func privateDir(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("gateway: socket: %w", err)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid != 0 && int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("gateway: socket: %s belongs to another user", dir)
+	}
+	if info.Mode()&os.ModeSticky == 0 && info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("gateway: socket: others can write to %s; make it owner-only (chmod 700)", dir)
+	}
+	return nil
 }
 
 // handleStale clears a socket file left over from a crashed daemon, but refuses

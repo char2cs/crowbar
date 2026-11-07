@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +13,7 @@ import (
 )
 
 func TestSocket_DefaultHomeBindsInsideTheHome(t *testing.T) {
+	shortTemp(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("HOME does not set the user home on windows")
 	}
@@ -25,6 +28,7 @@ func TestSocket_DefaultHomeBindsInsideTheHome(t *testing.T) {
 }
 
 func TestSocket_SpelledOutDefaultIsNotAnOverride(t *testing.T) {
+	shortTemp(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("HOME does not set the user home on windows")
 	}
@@ -72,6 +76,7 @@ func TestSocketName_IsStable(t *testing.T) {
 // the plain default home. Hashing that spelled-out default sent each hook to a
 // temp-dir socket the real daemon never listens on.
 func TestRegression_SocketPath_HomeEnvSpellingOutThePlainDefaultIsNotAnOverride(t *testing.T) {
+	shortTemp(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("HOME does not set the user home on windows")
 	}
@@ -104,4 +109,41 @@ func TestRegression_SocketPath_ARealOverrideStillIsolates(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(os.TempDir(), socketName(realOverride)), h.Socket())
+}
+
+// A home deep enough that its socket would not fit in sun_path binds a short
+// name in the user's runtime dir instead, the same for every client.
+func TestSocket_APathTooLongToBindFallsBackToTheRuntimeDir(t *testing.T) {
+	shortTemp(t)
+	userHome := filepath.Join(t.TempDir(), strings.Repeat("deep/", 24))
+	t.Setenv("HOME", userHome)
+	t.Setenv(EnvVar, "")
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	h, err := Resolve()
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(runtimeDir, socketName(h.Root())), h.Socket())
+}
+
+// Without a usable runtime dir the short socket lives in a per-user directory
+// under /tmp, whatever TMPDIR says.
+func TestSocket_WithoutARuntimeDirTheFallbackIsPerUserUnderTmp(t *testing.T) {
+	root := t.TempDir()
+	h, err := At(root)
+	require.NoError(t, err)
+	t.Setenv("TMPDIR", filepath.Join(root, strings.Repeat("long-tmp/", 12)))
+	t.Setenv("XDG_RUNTIME_DIR", "")
+
+	want := filepath.Join("/tmp", "crowbar-"+strconv.Itoa(os.Getuid()), socketName(root))
+	assert.Equal(t, want, h.Socket())
+	assert.LessOrEqual(t, len(h.Socket()), maxSocketPath())
+}
+
+// shortTemp points the temp dir at /tmp, so a home made under it has a socket
+// path that fits in sun_path whatever TMPDIR the test run was given.
+func shortTemp(t *testing.T) {
+	t.Helper()
+	t.Setenv("TMPDIR", "/tmp")
 }
