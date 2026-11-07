@@ -299,15 +299,35 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
 }
 
 /** Stops the running turn, which reads as stopping from this frame on. */
-export function stopTurn(wsId: string, chatId: string): Promise<void> {
+export async function stopTurn(wsId: string, chatId: string): Promise<void> {
   setStopping(chatId, true)
-  return stopChat(wsId, chatId).then(
-    () => undefined,
-    (error: unknown) => {
-      setStopping(chatId, false)
-      report(error, { action: 'Couldn’t stop the turn' })
-    },
+  // Stop settles every prompt the turn would carry: those steered in are taken back
+  // first and sent after it, as typed, as a prompt held for the next turn already is.
+  const taken = await Promise.all(
+    steeredInto(chatId).map((p) => takeBack(wsId, chatId, p.requestId, p.text)),
   )
+  try {
+    await stopChat(wsId, chatId)
+  } catch (error) {
+    setStopping(chatId, false)
+    report(error, { action: 'Couldn’t stop the turn' })
+  }
+  for (const text of taken) if (text !== null) sendPrompt(wsId, chatId, { text, steer: false })
+}
+
+/** The prompts the daemon holds for the running turn, oldest first. */
+function steeredInto(chatId: string): { requestId: string; text: string }[] {
+  const feed = chatStore.getState().feeds[chatId]
+  if (!feed?.facts.running) return []
+  const held: { requestId: string; text: string }[] = []
+  for (const id of feed.order) {
+    const item = feed.items.get(id)
+    if (item?.kind !== 'user' || !item.requestId) continue
+    if (feed.facts.prompts[item.requestId]?.state === 'pending') {
+      held.push({ requestId: item.requestId, text: item.text })
+    }
+  }
+  return held
 }
 
 /** Retry on a failed send, or on a row its prompt left behind (a fresh request). */

@@ -9,6 +9,7 @@ import {
   retractNewest,
   retryPrompt,
   sendPrompt,
+  stopTurn,
 } from '@/features/agent/stores/chat-outbox'
 import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { ApiError } from '@/lib/errors/api-error'
@@ -27,7 +28,6 @@ let reported: MockInstance<typeof errors.report>
 let toasts: MockInstance<typeof toastManager.add>
 let closed: MockInstance<typeof toastManager.close>
 const accepted = { runnerId: 'r1', terminalSessionId: 'pty1' }
-
 beforeEach(() => {
   resetChatStore()
   localStorage.clear()
@@ -58,6 +58,14 @@ function busy() {
 }
 
 describe('chat outbox', () => {
+  it('takes a prompt steered into the turn back before Stop, and sends it after', async () => {
+    seedFeed('c1', [busy().prompt('r1', 'then this')])
+    retract.mockResolvedValue({ state: 'retracted', text: 'then this' })
+    await stopTurn('w1', 'c1')
+    expect(retract).toHaveBeenCalledBefore(stop)
+    expect(outbox().map((item) => [item.text, item.steer])).toEqual([['then this', false]])
+  })
+
   it('symptom 5: Esc on a queued prompt restores it without a request', async () => {
     busy()
     send('wait your turn')
