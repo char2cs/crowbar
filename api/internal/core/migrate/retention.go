@@ -39,8 +39,9 @@ overrides renamed to .refused) stay where it moved them; move them back by hand
 if an older Crowbar needs them. migrate/ledger.jsonl and the daemon log name
 what was moved.
 
-Turns an older Crowbar adds to a chat after the migration are kept in its own
-files but are not shown by a newer Crowbar.
+Turns an older Crowbar adds after the migration are imported by the next start
+of a newer one, except in a chat the newer one has written to since: those stay
+in the older Crowbar's files, and the daemon log names the chat.
 
 A directory instead of a .tar.gz is a backup from an earlier build: copy its
 state/, LAYOUT and ledger.jsonl back to state/, LAYOUT and migrate/ledger.jsonl.

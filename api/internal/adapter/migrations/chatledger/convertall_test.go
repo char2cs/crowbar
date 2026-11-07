@@ -58,6 +58,8 @@ func (f *fakeLedger) Append(context.Context, string, ...ledger.Row) ([]ledger.Ro
 	return nil, ledger.State{}, nil
 }
 
+func (f *fakeLedger) ImportAfter(context.Context, string, int64, []ledger.Row) error { return nil }
+
 type marks map[string]migrate.Counts
 
 func (m marks) Settled(string) bool { return false }

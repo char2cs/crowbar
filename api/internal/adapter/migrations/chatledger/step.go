@@ -48,6 +48,7 @@ type ledgerStore interface {
 	Read(ctx context.Context, chatID string, afterSeq int64, limit int) ([]ledger.Row, error)
 	State(ctx context.Context, chatID string) (ledger.State, error)
 	Append(ctx context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error)
+	ImportAfter(ctx context.Context, chatID string, head int64, rows []ledger.Row) error
 }
 
 // checkpoints is the part of *migrate.Checkpoints the conversion uses.
@@ -100,6 +101,23 @@ func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (_ mig
 // wrote. A chat already holding exactly those rows is an import an
 // interrupted attempt committed and never marked.
 func importChat(ctx context.Context, log *slog.Logger, store ledgerStore, chat LegacyChat) (Result, error) {
+	res, err := convertOver(ctx, log, store, chat)
+	if err != nil {
+		return Result{}, err
+	}
+	if len(res.Skipped) > 0 {
+		log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", clip(strings.Join(res.Skipped, "; "), noteBytes))
+	}
+	if err := unlessCommittedBefore(ctx, store, chat.ChatID, res.Rows, importSafely(ctx, log, store, chat.ChatID, res.Rows)); err != nil {
+		return res, err
+	}
+	return res, landedAsWritten(ctx, store, chat, int64(len(res.Rows)))
+}
+
+// convertOver converts chat against the sessions the ledger's chats hold. A
+// session index it cannot read stops the step; records it cannot convert are
+// errUnconvertible.
+func convertOver(ctx context.Context, log *slog.Logger, store ledgerStore, chat LegacyChat) (Result, error) {
 	var ownerErr error
 	res, err := convertSafely(ctx, log, chat, func(provider, sessionID string) (string, bool) {
 		chatID, ok, err := store.SessionOwner(ctx, provider, sessionID)
@@ -112,13 +130,7 @@ func importChat(ctx context.Context, log *slog.Logger, store ledgerStore, chat L
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %w", errUnconvertible, err)
 	}
-	if len(res.Skipped) > 0 {
-		log.WarnContext(ctx, "chatledger: skipped records", "chat_id", chat.ChatID, "skipped", clip(strings.Join(res.Skipped, "; "), noteBytes))
-	}
-	if err := unlessCommittedBefore(ctx, store, chat.ChatID, res.Rows, importSafely(ctx, log, store, chat.ChatID, res.Rows)); err != nil {
-		return res, err
-	}
-	return res, landedAsWritten(ctx, store, chat, int64(len(res.Rows)))
+	return res, nil
 }
 
 // unlessCommittedBefore is the import's err, but nil when it was refused for

@@ -34,7 +34,7 @@ func convertAll(
 			return nonZero(unmarked), err
 		}
 		n := legacy.counts[chatID]
-		convert, err := due(ctx, log, cp, owed.owed(chatID, n), chatID, n)
+		convert, err := owes(ctx, log, store, cp, legacy, owed.owed(chatID, n), chatID, n)
 		if err != nil || !convert {
 			if err != nil {
 				return nonZero(unmarked), err
@@ -90,14 +90,16 @@ func stops(ctx context.Context, err error) bool {
 	return errors.Is(err, errSessionIndex) || interrupted(ctx, err) || storeWide(err)
 }
 
-// due does what duty owes chatID short of converting it, and reports whether
+// owes does what duty owes chatID short of converting it, and reports whether
 // it owes the conversion.
-func due(ctx context.Context, log *slog.Logger, cp checkpoints, duty duty, chatID string, n int64) (bool, error) {
+func owes(
+	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, legacy legacyHome, duty duty, chatID string, n int64,
+) (bool, error) {
 	switch duty {
 	case dutyConvert:
 		return true, nil
-	case dutyRecordChange:
-		return false, recordChange(ctx, log, cp, chatID, n)
+	case dutyCatchUp:
+		return false, catchUp(ctx, log, store, cp, legacy, chatID, n)
 	case dutyNone:
 	}
 	return false, nil

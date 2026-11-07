@@ -101,3 +101,23 @@ func TestStore_ImportOfAMovedSessionReplaysInAnyChatOrder(t *testing.T) {
 		})
 	}
 }
+
+// ImportAfter adds to a chat's history as Import writes one: after the head the
+// caller read, keeping seq and time, and never past a head that moved since.
+func TestStore_ImportAfterExtendsTheHeadItWasGiven(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	then := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
+	first := numbered("c1", then, boundS(t, "p"), prompt(t, "r1", "hi"))
+	require.NoError(t, s.Import(ctx, "c1", first))
+	more := numbered("c1", then.Add(time.Hour), boundS(t, "p"), prompt(t, "r2", "later"))[1:]
+	more[0].Seq = 3
+
+	require.ErrorIs(t, s.ImportAfter(ctx, "c1", 1, more), ledgerstore.ErrHeadMoved)
+	require.NoError(t, s.ImportAfter(ctx, "c1", 2, more))
+
+	got, err := s.Read(ctx, "c1", 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, append(first, more...), got, "seq and time are the import's")
+	require.ErrorIs(t, s.ImportAfter(ctx, "c1", 2, more), ledgerstore.ErrHeadMoved, "a repeat cannot land twice")
+}

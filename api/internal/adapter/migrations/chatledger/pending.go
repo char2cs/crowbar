@@ -37,7 +37,7 @@ type duty int
 const (
 	dutyNone duty = iota
 	dutyConvert
-	dutyRecordChange
+	dutyCatchUp
 )
 
 // recorded is what the step's earlier attempts left about the chats.
@@ -47,8 +47,8 @@ type recorded struct {
 }
 
 // owed decides a chat of n legacy records: convert unless converted or skipped by
-// this converter. A converted chat an older build has since added to is recorded once
-// per count, never imported over the ledger; counting misses edits in place.
+// this converter. A converted chat whose count an older build has since changed is
+// caught up once per count; counting misses edits in place.
 func (r recorded) owed(chatID string, n int64) duty {
 	counts, converted := r.marked(chatID)
 	if !converted {
@@ -59,10 +59,10 @@ func (r recorded) owed(chatID string, n int64) duty {
 	}
 	known := counts[legacyRecords]
 	note, noted := r.noted(changedKey(chatID))
-	if known == 0 || n <= known || noted && note.Counts[legacyRecords] == n {
+	if known == 0 || n == known || noted && note.Counts[legacyRecords] == n {
 		return dutyNone
 	}
-	return dutyRecordChange
+	return dutyCatchUp
 }
 
 // Plan counts the legacy chats a boot still owes work. The step recurs, so
@@ -102,9 +102,9 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 			plan.BacksUp = []string{"chats/*/" + PromptsDir}
 		}
 	}
-	if n := owed[dutyRecordChange]; n > 0 {
+	if n := owed[dutyCatchUp]; n > 0 {
 		plan.Actions = append(plan.Actions, migrate.Action{
-			Kind: migrate.Record, Subject: "converted chats an older build added to", Count: n,
+			Kind: migrate.Convert, Subject: "converted chats an older build added to", Count: n,
 		})
 	}
 	// Once a run has recorded anything, a stamp it did not see is recorded too,
