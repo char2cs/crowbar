@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   type CSSProperties,
@@ -109,17 +110,18 @@ export function SidebarSplitPane({
   // Over the content (the scrim is shown only in a narrow window) the sidebar is an overlay,
   // so Esc dismisses it, unless something on top of it already took the key.
   const scrimRef = useRef<HTMLButtonElement>(null)
+  const dismissOverlay = useEffectEvent(() => onOpenChange(false))
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       const scrim = scrimRef.current
       if (!scrim || getComputedStyle(scrim).display === 'none') return
-      onOpenChange(false)
+      dismissOverlay()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onOpenChange])
+  }, [open])
 
   const commitKeyboardWidth = useCallback(
     (requestedWidth: number) => {

@@ -29,7 +29,6 @@
     "src/components/ui/context-menu.tsx": ["types"],
     "src/components/ui/dropdown-menu.tsx": ["exports"],
     "src/components/ui/inline-combobox.tsx": ["exports"],
-    "src/components/ui/kbd.tsx": ["files"],
     "src/components/ui/popover.tsx": ["exports"],
     "src/components/ui/radio-group.tsx": ["exports"],
     "src/components/ui/scroll-area.tsx": ["exports"],
