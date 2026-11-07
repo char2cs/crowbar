@@ -1,7 +1,6 @@
 package chatledger
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime/debug"
-	"slices"
 	"strings"
 	"time"
 
@@ -61,12 +59,17 @@ type checkpoints interface {
 	Note(key string, n migrate.Note) error
 }
 
-func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
+func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (_ migrate.Counts, err error) {
 	stamp, err := legacyStamp(env.Home)
 	if err != nil || stamp == "" {
 		return nil, err
 	}
-	chats, err := ReadLegacy(ctx, env.Home)
+	src, err := openSource(ctx, env.Home)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, src.Close()) }()
+	ids, err := src.ids(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -74,14 +77,11 @@ func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migra
 	if err != nil {
 		return nil, err
 	}
-	slices.SortStableFunc(chats, func(a, b LegacyChat) int {
-		return cmp.Or(oldest(a).Compare(oldest(b)), cmp.Compare(a.ChatID, b.ChatID))
-	})
 	var total migrate.Counts
-	if len(chats) > 0 {
+	if len(ids) > 0 {
 		err = withStore(ctx, env.Home, func(store *ledgerstore.Store) error {
 			var err error
-			total, err = convertAll(ctx, env.Log, store, cp, legacyHome{chats, counts})
+			total, err = convertAll(ctx, env.Log, store, cp, legacyHome{ids: ids, load: src.load, counts: counts})
 			return err
 		})
 	}

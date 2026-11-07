@@ -76,7 +76,7 @@ func TestConvertAll_StopsBeforeTheNextChatOnceCancelled(t *testing.T) {
 	store := &fakeLedger{onImport: func(string) error { cancel(); return nil }}
 	cp := marks{}
 
-	_, err := convertAll(ctx, slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+	_, err := convertAll(ctx, slog.Default(), store, cp, inMemory(t, chatB(), chatA()))
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{"chat-b"}, store.imported, "no chat is imported after the cancel")
@@ -90,7 +90,7 @@ func TestConvertAll_ASessionOwnerFailureStopsTheStep(t *testing.T) {
 	store := &fakeLedger{ownerErr: broken}
 	cp := marks{}
 
-	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB()}})
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, inMemory(t, chatB()))
 
 	require.ErrorIs(t, err, broken)
 	require.NotErrorIs(t, err, errUnconvertible)
@@ -110,7 +110,7 @@ func TestConvertAll_AConversionThatPanicsSkipsOnlyItsChat(t *testing.T) {
 	cp := marks{}
 	log, got := capture(func(r slog.Record) bool { return r.Level == slog.LevelError })
 
-	n, err := convertAll(context.Background(), log, store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+	n, err := convertAll(context.Background(), log, store, cp, inMemory(t, chatB(), chatA()))
 
 	require.NoError(t, err)
 	assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
@@ -136,7 +136,7 @@ func TestConvertAll_AChatWhoseImportFailsSkipsOnlyThatChat(t *testing.T) {
 			}}
 			cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
 
-			n, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+			n, err := convertAll(context.Background(), slog.Default(), store, cp, inMemory(t, chatB(), chatA()))
 
 			require.NoError(t, err)
 			retry := name == "fails"
@@ -158,7 +158,7 @@ func TestConvertAll_EveryImportFailingFailsTheStep(t *testing.T) {
 	store := &fakeLedger{onImport: func(string) error { return full }}
 	cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
 
-	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, inMemory(t, chatB(), chatA()))
 
 	require.ErrorIs(t, err, full)
 	assert.Empty(t, cp.notes)
@@ -174,7 +174,7 @@ func TestConvertAll_AnImportThatDidNotLandAsConvertedIsSkippedForGood(t *testing
 	cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
 	log, warned := capture(func(r slog.Record) bool { return strings.HasPrefix(r.Message, "chatledger: skipped a chat") })
 
-	n, err := convertAll(context.Background(), log, store, cp, legacyHome{chats: []LegacyChat{chatB(), chatA()}})
+	n, err := convertAll(context.Background(), log, store, cp, inMemory(t, chatB(), chatA()))
 
 	require.NoError(t, err)
 	assert.Equal(t, migrate.Counts{"skipped_chats": 1}, n)
@@ -201,7 +201,7 @@ func TestConvertAll_AStoreFaultStopsTheStepAndCostsNoAttempt(t *testing.T) {
 		return nil
 	}}
 	cp := notes{marks: marks{}, notes: map[string]migrate.Note{}}
-	legacy := legacyHome{chats: []LegacyChat{chatB(), chatA()}}
+	legacy := inMemory(t, chatB(), chatA())
 
 	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacy)
 
@@ -212,4 +212,38 @@ func TestConvertAll_AStoreFaultStopsTheStepAndCostsNoAttempt(t *testing.T) {
 	_, err = convertAll(context.Background(), slog.Default(), store, cp, legacy)
 	require.NoError(t, err)
 	assert.Contains(t, cp.marks, "chat-a")
+}
+
+// inMemory is a legacy home of chats, in the order given.
+func inMemory(t *testing.T, chats ...LegacyChat) legacyHome {
+	t.Helper()
+	byID := map[string]LegacyChat{}
+	var ids []string
+	for _, c := range chats {
+		byID[c.ChatID] = c
+		ids = append(ids, c.ChatID)
+	}
+	return legacyHome{ids: ids, load: func(_ context.Context, id string) (LegacyChat, error) {
+		return byID[id], nil
+	}}
+}
+
+// A chat already converted is not read again: a boot that owes it nothing
+// must not pay for its history.
+func TestConvertAll_ReadsOnlyTheChatsItConverts(t *testing.T) {
+	store := &fakeLedger{}
+	cp := notes{marks: marks{"chat-a": {legacyRecords: 1}}, notes: map[string]migrate.Note{}}
+	legacy := inMemory(t, chatB(), chatA())
+	load := legacy.load
+	var read []string
+	legacy.load = func(ctx context.Context, id string) (LegacyChat, error) {
+		read = append(read, id)
+		return load(ctx, id)
+	}
+	legacy.counts = map[string]int64{"chat-a": 1}
+
+	_, err := convertAll(context.Background(), slog.Default(), store, cp, legacy)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"chat-b"}, read)
 }

@@ -417,3 +417,45 @@ func convertNoPanic(t *testing.T, chat LegacyChat, damaged string) (Result, erro
 	}()
 	return ConvertChat(chat, nobody)
 }
+
+// The conversion reads one chat at a time, oldest first: a chat's read holds
+// its own records and nothing of another chat's.
+func TestSource_ReadsOneChatAtATimeOldestFirst(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	all, err := ReadLegacy(context.Background(), h)
+	require.NoError(t, err)
+	src, err := openSource(context.Background(), h)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, src.Close()) })
+
+	ids, err := src.ids(context.Background())
+	require.NoError(t, err)
+	b, err := src.load(context.Background(), "chat-b")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"chat-b", "chat-a"}, ids, "chat-b's records are older")
+	assert.Equal(t, all[1], b)
+	for _, turn := range b.Turns {
+		assert.Equal(t, "chat-b", turn.ChatID)
+	}
+}
+
+// A row whose key does not start with its chat id, as no build wrote but a
+// hand-edited file might hold, is still read with its chat.
+func TestSource_ARowKeyedOtherwiseIsStillReadWithItsChat(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	want, err := ReadLegacy(context.Background(), h)
+	require.NoError(t, err)
+	conn := writable(t, filepath.Join(h.Store(), ActivityDB))
+	_, err = conn.ExecContext(t.Context(), "UPDATE agent_turns SET key = 'stray-' || id WHERE rowid = "+
+		"(SELECT min(rowid) FROM agent_turns WHERE chat_id = 'chat-a')")
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	got, err := ReadLegacy(context.Background(), h)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}

@@ -11,9 +11,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// legacyHome is every legacy chat with its census count.
+// legacyHome is every legacy chat, in the order to convert them, with its
+// census count; load reads one chat's records only when it is converted.
 type legacyHome struct {
-	chats  []LegacyChat
+	ids    []string
+	load   func(ctx context.Context, chatID string) (LegacyChat, error)
 	counts map[string]int64
 }
 
@@ -27,17 +29,21 @@ func convertAll(
 	owed := recorded{marked: cp.Marked, noted: cp.Noted}
 	var failed []failedImport
 	imported := 0
-	for _, chat := range legacy.chats {
+	for _, chatID := range legacy.ids {
 		if err := ctx.Err(); err != nil {
 			return nonZero(unmarked), err
 		}
-		n := legacy.counts[chat.ChatID]
-		convert, err := due(ctx, log, cp, owed.owed(chat.ChatID, n), chat.ChatID, n)
+		n := legacy.counts[chatID]
+		convert, err := due(ctx, log, cp, owed.owed(chatID, n), chatID, n)
 		if err != nil || !convert {
 			if err != nil {
 				return nonZero(unmarked), err
 			}
 			continue
+		}
+		chat, err := legacy.load(ctx, chatID)
+		if err != nil {
+			return nonZero(unmarked), err
 		}
 		landed, err := attempt(ctx, log, store, cp, chat, n)
 		switch {

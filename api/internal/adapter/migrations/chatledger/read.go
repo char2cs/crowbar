@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,42 +21,23 @@ import (
 // ReadLegacy reads every chat's records from the legacy runner and activity
 // databases and the legacy prompt journal, without writing. Missing files are
 // empty input; chats come back by id.
-func ReadLegacy(ctx context.Context, h home.Home) ([]LegacyChat, error) {
-	r := reader{chats: map[string]*LegacyChat{}}
-	runnerDB, activityDB := filepath.Join(h.Store(), RunnerDB), filepath.Join(h.Store(), ActivityDB)
-	for _, q := range []struct {
-		path, table, query string
-		scan               func(*sql.Rows) error
-	}{
-		{runnerDB, "agent_chat_conversations", conversationsQuery, r.conversation},
-		{activityDB, "agent_turns", turnsQuery, r.turn},
-		{activityDB, "agent_tool_calls", toolsQuery, r.tool},
-		{activityDB, "agent_subagents", subagentsQuery, r.subagent},
-		{activityDB, "agent_interruptions", interruptionsQuery, r.interruption},
-		{activityDB, "agent_choices", choicesQuery, r.choice},
-	} {
-		if err := queryLegacy(ctx, q.path, q.table, q.scan, q.query); err != nil {
+func ReadLegacy(ctx context.Context, h home.Home) (out []LegacyChat, err error) {
+	src, err := openSource(ctx, h)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, src.Close()) }()
+	ids, err := src.ids(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		chat, err := src.load(ctx, id)
+		if err != nil {
 			return nil, err
 		}
-	}
-	runners, err := LiveRunners(ctx, h)
-	if err != nil {
-		return nil, err
-	}
-	for _, run := range runners {
-		c := r.chat(run.ChatID)
-		c.Runners = append(c.Runners, run)
-	}
-	if err := r.prompts(filepath.Join(h.Root(), "chats")); err != nil {
-		return nil, err
-	}
-	written, err := modTime(runnerDB)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]LegacyChat, 0, len(r.chats))
-	for _, id := range slices.Sorted(maps.Keys(r.chats)) {
-		out = append(out, dated(*r.chats[id], written))
+		out = append(out, chat)
 	}
 	return out, nil
 }
@@ -86,33 +66,34 @@ func modTime(path string) (time.Time, error) {
 	return info.ModTime().UTC(), nil
 }
 
-const (
-	conversationsQuery = `SELECT COALESCE(chat_id, ''), COALESCE(provider_id, ''), COALESCE(session_id, ''),
-		first_seen_at, last_active_at FROM agent_chat_conversations
-		WHERE COALESCE(chat_id, '') != '' ORDER BY chat_id, first_seen_at, session_id`
-	turnsQuery = `SELECT COALESCE(id, ''), chat_id, COALESCE(role, ''), COALESCE(provider_id, ''),
+// legacyTable is one legacy table the reader reads, column for column as its
+// scan expects, a chat's rows in order.
+type legacyTable struct {
+	db, name, cols, order string
+	scan                  func(*reader, *sql.Rows) error
+}
+
+var legacyTables = []legacyTable{
+	{RunnerDB, "agent_chat_conversations", `COALESCE(chat_id, ''), COALESCE(provider_id, ''), COALESCE(session_id, ''),
+		first_seen_at, last_active_at`, "first_seen_at, session_id", (*reader).conversation},
+	{ActivityDB, "agent_turns", `COALESCE(id, ''), chat_id, COALESCE(role, ''), COALESCE(provider_id, ''),
 		COALESCE(runner_id, ''), COALESCE(session_id, ''), COALESCE(text, ''), COALESCE(effort, ''),
 		COALESCE(status, ''), COALESCE(diff, ''), COALESCE(plan, ''), COALESCE(seq, 0),
-		COALESCE(display_order, 0), COALESCE(item_index, 0), started_at, ended_at
-		FROM agent_turns WHERE COALESCE(chat_id, '') != '' ORDER BY chat_id, seq, id`
-	toolsQuery = `SELECT COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(name, ''),
+		COALESCE(display_order, 0), COALESCE(item_index, 0), started_at, ended_at`, "seq, id", (*reader).turn},
+	{ActivityDB, "agent_tool_calls", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(name, ''),
 		COALESCE(kind, ''), COALESCE(locations, ''), COALESCE(target, ''), COALESCE(request_ref, ''),
 		COALESCE(result_ref, ''), COALESCE(diff, ''), COALESCE(status, ''), COALESCE(error, ''),
-		COALESCE(subagent_id, ''), COALESCE(seq, 0), COALESCE(duration_ms, 0), started_at, ended_at
-		FROM agent_tool_calls WHERE COALESCE(chat_id, '') != '' ORDER BY chat_id, seq, id`
-	subagentsQuery = `SELECT COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(agent_type, ''),
-		COALESCE(messages, ''), COALESCE(seq, 0), started_at, ended_at
-		FROM agent_subagents WHERE COALESCE(chat_id, '') != '' ORDER BY chat_id, seq, id`
-	interruptionsQuery = `SELECT COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(kind, ''),
-		COALESCE(detail, ''), COALESCE(seq, 0), COALESCE(display_order, 0), at, resolved_at
-		FROM agent_interruptions WHERE COALESCE(chat_id, '') != '' ORDER BY chat_id, seq, id`
-	choicesQuery = `SELECT COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(kind, ''),
+		COALESCE(subagent_id, ''), COALESCE(seq, 0), COALESCE(duration_ms, 0), started_at, ended_at`, "seq, id", (*reader).tool},
+	{ActivityDB, "agent_subagents", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(agent_type, ''),
+		COALESCE(messages, ''), COALESCE(seq, 0), started_at, ended_at`, "seq, id", (*reader).subagent},
+	{ActivityDB, "agent_interruptions", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(kind, ''),
+		COALESCE(detail, ''), COALESCE(seq, 0), COALESCE(display_order, 0), at, resolved_at`, "seq, id", (*reader).interruption},
+	{ActivityDB, "agent_choices", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(kind, ''),
 		COALESCE(prompt_id, ''), COALESCE(tool_id, ''), COALESCE(tool_name, ''), COALESCE(title, ''),
 		COALESCE(question, ''), COALESCE(mode, ''), COALESCE(options, ''), COALESCE(questions, ''),
 		COALESCE(schema, ''), COALESCE(resolution, ''), COALESCE(answered_option_ids, ''),
-		COALESCE(multi, 0), COALESCE(seq, 0), at, resolved_at
-		FROM agent_choices WHERE COALESCE(chat_id, '') != '' ORDER BY chat_id, seq, id`
-)
+		COALESCE(multi, 0), COALESCE(seq, 0), at, resolved_at`, "seq, id", (*reader).choice},
+}
 
 // reader gathers legacy records into the chats they name.
 type reader struct{ chats map[string]*LegacyChat }
@@ -227,26 +208,17 @@ func (r *reader) add(chatID, row string, err error, keep func(*LegacyChat)) {
 	keep(chat)
 }
 
-// prompts reads <chats>/<chat id>/prompt-requests/*.json. A record that does
+// journal reads <chats>/<chat id>/prompt-requests/*.json. A record that does
 // not decode is named in its chat's Unreadable, not fatal.
-func (r *reader) prompts(chatsDir string) error {
-	dirs, err := readDir(chatsDir)
+func (r *reader) journal(chatsDir, chatID string) error {
+	journal := filepath.Join(chatsDir, chatID, PromptsDir)
+	files, err := readDir(journal)
 	if err != nil {
 		return err
 	}
-	for _, d := range dirs {
-		if !d.IsDir() {
-			continue
-		}
-		journal := filepath.Join(chatsDir, d.Name(), PromptsDir)
-		files, err := readDir(journal)
-		if err != nil {
-			return err
-		}
-		for _, f := range files {
-			if f.Type().IsRegular() && filepath.Ext(f.Name()) == ".json" {
-				r.prompt(d.Name(), filepath.Join(journal, f.Name()))
-			}
+	for _, f := range files {
+		if f.Type().IsRegular() && filepath.Ext(f.Name()) == ".json" {
+			r.prompt(chatID, filepath.Join(journal, f.Name()))
 		}
 	}
 	return nil
