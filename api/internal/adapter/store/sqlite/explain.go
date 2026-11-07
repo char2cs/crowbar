@@ -28,10 +28,19 @@ func Explain(err error) (string, bool) {
 	case errors.Is(err, syscall.ENOSPC) || code == codeFull:
 		return "the disk holding Crowbar's data is full", true
 	case errors.Is(err, syscall.EROFS) || errors.Is(err, fs.ErrPermission) || code == codeReadOnly || code == codeCantOpen:
-		return "Crowbar's data folder is read-only, or Crowbar may not write to it", true
+		return "Crowbar's data folder is read-only, or Crowbar may not write to it" + refusedPath(err), true
 	case code == codeCorrupt || code == codeNotADB:
 		return "a database file in Crowbar's data folder is damaged", true
 	default:
 		return "", false
 	}
+}
+
+// refusedPath names the file a refusal was about, when the error carries one.
+func refusedPath(err error) string {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) && pathErr.Path != "" {
+		return " (" + pathErr.Path + ")"
+	}
+	return ""
 }

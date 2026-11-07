@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -67,4 +68,16 @@ func TestExplain_ADatabaseInAFolderItCannotWriteIsReadOnly(t *testing.T) {
 	words, ok := sqlite.Explain(err)
 	assert.True(t, ok, err.Error())
 	assert.Contains(t, words, "read-only")
+}
+
+// A refused file names itself: the folder is rarely read-only as a whole, and
+// without the path a user cannot find the one file another user owns.
+func TestExplain_APermissionRefusalNamesThePath(t *testing.T) {
+	refused := fmt.Errorf("owner-only: %w", &fs.PathError{Op: "chmod", Path: "/home/u/.crowbar/x.json", Err: syscall.EPERM})
+
+	words, ok := sqlite.Explain(refused)
+
+	assert.True(t, ok)
+	assert.Contains(t, words, "may not write")
+	assert.Contains(t, words, "/home/u/.crowbar/x.json")
 }
