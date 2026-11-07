@@ -89,12 +89,9 @@ export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
       },
       (opId) => mergeIntoParent(wsId, strategy, deleteAfterMerge, opId),
     )
-    // A kept branch's changes now sit in its parent, yet its own status is unchanged,
-    // so no status frame says its changed files went stale.
+    // A kept branch's changes now sit in its parent, but its own status sends no frame.
     whenSettled(op.id).then(
-      () => {
-        if (!deleteAfterMerge) requestGitRefresh(wsId)
-      },
+      () => !target && requestGitRefresh(wsId),
       (err: unknown) => {
         if (err instanceof OperationFailedError && err.problem.code === 'chat_busy')
           setWorking(err.problem.message)
@@ -104,11 +101,10 @@ export function useBranchMerge(wsId: string, parentBranch: string | undefined) {
     // Waits from the click: the fold's frame can land before the terminal one,
     // and the route guard would move off the vanished child first.
     stopWaiting.current?.()
-    const stop = whenChildLeaves(wsId, () => {
+    stopWaiting.current = whenChildLeaves(wsId, () => {
       void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: target })
     })
-    stopWaiting.current = stop
-    void whenSettled(op.id).catch(stop)
+    void whenSettled(op.id).catch(stopWaiting.current)
   }
 
   // Stop records each turn's end before it answers, so the merge that follows is not refused.

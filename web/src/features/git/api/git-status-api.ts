@@ -47,18 +47,12 @@ export const getGitStatus = async (wsId: string): Promise<GitStatus | null> =>
 export const unstagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
   gitPost(wsId, 'unstage', { paths })
 
-// Hunk-level staging when the diff carries a hunkId; otherwise fall back to
-// staging the whole file so the action still has an effect.
-export const stageHunk = (wsId: string, hunk: GitHunk): Promise<boolean> => {
+// Hunk-level when the diff carries a hunkId; otherwise the whole file, so the action still has an effect.
+const hunkOrFile = (verb: 'stage' | 'unstage', wsId: string, hunk: GitHunk): Promise<boolean> => {
   const hunkId = hunkIdOf(hunk)
   return hunkId
-    ? gitPost(wsId, 'stage-hunk', { path: hunk.file_path, hunkId })
-    : gitPost(wsId, 'stage', { paths: [hunk.file_path] })
+    ? gitPost(wsId, `${verb}-hunk`, { path: hunk.file_path, hunkId })
+    : gitPost(wsId, verb, { paths: [hunk.file_path] })
 }
-
-export const unstageHunk = (wsId: string, hunk: GitHunk): Promise<boolean> => {
-  const hunkId = hunkIdOf(hunk)
-  return hunkId
-    ? gitPost(wsId, 'unstage-hunk', { path: hunk.file_path, hunkId })
-    : gitPost(wsId, 'unstage', { paths: [hunk.file_path] })
-}
+export const stageHunk = (wsId: string, hunk: GitHunk) => hunkOrFile('stage', wsId, hunk)
+export const unstageHunk = (wsId: string, hunk: GitHunk) => hunkOrFile('unstage', wsId, hunk)

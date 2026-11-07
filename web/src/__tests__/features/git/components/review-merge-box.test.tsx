@@ -92,6 +92,14 @@ function setup(opts: {
 const mergeButton = () =>
   screen.getByRole('button', { name: 'Create merge commit' }) as HTMLButtonElement
 
+/** Merges a child whose fold frame has not arrived yet. */
+async function mergeBeforeTheFold() {
+  mocks.mergeIntoParent.mockResolvedValue({ items: [] })
+  const view = setup({})
+  await userEvent.setup().click(mergeButton())
+  return view
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   resetOperations()
@@ -138,7 +146,9 @@ describe('ReviewMergeBox', () => {
     expect(screen.getByText('Nothing to merge yet — this branch has no changes.')).toBeTruthy()
   })
 
-  it('keeps the workspace and stays put when delete-after-merge is unticked', async () => {
+  it('keeps the workspace, stays put and refreshes it when delete-after-merge is unticked', async () => {
+    const refreshed = vi.fn()
+    onGitRefreshRequested(WS, refreshed)
     const user = userEvent.setup()
     setup({})
     await user.click(screen.getByText('Delete this branch and its chats after merging'))
@@ -146,37 +156,18 @@ describe('ReviewMergeBox', () => {
 
     expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', false, expect.any(String))
     expect(mocks.navigate).not.toHaveBeenCalled()
-  })
-
-  // The parent now holds the branch's commits, so the kept branch's changed files are stale.
-  it('asks for a git refresh of the kept branch once its merge lands', async () => {
-    mocks.mergeIntoParent.mockResolvedValue({ items: [] })
-    const refreshed = vi.fn()
-    const stop = onGitRefreshRequested(WS, refreshed)
-    const user = userEvent.setup()
-    setup({})
-    await user.click(screen.getByText('Delete this branch and its chats after merging'))
-    await user.click(mergeButton())
-
     await waitFor(() => expect(refreshed).toHaveBeenCalled())
-    stop()
   })
 
   it('a merge that kept the child (conflicts) does not redirect', async () => {
-    mocks.mergeIntoParent.mockResolvedValue({ items: [] })
-    const user = userEvent.setup()
-    setup({})
-    await user.click(mergeButton())
+    await mergeBeforeTheFold()
 
     await waitFor(() => expect(settledOp()).toBe('succeeded'))
     expect(mocks.navigate).not.toHaveBeenCalled()
   })
 
   it('redirects when the fold frame arrives after the operation settled', async () => {
-    mocks.mergeIntoParent.mockResolvedValue({ items: [] })
-    const user = userEvent.setup()
-    setup({})
-    await user.click(mergeButton())
+    await mergeBeforeTheFold()
     await waitFor(() => expect(settledOp()).toBe('succeeded'))
 
     act(() => removeTheChild())
@@ -202,10 +193,7 @@ describe('ReviewMergeBox', () => {
   })
 
   it('does not redirect once the user has moved to another workspace', async () => {
-    mocks.mergeIntoParent.mockResolvedValue({ items: [] })
-    const user = userEvent.setup()
-    setup({})
-    await user.click(mergeButton())
+    await mergeBeforeTheFold()
     await waitFor(() => expect(settledOp()).toBe('succeeded'))
 
     act(() => setActiveWorkspaceId('elsewhere'))
@@ -215,10 +203,7 @@ describe('ReviewMergeBox', () => {
   })
 
   it('stops waiting for the fold once the box is gone', async () => {
-    mocks.mergeIntoParent.mockResolvedValue({ items: [] })
-    const user = userEvent.setup()
-    const { unmount } = setup({})
-    await user.click(mergeButton())
+    const { unmount } = await mergeBeforeTheFold()
     await waitFor(() => expect(settledOp()).toBe('succeeded'))
 
     unmount()
