@@ -134,3 +134,22 @@ func TestBranchOut_AThreadPlacedOnlyByItsNodeFollowsToo(t *testing.T) {
 	waitMoved(t, chats, "c1", "c2")
 	assert.Equal(t, "ws-cut", rowOf(chats, "c2").WorkspaceID)
 }
+
+// A daemon on its way down runs no move: its stores are closing, and the move
+// must stay asked for so the next boot makes it, not fail it.
+func TestStopMoves_ADaemonShuttingDownLeavesTheMoveForTheNextBoot(t *testing.T) {
+	chats, uc := rebindWorld(t)
+	chats.SetBusy("c1", true)
+	parent := "b"
+	_, _, err := uc.PlaceChat(context.Background(), "ws-a", "c1",
+		tree.PlaceInput{ParentID: &parent, WorkspaceID: "ws-b"})
+	require.NoError(t, err)
+
+	uc.StopMoves()
+	chats.SetBusy("c1", false)
+	uc.MoveWhenReady(context.Background(), "c1")
+	waiting, err := chats.MovesWaiting(context.Background())
+	require.NoError(t, err)
+	assert.Contains(t, waiting, "c1")
+	assert.Equal(t, "ws-a", rowOf(chats, "c1").WorkspaceID)
+}

@@ -196,6 +196,8 @@ type Usecase interface {
 	MoveWhenReady(ctx context.Context, chatID string)
 	// ResumeMoves runs every move a previous daemon left unfinished.
 	ResumeMoves(ctx context.Context) error
+	// StopMoves starts no move from now on: the daemon is going down.
+	StopMoves()
 	// CancelMove withdraws the chat's pending move.
 	CancelMove(ctx context.Context, chatID string) error
 	// BranchOut makes the thread a branch at its turn boundary.

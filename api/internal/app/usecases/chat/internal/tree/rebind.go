@@ -156,6 +156,9 @@ func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 	done, ran, err := u.agent.ExecuteMove(ctx, chatID, func(ctx context.Context, m ledger.Move) (ledger.Move, error) {
 		var err error
 		left = m.From
+		if u.moves.halted() {
+			return ledger.Move{}, ledger.ErrMoveWaits
+		}
 		if stayed, err = u.threadsUnder(ctx, chatID, m.From); err != nil {
 			return ledger.Move{}, err
 		}
@@ -248,6 +251,10 @@ func (u *chatFolderUsecase) lineageOf(ctx context.Context, chat domain.Chat) ([]
 	return snapshot.chatLineage(chat.ID), nil
 }
 
+// StopMoves runs no further move: the daemon is shutting down, and a move it
+// cannot finish stays asked for, for the next boot.
+func (u *chatFolderUsecase) StopMoves() { u.moves.stop() }
+
 // CancelMove withdraws chatID's pending move.
 func (u *chatFolderUsecase) CancelMove(ctx context.Context, chatID string) error {
 	if err := u.agent.CancelMove(ctx, chatID, "cancelled"); err != nil {
@@ -259,12 +266,29 @@ func (u *chatFolderUsecase) CancelMove(ctx context.Context, chatID string) error
 // moveRuns runs at most one move pass per chat; a kick during a pass runs one more after it, so
 // a boundary reached while a pass was deciding is never missed.
 type moveRuns struct {
-	mu    sync.Mutex
-	state map[string]bool // chat id -> another pass owed
+	mu      sync.Mutex
+	state   map[string]bool // chat id -> another pass owed
+	stopped bool
+}
+
+func (r *moveRuns) stop() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopped = true
+}
+
+func (r *moveRuns) halted() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stopped
 }
 
 func (r *moveRuns) kick(ctx context.Context, chatID string, run func(context.Context, string)) {
 	r.mu.Lock()
+	if r.stopped {
+		r.mu.Unlock()
+		return
+	}
 	if r.state == nil {
 		r.state = map[string]bool{}
 	}

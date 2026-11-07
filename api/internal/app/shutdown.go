@@ -124,6 +124,9 @@ func shutdownAgentRunners(ucs *usecases.Container) {
 	if ucs == nil || ucs.AgentRunner == nil {
 		return
 	}
+	if ucs.AgentChatFolder != nil {
+		ucs.AgentChatFolder.StopMoves()
+	}
 	ucs.AgentRunner.ShutdownAPIConnections()
 }
 
