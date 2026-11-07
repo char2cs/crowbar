@@ -27,7 +27,7 @@ describe('SubagentCard', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Show the subagent’s work' }))
     const tools = within(card).getAllByTestId('agent-activity-tool')
     expect(tools.map((tool) => tool.getAttribute('aria-label'))).toEqual([
-      'Read ws/a.txt',
+      'Read a.txt',
       'Ran Print hi',
     ])
     expect(within(card).getByTestId('agent-subagent-result')).toHaveTextContent(
