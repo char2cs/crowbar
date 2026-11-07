@@ -312,6 +312,25 @@ describe('MarkerRow', () => {
     )
   })
 
+  // codex's own words (0.164): the pill says its first sentence; the rest waits behind Details.
+  it('says a warning by its first sentence, the provider’s whole message one click away', () => {
+    const said =
+      'Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. ' +
+      'Codex will use the bundled bubblewrap in the meantime.'
+    draw(markerOf(seed([ledger().row('marker', { kind: 'warning', detail: said })]))!)
+    expect(screen.getByTestId('agent-warning')).toHaveTextContent(
+      /^Codex could not find bubblewrap on PATH\.$/,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByText(/use the bundled bubblewrap in the meantime/)).toBeInTheDocument()
+  })
+
+  it('offers no Details for a warning said in one sentence', () => {
+    draw(markerOf(seed([ledger().row('marker', { kind: 'warning', detail: 'Model changed.' })]))!)
+    expect(screen.getByTestId('agent-warning')).toHaveTextContent('Model changed.')
+    expect(screen.queryByRole('button', { name: 'Details' })).toBeNull()
+  })
+
   // Every marker kind the daemon accepts (written by the api's ledger tests),
   // and whether the transcript draws it; MarkerKind must name exactly these.
   const drawn: Record<MarkerKind, true | string> = {

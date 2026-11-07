@@ -56,3 +56,13 @@ export function resetLabel(resetsAt: string): string {
   if (Number.isNaN(at.getTime())) return ''
   return `Resets ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
 }
+
+// A sentence ends at a stop before a capital; a dot inside a path or a URL does not.
+const SENTENCE_END = /[.!?](?=\s+[A-Z])/
+
+/** A provider's warning, said by its first sentence; `more` is its whole message. */
+export function warningHeadline(detail = ''): { text: string; more?: string } {
+  const said = detail.trim()
+  const end = said.search(SENTENCE_END)
+  return end < 0 ? { text: said } : { text: said.slice(0, end + 1), more: said }
+}

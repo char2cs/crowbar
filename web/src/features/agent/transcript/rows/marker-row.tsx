@@ -8,6 +8,7 @@ import { limitResetsAt, useChatTelemetry } from '@/features/agent/hooks/use-chat
 import {
   describeFailure,
   resetLabel,
+  warningHeadline,
   type FailureKind,
 } from '@/features/agent/transcript/lib/turn-failure'
 
@@ -89,7 +90,10 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
     case 'effort_changed':
       return { label: `Effort: ${item.detail || 'default'}`, testId: 'agent-effort-switch-divider' }
     case 'warning':
-      return { label: item.detail || 'The agent warned of a problem', testId: 'agent-warning' }
+      return {
+        label: warningHeadline(item.detail).text || 'The agent warned of a problem',
+        testId: 'agent-warning',
+      }
     default:
       return { label: item.detail || item.marker, testId: 'agent-marker-divider' }
   }
@@ -218,6 +222,29 @@ function FailedActions({
   )
 }
 
+/** The provider's whole warning, one click from its headline. */
+function WarningDetails({ detail }: { detail?: string }) {
+  const [open, setOpen] = useState(false)
+  const { more } = warningHeadline(detail)
+  if (!more) return null
+  return (
+    <div className="marker-failure">
+      <div className="marker-actions">
+        <button
+          type="button"
+          className="reasoning-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          Details
+          <CaretRightIcon size={12} />
+        </button>
+      </div>
+      {open && <pre className="marker-detail">{more}</pre>}
+    </div>
+  )
+}
+
 interface MarkerProps {
   chatId: string
   item: MarkerItem
@@ -244,6 +271,7 @@ function MarkerRowBody({
         </span>
         <span className="wavy-rule" />
       </div>
+      {item.marker === 'warning' && <WarningDetails detail={item.detail} />}
       {item.marker === 'turn_failed' && (
         <FailedActions
           chatId={chatId}
