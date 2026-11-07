@@ -55,6 +55,24 @@ func TestOwnerOnly_NarrowsWhatAnOlderBuildLeftOpenButNotACheckout(t *testing.T) 
 	assert.Equal(t, []migrate.Counts{{"narrowed": 6}}, migratetest.Applied(t, h)[StepOwnerOnly])
 }
 
+func TestOwnerOnly_LeavesWhatItCannotReachAndStillBoots(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
+	h := testutil.FixtureHome(t)
+	root := h.Root()
+	testutil.WriteFile(t, h, "model-manifest-cache/m.json", "{}")
+	testutil.WriteFile(t, h, "model-manifest-cache/locked/inner.json", "{}")
+	chmod(t, root, "model-manifest-cache/m.json", 0o644)
+	chmod(t, root, "model-manifest-cache/locked", 0o000)
+	t.Cleanup(func() { chmod(t, root, "model-manifest-cache/locked", 0o700) })
+
+	sess := boot(t, h)
+	require.Nil(t, sess.Halt(), "a directory Crowbar cannot read must not stop the boot")
+	finish(t, sess)
+
+	assert.Equal(t, os.FileMode(0o600), mode(t, root, "model-manifest-cache/m.json"))
+	assert.Equal(t, []migrate.Counts{{"narrowed": 1, "unreachable": 1}}, migratetest.Applied(t, h)[StepOwnerOnly])
+}
+
 func TestOwnerOnly_HasNothingToDoOnAHomeThatIsOwnerOnly(t *testing.T) {
 	h := testutil.FixtureHome(t)
 
