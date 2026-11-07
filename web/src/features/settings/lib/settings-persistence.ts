@@ -42,6 +42,15 @@ export function persistSettings(settings: Partial<Settings>): void {
   }
 }
 
+/** Rewrites the settings already in storage (a load may have normalized them) and adds none:
+ *  a default written here would outlive a later build's different default. */
+export function persistStoredSettings(settings: Settings): void {
+  const stored = (Object.keys(settings) as Array<keyof Settings>).filter(
+    (key) => readKey(key) !== null,
+  )
+  persistSettings(Object.fromEntries(stored.map((key) => [key, settings[key]])))
+}
+
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
 let pendingSettings: Partial<Settings> = {}
 

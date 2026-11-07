@@ -3,7 +3,7 @@ import { applySettingsSideEffects } from '@/features/settings/lib/settings-effec
 import { normalizeSettings } from '@/features/settings/lib/settings-normalization'
 import {
   loadPersistedSettings,
-  persistSettings,
+  persistStoredSettings,
 } from '@/features/settings/lib/settings-persistence'
 import type { Settings } from '@/features/settings/types/settings'
 
@@ -44,7 +44,7 @@ export async function initializeSettingsState(
     const normalizedSettings = await resolveInitialSettings()
     applySettingsSideEffects(normalizedSettings)
     applySettings(normalizedSettings)
-    persistSettings(normalizedSettings)
+    persistStoredSettings(normalizedSettings)
     return normalizedSettings
   } catch (error) {
     console.error('Failed to initialize settings:', error)

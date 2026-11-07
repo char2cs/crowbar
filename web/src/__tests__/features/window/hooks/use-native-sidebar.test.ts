@@ -116,7 +116,7 @@ describe('useNativeSidebar', () => {
   it('pushes the build readout with each paired host’s net state, or none while it is off', () => {
     useSettingsStore.setState((state) => {
       state.settings.buildBadgeOverride = 'beta'
-      state.settings.showBuildReadout = true
+      state.settings.buildReadout = true
     })
     pairRemoteHost('h1', 'lab')
     const { unmount } = mount()
@@ -124,7 +124,7 @@ describe('useNativeSidebar', () => {
     expect(last().readout?.hosts).toEqual([{ name: 'lab', net: 'idle' }])
     unmount()
     useSettingsStore.setState((state) => {
-      state.settings.showBuildReadout = false
+      state.settings.buildReadout = false
     })
     mount()
     expect(last().readout).toBeNull()

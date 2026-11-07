@@ -73,7 +73,7 @@ export interface Settings {
   // Features
   coreFeatures: CoreFeaturesState
   // Advanced
-  showBuildReadout: boolean
+  buildReadout: boolean
   /** Sidebar-header build indicator. 'auto' detects dev/nightly/beta/release from the build; any other value forces that state for QA, and 'off' hides it. */
   buildBadgeOverride: 'auto' | 'off' | BuildChannel
   // Other

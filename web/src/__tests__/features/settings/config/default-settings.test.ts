@@ -14,7 +14,7 @@ const defaultsUnder = async (dev: boolean) => {
 describe('default settings', () => {
   // The readout is a developer's diagnostic: a shipped build starts without it.
   it('shows the build readout only in a development build', async () => {
-    expect((await defaultsUnder(false)).showBuildReadout).toBe(false)
-    expect((await defaultsUnder(true)).showBuildReadout).toBe(true)
+    expect((await defaultsUnder(false)).buildReadout).toBe(false)
+    expect((await defaultsUnder(true)).buildReadout).toBe(true)
   })
 })
