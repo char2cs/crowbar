@@ -38,20 +38,27 @@ function baseOptions() {
 // The hook returns a React element tree, not the raw item list; walk it to find
 // the ContextMenu element and read its `items` prop. This avoids rendering the
 // base-ui portal (which does not lay out meaningfully under jsdom).
-function findItems(node: ReactNode): ContextMenuItem[] | null {
+interface MenuProps {
+  items: ContextMenuItem[]
+  onClose: () => void
+}
+
+function findMenu(node: ReactNode): MenuProps | null {
   if (!node || typeof node !== 'object') return null
   if (Array.isArray(node)) {
     for (const child of node) {
-      const found = findItems(child)
+      const found = findMenu(child)
       if (found) return found
     }
     return null
   }
   if (!isValidElement(node)) return null
-  const props = node.props as { items?: unknown; children?: ReactNode }
-  if (Array.isArray(props.items)) return props.items as ContextMenuItem[]
-  return findItems(props.children ?? null)
+  const props = node.props as { items?: unknown; onClose?: () => void; children?: ReactNode }
+  if (Array.isArray(props.items)) return props as MenuProps
+  return findMenu(props.children ?? null)
 }
+
+const findItems = (node: ReactNode) => findMenu(node)?.items ?? null
 
 const mouseEvent = { preventDefault() {}, stopPropagation() {}, pageX: 10, pageY: 10 }
 
@@ -270,6 +277,8 @@ describe('useFileExplorerContextMenu — failures', () => {
       )
     })
     click(findItems(result.current.contextMenuElement) ?? [], 'Properties')
+    // A chosen item closes the menu, which is modal while open.
+    act(() => findMenu(result.current.contextMenuElement)?.onClose())
 
     render(<>{result.current.contextMenuElement}</>)
     const dialog = screen.getByRole('dialog')
