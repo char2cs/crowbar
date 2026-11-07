@@ -423,9 +423,11 @@ presentation:
       escape: " "
     # A message sent mid-turn rides the Stop hook's block reply, so the running
     # CLI takes it without a restart. `/` and `!` are commands, never steered.
+    # The model reads a block reason as the hook's own notice: the frame names the
+    # words as the person's and sets them apart, or it answers it sees no message.
     steer:
       skip_prefixes: ["/", "!"]
-      frame: "The user sent a new message while you were working. Respond to it now.\n\n{message}"
+      frame: "Message from the user, typed while you were working (Crowbar hands it to you through this hook):\n\n{message}\n\nReply to it as their next message."
       reply: '{"decision":"block","reason":{message_json}}'
   # Plugin metadata is readable without a model turn; user skills are not,
   # hence plugin_only rather than complete.
