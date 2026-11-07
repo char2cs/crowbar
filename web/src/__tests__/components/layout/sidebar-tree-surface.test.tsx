@@ -49,6 +49,7 @@ import {
   seedRepos,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
+import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 
 // Collection has no test timeout: transform the lazy CreateSpacePanel chunk here.
 await import('@/components/layout/create-space-panel')
@@ -311,6 +312,35 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
 
     expect(screen.getByText('Rename')).toBeInTheDocument()
     expect(screen.getByText('New folder')).toBeInTheDocument()
+  })
+
+  // Typed after New folder, a name used to land in the composer and send a prompt.
+  it('New folder opens the new row on its name, focused; Esc keeps the default', async () => {
+    seedHomeTree('p1', {
+      chats: [],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
+    })
+    homeResolved('p1')
+    vi.spyOn(sidebarPlacement, 'createHomeFolder').mockResolvedValueOnce({
+      folder: { id: 'home-folder-2', repoId: '', projectId: 'p1', name: 'New folder', order: 1 },
+      shifted: [],
+    })
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('Docs').closest('[role="treeitem"]')!)
+    fireEvent.click(screen.getByText('New folder'))
+
+    const input = await screen.findByDisplayValue('New folder')
+    await waitFor(() => expect(input).toHaveFocus())
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByDisplayValue('New folder')).not.toBeInTheDocument()
+    expect(screen.getByText('New folder').closest('[role="treeitem"]')).toBeInTheDocument()
   })
 })
 

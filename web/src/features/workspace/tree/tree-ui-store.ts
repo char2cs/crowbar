@@ -87,7 +87,8 @@ interface TreeUiState {
 }
 
 interface TreeUiActions {
-  startRenaming: (rowId: string) => void
+  /** `role` defaults to the instance on screen; a row not drawn yet (just created) names it. */
+  startRenaming: (rowId: string, role?: 'tree' | 'recents') => void
   stopRenaming: () => void
   /** Fold a row away, or open it again; the fold is persisted. */
   toggleChatRow: (rowId: string) => void
@@ -142,7 +143,8 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
   draft: null,
   activeTab: 'chats',
 
-  startRenaming: (rowId) => set({ renaming: rowId, renamingRole: renamingRoleFor(rowId) }),
+  startRenaming: (rowId, role) =>
+    set({ renaming: rowId, renamingRole: role ?? renamingRoleFor(rowId) }),
   stopRenaming: () => set({ renaming: null, renamingRole: null }),
 
   toggleChatRow: (rowId) =>

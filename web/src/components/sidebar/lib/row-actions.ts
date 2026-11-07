@@ -15,6 +15,7 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
 import { report } from '@/lib/errors/report'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { hostIdForProject } from '@/lib/host-resolve'
 
 // Every worktree verb is addressed through the workspace's owning chat, which the daemon mints
@@ -26,6 +27,12 @@ export function chatNotLoadedYet(verb: string, branch: string | undefined): stri
 
 /** What a folder is called until the user says otherwise. */
 const NEW_FOLDER_NAME = 'New folder'
+
+// A new folder opens on its name, so what the user types next names it rather than landing in
+// the composer; Esc keeps the default. It is not drawn yet, so its tree instance is named.
+function nameNewFolder(folderId: string): void {
+  treeUiStore.getState().startRenaming(folderId, 'tree')
+}
 
 /** A repo's project id off the sidebar tree; hierarchical mutations need both ids. */
 export function projectIdForRepo(repoId: string): string | undefined {
@@ -237,6 +244,7 @@ export async function performCreateFolder(rowId: string): Promise<void> {
       folderParentId,
     )
     await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted], shiftedRows)
+    nameNewFolder(folder.id)
   } catch (err) {
     report(err, { action: 'Failed to create folder' })
   }
@@ -257,6 +265,7 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
       '',
     )
     await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted], shiftedRows)
+    nameNewFolder(folder.id)
   } catch (err) {
     report(err, { action: 'Failed to create folder' })
   }
@@ -268,6 +277,7 @@ export async function performCreateHomeFolder(projectId: string, parentId = ''):
   try {
     const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)
     await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted])
+    nameNewFolder(folder.id)
   } catch (err) {
     report(err, { action: 'Failed to create folder' })
   }
