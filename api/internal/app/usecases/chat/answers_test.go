@@ -204,7 +204,7 @@ func TestAnswer_ADenyCarriesTheHumansReasonToTheCLI(t *testing.T) {
 
 	assert.JSONEq(t,
 		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
-			`"decision":{"behavior":"deny","message":"not on this branch"}}}`,
+			`"decision":{"behavior":"deny","message":"The user denied this request and said: not on this branch"}}}`,
 		<-printed)
 }
 
