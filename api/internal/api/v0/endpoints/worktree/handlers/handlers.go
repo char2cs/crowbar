@@ -48,6 +48,7 @@ type Hierarchy interface {
 		childID string,
 		strategy gitdomain.MergeStrategy,
 	) (workspace.MergeResult, error)
+	GuardMergeFold(ctx context.Context, childID string) error
 	Reparent(
 		ctx context.Context,
 		childID string,

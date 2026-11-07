@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -149,6 +150,24 @@ func TestStartAPIConn_AServeThatEndsUnansweredIsNotReady(t *testing.T) {
 	require.NoError(t, ctx.Err(), "serve's end went unseen until the spawn's bound")
 	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"))
 	assert.Len(t, h.term.created, 1, "the spawn went on over its PTY")
+}
+
+// A connection that never came up leaves the chat on the CLI's terminal; the
+// chat says so instead of silently becoming a different kind of chat.
+func TestRegression_AConnectionThatNeverCameUpIsSaidInTheChat(t *testing.T) {
+	h := helperServeSpawn(t, "exit", false)
+
+	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
+
+	require.NoError(t, err)
+	var notices []string
+	for _, d := range dividers(t, h.rs.ledger, h.chatID) {
+		if after, ok := strings.CutPrefix(d, ledger.MarkerWarning+":"); ok {
+			notices = append(notices, after)
+		}
+	}
+	require.Len(t, notices, 1)
+	assert.Contains(t, notices[0], "could not connect")
 }
 
 // fakeServe is serve on the far end of a stdio pipe, answering the handshake

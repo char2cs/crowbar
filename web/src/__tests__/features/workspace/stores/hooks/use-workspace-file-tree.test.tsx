@@ -225,6 +225,25 @@ describe('useWorkspaceFileTree', () => {
     expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src')
   })
 
+  it('an expanded folder that no longer exists leaves the expansion quietly', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    useFileTreeStore.setState({
+      expandedPathsByWorkspace: { 'ws-test': new Set(['src', 'src/gone']) },
+    })
+    fetchFileTree.mockImplementation(async (_ws: string, path?: string) => {
+      if (path === 'src') throw new ApiError('no such directory', 404)
+      return rootTree
+    })
+
+    setup()
+    await waitFor(() =>
+      expect(useFileTreeStore.getState().isExpanded('ws-test', 'src')).toBe(false),
+    )
+    expect(useFileTreeStore.getState().isExpanded('ws-test', 'src/gone')).toBe(false)
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+
   it('waits for the chat scope before fetching an expanded folder’s children', async () => {
     useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-test': new Set(['src']) } })
     const store = createWorkspaceStore('ws-test')

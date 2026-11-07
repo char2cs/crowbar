@@ -4,9 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -29,6 +33,47 @@ func TestStartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	rs.StartTerminalWaitSweep(t.Context())
 
 	<-swept
+}
+
+// A dialog a command opens is that command running in the CLI: the prompt is
+// taken, so the chat waits on the dialog, never on the prompt.
+func TestStartTerminalWaitSweep_ACommandsDialogIsTheCommandRunning(t *testing.T) {
+	claude, err := agents.New().Get(t.Context(), "", "claude")
+	require.NoError(t, err)
+	rs := &Runners{
+		ledger: newTestLedger(t),
+		ws:     stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents: stubAgentsForInterrupt{agent: claude},
+		live:   liveWith(t, agents.Runner{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"}),
+	}
+	appendRow(t, rs, ledger.KindUserMessage, "U-1", ledger.UserMessage{
+		RequestID: "r1", Text: "/help", Origin: ledger.OriginCrowbar,
+		Delivery: ledger.DeliveryRestart, RunnerID: "runner-1",
+	})
+	published := make(chan struct{})
+	rs.termWait = waitPublisher{chatID: "chat-1", wait: domain.AgentTerminalWait{Waiting: true}, done: published}
+
+	rs.StartTerminalWaitSweep(t.Context())
+	<-published
+
+	st := chatState(t, rs.ledger)
+	assert.Empty(t, st.PendingPrompts())
+	p, ok := st.Receipt("r1")
+	require.True(t, ok)
+	assert.True(t, p.Consumed)
+	assert.Equal(t, ledger.ReasonProviderBuiltin, p.Reason)
+}
+
+type waitPublisher struct {
+	sweepRecorder
+	chatID string
+	wait   domain.AgentTerminalWait
+	done   chan struct{}
+}
+
+func (w waitPublisher) Run(ctx context.Context, publish termwait.Publish) {
+	publish(w.chatID, "", w.wait)
+	close(w.done)
 }
 
 // TestSetTurns_BuildsADetectorOnlyForAScreenReadingTerminal pins the branch every

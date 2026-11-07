@@ -38,9 +38,11 @@ type entry struct {
 	models       []string
 	efforts      map[string][]string
 	defaultModel string
-	fingerprint  string
-	fetchedAt    time.Time
-	refreshing   bool
+	// defaultEfforts holds only the models whose source stated a default effort.
+	defaultEfforts map[string]string
+	fingerprint    string
+	fetchedAt      time.Time
+	refreshing     bool
 	// resolved is true once store() has run for this id. len(models) cannot tell
 	// "never resolved" from "resolved to zero rows", and re-seeding on the latter
 	// would clobber a landing async refresh.
@@ -137,12 +139,19 @@ func (c *Cache) DefaultModel(id string) string {
 	return c.entries[id].defaultModel
 }
 
+// DefaultEffort is the effort the source states model runs at by default, "" when it states none.
+func (c *Cache) DefaultEffort(id, model string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.entries[id].defaultEfforts[model]
+}
+
 // Store seeds id's cached catalogue directly, bypassing a probe.
 func (c *Cache) Store(id string, found []Model) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[id] = entry{
-		models: idsOf(found), efforts: effortsOf(found),
+		models: idsOf(found), efforts: effortsOf(found), defaultEfforts: defaultEffortsOf(found),
 		defaultModel: defaultOf(found), fetchedAt: time.Now(), resolved: true,
 	}
 }
@@ -305,7 +314,7 @@ func (c *Cache) store(id string, found []Model, fp string) {
 	defer c.mu.Unlock()
 	c.entries[id] = entry{
 		models: idsOf(found), efforts: effortsOf(found), defaultModel: defaultOf(found),
-		fingerprint: fp, fetchedAt: time.Now(), resolved: true,
+		defaultEfforts: defaultEffortsOf(found), fingerprint: fp, fetchedAt: time.Now(), resolved: true,
 	}
 }
 
@@ -318,6 +327,16 @@ func defaultOf(found []Model) string {
 		}
 	}
 	return ""
+}
+
+func defaultEffortsOf(found []Model) map[string]string {
+	out := make(map[string]string, len(found))
+	for _, m := range found {
+		if m.DefaultEffort != "" {
+			out[m.ID] = m.DefaultEffort
+		}
+	}
+	return out
 }
 
 func idsOf(found []Model) []string {

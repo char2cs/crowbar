@@ -58,8 +58,6 @@ interface AgentTranscriptProps {
   working: boolean
   /** Drawn after the rows: the chat's working line. */
   tail?: ReactNode
-  /** A row the composer already shows (the provider's halt notice): said once. */
-  suppressId?: string
   onOpenTerminal: () => void
   /** Stable for the view's life: every prompt row holds it. */
   promptActions: RowActions
@@ -245,6 +243,9 @@ function placesOf(
       if (firstTurn && !firstReply) firstReply = id
       lastText = id
       places.set(id, { firstReply: id === firstReply, turnbar: false, precedingUserAt: lastUserAt })
+    } else if (item?.kind !== 'marker') {
+      // A call (or run of them) after the words: those words did not hand back.
+      lastText = undefined
     }
   }
   closeRun(!working)
@@ -321,10 +322,8 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     [display],
   )
   const rows = useMemo(() => {
-    const all =
-      liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
-    return props.suppressId ? all.filter((id) => id !== props.suppressId) : all
-  }, [order, liveTail, unsent, props.suppressId])
+    return liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
+  }, [order, liveTail, unsent])
   const itemOf = useCallback((id: string) => items?.get(id) ?? unsent.get(id), [items, unsent])
   const fromStart = useChatStore((s) => !s.feeds[chatId]?.from)
 

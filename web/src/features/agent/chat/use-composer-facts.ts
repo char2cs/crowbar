@@ -8,7 +8,6 @@ import {
   userItemId,
   type AskItem,
   type ChatFeed,
-  type TranscriptItem,
 } from '@/features/agent/stores/lib/transcript-items'
 import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
 import type { WorkingLineProps } from '@/features/agent/activity/working-line'
@@ -22,8 +21,6 @@ export interface ComposerFacts {
   plan?: PlanItem[]
   /** Pending asks of every scope, oldest first. */
   asks: AskItem[]
-  /** The provider's last word on why the chat stopped, while nothing follows it. */
-  halted?: { id: string; text: string }
   /** The effort the newest finished turn reported. */
   latestEffort: string
   /** Nothing has been said in this chat yet. */
@@ -31,14 +28,6 @@ export interface ComposerFacts {
 }
 
 const lastOf = (feed: ChatFeed | undefined) => feed?.items.get(feed.order.at(-1) ?? '')
-
-function haltOf(item: TranscriptItem | undefined): ComposerFacts['halted'] {
-  if (item?.kind === 'user' && item.origin === 'note') return { id: item.id, text: item.text }
-  if (item?.kind === 'marker' && item.marker === 'turn_failed') {
-    return { id: item.id, text: item.detail || 'The provider stopped this turn.' }
-  }
-  return undefined
-}
 
 /** How far back from the newest row a running main tool is looked for. */
 const TOOL_LOOKBACK = 50
@@ -105,14 +94,8 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   const efforts = useChatStore((s) => feedOf(s)?.facts.efforts)
   const effort = useMemo(() => Object.values(efforts ?? {}).at(-1) ?? '', [efforts])
   const empty = useChatStore((s) => !feedOf(s)?.order.length && !feedOf(s)?.liveTail.length)
-  const haltId = useChatStore((s) => haltOf(lastOf(feedOf(s)))?.id)
-  const haltText = useChatStore((s) => haltOf(lastOf(feedOf(s)))?.text)
   const asks = useChatStore(useShallow((s) => pendingAsks(feedOf(s))))
-  const halted = useMemo(
-    () => (haltId === undefined ? undefined : { id: haltId, text: haltText ?? '' }),
-    [haltId, haltText],
-  )
-  return { status, working, compacting, plan, asks, halted, latestEffort: effort, empty }
+  return { status, working, compacting, plan, asks, latestEffort: effort, empty }
 }
 
 /** What the working line says of the turn: these change with every tool and token,

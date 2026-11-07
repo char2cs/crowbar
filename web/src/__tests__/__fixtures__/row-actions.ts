@@ -5,7 +5,6 @@ export const noRowActions: RowActions = {
   retry: () => {},
   edit: () => {},
   cancel: () => {},
-  resend: () => {},
   openTerminal: () => {},
   newConversation: () => {},
 }

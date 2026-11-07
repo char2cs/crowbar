@@ -38,6 +38,23 @@ func (u *hierarchyUsecase) MergeIntoParent(
 	return u.finalizeMerge(ctx, child, parent)
 }
 
+// GuardMergeFold refuses a merge that would delete childID with it while one of
+// its chats works. A child with children is never deleted by its merge.
+func (u *hierarchyUsecase) GuardMergeFold(ctx context.Context, childID string) error {
+	hasKids, err := u.childHasChildren(ctx, childID)
+	if err != nil {
+		return fmt.Errorf("merge: leaf check: %w", err)
+	}
+	if hasKids {
+		return nil
+	}
+	err = u.guardNotWorking(ctx, childID)
+	if errors.Is(err, ErrWorkspaceWorking) {
+		return ErrMergeSourceWorking
+	}
+	return err
+}
+
 func (u *hierarchyUsecase) loadMergePair(
 	ctx context.Context,
 	childID string,

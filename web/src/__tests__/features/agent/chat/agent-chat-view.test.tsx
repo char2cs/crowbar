@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { Value } from 'platejs'
 import { PlateController, useEditorRef, type PlateEditor } from 'platejs/react'
-import { ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
+import { delta, ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as reads from '@/features/agent/api/agent-chat-reads'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
@@ -116,7 +116,9 @@ const submitted = () =>
     .spyOn(commands, 'submitAgentPrompt')
     .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
 
-const unretried = (text: string) => ['w1', 'c1', text, expect.any(String), '', '', '', undefined]
+// A send with no staged pick and no retry.
+const plainSend = (text: string) => [text, expect.any(String), '', '', '', undefined]
+
 const transcriptReads = () =>
   fetchSpy.mock.calls.filter(([url]) => /\/(messages|activity)\b/.test(String(url)))
 
@@ -171,6 +173,21 @@ describe('AgentChatView', () => {
     expect(screen.queryByRole('textbox', { name: COMPOSER })).not.toBeInTheDocument()
   })
 
+  // A failed turn is history, not a lock: the bar stays an input, the row says why.
+  it('keeps the composer after a failed turn, whose row says why', () => {
+    const l = ledger('c1')
+    const failed = { reason: 'turn_failed', detail: '401 Unauthorized' }
+    seedFeed('c1', [
+      l.prompt('r1', 'hi'),
+      l.start('turn-1', 'r1'),
+      l.row('turn_failed', failed, { turnId: 'turn-1' }),
+    ])
+    draw('c1')
+
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('401 Unauthorized')
+    expect(box()).toBeVisible()
+  })
+
   it('shows Stopping… in the same render as the Stop click', async () => {
     const stop = vi.spyOn(commands, 'stopChat').mockReturnValue(new Promise(() => {}))
     const l = ledger('c1', 4)
@@ -181,16 +198,8 @@ describe('AgentChatView', () => {
 
     expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Stopping…')
     expect(stop).toHaveBeenCalledWith('w1', 'c1')
-    act(() => {
-      applyFeedFrame('c1', {
-        type: 'row',
-        row: l.row(
-          'turn_ended',
-          { status: 'interrupted', reason: 'stopped' },
-          { turnId: 'turn-2' },
-        ),
-      })
-    })
+    const stopped = { status: 'interrupted', reason: 'stopped' } as const
+    act(() => seedFeed('c1', [l.row('turn_ended', stopped, { turnId: 'turn-2' })]))
     expect(screen.queryByText('Stopping…')).toBeNull()
     expect(screen.getByText('Interrupted · you stopped this turn')).toBeInTheDocument()
     // The next turn is not the one Stop was pressed on.
@@ -204,12 +213,8 @@ describe('AgentChatView', () => {
     const submit = submitted()
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
-    act(() => {
-      applyFeedFrame('c1', {
-        type: 'delta',
-        delta: { id: 'm2', turnId: 'turn-2', stream: 'answer', n: 1, text: 'Streaming now' },
-      })
-    })
+    const streaming = delta('m2', 1, 'Streaming now', { turnId: 'turn-2' })
+    act(() => void applyFeedFrame('c1', { type: 'delta', delta: streaming }))
     expect(await screen.findByText('Streaming now')).toBeInTheDocument()
 
     await type('next one')
@@ -228,7 +233,7 @@ describe('AgentChatView', () => {
     await type('/compact')
     await press('Enter')
 
-    await waitFor(() => expect(submit).toHaveBeenCalledWith(...unretried('/compact')))
+    await waitFor(() => expect(submit).toHaveBeenCalledWith('w1', 'c1', ...plainSend('/compact')))
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {
@@ -304,7 +309,7 @@ describe('AgentChatView one composer', () => {
     await press('Enter', DOCUMENT)
 
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('add a flag')
-    await waitFor(() => expect(submit).toHaveBeenCalledWith(...unretried('add a flag')))
+    await waitFor(() => expect(submit).toHaveBeenCalledWith('w1', 'c1', ...plainSend('add a flag')))
     expect(screen.getAllByRole('textbox')).toEqual([box()])
     expect(box()).toBe(editable)
     expect(markdown()).toBe('')
@@ -413,11 +418,6 @@ describe('AgentChatView Esc', () => {
 })
 
 describe('AgentChatView type-to-focus', () => {
-  beforeEach(() => {
-    setActiveWorkspaceId('w1')
-    seedFeed('c1', spokenIn('c1'))
-  })
-
   // The box takes focus on mount; these keys land while something else has it.
   const keys = (...pressed: string[]) => {
     act(() => (document.activeElement as HTMLElement | null)?.blur())
@@ -425,6 +425,8 @@ describe('AgentChatView type-to-focus', () => {
   }
 
   it('ignores a modifier-held key and leaves the buffer for the plain keys after it', async () => {
+    setActiveWorkspaceId('w1')
+    seedFeed('c1', spokenIn('c1'))
     draw('c1')
     keys()
     fireEvent.keyDown(window, { key: 'k', metaKey: true })

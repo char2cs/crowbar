@@ -128,8 +128,11 @@ export function retryRow(
   row: UserItem,
   fresh: OutboxItem,
 ): OutboxItem[] {
-  const state = row.requestId ? facts.prompts[row.requestId]?.state : undefined
-  if (state !== 'settled' && state !== 'refused' && state !== 'retracted') return items
+  const fact = row.requestId ? facts.prompts[row.requestId] : undefined
+  // A delivered prompt whose turn is over ran and ended, a failed turn's included.
+  const ended = fact?.state === 'delivered' && facts.running?.turnId !== fact.turnId
+  const state = fact?.state
+  if (!ended && state !== 'settled' && state !== 'refused' && state !== 'retracted') return items
   if (items.some((item) => item.retryOf === row.requestId)) return items
   return [...items, { ...fresh, retryOf: row.requestId }]
 }

@@ -206,22 +206,6 @@ export function ChoiceButtons({
   )
 }
 
-/** What the provider offered but Crowbar cannot send, as prose, not disabled buttons: a
- *  suggestion has no answer template, so a button could only 400. The bar's Terminal button
- *  is where it can be answered. */
-export function ChoiceSuggestions({ options }: { options: AgentChoiceOption[] }) {
-  return (
-    <ul className="flex flex-col gap-0.5 text-xs" data-testid="agent-choice-suggestions">
-      {options.map((option) => (
-        <li key={option.id} className="min-w-0 text-muted-foreground">
-          {optionLabel(option)}
-          {option.description ? ` — ${option.description}` : ''}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 /** A prompt pending with no relay holding its gate, still shown whole because the CLI is
  *  really asking it. The bar offers the Terminal to answer it. */
 export function ChoiceReadOnly({

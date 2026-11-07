@@ -90,6 +90,7 @@ const (
 	HookSubagentPre     = spec.HookSubagentPre
 	HookSubagentPost    = spec.HookSubagentPost
 	HookNotification    = spec.HookNotification
+	HookWarning         = spec.HookWarning
 	HookPermission      = spec.HookPermission
 	HookCompactPre      = spec.HookCompactPre
 	HookCompactPost     = spec.HookCompactPost

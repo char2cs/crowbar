@@ -25,6 +25,7 @@ export type MarkerKind =
   | 'model_changed'
   | 'effort_changed'
   | 'notification'
+  | 'warning'
   | 'legacy_unreadable'
 
 export interface PlanItem {
@@ -112,7 +113,15 @@ export interface RowBodies {
   turn_failed: { reason: string; detail?: string }
   session_bound: { provider: string; sessionId: string; cause: string }
   session_lost: { provider: string; sessionId: string; reason: string }
-  runner_started: { runnerId: string; provider: string }
+  runner_started: {
+    runnerId: string
+    provider: string
+    terminalSession: string
+    launchModel: string
+    launchEffort: string
+    launchPermissionLevel: string
+    resumeSessionId: string
+  }
   runner_exited: { runnerId: string; reason: string; exitCode: number }
   /** index -1: the message's complete text; reply: the reply this message joins. */
   assistant_text: {

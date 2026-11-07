@@ -92,6 +92,11 @@ export function usePaneAttachment({
       ? { state: 'reviving', message: attachment.message }
       : undefined
   const sessionNote = chatSide && attachment.state === 'idle' ? attachment.message : undefined
+  // A CLI starting or moving onto the chat surface: sends queue, but nothing answers yet.
+  const connecting =
+    chatSide && (phase === 'starting' || phase === 'switching')
+      ? `Connecting to ${providerName}…`
+      : undefined
 
   const startSession = useCallback(() => {
     void resumeChat(wsId, chatId).catch((err: unknown) => {
@@ -105,6 +110,7 @@ export function usePaneAttachment({
     attachment,
     revival,
     sessionNote,
+    connecting,
     // A prompt queues on any chat that exists, a spawning one included.
     canSend: attachment.state !== 'pending',
     startSession,

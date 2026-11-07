@@ -13,6 +13,7 @@ import { report } from '@/lib/errors/report'
 import { useResolvedHost } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
+import { isNotFoundError } from '@/lib/errors/api-error'
 
 // Stable reference for a workspace with nothing expanded yet — a fresh
 // `new Set()` on every selector call would re-run the lazy-load effect each render.
@@ -132,7 +133,11 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
           const { files: current, fileTreeActions } = store.getState()
           fileTreeActions.setFiles(mergeChildren(current, path, children))
         })
-        .catch((err: unknown) => report(err, { action: 'Load the folder' }))
+        .catch((err: unknown) => {
+          // Deleted on disk before the re-list caught up (a removed branch's ref dir, say).
+          if (isNotFoundError(err)) useFileTreeStore.getState().collapsePath(wsId, path)
+          else report(err, { action: 'Load the folder' })
+        })
         .finally(() => loadingDirs.current.delete(path))
     }
   }, [store, wsId, expandedPaths, files, addressable])

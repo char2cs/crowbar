@@ -37,11 +37,16 @@ export interface AgentProvider {
   /** A new chat may LAND on the terminal, not just switch to it after a turn;
    *  `hasTerminal` only says the surface exists. */
   terminalStartHere: boolean
+  /** The shell command that signs this provider's CLI in, when it declares one. */
+  signIn?: string
   /** Never re-sorted: descriptor order is the provider's own ranking. */
   models?: string[]
   /** Resolved server-side, fallbacks included: read `efforts[model]` with '' for
    *  no selection. A model with no levels is absent, meaning no effort picker. */
   efforts?: Record<string, string[]>
+  /** Each model's stated default effort, which a chat with effort '' runs at;
+   *  a model stating none is absent (unknown, not its first level). */
+  defaultEfforts?: Record<string, string>
   /** Declared levels, least to most permissive. An absent level is not offered
    *  at all (the server rejects it) — never greyed out or substituted. */
   permissionLevels?: PermissionLevel[]

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
@@ -26,9 +26,7 @@ vi.mock('@/features/agent/api/agent-providers-api', () => ({
   ],
 }))
 
-// jsdom has no PointerEvent constructor; base-ui's Select opens/commits via
-// PointerEvent, same quirk documented in providers-settings.test.tsx's own
-// permission-level picker.
+// jsdom has no PointerEvent, which base-ui's Select opens and commits with.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
   // @ts-expect-error install the shim onto the jsdom window
@@ -107,12 +105,15 @@ describe('ComposerChoice that can be answered', () => {
 
   // Sent is NOT resolved. The terminal can decide the same prompt in the same
   // instant, so the card stays until the server says how it actually ended.
-  it('says the answer is sent and waits for the server to confirm it', async () => {
+  it('sends a Deny with its reason and waits for the server to confirm it', async () => {
     draw()
-
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    fireEvent.change(reason, { target: { value: 'name it b.txt' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
 
     await waitFor(() => expect(screen.getByTestId('agent-choice-sent')).toBeInTheDocument())
+    const sent = { optionIds: ['deny'], reason: 'name it b.txt' }
+    expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', sent)
     expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
   })
 
@@ -165,8 +166,7 @@ describe('ComposerChoice that can be answered', () => {
 })
 
 describe('ComposerChoice that cannot be answered from here', () => {
-  // pending && !answerable is a REAL question asked at the CLI's own terminal, so
-  // it is drawn in full with nothing on it that would reach nobody.
+  // Asked at the CLI's own terminal: drawn in full, with nothing pressable.
   it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
     draw({ answerable: false })
 
@@ -187,9 +187,7 @@ describe('ComposerChoice that cannot be answered from here', () => {
     expect(onOpenTerminal).toHaveBeenCalled()
   })
 
-  // options/questions can both be empty for an unanswerable prompt (a form
-  // nobody can fill and nothing else asked) — there is nothing to list, and the
-  // read-only view draws nothing rather than an empty box.
+  // An unanswerable prompt with nothing to list draws nothing, not an empty box.
   it('renders nothing above the bar when there is nothing to list', () => {
     draw({ kind: 'elicitation', options: [], answerable: false })
 
@@ -227,8 +225,7 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByTestId('agent-choice-error')).toBeNull()
   })
 
-  // 409 means the relay let go between the poll and the click. The controls come
-  // down at once rather than lying until the next read.
+  // 409: the relay let go between poll and click, so the controls come down at once.
   it('takes the controls down when the gate has already closed', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
     const onOpenTerminal = vi.fn()
@@ -244,9 +241,7 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
   })
 
-  // A failure that is neither a closed gate nor an unsupported shape is not one
-  // the bar has a structural answer for — it stays on screen, in the server's
-  // own words, and the controls stay up because retrying might just work.
+  // Any other failure stays on screen in the server's words; retrying might work.
   it('still surfaces a failure that isn’t a closed gate or an unsupported shape', async () => {
     answerChoiceFn.mockRejectedValue(new Error('network blip'))
     draw()
@@ -277,65 +272,39 @@ describe('ComposerChoice failures', () => {
 })
 
 describe('ComposerChoice suggestions', () => {
-  // No answer template exists for a suggestion, so pressing one could only 400; a
-  // disabled button still reads as a control, and a note cannot be pressed.
-  it('writes suggestions down as a plain list, with nothing on them to press', () => {
+  // A provider's broader grant ("allow edits for this session") is an answer of
+  // its own: pressing it allows this call and applies the grant.
+  it('offers each suggestion as a button that grants it', async () => {
     draw({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow edits this session' },
       ],
     })
 
-    const suggestions = screen.getByTestId('agent-choice-suggestions')
-    expect(suggestions).toHaveTextContent('Add a permanent rule for this')
-    // Nothing inside the list is interactive — not enabled, not disabled, absent.
-    expect(suggestions.querySelectorAll('button, input, [role="button"]')).toHaveLength(0)
-    expect(screen.queryByRole('button', { name: 'Add a permanent rule for this' })).toBeNull()
-    // The two real answers are untouched by it.
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /Allow edits this session/ }))
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', expect.any(String), {
+        optionIds: ['suggestion-0'],
+      }),
+    )
   })
 
-  // The Terminal button beside Allow/Deny is the answer, when a handler exists.
-  it('offers a terminal button in the bar alongside the real controls', () => {
-    const onOpenTerminal = vi.fn()
-    const options: AgentChoice['options'] = [
-      { id: 'allow', kind: 'allow', label: 'Allow' },
-      { id: 'deny', kind: 'deny', label: 'Deny' },
-      { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-    ]
-    show({ options }, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onOpenTerminal).toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
-  })
-
-  it('does not offer a terminal button without a handler to open one', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-      ],
-    })
+  it('needs no terminal for a permission it can answer whole', () => {
+    show(
+      {
+        options: [
+          { id: 'allow', kind: 'allow', label: 'Allow' },
+          { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        ],
+      },
+      { onOpenTerminal: vi.fn() },
+    )
 
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-  })
-
-  // The backend never sends a raw provider type name any more, but a stale poll
-  // could still be holding one — so nothing here reconstructs a control from a
-  // label whatever it says.
-  it('never turns a suggestion into a control, whatever it is labelled', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'addRules' },
-      ],
-    })
-
-    expect(screen.queryByRole('button', { name: 'addRules' })).toBeNull()
-    expect(screen.queryByRole('checkbox', { name: 'addRules' })).toBeNull()
+    expect(screen.getByRole('button', { name: /Add a permanent rule for this/ })).toBeEnabled()
   })
 })
 
@@ -422,9 +391,7 @@ describe('ComposerChoice with several questions', () => {
     expect(answerChoiceFn).toHaveBeenCalledTimes(1)
   })
 
-  // A single-answer question replaces its pick rather than accumulating one: two
-  // answers to it are refused by the backend, so the control must not be able to
-  // produce them.
+  // The backend refuses two answers to a single-answer question, so a pick replaces.
   it('replaces the pick on a single-answer question', async () => {
     draw(threeQuestions)
 
@@ -476,9 +443,7 @@ describe('ComposerChoice with several questions', () => {
   })
 })
 
-// The graceful fallback, and NOT a migration: a prompt recorded before questions
-// were modelled has no `questions` at all, and it is still a single question
-// described by the prompt's own text and options.
+// A prompt recorded before questions were modelled is one question: its text and options.
 describe('ComposerChoice for a prompt recorded before questions existed', () => {
   it('draws the prompt-level question as a question of one', async () => {
     draw({
@@ -511,9 +476,7 @@ describe('ComposerChoice elicitation', () => {
     schema: '{"type":"object","properties":{"target":{"type":"string"}}}',
   } satisfies Partial<AgentChoice>
 
-  // An accept means handing back a filled-in form built from the provider's own
-  // schema. Crowbar cannot compose that, so it does not offer a button that would
-  // send an empty one — it ships the two verbs it CAN mean and says so.
+  // Accept needs a form Crowbar cannot fill, so only the verbs it can mean are offered.
   it('offers decline and cancel only, with no accept button for a form Crowbar cannot fill', () => {
     draw(elicitation)
 
@@ -651,10 +614,60 @@ describe('ComposerChoice keys', () => {
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 
+  // The composer gives way to the card, so focus falls to the page: a digit then
+  // is meant for the card. An Enter is not: it may be the end of a message.
+  it('takes a digit pressed while nothing has focus, never an Enter', async () => {
+    show()
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: '2' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['deny'] }),
+    )
+  })
+
+  it('answers nothing for a digit typed into a field elsewhere', () => {
+    show()
+    const field = document.createElement('input')
+    document.body.append(field)
+    field.focus()
+    fireEvent.keyDown(field, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    field.remove()
+  })
+
   it('shows which digit answers with which option', () => {
     show()
     expect(screen.getByRole('button', { name: /Allow/ })).toHaveTextContent('1')
     expect(screen.getByRole('button', { name: /Deny/ })).toHaveTextContent('2')
+  })
+
+  // It replaces the composer just sent from; on the page, number keys answer nothing.
+  it('takes focus when it appears and nothing else holds it', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    expect(screen.getByTestId('agent-choice-prompt')).toHaveFocus()
+  })
+
+  it('lets a digit typed into its reason field be text, not an answer', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    reason.focus()
+    fireEvent.keyDown(reason, { key: '1' })
+    fireEvent.change(reason, { target: { value: '1' } })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    expect(reason).toHaveValue('1')
+  })
+
+  it('leaves focus where it is when something else holds it', () => {
+    const elsewhere = document.createElement('input')
+    document.body.append(elsewhere)
+    onTestFinished(() => elsewhere.remove())
+    elsewhere.focus()
+    show()
+    expect(elsewhere).toHaveFocus()
   })
 
   it('answers nothing by key while it cannot be answered here', () => {

@@ -260,3 +260,24 @@ func TestRender_AnUnencodableAnswerFallsBackToAnEmptyObject(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"picks":{},"input":{}}`, string(out))
 }
+
+// Picking a suggestion grants it: the reply hands the provider back exactly the
+// grants picked, as it offered them.
+func TestRender_ASuggestionHandsBackTheGrantsPicked(t *testing.T) {
+	d := answering()
+	e := d.Events["permission"]
+	e.Map["suggestions"] = mapping.Paths("permission_suggestions")
+	e.Reply["suggestion"] = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
+		`"decision":{"behavior":"allow","updatedPermissions":{suggestions_json}}}}`
+	d.Events["permission"] = e
+	raw := []byte(`{"tool_name":"Write","permission_suggestions":[
+	  {"type":"addDirectories","directories":["/p"],"destination":"session"},
+	  {"type":"setMode","mode":"acceptEdits","destination":"session"}]}`)
+
+	out, err := answer.Render(d, "permission", raw,
+		models.AnswerDecision{Key: "suggestion", Picked: []string{models.SuggestionOptionID(1)}})
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, string(out))
+}

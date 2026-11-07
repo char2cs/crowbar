@@ -112,6 +112,15 @@ describe('UserRow', () => {
     expect(actions.retry).toHaveBeenCalledWith('r1')
   })
 
+  it('a command the CLI ran itself says it ran in the terminal, with no Retry', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', '/context'), l.settle('r1', true, 'provider_builtin')])
+    draw()
+
+    expect(screen.getByText(/ran in the terminal/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Retry prompt')).not.toBeInTheDocument()
+  })
+
   it('drops Retry from a refused row once its retry is on the way', () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'hello?'), l.settle('r1', false, 'not_acknowledged')])

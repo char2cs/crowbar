@@ -43,6 +43,9 @@ export function mountXterm(
         deps.write(override, 'modifier-enter-override')
         return false
       }
+      // Linux terminals copy and paste on Ctrl+Shift+C/V; the rest of Ctrl reaches the
+      // program. A paste is left to the browser, whose paste event xterm takes.
+      if (linuxClipboardKey(event, terminal)) return false
       // Ctrl combos (without Cmd) → xterm handles them (Ctrl+U, Ctrl+C, …).
       if (event.ctrlKey && !event.metaKey) return true
       // Cmd combos are app/OS shortcuts (copy, paste, select-all, search).
@@ -57,6 +60,15 @@ export function mountXterm(
     dispose()
     throw error
   }
+}
+
+function linuxClipboardKey(event: KeyboardEvent, terminal: Terminal): boolean {
+  if (!event.ctrlKey || !event.shiftKey || event.metaKey || event.altKey) return false
+  if (event.code === 'KeyV') return true
+  if (event.code !== 'KeyC') return false
+  event.preventDefault()
+  if (event.type === 'keydown' && terminal.hasSelection()) document.execCommand('copy')
+  return true
 }
 
 function watchTextarea(textarea: HTMLTextAreaElement, write: MountXtermDeps['write']): () => void {

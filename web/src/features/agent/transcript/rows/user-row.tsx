@@ -26,6 +26,8 @@ interface PromptState {
   error?: string
   /** A fresh item already sends this row again. */
   retried?: boolean
+  /** The CLI ran it itself; what it did is on the terminal. */
+  builtin?: boolean
 }
 
 /** One prompt's state, from the outbox until its row lands and from the rows after. */
@@ -42,6 +44,7 @@ function usePromptState(chatId: string, id: string, item?: UserItem): PromptStat
   )
   if (queued) return { text: queued.text, state: queued.state, error: queued.error }
   if (fact?.state === 'pending') return { text: item?.text, state: 'pending' }
+  if (fact?.state === 'settled' && fact.builtin) return { text: item?.text, builtin: true }
   if (fact?.state !== 'refused') return { text: item?.text }
   const error =
     fact.reason === 'session_lost'
@@ -150,7 +153,7 @@ function UserRowBody({
   firstTurn: boolean
   actions: PromptActions
 }) {
-  const { text, state, error, retried } = usePromptState(chatId, id, item)
+  const { text, state, error, retried, builtin } = usePromptState(chatId, id, item)
   if (item && (item.origin === 'harness' || item.origin === 'note')) {
     const name = providers.find((p) => p.id === provider)?.displayName ?? provider ?? 'the provider'
     return <MachineRow item={item} name={name} />
@@ -194,6 +197,7 @@ function UserRowBody({
           </MarkdownMessageStatic>
         </div>
       )}
+      {builtin && <p className="meta">Ran in the terminal</p>}
       {item && !state && (
         <time className="turn-time" dateTime={item.at} title={turnTimeTitle(item.at)}>
           {turnTimestampLabel(item.at)}

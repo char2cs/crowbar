@@ -144,6 +144,10 @@ type AgentChatDTO struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 
+	// PermissionLevel is the level the chat is pinned to; omitted while it inherits
+	// the default, which GET /v0/settings/chat/permission-level reports.
+	PermissionLevel string `json:"permissionLevel,omitempty"`
+
 	// LaunchModel and LaunchEffort are what the live runner reports or was spawned as,
 	// which provider or org config can make differ from Model/Effort; empty when dormant.
 	LaunchModel  string `json:"launchModel,omitempty"`
@@ -188,6 +192,7 @@ func AgentChatDTOFrom(
 		Order:            c.Order,
 		Model:            c.Model,
 		Effort:           c.Effort,
+		PermissionLevel:  pinnedLevel(c),
 		Worktree:         wt,
 		CreatedAt:        c.CreatedAt,
 		Version:          rt.Version,
@@ -298,4 +303,12 @@ func AgentChatDetailDTOFrom(
 // context a freshly spawned provider CLI can be given; "" when the ledger is empty.
 type HandoffDTO struct {
 	Handoff string `json:"handoff"`
+}
+
+// pinnedLevel is the level c is pinned to, "" while it only inherits the default.
+func pinnedLevel(c domain.Chat) string {
+	if !c.PermissionLevelExplicit {
+		return ""
+	}
+	return c.PermissionLevel
 }

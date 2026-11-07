@@ -1,4 +1,4 @@
-import { RangeApi, type TCodeBlockElement, type TElement } from 'platejs'
+import { KEYS, RangeApi, type TCodeBlockElement, type TElement } from 'platejs'
 import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin } from 'platejs/react'
 import { parseAttachmentLang } from '@/features/agent/composer/plate/attachments/attachment-lang'
@@ -44,8 +44,16 @@ export const chatComposerStructurePlugin = createPlatePlugin({
   // Plate does not normalize a `value:` it is handed.
   transformInitialValue: ({ value }) =>
     value.at(-1)?.type === LINE ? value : [...value, emptyLine()],
-}).overrideEditor(({ editor, tf: { deleteBackward, normalizeNode } }) => ({
+}).overrideEditor(({ editor, tf: { deleteBackward, normalizeNode, tab } }) => ({
   transforms: {
+    // Only a list item or a code line takes Tab; anywhere else it moves focus on, so the
+    // box is never a keyboard trap.
+    tab(options) {
+      const block = editor.api.block()?.[0] as (TElement & { listStyleType?: string }) | undefined
+      const inCode = editor.api.some({ match: { type: editor.getType(KEYS.codeBlock) } })
+      if (!block?.listStyleType && !inCode) return false
+      return tab(options)
+    },
     deleteBackward(unit) {
       const index = topLevelBlockStart(editor)
       if (index !== null && index > 0 && isAttachmentBlock(editor, editor.children[index - 1])) {

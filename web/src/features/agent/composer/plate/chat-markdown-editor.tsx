@@ -1,4 +1,4 @@
-import { useCallback, useImperativeHandle, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
 import { NodeApi, PointApi, RangeApi, type Descendant, type Value } from 'platejs'
@@ -18,6 +18,7 @@ import {
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { cn } from '@/lib/utils'
 import { IS_MOBILE } from '@/utils/platform'
+import { forgetDraft, loadDraft, saveDraft } from '@/features/agent/composer/lib/draft-persistence'
 
 /** Whether the caret has anywhere left to go WITHIN the text — the box's own
  *  arrow-key history recall only fires at these edges, so moving through a
@@ -45,6 +46,8 @@ export interface ChatMarkdownEditorHandle {
   setMarkdown(markdown: string): void
   /** Adds blocks after the last one, leaving the caret where the person had it. */
   appendMarkdown(markdown: string): void
+  /** Replaces the `@path` before the caret with `text`. */
+  completeMention(text: string): void
   focus(): void
   clear(): void
 }
@@ -54,6 +57,8 @@ export interface ComposerShape {
   empty: boolean
   /** The text after a leading `/` on the first line, or null when there is none. */
   slashQuery: string | null
+  /** The `@path` typed right before the caret, without its `@`; null when there is none. */
+  mentionQuery: string | null
 }
 
 // A list or quote paragraph is text-bearing markdown even when it has no letters;
@@ -64,12 +69,22 @@ function blankParagraph(node: Descendant): boolean {
   return NodeApi.string(node).trim() === ''
 }
 
-function shapeOf(children: Value): ComposerShape {
+function mentionBefore(editor: PlateEditor): string | null {
+  const { selection } = editor
+  if (!selection || !RangeApi.isCollapsed(selection)) return null
+  const leaf = NodeApi.get(editor, selection.anchor.path)
+  const before = leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
+  return /(?:^|\s)@([^\s@]*)$/.exec(before)?.[1] ?? null
+}
+
+function shapeOf(editor: PlateEditor): ComposerShape {
+  const children = editor.children as Value
   const first = children[0]
   const line = first && 'type' in first && first.type === 'p' ? NodeApi.string(first) : ''
   return {
     empty: children.every(blankParagraph),
     slashQuery: line.startsWith('/') ? line.slice(1) : null,
+    mentionQuery: mentionBefore(editor),
   }
 }
 
@@ -109,6 +124,8 @@ export interface ChatMarkdownEditorProps {
   className?: string
   style?: CSSProperties
   ref?: Ref<ChatMarkdownEditorHandle>
+  /** The chat whose unsent draft this box keeps across a reload or a remount. */
+  persistAs?: string
 }
 
 // The rich-markdown prompt box, shared by the conversation's pill and the blank chat's document.
@@ -128,6 +145,7 @@ export function ChatMarkdownEditor({
   className,
   style,
   ref,
+  persistAs,
 }: ChatMarkdownEditorProps) {
   // A plugin, not the `onKeyDown` DOM prop: the prop runs after Slate's own handling, so Enter
   // would split the block instead of sending. Read through a ref so the editor is built once
@@ -169,7 +187,7 @@ export function ChatMarkdownEditor({
               event as KeyboardEvent<HTMLDivElement>,
               () => chatValueToMarkdown(current.children as Value),
               { atStart, atEnd },
-              shapeOf(current.children as Value),
+              shapeOf(current),
             )
           },
         },
@@ -229,7 +247,7 @@ export function ChatMarkdownEditor({
   // A load's own later onChange sees the very children it left: not an edit.
   const loadedRef = useRef<Value | null>(null)
   const report = useCallback(
-    (edited = true) => shapeHandlerRef.current(shapeOf(editor.children as Value), edited),
+    (edited = true) => shapeHandlerRef.current(shapeOf(editor), edited),
     [editor],
   )
   const handleChange = useCallback(() => {
@@ -273,16 +291,44 @@ export function ChatMarkdownEditor({
       getMarkdown: () => chatValueToMarkdown(editor.children as Value),
       setMarkdown: load,
       appendMarkdown: (markdown: string) => {
-        if (shapeOf(editor.children as Value).empty) return load(markdown)
+        if (shapeOf(editor).empty) return load(markdown)
         const at = [editor.children.length]
         editor.tf.insertNodes(chatMarkdownToValue(markdown), { at, select: false })
         report()
       },
+      completeMention: (text: string) => {
+        const typed = mentionBefore(editor)
+        if (typed === null) return
+        editor.tf.delete({ distance: typed.length + 1, unit: 'character', reverse: true })
+        editor.tf.insertText(text)
+        focusAndReport()
+      },
       focus: () => editor.tf.focus(),
-      clear: () => load(''),
+      clear: () => {
+        if (persistAs) forgetDraft(persistAs)
+        load('')
+      },
     }),
-    [editor, focusAndReport, load, report],
+    [editor, focusAndReport, load, report, persistAs],
   )
+
+  // The box owns its draft; storage keeps it while there is no box: written as the
+  // page hides or the box goes, read once into an empty box, without taking focus.
+  useEffect(() => {
+    if (!persistAs) return
+    const saved = loadDraft(persistAs)
+    if (saved && shapeOf(editor).empty) {
+      loadMarkdown(editor, saved)
+      loadedRef.current = editor.children as Value
+      report(false)
+    }
+    const save = () => saveDraft(persistAs, chatValueToMarkdown(editor.children as Value))
+    window.addEventListener('pagehide', save)
+    return () => {
+      window.removeEventListener('pagehide', save)
+      save()
+    }
+  }, [editor, persistAs, report])
 
   // The editable's measured height, observed because only the browser knows where
   // a line wrapped. A ref callback, not an effect: Slate can replace the editable's

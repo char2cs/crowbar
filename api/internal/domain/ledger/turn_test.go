@@ -1,6 +1,7 @@
 package ledger_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -373,7 +374,7 @@ func TestLeave_AndExitCloseTheTurnOnce(t *testing.T) {
 	}
 
 	st := base()
-	left, err := ledger.Leave(st, "r1")
+	left, err := ledger.Leave(st, "r1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled}, kinds(left))
 	apply(&st, left)
@@ -385,7 +386,31 @@ func TestLeave_AndExitCloseTheTurnOnce(t *testing.T) {
 	exit, err = ledger.Exit(st, ledger.RunnerExited{RunnerID: "r1", Reason: "exited"}, ledger.ReasonRunnerExited)
 	require.NoError(t, err)
 	apply(&st, exit)
-	left, err = ledger.Leave(st, "r1")
+	left, err = ledger.Leave(st, "r1", nil)
 	require.NoError(t, err)
 	assert.Empty(t, left)
+}
+
+// A command the CLI ran itself (/clear) opens no turn: leaving the session settles
+// it as taken by the CLI's builtin, while a message no turn took went unacknowledged.
+func TestLeave_ACarriedCommandRanInTheCLI(t *testing.T) {
+	carried := func(id, text string) ledger.Row {
+		return row(t, ledger.KindUserMessage, "", ledger.UserMessage{
+			RequestID: id, Text: text, Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "run-1",
+		})
+	}
+	st := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""),
+		carried("r1", "/clear"), carried("r2", "hello")))
+
+	rows, err := ledger.Leave(st, "run-1", func(text string) bool { return strings.HasPrefix(text, "/") })
+	require.NoError(t, err)
+
+	got := map[string]ledger.PromptSettled{}
+	for _, r := range rows {
+		body, err := ledger.DecodeBody[ledger.PromptSettled](r)
+		require.NoError(t, err)
+		got[body.RequestID] = body
+	}
+	assert.Equal(t, ledger.PromptSettled{RequestID: "r1", Consumed: true, Reason: ledger.ReasonProviderBuiltin}, got["r1"])
+	assert.Equal(t, ledger.PromptSettled{RequestID: "r2", Reason: ledger.ReasonNotAcknowledged}, got["r2"])
 }

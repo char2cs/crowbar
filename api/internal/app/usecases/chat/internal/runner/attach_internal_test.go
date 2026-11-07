@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -404,6 +406,44 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 	exit, ok := chatState(t, rs.ledger).LastExit()
 	require.True(t, ok)
 	require.Equal(t, "runner-1", exit.RunnerID)
+}
+
+// phaseTouches records the chat's phase at every announcement.
+type phaseTouches struct {
+	rs   *Runners
+	seen []string
+}
+
+func (p *phaseTouches) Touch(_ context.Context, chatID string) {
+	p.seen = append(p.seen, p.rs.Phase(chatID))
+}
+
+// Re-establishing the connection can take as long as the CLI's handshake; the
+// chat reads as switching meanwhile, not as an idle chat that ignores the user.
+func TestRegression_SwitchToNativeReadsAsSwitchingUntilItLands(t *testing.T) {
+	rs := &Runners{
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
+		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(), phases: newPhases(),
+		live:    liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:   noopTurns{},
+		term:    &fakeTermForAttach{},
+		agents:  engineagents.New(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
+		ledger:  newTestLedger(t),
+	}
+	touches := &phaseTouches{rs: rs}
+	rs.snapshots = touches
+	rs.attached.set("runner-1", attachedView{
+		termSessID: "attach-term-1", agent: attachTestAgent(t),
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
+	})
+	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal)
+
+	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
+
+	require.NotEmpty(t, touches.seen)
+	assert.Equal(t, snapshot.PhaseSwitching, touches.seen[0], "the switch was not announced before it waited")
+	assert.Empty(t, rs.Phase("chat-1"), "the switch never ended")
 }
 
 // TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking: tearing

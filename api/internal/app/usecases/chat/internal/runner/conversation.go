@@ -111,15 +111,30 @@ func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID, 
 // chat will ever close or acknowledge them.
 func (rs *Runners) leaveSession(ctx context.Context, runner engineagents.Runner) {
 	chatID := runner.CurrentChatID
+	command := rs.commandOf(ctx, runner)
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		salvaged, err := rs.turns.ExitRows(st, chatID, runner.ID)
 		if err != nil {
 			return nil, err
 		}
-		left, err := ledger.Leave(st, runner.ID)
+		left, err := ledger.Leave(st, runner.ID, command)
 		return append(salvaged, left...), err
 	})
 	rs.turns.Retire(chatID, runner.ID)
+}
+
+// commandOf is runner's provider's command test; nil (none) when its descriptor
+// cannot be read, which leaves every untaken prompt unacknowledged.
+func (rs *Runners) commandOf(ctx context.Context, runner engineagents.Runner) func(string) bool {
+	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, runner.WorkspaceID)
+	if err != nil {
+		return nil
+	}
+	agent, err := rs.agents.Get(ctx, crowbarHome, runner.ProviderID)
+	if err != nil {
+		return nil
+	}
+	return agent.PromptIsCommand
 }
 
 // sessionOrigin is told the session an api connection's own driver opened or

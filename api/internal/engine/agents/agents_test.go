@@ -851,18 +851,18 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 
 	capability, ok := a.AnswerCapability(agents.HookPermission)
 	require.True(t, ok, "claude declares an answer channel for its permission hook")
-	assert.Equal(t, []string{"allow", "answer", "deny"}, capability.Keys)
+	assert.Equal(t, []string{"allow", "answer", "deny", "suggestion"}, capability.Keys)
 	assert.Positive(t, capability.Wait)
 	assert.Less(t, capability.Wait, 300*time.Second,
 		"the daemon's budget must expire BEFORE the 300s timeout injected on the hook, "+
 			"or the relay is killed mid-write instead of exiting under its own control")
 
-	allow, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: "allow"})
+	// An allow echoes the input: claude's own plan dialog stays open on a bare allow.
+	plan, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "claude", "PermissionRequest.ExitPlanMode.json"))
 	require.NoError(t, err)
-	assert.JSONEq(t,
-		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
-			`"decision":{"behavior":"allow"}}}`,
-		string(allow))
+	allow, err := a.RenderAnswer(agents.HookPermission, plan, agents.AnswerDecision{Key: "allow"})
+	require.NoError(t, err)
+	assert.Contains(t, string(allow), `"decision":{"behavior":"allow","updatedInput":{"plan":`)
 
 	deny, err := a.RenderAnswer(agents.HookPermission, nil,
 		agents.AnswerDecision{Key: "deny", Reason: "no"})
@@ -915,13 +915,6 @@ func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 	stdout, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: agents.ChoiceOptionAllow})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"decision":"accept"}`, string(stdout))
-}
-
-func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
-	_, err := get(t, "claude").RenderAnswer(agents.HookPermission, nil,
-		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion})
-
-	assert.ErrorIs(t, err, agents.ErrUnsupportedDecision)
 }
 
 func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {
@@ -989,16 +982,12 @@ func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
 	}
 }
 
-// A command that opens a dialog (/help) holds the CLI until the person closes it
-// in the terminal; its screen (captured on 2.1.319) reads as blocking.
+// A command's dialog (2.1.319) blocks: by its footer, or by its tab row where a small grid cuts it.
 func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
-	screen := " Help General Commands Custom commands\n Shortcuts ! for shell mode\n" +
-		" For more help: https://code.claude.com/docs/en/overview\n Esc to cancel"
-
-	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
-
-	require.True(t, ok)
-	assert.Empty(t, prompt.Kind)
+	for _, screen := range []string{" For more help: …\n Esc to cancel", "  Help   General   Commands   Custom commands\n"} {
+		prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
+		assert.True(t, ok && prompt.Kind == "", screen)
+	}
 }
 
 // The trust dialog as the real CLI paints it (2.1.319, through our emulator) preselects
