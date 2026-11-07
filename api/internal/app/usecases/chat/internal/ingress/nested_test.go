@@ -44,15 +44,15 @@ func TestMap_ANestedConversationsFactsAreItsScopes(t *testing.T) {
 	assert.Empty(t, none, "its parent talking to it opens no turn")
 }
 
-func TestMap_ANestedConversationsEndIsItsReplyAndItsStop(t *testing.T) {
+// Its reply is its stop's result, said once: the card shows it as that.
+func TestMap_ANestedConversationsEndIsItsStopWithItsReply(t *testing.T) {
 	c, turnID := nestedChat(t)
 
 	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "done"}, nestedSource())
 
-	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindSubagent}, kinds(rows))
+	require.Equal(t, []ledger.Kind{ledger.KindSubagent}, kinds(rows))
 	assert.Equal(t, turnID, rows[0].TurnID)
-	assert.Equal(t, ledger.ReplyID("child"), bodyOf[ledger.AssistantText](t, rows[0]).MessageID)
-	assert.Equal(t, ledger.SubagentBody{Phase: ledger.SubagentStop, Result: "done"}, bodyOf[ledger.SubagentBody](t, rows[1]))
+	assert.Equal(t, ledger.SubagentBody{Phase: ledger.SubagentStop, Result: "done"}, bodyOf[ledger.SubagentBody](t, rows[0]))
 	_, running := c.st.RunningTurn()
 	assert.True(t, running, "the chat's own turn runs on")
 

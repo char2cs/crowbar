@@ -23,15 +23,17 @@ func mapNested(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs
 	return nil, Effects{}, nil
 }
 
-// nestedEnd is a nested conversation's turn ending: what it said, and the
-// stop of the scope it ran as, in the turn that opened it or else its runner's.
+// nestedEnd is a nested conversation's turn ending: the stop of the scope it
+// ran as, with what it said, in the turn that opened it or else its runner's.
+// A subagent the book cannot end keeps what it said as text of its scope.
 func nestedEnd(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
 	turnID, ok := turnFor(st, src, scope, "")
 	if !ok {
 		return nil, errNoTurn
 	}
+	a, seen := st.SubagentOf(scope)
 	var rows []ledger.Row
-	if ev.Message != "" {
+	if ev.Message != "" && (!seen || !a.Status.Live()) {
 		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, scope, ledger.AssistantText{
 			MessageID: ledger.ReplyID(scope), Index: ledger.IndexComplete, Text: ev.Message,
 		})
@@ -40,7 +42,7 @@ func nestedEnd(st ledger.State, ev engineagents.CanonicalEvent, src Source, scop
 		}
 		rows = append(rows, row)
 	}
-	if a, seen := st.SubagentOf(scope); seen && !a.Status.Live() {
+	if seen && !a.Status.Live() {
 		return rows, nil
 	}
 	stop := ledger.SubagentBody{Phase: ledger.SubagentStop, Result: ev.Message}
