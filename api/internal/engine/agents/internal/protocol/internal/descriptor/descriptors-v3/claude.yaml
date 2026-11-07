@@ -419,8 +419,8 @@ presentation:
       skip_prefixes: ["/", "!"]
       frame: "The user sent a new message while you were working. Respond to it now.\n\n{message}"
       reply: '{"decision":"block","reason":{message_json}}'
-  # Plugin metadata is readable without a model turn; project/user skills
-  # are not, hence plugin_only rather than complete.
+  # Plugin metadata is readable without a model turn; user skills are not,
+  # hence plugin_only rather than complete.
   slash_catalog:
     completeness: plugin_only
     timeout_ms: 10000
@@ -447,6 +447,30 @@ presentation:
         description: ""
         insert_text: "/{source}:{name} "
         source: "{source}"
+    # Read from claude 2.1.319's own `/` menu. terminal: the command opens a dialog
+    # (or paints its answer) that only the CLI's terminal shows.
+    builtins:
+      - { name: compact, description: "Free up context by summarizing the conversation so far" }
+      - { name: clear, description: "Start a new session with empty context" }
+      - { name: init, description: "Initialize a new CLAUDE.md file with codebase documentation" }
+      - { name: security-review, description: "Complete a security review of the pending changes on the current branch" }
+      - { name: context, description: "Visualize current context usage as a colored grid", terminal: true }
+      - { name: help, description: "Show help and available commands", terminal: true }
+      - { name: model, description: "Set the AI model for Claude Code", terminal: true }
+      - { name: resume, description: "Resume a previous conversation", terminal: true }
+      - { name: status, description: "Show version, model, account, API connectivity, and tool statuses", terminal: true }
+      - { name: usage, description: "Show session cost, plan usage, and activity stats", terminal: true }
+      - { name: config, description: "Open settings", terminal: true }
+      - { name: permissions, description: "Manage allow and deny tool permission rules", terminal: true }
+      - { name: mcp, description: "Manage MCP servers", terminal: true }
+      - { name: hooks, description: "View hook configurations for tool events", terminal: true }
+      - { name: memory, description: "Edit CLAUDE.md files and memory settings", terminal: true }
+      - { name: doctor, description: "Health-check your setup and fix issues", terminal: true }
+      - { name: rewind, description: "Restore the code and/or conversation to a previous point", terminal: true }
+    # The workspace's own commands and skills; never the user's home.
+    workspace:
+      - { dir: .claude/commands, source: project }
+      - { dir: .claude/skills, entry: SKILL.md, source: project }
 # claude exposes no machine-readable model list at all (no `models`
 # subcommand, --model's own --help gives examples not an enum, the
 # unauthenticated API 401s) — MANIFEST, not discover:, refreshed over the

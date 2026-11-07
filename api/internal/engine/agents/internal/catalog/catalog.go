@@ -38,7 +38,20 @@ func Probe(
 	if err != nil {
 		return models.SlashCatalog{}, err
 	}
-	return probeWith(ctx, d, newRunner(d, d.Presentation.SlashCatalog, cwd, opts, acquire))
+	static := staticItems(d.Presentation.SlashCatalog, cwd)
+	probed, err := probeWith(ctx, d, newRunner(d, d.Presentation.SlashCatalog, cwd, opts, acquire))
+	if err != nil && (len(static) == 0 || ctx.Err() != nil) {
+		return models.SlashCatalog{}, err
+	}
+	if err != nil {
+		probed = models.SlashCatalog{
+			ProviderID:   d.ID,
+			Completeness: string(d.Presentation.SlashCatalog.Completeness),
+			Warnings:     []string{"Plugin skills could not be listed: " + err.Error()},
+		}
+	}
+	probed.Items = append(static, probed.Items...)
+	return probed, nil
 }
 
 func probeWith(

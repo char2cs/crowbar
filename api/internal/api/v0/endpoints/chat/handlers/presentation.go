@@ -73,6 +73,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 			Description: item.Description,
 			InsertText:  item.InsertText,
 			Source:      item.Source,
+			Terminal:    item.Terminal,
 		})
 	}
 	warnings := append([]string{}, catalog.Warnings...)

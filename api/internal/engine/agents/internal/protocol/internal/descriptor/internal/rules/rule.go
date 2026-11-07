@@ -25,6 +25,7 @@ func All() []Rule {
 		catalogBounds{},
 		catalogCommand{},
 		catalogItemMapping{},
+		catalogStatic{},
 		catalogAdapter{},
 		telemetry{},
 		selectionStrategy{},

@@ -368,6 +368,37 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"unsupported template",
 		},
 		{
+			"builtin with no name",
+			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{{Name: ""}} },
+			"builtins[0].name",
+		},
+		{
+			"builtin name carrying its slash",
+			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{{Name: "/help"}} },
+			"builtins[0].name",
+		},
+		{
+			"workspace dir climbing out of the workspace",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{{Dir: "../.claude/commands"}}
+			},
+			"workspace[0].dir",
+		},
+		{
+			"absolute workspace dir",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{{Dir: "/home/x/.claude/commands"}}
+			},
+			"workspace[0].dir",
+		},
+		{
+			"workspace entry that is a path",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{{Dir: "skills", Entry: "a/SKILL.md"}}
+			},
+			"workspace[0].entry",
+		},
+		{
 			"unknown adapter",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Pipeline.Adapter = "telepathy" },
 			"unsupported adapter",
