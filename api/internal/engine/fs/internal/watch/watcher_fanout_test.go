@@ -54,6 +54,13 @@ func (c *captureDispatcher) OnGitStatus(
 	c.gitCalls++
 }
 
+func (c *captureDispatcher) OnGitStatusUnreadable(
+	_ context.Context,
+	_ string,
+	_ error,
+) {
+}
+
 func (c *captureDispatcher) OnSyncWorkingTreeState(
 	_ context.Context,
 	input watch.SyncInput,

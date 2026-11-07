@@ -45,6 +45,7 @@ type benchDispatcher struct{}
 
 func (d *benchDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent)       {}
 func (d *benchDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {}
+func (d *benchDispatcher) OnGitStatusUnreadable(_ context.Context, _ string, _ error)     {}
 func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.SyncInput)    {}
 
 func BenchmarkFanOut(b *testing.B) {

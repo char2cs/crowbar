@@ -99,6 +99,8 @@ type Watcher struct {
 
 	prevStatus    gitdomain.GitStatus
 	prevStatusSet bool
+	// unreadable is set while recomputes fail, so a failure streak is reported once.
+	unreadable bool
 
 	// diffBase is the resolved base of the last recompute, kept until a ref
 	// event says refs moved: it is a function of refs alone, so a working-tree
@@ -202,6 +204,7 @@ func (w *Watcher) spec() watchSpec {
 		skip:     w.skipDir,
 		gitDirs:  w.gitWatchDirs(),
 		refTrees: w.gitRefRoots(),
+		anchors:  w.anchors(),
 	}
 }
 
@@ -303,6 +306,13 @@ func (w *Watcher) handleOne(
 	}
 	if evt.Op&opRemove != 0 {
 		w.be.removed(evt.Name)
+	}
+	if isAnchor, ok := w.anchorEntry(evt.Name); ok {
+		// The main worktree itself came or went: refs may differ and git may not read us.
+		if isAnchor {
+			w.diffBase = nil
+		}
+		return isAnchor
 	}
 	// Checked before shouldIgnore: a main worktree's ref events are not "ignored"
 	// (they pass as file changes), a linked worktree's are, and both move the base.

@@ -64,8 +64,10 @@ func (w *Watcher) fanOutGit(
 
 	status, err := w.git.ComputeStatus(ctx, w.repoPath)
 	if err != nil {
+		w.reportUnreadable(ctx, err)
 		return
 	}
+	w.unreadable = false
 	// Linked worktrees sharing a .git see each other's ref events, so an unchanged status
 	// is not re-broadcast. prevStatus starts unset, so the first recompute always sends.
 	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
@@ -102,6 +104,21 @@ func (w *Watcher) fanOutGit(
 		HasConflicts: hasConflicts,
 		HasCommits:   hasCommits,
 	})
+}
+
+// reportUnreadable tells the client git cannot read the workspace, once per failure
+// streak, and forgets the last status and base so the recovery is re-broadcast.
+func (w *Watcher) reportUnreadable(
+	ctx context.Context,
+	err error,
+) {
+	w.prevStatusSet = false
+	w.diffBase = nil
+	if w.unreadable || ctx.Err() != nil {
+		return
+	}
+	w.unreadable = true
+	w.dispatcher.OnGitStatusUnreadable(ctx, w.wsID, err)
 }
 
 // statusHasConflicts reads the unmerged entries git status already reported, so

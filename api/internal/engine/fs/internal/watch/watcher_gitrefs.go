@@ -23,6 +23,33 @@ func (w *Watcher) gitRefRoots() []string {
 	}
 }
 
+// anchors names the main worktree's directory: moving or deleting it takes the
+// common dir with it, and inotify sends nothing to watches below a moved directory.
+// A bare common dir has no worktree directory to anchor on.
+func (w *Watcher) anchors() []string {
+	common := w.commonDir()
+	if filepath.Base(common) != ".git" {
+		return nil
+	}
+	return []string{filepath.Dir(common)}
+}
+
+// anchorEntry reports whether path is an entry of an anchor's parent directory, and if
+// so whether it is the anchor itself; its siblings are unrelated and dropped.
+func (w *Watcher) anchorEntry(
+	path string,
+) (isAnchor, ok bool) {
+	for _, anchor := range w.anchors() {
+		if path == anchor {
+			return true, true
+		}
+		if filepath.Dir(path) == filepath.Dir(anchor) && !isUnder(path, w.repoPath) {
+			return false, true
+		}
+	}
+	return false, false
+}
+
 func (w *Watcher) maybeHandleGitRef(
 	_ context.Context,
 	evt event,

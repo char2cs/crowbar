@@ -270,6 +270,13 @@ func (d *captureDispatcher) OnGitStatus(
 ) {
 }
 
+func (d *captureDispatcher) OnGitStatusUnreadable(
+	_ context.Context,
+	_ string,
+	_ error,
+) {
+}
+
 func (d *captureDispatcher) OnSyncWorkingTreeState(
 	_ context.Context,
 	input watch.SyncInput,

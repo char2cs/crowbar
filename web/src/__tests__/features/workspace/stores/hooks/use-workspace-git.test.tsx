@@ -161,6 +161,20 @@ describe('useWorkspaceGit', () => {
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
     })
 
+    // The daemon says git can no longer read the worktree (its repo moved), then that it can again,
+    // with the very status it had: each is news, so the panel shows and then clears the error.
+    it('reloads on an unreadable frame and again on the recovery that repeats the old status', async () => {
+      const { reloadStatusAndLog } = await ready()
+
+      onGitFrame()({ error: 'not a git repository' })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
+
+      onGitFrame()({ ...status })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
+    })
+
     it('a failed push-driven reload reports why', async () => {
       const { reloadStatusAndLog } = await ready()
       const toastAdd = vi.spyOn(toastManager, 'add')

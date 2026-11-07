@@ -2,6 +2,10 @@ package watch
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -155,4 +159,106 @@ func TestScheduleGitRecompute_CeilingRestartsAfterARecompute(t *testing.T) {
 	w.scheduleGitRecompute()
 
 	assert.Equal(t, gitRecomputeQuiet, timer.last(), "the ceiling counts from the first change after a recompute")
+}
+
+// ---------------------------------------------------------------------------
+// fanOutGit — a status git cannot read is reported, and recovery is re-broadcast
+// ---------------------------------------------------------------------------
+
+// flakyGit fails ComputeStatus while broken is set.
+type flakyGit struct {
+	minimalGit
+	broken bool
+}
+
+func (g *flakyGit) ComputeStatus(_ context.Context, _ string) (gitdomain.GitStatus, error) {
+	if g.broken {
+		return gitdomain.GitStatus{}, errors.New("not a git repository")
+	}
+	return gitdomain.GitStatus{Branch: "main"}, nil
+}
+
+func TestFanOutGit_UnreadableStatusIsReportedAndRecoveryReBroadcast(t *testing.T) {
+	g := &flakyGit{}
+	rd := &recordingDispatcher{}
+	w := NewWatcher("ws-moved", t.TempDir(), "main", g, rd)
+	ctx := context.Background()
+
+	w.fanOutGit(ctx)
+	g.broken = true
+	w.fanOutGit(ctx)
+	w.fanOutGit(ctx)
+	assert.Equal(t, 1, rd.errors(), "a failed read is reported once, not once per recompute")
+
+	g.broken = false
+	w.fanOutGit(ctx)
+	assert.Equal(t, 2, rd.count(), "the recovered status equals the last one sent and is still re-broadcast")
+	g.broken = true
+	w.fanOutGit(ctx)
+	assert.Equal(t, 2, rd.errors(), "a failure after a recovery is news again")
+}
+
+// gitStatusOf runs a real git status, so a repo moved away fails as it does in production.
+type gitStatusOf struct{ minimalGit }
+
+func (gitStatusOf) ComputeStatus(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
+	if out, err := exec.CommandContext(ctx, "git", "-C", repoPath, "status", "--porcelain").CombinedOutput(); err != nil {
+		return gitdomain.GitStatus{}, fmt.Errorf("git status: %w: %s", err, out)
+	}
+	return gitdomain.GitStatus{Branch: "feature"}, nil
+}
+
+// Moving the parent repo sends nothing into a linked worktree's tree or its watched git
+// dirs (inotify follows the moved inodes), yet git can no longer read the worktree; the
+// main worktree's own watcher must also see the repo come back to re-arm its tree.
+func TestMovingTheParentRepoIsReportedAndMovingItBackRecovers(t *testing.T) {
+	for _, watched := range []string{"linked worktree", "main worktree"} {
+		t.Run(watched, func(t *testing.T) {
+			worktree, commonDir := newLinkedWorktree(t)
+			repo := filepath.Dir(commonDir)
+			if watched == "main worktree" {
+				worktree = repo
+			}
+			rd := &recordingDispatcher{
+				statuses:   make(chan gitdomain.GitStatus, 16),
+				unreadable: make(chan error, 16),
+				files:      make(chan string, 64),
+			}
+			w := NewWatcher("ws-moved", worktree, "", &gitStatusOf{}, rd)
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			t.Cleanup(w.Stop)
+			require.NoError(t, w.Start(ctx))
+
+			require.NoError(t, os.Rename(repo, repo+"-moved"))
+			select {
+			case <-rd.unreadable:
+			case <-time.After(15 * time.Second):
+				t.Fatal("moving the parent repo away was never reported")
+			}
+
+			require.NoError(t, os.Rename(repo+"-moved", repo))
+			select {
+			case <-rd.statuses:
+			case <-time.After(15 * time.Second):
+				t.Fatal("moving the parent repo back never re-broadcast the status")
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(worktree, "after.txt"), []byte("x"), 0o600))
+			rd.waitForFile("after.txt")
+		})
+	}
+}
+
+// The main worktree's parent directory is watched for that one entry; its other
+// entries are someone else's and must neither surface nor recompute.
+func TestAnchorParent_SiblingEntriesAreDropped(t *testing.T) {
+	worktree, commonDir := newLinkedWorktree(t)
+	rd := newRecordingDispatcher()
+	w := NewWatcher("ws-anchor", worktree, "", &minimalGit{}, rd)
+
+	sibling := filepath.Join(filepath.Dir(filepath.Dir(commonDir)), "unrelated")
+	assert.False(t, w.handleOne(context.Background(), event{Name: sibling, Op: opWrite}))
+	assert.True(t, w.handleOne(context.Background(), event{Name: filepath.Dir(commonDir), Op: opRename}),
+		"the main worktree moving is a reason to recompute")
+	assert.Empty(t, rd.files, "neither is a file of this workspace")
 }

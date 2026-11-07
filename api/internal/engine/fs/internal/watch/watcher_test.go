@@ -119,18 +119,11 @@ func (f *fakeDispatcher) OnFileChange(
 	}
 }
 
-func (f *fakeDispatcher) OnGitStatus(
-	_ context.Context,
-	_ string,
-	_ gitdomain.GitStatus,
-) {
-}
+func (f *fakeDispatcher) OnGitStatus(context.Context, string, gitdomain.GitStatus) {}
 
-func (f *fakeDispatcher) OnSyncWorkingTreeState(
-	_ context.Context,
-	_ watch.SyncInput,
-) {
-}
+func (f *fakeDispatcher) OnGitStatusUnreadable(context.Context, string, error) {}
+
+func (f *fakeDispatcher) OnSyncWorkingTreeState(context.Context, watch.SyncInput) {}
 
 func (f *fakeDispatcher) find(
 	match func(domain.FileChangeEvent) bool,

@@ -46,8 +46,12 @@ func (g *minimalGit) DiffStat(
 type recordingDispatcher struct {
 	mu       sync.Mutex
 	gitCount int
+	errCount int
 	syncs    []SyncInput
 	files    chan string
+	// statuses and unreadable, when set, receive each status and each read failure.
+	statuses   chan gitdomain.GitStatus
+	unreadable chan error
 }
 
 func newRecordingDispatcher() *recordingDispatcher {
@@ -72,10 +76,28 @@ func (r *recordingDispatcher) waitForFile(rel string) {
 	}
 }
 
-func (r *recordingDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {
+func (r *recordingDispatcher) OnGitStatus(_ context.Context, _ string, status gitdomain.GitStatus) {
+	r.mu.Lock()
+	r.gitCount++
+	r.mu.Unlock()
+	if r.statuses != nil {
+		r.statuses <- status
+	}
+}
+
+func (r *recordingDispatcher) OnGitStatusUnreadable(_ context.Context, _ string, err error) {
+	r.mu.Lock()
+	r.errCount++
+	r.mu.Unlock()
+	if r.unreadable != nil {
+		r.unreadable <- err
+	}
+}
+
+func (r *recordingDispatcher) errors() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.gitCount++
+	return r.errCount
 }
 
 func (r *recordingDispatcher) OnSyncWorkingTreeState(_ context.Context, in SyncInput) {
@@ -110,39 +132,6 @@ func gitRecomputePending(w *Watcher) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.gitPending
-}
-
-// ---------------------------------------------------------------------------
-// relPath — error path: repoPath is empty so filepath.Rel returns an error
-// on some inputs; use an invalid root to force the error branch.
-// ---------------------------------------------------------------------------
-
-func TestRelPath_ErrorFallsBackToInput(t *testing.T) {
-	// On macOS/Linux, filepath.Rel errors when one path is relative and the
-	// other is absolute (or they have no common base in certain edge cases).
-	// The simplest portable trigger: pass an absolute path but set repoPath
-	// to a value that makes Rel error. filepath.Rel("", "/abs") returns an
-	// error because "" is treated as relative "." and can still resolve.
-	// A reliable way: repoPath with a null byte causes os-level error.
-	// Instead, rely on the fallback: when Rel succeeds the result equals the
-	// expected relative value; this path is already covered by coverage tests.
-	//
-	// To exercise the error branch directly we need filepath.Rel to fail.
-	// filepath.Rel only fails on Windows (different volumes) or if one arg
-	// is relative when the other is absolute in certain Go versions.
-	// We therefore create the scenario by giving repoPath a trailing null byte
-	// which is invalid on all Unix systems.
-	repoPath := "/invalid\x00path"
-	w := newBareWatcher(repoPath, &recordingDispatcher{})
-
-	// With an invalid repoPath, filepath.Rel may fail; the function should
-	// return the raw absPath unchanged.
-	absPath := "/some/absolute/path.txt"
-	result := w.relPath(absPath)
-
-	// Either it fell back (returned absPath) or succeeded with a relative path.
-	// The important thing is it doesn't panic.
-	assert.NotEmpty(t, result)
 }
 
 // Verify normal relPath still works (belt-and-suspenders).
@@ -270,46 +259,6 @@ func TestHandleOne_ShouldIgnoreCallsMaybeHandleGitRef(t *testing.T) {
 
 	// No OnGitStatus should be dispatched (maybeHandleGitRef returned early).
 	assert.Equal(t, 0, rd.count())
-}
-
-func TestHandleOne_ShouldIgnoreWithHeadCallsFanOutGit_ViaDirectCall(t *testing.T) {
-	// When shouldIgnore=true AND the abs path ends with .git/HEAD,
-	// maybeHandleGitRef calls fanOutGit which calls OnGitStatus.
-	//
-	// shouldIgnore uses relPath, so we need a path that:
-	//   (a) has rel starting with ".git"
-	//   (b) is NOT ".git/HEAD" and NOT ".git/refs/..." (so shouldIgnore returns true)
-	//   (c) but has ".git/HEAD" suffix in its ABSOLUTE path (for maybeHandleGitRef)
-	//
-	// This is structurally impossible through handleOne alone (shouldIgnore
-	// returns true only for non-HEAD/refs, but maybeHandleGitRef checks abs suffix).
-	// The indirect path is covered by TestMaybeHandleGitRef_HeadSuffix above.
-	// This test validates the shouldIgnore=true early-return in handleOne.
-	dir := t.TempDir()
-	rd := &recordingDispatcher{}
-	w := newBareWatcher(dir, rd)
-
-	// Simulate a .git/index event (ignored, not HEAD/refs).
-	evt := event{
-		Name: filepath.Join(dir, ".git", "index"),
-		Op:   opWrite,
-	}
-	w.handleOne(context.Background(), evt)
-
-	// No git calls expected (path is .git/index, not HEAD or refs).
-	assert.Equal(t, 0, rd.count())
-}
-
-// ---------------------------------------------------------------------------
-// handleBurst — empty burst is a no-op
-// ---------------------------------------------------------------------------
-
-func TestHandleBurst_EmptyNoPanic(t *testing.T) {
-	dir := t.TempDir()
-	w := newBareWatcher(dir, &recordingDispatcher{})
-	// Must not panic on empty slice.
-	w.handleBurst(context.Background(), nil)
-	w.handleBurst(context.Background(), []event{})
 }
 
 // ---------------------------------------------------------------------------

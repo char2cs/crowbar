@@ -11,6 +11,9 @@ type watchSpec struct {
 	skip     func(dir string) bool
 	gitDirs  []string
 	refTrees []string
+	// anchors are directories whose own move or removal must be seen: each is
+	// watched through its parent, whose other entries the watcher drops.
+	anchors []string
 }
 
 // backend delivers the filesystem events inside a watchSpec: inotify through

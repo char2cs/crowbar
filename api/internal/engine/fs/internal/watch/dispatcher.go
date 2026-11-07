@@ -22,6 +22,13 @@ type Dispatcher interface {
 		wsID string,
 		status gitdomain.GitStatus,
 	)
+	// OnGitStatusUnreadable is called when a recompute finds git cannot read the
+	// workspace (its repo moved or was deleted), once per failure streak.
+	OnGitStatusUnreadable(
+		ctx context.Context,
+		wsID string,
+		err error,
+	)
 	// OnSyncWorkingTreeState is called when the derived workspace summary
 	// (added/deleted/hasConflicts/hasCommits) has changed and the Workspace
 	// aggregate must be updated.

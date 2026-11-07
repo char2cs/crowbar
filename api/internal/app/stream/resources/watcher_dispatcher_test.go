@@ -2,6 +2,8 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -81,4 +83,19 @@ func TestWatcherDispatcher_FansOutAllThree(t *testing.T) {
 	assert.Equal(t, "w1", gotSync.ID)
 	assert.Equal(t, 2, gotSync.Added)
 	require.True(t, gotSync.HasCommits)
+}
+
+func TestWatcherDispatcher_UnreadableGitIsAGitStatusNamingTheReason(t *testing.T) {
+	signals := newRecordingSignals()
+	d := newWatcherDispatcher(signals, &fakeWorkspaceRepo{}, time.Now)
+
+	d.OnGitStatusUnreadable(context.Background(), "w1", errors.New("not a git repository"))
+
+	got := recv(t, signals.got)
+	assert.Equal(t, stream.Scope{Kind: stream.KindGit, Key: "w1"}, got.scope)
+	assert.Equal(t, "git_status", got.kind)
+	body, err := json.Marshal(got.data)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"error":"not a git repository"}`, string(body),
+		"the client reloads on a changed frame and shows why git cannot read the workspace")
 }

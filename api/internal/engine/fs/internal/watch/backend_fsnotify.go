@@ -57,6 +57,9 @@ func newBackend(
 	for _, root := range spec.refTrees {
 		b.watchRefTree(root)
 	}
+	for _, anchor := range spec.anchors {
+		b.watchBestEffort(filepath.Dir(anchor))
+	}
 	return b, nil
 }
 

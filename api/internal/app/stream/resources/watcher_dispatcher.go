@@ -56,6 +56,20 @@ func (d *watcherDispatcher) OnGitStatus(
 	d.signals.Signal(stream.Scope{Kind: stream.KindGit, Key: wsID}, stream.SignalGitStatus, status)
 }
 
+// gitUnreadable is the git_status a workspace git cannot read carries: the client
+// reloads on it and reads the reason from the status route, as it does on recovery.
+type gitUnreadable struct {
+	Error string `json:"error"`
+}
+
+func (d *watcherDispatcher) OnGitStatusUnreadable(
+	_ context.Context,
+	wsID string,
+	err error,
+) {
+	d.signals.Signal(stream.Scope{Kind: stream.KindGit, Key: wsID}, stream.SignalGitStatus, gitUnreadable{Error: err.Error()})
+}
+
 func (d *watcherDispatcher) OnSyncWorkingTreeState(
 	ctx context.Context,
 	input enginefs.SyncInput,
