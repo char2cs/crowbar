@@ -13,6 +13,25 @@ describe('describeFailure', () => {
     })
   })
 
+  // Synthetic: claude's TUI wording of an API error; no StopFailure is recorded.
+  it('reads the message out of a JSON body after a prefix', () => {
+    const detail =
+      'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+    expect(describeFailure('overloaded', detail)).toEqual({
+      kind: 'other',
+      text: 'Overloaded',
+      more: detail,
+    })
+  })
+
+  // Overloaded lifts on its own and is retried: no usage window, no sign-in.
+  it('words an overloaded provider as busy, not as a usage limit', () => {
+    expect(describeFailure('overloaded')).toEqual({
+      kind: 'other',
+      text: 'The provider is overloaded right now.',
+    })
+  })
+
   it('tells a sign-in, a limit and anything else apart', () => {
     expect(describeFailure('authentication_failed').kind).toBe('auth')
     expect(describeFailure('x', 'unexpected status 401 Unauthorized').kind).toBe('auth')

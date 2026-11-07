@@ -11,7 +11,8 @@ export interface TurnFailure {
 }
 
 const AUTH = /\b40[13]\b|unauthori[sz]ed|authentication|not logged in|invalid api key|log ?in/i
-const LIMIT = /\b429\b|\b529\b|rate.?limit|usage.?limit|too many requests|overloaded|quota/i
+// An overloaded provider (529) is busy, not limited: it has no window to wait out.
+const LIMIT = /\b429\b|rate.?limit|usage.?limit|too many requests|quota/i
 
 // A reason that is a code, not a sentence: the provider gave no words of its own.
 const CODE = /^[a-z_]+$/
@@ -20,12 +21,17 @@ const CODE_TEXT: Record<FailureKind, string> = {
   limit: 'The provider’s usage limit was reached.',
   other: 'The provider stopped this turn.',
 }
+const OVERLOADED = 'The provider is overloaded right now.'
 
-/** The message inside a provider error that arrived as its raw JSON body. */
+/** The message inside a provider error whose words end in its raw JSON body. */
 function jsonMessage(words: string): string | undefined {
-  if (!words.startsWith('{')) return undefined
+  const start = words.indexOf('{')
+  if (start < 0 || !words.endsWith('}')) return undefined
   try {
-    const body = JSON.parse(words) as { message?: unknown; error?: { message?: unknown } }
+    const body = JSON.parse(words.slice(start)) as {
+      message?: unknown
+      error?: { message?: unknown }
+    }
     const message = body.error?.message ?? body.message
     return typeof message === 'string' && message ? message : undefined
   } catch {
@@ -37,7 +43,7 @@ export function describeFailure(reason = '', detail = ''): TurnFailure {
   const said = `${reason}\n${detail}`
   const kind: FailureKind = AUTH.test(said) ? 'auth' : LIMIT.test(said) ? 'limit' : 'other'
   const words = detail.trim() || (CODE.test(reason) ? '' : reason.trim())
-  if (!words) return { kind, text: CODE_TEXT[kind] }
+  if (!words) return { kind, text: reason === 'overloaded' ? OVERLOADED : CODE_TEXT[kind] }
   const message = jsonMessage(words)
   if (message) return { kind, text: message, more: words }
   const [first = '', ...rest] = words.split('\n')
