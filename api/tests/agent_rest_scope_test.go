@@ -480,17 +480,14 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 	require.Equal(t, wantIDs, chatIDs(t, h, repoBase(ws)),
 		"the chat list must agree with the answer the API gave: a refusal leaves nothing behind")
 
-	// Nor a directory of its own, under the workspace's chats dir or the home's:
-	// none keyed by a chat that does not exist, only the RUNNER lifecycle's shared
-	// dir. A refusal may leave either dir uncreated.
+	// Nor a directory of its own, in the workspace's chats dir or the home's; either may not exist.
 	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(context.Background(), ws.workspaceID)
 	require.NoError(t, err)
-	allowed := append([]string{"runners"}, wantIDs...)
 	for _, dir := range []string{chatsDir, worktreepath.LedgerChatsDir(h.home)} {
 		entries, err := os.ReadDir(dir)
 		require.Truef(t, err == nil || os.IsNotExist(err), "read %s: %v", dir, err)
 		for _, entry := range entries {
-			assert.Contains(t, allowed, entry.Name(), "a refused spawn left a per-chat directory behind")
+			assert.Contains(t, append([]string{"runners"}, wantIDs...), entry.Name(), "a refused spawn left a chat dir behind")
 		}
 	}
 
