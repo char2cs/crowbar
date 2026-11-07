@@ -10,8 +10,13 @@ import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers
 import { handleCreate } from '@/components/layout/create-actions'
 import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
 import { moveTargets } from '@/components/sidebar/lib/move-targets'
-import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import {
+  performBranchOut,
+  performCancelMove,
+  performSidebarDrop,
+} from '@/components/sidebar/lib/drop-actions'
 import { readSelect, selectAgentChat } from '@/core/entities/select'
+import { entityStore } from '@/core/entities/entity-store'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
@@ -30,6 +35,8 @@ interface MenuData {
   locked: boolean
   /** The chat waits to move to another workspace, read off its entity at open time. */
   movePending: boolean
+  /** A repo thread owning no worktree, not already moving: it can become a branch. */
+  canBranch: boolean
 }
 
 // The sidebar's right-click menu. A sibling of the tree listening for native `contextmenu`, so
@@ -56,7 +63,10 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       if (!row) return null
       const locked = rowIsLocked(rowId)
       const movePending = !!readSelect((s) => selectAgentChat(s, rowId))?.pendingMove
-      return { row, locked, movePending }
+      // Only a thread in a repository has a HEAD to cut a branch from.
+      const inRepo = !!entityStore.getState().byKind.chat[rowId]?.data.repoId
+      const canBranch = row.kind === 'chat' && !row.ownsWorktree && inRepo && !movePending
+      return { row, locked, movePending, canBranch }
     }
     const onContextMenu = (e: MouseEvent) => {
       if (!(e.target instanceof HTMLElement)) return
@@ -94,7 +104,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   }, [treeRef, rows, openAt])
 
   if (!menu.data) return null
-  const { row, locked, movePending } = menu.data
+  const { row, locked, movePending, canBranch } = menu.data
   // Rename starts the same inline editor double-click does; the store knows which instance draws it.
   const handlers = {
     navigate,
@@ -129,6 +139,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     destructiveAt < 0 ? items.length : destructiveAt,
     0,
     ...moveItem(row, rows),
+    ...(canBranch ? [branchOutItem(row)] : []),
     ...(movePending ? [cancelMoveItem(row)] : []),
     ...killItems,
   )
@@ -162,5 +173,15 @@ function cancelMoveItem(row: SidebarRow): ContextMenuItem {
     label: 'Cancel move',
     icon: <XCircle />,
     onClick: () => void performCancelMove(row),
+  }
+}
+
+// A thread made a branch of its own, cut from its folder's HEAD once its turn ends.
+function branchOutItem(row: SidebarRow): ContextMenuItem {
+  return {
+    id: 'branch-out',
+    label: 'Make a branch',
+    icon: <GitBranch />,
+    onClick: () => void performBranchOut(row),
   }
 }

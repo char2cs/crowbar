@@ -7,6 +7,7 @@ import { report } from '@/lib/errors/report'
 
 /** A move's line, in the words of where it went. */
 export function moveLabel(move: MoveBody | undefined): string {
+  if (move?.branchOut) return branchOutLabel(move)
   const where = move?.label || 'another workspace'
   switch (move?.phase) {
     case 'done':
@@ -17,6 +18,22 @@ export function moveLabel(move: MoveBody | undefined): string {
       return 'Move cancelled'
     default:
       return `Moving to ${where} after this turn`
+  }
+}
+
+/** A thread made a branch of its own: named by the branch it became. */
+function branchOutLabel(move: MoveBody): string {
+  switch (move.phase) {
+    case 'done':
+      return move.toDir
+        ? `Now on branch ${move.branch} — working in ${move.toDir}`
+        : `Now on branch ${move.branch}`
+    case 'failed':
+      return `Making a branch failed${move.reason ? `: ${move.reason}` : ''}`
+    case 'cancelled':
+      return 'Branch cancelled'
+    default:
+      return 'Becoming a branch after this turn'
   }
 }
 

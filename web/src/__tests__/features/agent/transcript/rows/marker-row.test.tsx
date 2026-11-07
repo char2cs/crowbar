@@ -361,6 +361,14 @@ describe('MarkerRow', () => {
       expect(moveLine(feed)).toHaveTextContent('Moved to feature-b — now working in /src/b')
     })
 
+    it('says a thread made a branch by the branch it became', () => {
+      const l = ledger()
+      const cut = { phase: 'requested' as const, requestId: 'm1', branchOut: true }
+      const done = { phase: 'done' as const, requestId: 'm1', branch: 'heron', toDir: '/src/heron' }
+      const feed = seed([l.row('move', cut), l.row('move', done)])
+      expect(moveLine(feed)).toHaveTextContent('Now on branch heron — working in /src/heron')
+    })
+
     it('says a withdrawn move was cancelled', () => {
       const l = ledger()
       const feed = seed([

@@ -194,6 +194,15 @@ export async function cancelChatMove(wsId: string, chatId: string): Promise<void
   })
 }
 
+/** Makes a thread a branch of its own, cut from its folder's HEAD at its turn boundary; the
+ *  daemon names the branch. */
+export async function branchOutChat(wsId: string, chatId: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/branch-out`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
 /** Deletes a chat and the threads hanging off it (a thread without its parent reads a context
  *  that is gone); resolves with the chats its git cascade also took. `init` carries `keepalive`
  *  for the removal tray's pagehide flush, so an undo window cut short by a reload still deletes. */

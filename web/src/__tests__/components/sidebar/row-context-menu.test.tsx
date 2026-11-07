@@ -345,6 +345,21 @@ describe('SidebarRowContextMenu', () => {
   })
 
   // A home chat rides no repo: its folder is home-scoped and root-normalised.
+  // A thread in a repo can become a branch of its own, cut from its folder's HEAD; a home
+  // thread has no repository to branch.
+  it('Make a branch asks the daemon to cut one for a repo thread, and is absent at home', () => {
+    writeChat({ id: THREAD_ROW_ID, workspaceId: 'ws-main', repoId: 'repo-1' })
+    const branchOut = vi.spyOn(chatCommands, 'branchOutChat').mockResolvedValue(undefined)
+    rows = rows.map((r) => (r.id === THREAD_ROW_ID ? { ...r, workspaceId: 'ws-main' } : r))
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.click(screen.getByText('Make a branch'))
+    expect(branchOut).toHaveBeenCalledWith('ws-main', THREAD_ROW_ID)
+
+    rightClick(treeRef.current, HOME_THREAD_ROW_ID)
+    expect(screen.queryByText('Make a branch')).not.toBeInTheDocument()
+  })
+
   it('a plain home-scoped chat row offers New folder, HOME-scoped and root-normalised', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_THREAD_ROW_ID)

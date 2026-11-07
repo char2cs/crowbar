@@ -57,7 +57,7 @@
   "web/src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts": 967,
   "web/src/__tests__/components/sidebar/lib/drop-actions.test.ts": 2223,
   "web/src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts": 897,
-  "web/src/__tests__/components/sidebar/row-context-menu.test.tsx": 558,
+  "web/src/__tests__/components/sidebar/row-context-menu.test.tsx": 573,
   "web/src/__tests__/components/sidebar/sidebar-row.test.tsx": 1063,
   "web/src/__tests__/components/sidebar/space-scroller.test.tsx": 661,
   "web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx": 1324,
