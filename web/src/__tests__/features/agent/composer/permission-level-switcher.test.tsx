@@ -9,7 +9,10 @@ import { proxyMarkerError } from '@/lib/api/errors'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
-const { setChatPermissionLevelFn } = vi.hoisted(() => ({ setChatPermissionLevelFn: vi.fn() }))
+const { setChatPermissionLevelFn, defaultLevelFn } = vi.hoisted(() => ({
+  setChatPermissionLevelFn: vi.fn(),
+  defaultLevelFn: vi.fn(),
+}))
 
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
@@ -20,6 +23,7 @@ vi.mock('@/features/agent/api/agent-providers-api', () => ({
     { value: 'trusted', label: 'Trusted' },
     { value: 'full-auto', label: 'Full Auto' },
   ],
+  getDefaultPermissionLevel: (...args: unknown[]) => defaultLevelFn(...args),
 }))
 
 // jsdom has no PointerEvent constructor; base-ui's Select opens/commits via it.
@@ -33,6 +37,8 @@ beforeEach(() => {
   resetChatStore()
   setChatPermissionLevelFn.mockReset()
   setChatPermissionLevelFn.mockResolvedValue(undefined)
+  defaultLevelFn.mockReset()
+  defaultLevelFn.mockResolvedValue('guarded')
 })
 
 const ALL: PermissionLevel[] = ['guarded', 'trusted', 'full-auto']
@@ -59,11 +65,22 @@ describe('PermissionLevelSwitcher', () => {
     expect(screen.queryByTestId('chat-permission-level-option-guarded')).toBeNull()
   })
 
-  // A chat that inherits the default has no level of its own to show.
-  it('starts on no level while the chat inherits the default', () => {
+  // A chat that inherits the default runs at that default, so it says which one.
+  it('shows the default level of the chat’s host while the chat inherits it', async () => {
+    writeChat({ id: 'c1' })
+    defaultLevelFn.mockResolvedValue('trusted')
     draw()
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
-      'Permission level',
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(/^Trusted$/),
+    )
+    expect(defaultLevelFn).toHaveBeenCalledWith('local')
+  })
+
+  it('shows the nearest more permissive level when the provider lacks the default', async () => {
+    writeChat({ id: 'c1' })
+    draw('c1', ['trusted', 'full-auto'])
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(/^Trusted$/),
     )
   })
 
