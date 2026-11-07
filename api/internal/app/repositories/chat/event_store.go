@@ -120,6 +120,13 @@ type EventStore interface {
 		chatID string,
 		workspaceID string,
 	) (domain.Chat, error)
+	// RunIn points a chat at a workspace another row owns, SendWait for the same
+	// reason: the next launch resolves its folder from the read model.
+	RunIn(
+		ctx context.Context,
+		chatID string,
+		workspaceID string,
+	) (domain.Chat, error)
 	// SetType rewrites a chat's kind in place (chat or workflow), leaving its id,
 	// workspace and conversation untouched; it backfills rows minted untyped.
 	SetType(
@@ -303,6 +310,19 @@ func (r *eventSourced) SetWorkspace(
 	}
 	if err := r.placements.AdoptChat(ctx, chatID, workspaceID); err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: placement: %w", err)
+	}
+	return r.placed(ctx, evt.Aggregate)
+}
+
+// RunIn is SetWorkspace for a chat that shares the workspace it joins.
+func (r *eventSourced) RunIn(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+) (domain.Chat, error) {
+	evt, err := r.ax.SendWait(ctx, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID, Shares: true})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: run in: %w", err)
 	}
 	return r.placed(ctx, evt.Aggregate)
 }

@@ -19,6 +19,13 @@ func TestSetWorkspace_EmitEvent_SetsWorkspaceID(t *testing.T) {
 	assert.Equal(t, "ws-1", updated.WorkspaceID)
 }
 
+func TestSetWorkspace_AThreadMovedIntoABranchDoesNotOwnIt(t *testing.T) {
+	chat := &domain.Chat{ID: "chat-1", WorkspaceID: "home", OwnsWorkspace: false}
+	updated := commands.SetWorkspace{ID: "chat-1", WorkspaceID: "ws-b2", Shares: true}.EmitEvent(chat)
+	assert.Equal(t, "ws-b2", updated.WorkspaceID)
+	assert.False(t, updated.OwnsWorkspace)
+}
+
 func TestSetWorkspace_Validate_RejectsEmptyID(t *testing.T) {
 	cmd := commands.SetWorkspace{ID: "", WorkspaceID: "ws-1"}
 	err := cmd.Validate(&domain.Chat{ID: "some-id"})

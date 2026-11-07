@@ -18,6 +18,8 @@ type LedgerFacts struct {
 	LastExit *ledger.RunnerExit
 	// Busy is whether the chat is working: ledger.State.Busy.
 	Busy bool
+	// PendingMove is the move waiting for the chat's turn boundary, nil when none.
+	PendingMove *ledger.Move
 }
 
 // FactsOf is what a ledger State contributes to its chat's snapshot.
@@ -25,6 +27,9 @@ func FactsOf(st ledger.State) LedgerFacts {
 	facts := LedgerFacts{Conversations: st.Conversations(), Current: map[string]ledger.Conversation{}, Busy: st.Busy()}
 	for _, c := range facts.Conversations {
 		facts.Current[c.Provider], _ = st.Conversation(c.Provider)
+	}
+	if m, ok := st.PendingMove(); ok {
+		facts.PendingMove = &m
 	}
 	if _, live := st.LiveRunner(); !live {
 		if exit, ok := st.LastExit(); ok {
@@ -46,7 +51,7 @@ func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts Ledger
 	st := s.stateLocked(chatID)
 	flipped := st.facts.Busy != facts.Busy
 	changed := flipped || !sameConversations(st.facts.Conversations, facts.Conversations) ||
-		!sameExit(st.facts.LastExit, facts.LastExit)
+		!sameExit(st.facts.LastExit, facts.LastExit) || pendingMoveOf(st.facts) != pendingMoveOf(facts)
 	st.facts, st.hasFacts = facts, true
 	if moved || changed {
 		s.emitChatLocked(ctx, chatID)
@@ -110,6 +115,13 @@ func (s *Snapshots) installFacts(chatID string, facts LedgerFacts) {
 	if st := s.stateLocked(chatID); !st.hasFacts {
 		st.facts, st.hasFacts = facts, true
 	}
+}
+
+func pendingMoveOf(f LedgerFacts) string {
+	if f.PendingMove == nil {
+		return ""
+	}
+	return f.PendingMove.RequestID
 }
 
 func sameExit(a, b *ledger.RunnerExit) bool {

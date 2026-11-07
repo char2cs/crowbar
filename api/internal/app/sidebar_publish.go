@@ -61,8 +61,10 @@ func (l *lateStream) chatPublisher(
 		projectID, repoID := chatScope(ctx, workspaces, walk, chat.ID, chat.WorkspaceID)
 		conversation, _ := f.Snapshot.Conversation()
 		s := f.Snapshot
-		row := dto.AgentChatDTOFrom(chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-			s.TerminalWait, s.AttachedSessionID, conversation, s.Ledger.Busy), nil)
+		rt := dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
+			s.TerminalWait, s.AttachedSessionID, conversation, s.Ledger.Busy)
+		rt.PendingMove = s.Ledger.PendingMove
+		row := dto.AgentChatDTOFrom(chat, rt, nil)
 		l.hub.Entity(domainstream.Projects, domainstream.KindChatEntity, chat.ID,
 			dto.ChatEntityFrom(row, projectID, repoID), s.Version)
 	}

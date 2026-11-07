@@ -120,8 +120,10 @@ func (h *Handlers) chatSnapshot(
 // snapshotParts splits a snapshot into the chat row and its runtime.
 func snapshotParts(s agentusecase.ChatSnapshot) (domain.Chat, dto.ChatRuntime) {
 	conversation, _ := s.Conversation()
-	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
+	rt := dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
 		s.TerminalWait, s.AttachedSessionID, conversation, s.Ledger.Busy)
+	rt.PendingMove = s.Ledger.PendingMove
+	return s.Chat, rt
 }
 
 // requireChatInWorkspace loads chatID and holds it to the scope of the mount it was reached through,

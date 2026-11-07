@@ -39,6 +39,9 @@ type ChatRuntime struct {
 	// orders every answer about this chat, and the lifecycle phase it is in.
 	Version int64
 	Phase   string
+
+	// PendingMove is the move waiting for the chat's turn to end; nil when none.
+	PendingMove *ledger.Move
 	// Working is the chat's ledger saying it is busy.
 	Working bool
 }
@@ -61,6 +64,24 @@ func ChatSnapshotRuntime(
 		Conversation:      conversation,
 		Version:           version,
 		Phase:             phase,
+	}
+}
+
+// PendingMoveDTO is a move waiting for the chat's turn boundary.
+type PendingMoveDTO struct {
+	RequestID   string `json:"requestId"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	ParentID    string `json:"parentId,omitempty"`
+	Label       string `json:"label,omitempty"`
+	BranchOut   bool   `json:"branchOut,omitempty"`
+}
+
+func pendingMoveDTOFrom(m *ledger.Move) *PendingMoveDTO {
+	if m == nil {
+		return nil
+	}
+	return &PendingMoveDTO{
+		RequestID: m.RequestID, WorkspaceID: m.To, ParentID: m.ParentID, Label: m.Label, BranchOut: m.BranchOut,
 	}
 }
 
@@ -170,6 +191,8 @@ type AgentChatDTO struct {
 	// Conversation is the chat's conversation with its current provider,
 	// omitted until the chat is bound to a session.
 	Conversation *AgentConversationDTO `json:"conversation,omitempty"`
+	// PendingMove is where the chat moves once its turn ends.
+	PendingMove *PendingMoveDTO `json:"pendingMove,omitempty"`
 }
 
 // AgentChatDTOFrom converts a chat plus its derived runtime into the wire shape. wt is
@@ -198,6 +221,7 @@ func AgentChatDTOFrom(
 		Version:          rt.Version,
 		Phase:            rt.Phase,
 		Conversation:     agentConversationDTOFrom(rt.Conversation),
+		PendingMove:      pendingMoveDTOFrom(rt.PendingMove),
 	}
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
