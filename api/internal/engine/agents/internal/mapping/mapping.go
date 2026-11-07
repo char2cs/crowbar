@@ -231,6 +231,10 @@ func Bool(doc map[string]any, paths Expr) (bool, bool) {
 }
 
 func Time(doc map[string]any, paths Expr) (time.Time, bool) {
+	// A number is Unix epoch seconds, as a status line reports a reset time.
+	if secs, ok := Float(doc, paths); ok {
+		return time.Unix(int64(secs), 0).UTC(), true
+	}
 	raw := String(doc, paths)
 	if raw == "" {
 		return time.Time{}, false
