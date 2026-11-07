@@ -567,9 +567,7 @@ func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *test
 	}
 	require.NoError(t, json.Unmarshal([]byte(stdout), &reply), "the reply must stay valid JSON whatever the user typed")
 	assert.Equal(t, "block", reply.Decision)
-	assert.Contains(t, reply.Reason, "say \"hi\"\nthen {message_json}")
-	// The model reads a hook's reason as the hook's notice: it must say the words are the
-	// person's own message, set apart, or the model answers that it sees no new message.
+	// Named as the person's and set apart, or the model reads it as the hook's own notice.
 	assert.Contains(t, reply.Reason, "Message from the user")
 	assert.Contains(t, reply.Reason, "\n\nsay \"hi\"\nthen {message_json}\n\n")
 
@@ -857,8 +855,7 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 	require.True(t, ok, "claude declares an answer channel for its permission hook")
 	assert.Equal(t, []string{"allow", "answer", "deny", "suggestion"}, capability.Keys)
 	assert.Positive(t, capability.Wait)
-	assert.GreaterOrEqual(t, capability.Wait, 23*time.Hour,
-		"a person may take long over a plan: the hook is held for as long as they may take")
+	assert.GreaterOrEqual(t, capability.Wait, 23*time.Hour, "a person may take long over a plan")
 
 	// An allow echoes the input: claude's own plan dialog stays open on a bare allow.
 	plan, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "claude", "PermissionRequest.ExitPlanMode.json"))
@@ -979,8 +976,7 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 		matchers, held := decoded.Hooks[event], capability.Wait
 		require.NotEmpty(t, matchers, event)
 		require.NotEmpty(t, matchers[0].Hooks, event)
-		// The daemon's budget ends before the CLI kills the hook mid-write.
-		assert.Greater(t, time.Duration(matchers[0].Hooks[0].Timeout)*time.Second, held, event)
+		assert.Greater(t, time.Duration(matchers[0].Hooks[0].Timeout)*time.Second, held, "%s: the budget ends before the CLI kills the hook", event)
 	}
 }
 
