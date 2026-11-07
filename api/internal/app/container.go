@@ -161,6 +161,11 @@ func New(
 	}
 	// After the upgrade steps, which can hand it a runner a crashed old daemon left.
 	reconcileAgentRunners(ctx, ucs)
+	if ucs.AgentChatFolder != nil {
+		if err := ucs.AgentChatFolder.ResumeMoves(context.WithoutCancel(ctx)); err != nil {
+			slog.WarnContext(ctx, "app: resume chat moves", "err", err)
+		}
+	}
 	// Loops start once the boot can no longer fail, so a failed one leaves none.
 	startProviderSweep(ctx, engines, repos, ucs)
 	startOwningChatReconcile(ctx, repos, ucs)

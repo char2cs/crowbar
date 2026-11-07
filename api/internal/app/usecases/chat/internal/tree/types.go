@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
@@ -106,6 +107,21 @@ type Agent interface {
 		chatID string,
 		ancestors []string,
 	) error
+	// RequestMove records a move for the chat's turn boundary and reports whether it can run now.
+	RequestMove(ctx context.Context, chatID string, m ledger.Move) (bool, error)
+	// CancelMove withdraws the chat's pending move, if any.
+	CancelMove(ctx context.Context, chatID, reason string) error
+	// ExecuteMove runs the chat's ready move under its lock once its CLI has ended; ran is false
+	// when none was ready.
+	ExecuteMove(
+		ctx context.Context, chatID string, apply func(context.Context, ledger.Move) (ledger.Move, error),
+	) (done ledger.Move, ran bool, err error)
+	// RunIn points the chat at a workspace it does not own.
+	RunIn(ctx context.Context, chatID, workspaceID string) error
+	// MoveSite is the resolved folder a workspace's chats run in.
+	MoveSite(ctx context.Context, workspaceID string) (dir, projectID, repoID string, err error)
+	// MovesWaiting are the chats whose move a previous daemon left unfinished.
+	MovesWaiting(ctx context.Context) ([]string, error)
 }
 
 // WorkspaceGitStatus is defined in home_ports.go.
@@ -151,6 +167,10 @@ type MoveInput struct {
 type PlaceInput struct {
 	ParentID *string
 	Order    *int
+	// WorkspaceID, when another than the chat's, moves the chat to run there
+	// from its turn boundary; Label is the destination in the sidebar's words.
+	WorkspaceID string
+	Label       string
 }
 
 // ChatDeletion reports what a chat delete removed and moved. Chats and Folders are the erased ids, deepest
@@ -167,6 +187,12 @@ type ChatDeletion struct {
 // sibling order every row kind shares. Every mutation leaves the affected
 // levels renumbered 0..n-1.
 type Usecase interface {
+	// MoveWhenReady runs the chat's move if its turn boundary has come.
+	MoveWhenReady(ctx context.Context, chatID string)
+	// ResumeMoves runs every move a previous daemon left unfinished.
+	ResumeMoves(ctx context.Context) error
+	// CancelMove withdraws the chat's pending move.
+	CancelMove(ctx context.Context, chatID string) error
 	// ListInRepo returns a repo's folder rows ("" for project home).
 	ListInRepo(
 		ctx context.Context,

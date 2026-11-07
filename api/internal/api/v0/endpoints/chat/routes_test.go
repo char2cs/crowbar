@@ -76,6 +76,8 @@ func (stubChatTree) Move(
 
 func (stubChatTree) Delete(context.Context, string) ([]domain.Chat, error) { return nil, nil }
 
+func (stubChatTree) CancelMove(context.Context, string) error { return nil }
+
 func (stubChatTree) PlaceChat(
 	_ context.Context,
 	_ string,
@@ -293,6 +295,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/chats/c1/rename"},
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
+		{http.MethodPost, base + "/chats/c1/move/cancel"},
 		{http.MethodDelete, base + "/chats/c1"},
 		{http.MethodPut, base + "/chats/c1/permission-level"},
 		{http.MethodGet, base + "/chats/folders"},

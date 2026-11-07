@@ -88,6 +88,9 @@ func (rs *Runners) ExecuteMove(ctx context.Context, chatID string, apply MoveApp
 		return ledger.Move{}, false, err
 	}
 	done, applyErr := apply(ctx, m)
+	if errors.Is(applyErr, ledger.ErrMoveWaits) {
+		return ledger.Move{}, false, nil
+	}
 	if applyErr != nil {
 		done = ledger.Move{Phase: ledger.MoveFailed, RequestID: m.RequestID, Reason: problem.Of(applyErr).Message}
 	} else {
@@ -123,6 +126,36 @@ func (rs *Runners) quiesceForMove(ctx context.Context, h *hold, chatID string) (
 			return ledger.Move{}, false, fmt.Errorf("agent: move: end the CLI: %w", err)
 		}
 	}
+}
+
+// MovesWaiting are the chats whose move can run now: a previous daemon asked
+// for it and did not finish.
+func (rs *Runners) MovesWaiting(ctx context.Context) ([]string, error) {
+	chats, err := rs.ledger.OpenChats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent: moves waiting: %w", err)
+	}
+	var out []string
+	for _, id := range chats {
+		st, err := rs.ledger.State(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("agent: moves waiting: %w", err)
+		}
+		if _, ready := st.MoveReady(); ready {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// MoveSite is the folder workspaceID's chats run in, resolved as a spawn
+// resolves it, and the project and repo it belongs to.
+func (rs *Runners) MoveSite(ctx context.Context, workspaceID string) (dir, projectID, repoID string, _ error) {
+	_, projectID, repoID, dir, err := rs.ws.WorktreeDir(ctx, workspaceID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("agent: move site %s: %w", workspaceID, err)
+	}
+	return canonicalDir(dir), projectID, repoID, nil
 }
 
 // requireNoReadyMove refuses a prompt the chat's move must run before.

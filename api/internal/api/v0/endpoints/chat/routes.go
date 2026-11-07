@@ -61,6 +61,7 @@ func Register(
 	// Separate from rename: a chat's parent is its context lineage, so placement can make a chat a
 	// thread of another and back.
 	repoScoped.PATCH("/chats/:id/placement", h.PlaceChat)
+	repoScoped.POST("/chats/:id/move/cancel", h.CancelMove)
 	// A POST, not a PATCH field: promotion cuts a branch, adds a worktree and respawns the CLI, and
 	// is one-way (a worktree is never demoted).
 	repoScoped.POST("/chats/:id/promote", h.Promote)

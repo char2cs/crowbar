@@ -83,6 +83,8 @@ type AgentChatPlacements struct {
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
 	NextID string
+	// Moves is the move half; see MoveLedger.
+	Moves MoveLedger
 }
 
 // PlacementWrite is one recorded call to SetPlacement: a row the caller MOVED,

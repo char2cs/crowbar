@@ -53,6 +53,10 @@ type ChatTreeUsecase interface {
 		chatID string,
 		in agentusecase.PlaceInput,
 	) (domain.Chat, []domain.Chat, error)
+	CancelMove(
+		ctx context.Context,
+		chatID string,
+	) error
 	DeleteChat(
 		ctx context.Context,
 		chatID string,

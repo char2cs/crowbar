@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -39,6 +40,10 @@ type Move struct {
 	Repo      string `json:"repo,omitempty"` // set when the move crossed into another project
 	Reason    string `json:"reason,omitempty"`
 }
+
+// ErrMoveWaits is a move's apply saying it cannot run yet (its parent thread
+// has not moved); the move stays asked for.
+var ErrMoveWaits = errors.New("ledger: move waits for its parent thread")
 
 var movePhases = []string{MoveRequested, MoveDone, MoveFailed, MoveCancelled}
 

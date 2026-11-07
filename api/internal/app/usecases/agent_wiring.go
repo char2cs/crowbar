@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -141,6 +142,12 @@ func newAgentWiring(
 		repos.Placement,
 		repos.Placement,
 	)
+	// Runs under the chat's ledger writer, so it only starts the move's own pass.
+	repos.ChatLedger.Subscribe(func(chatID string, _ []ledger.Row, st ledger.State) {
+		if _, ready := st.MoveReady(); ready {
+			chatTree.MoveWhenReady(context.Background(), chatID)
+		}
+	})
 	return agentWiring{
 		chat:     chat,
 		chatTree: chatTree,

@@ -28,6 +28,7 @@ type chatFolderUsecase struct {
 	// folders and nodes are the folder/chat placement surface for every scope.
 	folders Folders
 	nodes   Nodes
+	moves   moveRuns
 }
 
 // New builds the tree usecase. Every port is required: reaper so a chat delete cannot strand the worktree

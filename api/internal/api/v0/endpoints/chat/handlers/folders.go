@@ -34,6 +34,10 @@ type patchFolderRequest struct {
 type placeChatRequest struct {
 	ParentID *string `json:"parentId"`
 	Order    *int    `json:"order"`
+	// WorkspaceID, when another than the chat's, moves the chat to run there
+	// from its turn boundary; Label names the destination for its transcript.
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	Label       string `json:"label,omitempty"`
 }
 
 // folderResponse is the body of every folder mutation: the row asked about plus every other row the
@@ -224,7 +228,9 @@ func (h *Handlers) PlaceChat(
 		wsID = chat.WorkspaceID
 	}
 	placed, shifted, err := h.folders.PlaceChat(ctx.Request.Context(), wsID, ctx.Param("id"),
-		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
+		agentusecase.PlaceInput{
+			ParentID: body.ParentID, Order: body.Order, WorkspaceID: body.WorkspaceID, Label: body.Label,
+		})
 	if err != nil {
 		libs.Fail(ctx, err)
 		return
@@ -238,6 +244,17 @@ func (h *Handlers) PlaceChat(
 		Chat:    dto.AgentChatDTOFrom(placed, rt, h.chatWorktree(ctx.Request.Context(), placed)),
 		Shifted: h.folderDTOList(ctx, shifted),
 	})
+}
+
+// CancelMove handles POST .../chats/:id/move/cancel: the chat stays where it runs.
+func (h *Handlers) CancelMove(
+	ctx *gin.Context,
+) {
+	if err := h.folders.CancelMove(ctx.Request.Context(), ctx.Param("id")); err != nil {
+		libs.Fail(ctx, err)
+		return
+	}
+	ctx.Status(http.StatusNoContent)
 }
 
 // folderInScope 404s a :folderId the home mount does not own: every project's home shares the one

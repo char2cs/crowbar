@@ -162,6 +162,11 @@ func (f *fakeChatTree) PlaceChat(
 	return f.placed, f.shifted, f.err
 }
 
+func (f *fakeChatTree) CancelMove(_ context.Context, chatID string) error {
+	f.gotPlaceID = chatID
+	return f.err
+}
+
 func (f *fakeChatTree) DeleteChat(
 	_ context.Context,
 	chatID string,
@@ -455,6 +460,20 @@ func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 	newFolderHandlers(tree).DeleteFolder(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// A drop into another workspace is the same placement call, naming where the chat runs next.
+func TestPlaceChat_ForwardsTheWorkspaceAMoveRunsIn(t *testing.T) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1"}}
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement",
+		[]byte(`{"parentId":"b2","workspaceId":"ws-b2","label":"b2"}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
+
+	newFolderHandlers(tree).PlaceChat(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "ws-b2", tree.gotPlace.WorkspaceID)
+	assert.Equal(t, "b2", tree.gotPlace.Label)
 }
 
 // The placement endpoint is where a chat becomes a THREAD of another, so the

@@ -39,7 +39,7 @@ func (u *chatFolderUsecase) CreateChat(
 		return CreatedChat{}, fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
 	if _, _, pErr := u.placeChat(
-		ctx, in.WorkspaceID, chatID, PlaceInput{ParentID: &in.ParentID}, false, true,
+		ctx, in.WorkspaceID, chatID, PlaceInput{ParentID: &in.ParentID}, placeMode{firstPlacement: true},
 	); pErr != nil {
 		return CreatedChat{}, u.discard(ctx, chatID, pErr)
 	}
@@ -101,7 +101,7 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 	}
 	if in.ParentID != "" {
 		if _, _, pErr := u.placeChat(
-			ctx, "", chatID, PlaceInput{ParentID: &in.ParentID}, true, true,
+			ctx, "", chatID, PlaceInput{ParentID: &in.ParentID}, placeMode{ownWorktree: true, firstPlacement: true},
 		); pErr != nil {
 			return CreatedChat{}, u.discard(ctx, chatID, pErr)
 		}
@@ -195,19 +195,27 @@ func (u *chatFolderUsecase) PlaceChat(
 	chatID string,
 	in PlaceInput,
 ) (domain.Chat, []domain.Chat, error) {
-	return u.placeChat(ctx, workspaceID, chatID, in, false, false)
+	if in.WorkspaceID != "" && in.WorkspaceID != workspaceID {
+		return u.requestMove(ctx, workspaceID, chatID, in)
+	}
+	return u.placeChat(ctx, workspaceID, chatID, in, placeMode{})
 }
 
-// placeChat is PlaceChat's body. ownWorktree is set only by createOwnWorktreeChat, whose destination is
-// re-checked here and needs the same allowance; firstPlacement, set by creates, skips densifying the
-// root a fresh mint was never drawn in (see replace).
+// placeMode is how placeChat treats a placement. ownWorktree is set only by createOwnWorktreeChat, whose
+// destination is re-checked here and needs the same allowance; firstPlacement, set by creates, skips
+// densifying the root a fresh mint was never drawn in (see replace); rebind is a move already quiesced
+// under the chat's lock, which re-checks no working state and records the lineage after the lock.
+type placeMode struct {
+	ownWorktree, firstPlacement, rebind bool
+}
+
+// placeChat is PlaceChat's body.
 func (u *chatFolderUsecase) placeChat(
 	ctx context.Context,
 	workspaceID string,
 	chatID string,
 	in PlaceInput,
-	ownWorktree bool,
-	firstPlacement bool,
+	mode placeMode,
 ) (domain.Chat, []domain.Chat, error) {
 	current, err := u.loadChat(ctx, workspaceID, chatID)
 	if err != nil {
@@ -225,26 +233,28 @@ func (u *chatFolderUsecase) placeChat(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	nodeBacked := ownWorktree && destination != ""
+	nodeBacked := mode.ownWorktree && destination != ""
 	if nodeBacked {
 		// A fork reads its position through Node once it owns a workspace
 		// (correctHomePlacement), so its first placement is minted there too.
 		snapshot.homeIDs[chatID] = true
 		snapshot.freshIDs[chatID] = true
 	}
-	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
+	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, mode.ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
 	if fErr := u.checkOwnedForkChain(ctx, snapshot, current, destination); fErr != nil {
 		return domain.Chat{}, nil, fErr
 	}
-	if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(chatID), u.busy); wErr != nil {
-		return domain.Chat{}, nil, wErr
+	if !mode.rebind {
+		if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(chatID), u.busy); wErr != nil {
+			return domain.Chat{}, nil, wErr
+		}
 	}
 	// Read before the plan is mutated, the only moment the old lineage is recoverable; comparing it with
 	// the new one decides whether the move is worth recording.
 	inherited := snapshot.chatLineage(chatID)
-	u.replace(snapshot, chatID, current.ParentID, destination, in.Order, firstPlacement)
+	u.replace(snapshot, chatID, current.ParentID, destination, in.Order, mode.firstPlacement)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, err
@@ -256,7 +266,9 @@ func (u *chatFolderUsecase) placeChat(
 			return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place %s: %w", chatID, err)
 		}
 	}
-	u.noteNewAncestors(ctx, chatID, inherited, snapshot.chatLineage(chatID))
+	if !mode.rebind {
+		u.noteNewAncestors(ctx, chatID, inherited, snapshot.chatLineage(chatID))
+	}
 	return placed, written, nil
 }
 
