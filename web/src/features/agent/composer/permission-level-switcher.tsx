@@ -55,7 +55,7 @@ export function PermissionLevelSwitcher({
   if (options.length === 0) return null
 
   return (
-    <Select value={level} onValueChange={handleChange}>
+    <Select items={options} value={level} onValueChange={handleChange}>
       <SelectTrigger
         data-testid="chat-permission-level-trigger"
         size="sm"

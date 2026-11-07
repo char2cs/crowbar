@@ -67,10 +67,10 @@ describe('PermissionLevelSwitcher', () => {
     )
   })
 
-  it('shows the level the chat is pinned to, as the daemon reports it', () => {
+  it('names the level the chat is pinned to by its label, never its id', () => {
     writeChat({ id: 'c1', permissionLevel: 'trusted' })
     draw()
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('trusted')
+    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(/^Trusted$/)
   })
 
   it('picking a level PUTs it for this chat', async () => {
