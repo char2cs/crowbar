@@ -8,6 +8,7 @@ import {
   useConnectionStore,
 } from '@/lib/ws/connection-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
+import { toast } from '@/features/window/stores/toast-store'
 
 class MockWebSocket {
   static CONNECTING = 0
@@ -201,5 +202,61 @@ describe('probeDaemon', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(useDaemonHaltStore.getState().message).toBe('layout 9 is newer than this Crowbar knows')
+  })
+})
+
+describe('the daemon build', () => {
+  const page = __APP_VERSION__
+  let show: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    vi.stubEnv('DEV', false)
+    show = vi.spyOn(toast, 'show')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    show.mockRestore()
+  })
+
+  it('a reconnect to a daemon of another build offers a reload and never reloads by itself', async () => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(health({ status: 'ok', build: 'f'.repeat(40) })),
+    )
+
+    noteSocketOpened(true)
+
+    await waitFor(() => expect(show).toHaveBeenCalledTimes(1))
+    const offer = show.mock.calls[0]?.[0] as Parameters<typeof toast.show>[0]
+    expect(offer.duration).toBe(0)
+    expect(reload).not.toHaveBeenCalled()
+    offer.action?.onClick()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('a daemon of the same build, of a dev build or of no build offers nothing', async () => {
+    for (const build of [`${page}0123456789`, 'dev', undefined]) {
+      const read = vi.fn().mockResolvedValue(health({ status: 'ok', build }))
+      vi.stubGlobal('fetch', read)
+
+      noteSocketOpened(true)
+
+      await waitFor(() => expect(read).toHaveBeenCalled())
+      await Promise.resolve()
+      expect(show).not.toHaveBeenCalled()
+    }
+  })
+
+  it('a dev page compares nothing', () => {
+    vi.stubEnv('DEV', true)
+    const read = vi.fn()
+    vi.stubGlobal('fetch', read)
+
+    noteSocketOpened(true)
+
+    expect(read).not.toHaveBeenCalled()
   })
 })
