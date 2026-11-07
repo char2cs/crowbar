@@ -1,5 +1,6 @@
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import type { Repo } from '@/core/entities/repo-types'
 import {
   levelWorkspaceOfBranchRow,
   resolveRowRepo,
@@ -72,6 +73,7 @@ function planChatDrop(
   // it off to `performRecentsDrop` first), so a root-level target genuinely
   // means the tree root.
   const containerId = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
+  if (folderOutsideTree(repos, containerId, destWorkspaceId)) return UNSUPPORTED
   const lifted = new Set(subjects.map((s) => s.id))
   const rest = renderedSiblings(rows, containerId, lifted)
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, target.id, mode)
@@ -83,6 +85,15 @@ function planChatDrop(
     parentId: containerId,
     order: at + i,
   }))
+}
+
+// A folder belongs to one tree, its repo's or its project home's, and a chat can only be filed
+// in its own workspace's tree: anywhere else the daemon keeps a parent the sidebar never draws.
+function folderOutsideTree(repos: readonly Repo[], folderId: string, workspaceId: string): boolean {
+  const home = resolveHomeRowScope(folderId)
+  if (home?.kind === 'folder') return home.homeWorkspaceId !== workspaceId
+  const folderRepo = repos.find((r) => r.folders?.some((f) => f.id === folderId))
+  return !!folderRepo && resolveRowRepo(repos, workspaceId)?.repoId !== folderRepo.id
 }
 
 // A project-home folder drop: planTreeRowDrop's container/index math scoped to the home. Home

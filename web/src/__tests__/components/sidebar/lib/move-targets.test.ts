@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { moveTargets } from '@/components/sidebar/lib/move-targets'
 import type { Repo } from '@/core/entities/repo-types'
-import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
-import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { homeRows, makeChat, makeFolder, repoRows } from '@/__tests__/__fixtures__/tree-rows'
+import {
+  resetEntities,
+  seedHome,
+  seedHomeTree,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 const REPO: Repo = {
   id: 'repo-1',
@@ -62,5 +67,18 @@ describe('moveTargets', () => {
   it('offers a workspace the folders it could be filed into', () => {
     expect(labels('ws-1')).toEqual(expect.arrayContaining(['Bugs', 'Old bugs']))
     expect(labels('ws-1')).not.toContain('feature-x')
+  })
+
+  // A chat's placement lives in its own workspace's tree: a repo folder is not a place for a
+  // project-home chat, and dropping it there left it orphaned at the top of the sidebar.
+  it("never offers a home chat another tree's folders", () => {
+    const chat = makeChat({ id: 'home-chat', title: 'Plans', repoId: '' })
+    const notes = makeFolder({ id: 'notes', name: 'Notes', repoId: '' })
+    seedHome('proj-1', 'ws-proj-home')
+    seedHomeTree('proj-1', { chats: [chat], folders: [notes] })
+    const rows = [...homeRows('ws-proj-home', [chat], [notes]), ...repoRows(REPO)]
+    const home = rows.find((r) => r.id === 'home-chat')!
+
+    expect(moveTargets(home, rows).map((t) => t.label)).toEqual(['Notes'])
   })
 })
