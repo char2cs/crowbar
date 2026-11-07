@@ -100,7 +100,13 @@ function useNewestFailure(chatId: string, id: string): boolean {
     const feed = s.feeds[chatId]
     if (!feed || (s.outbox[chatId]?.length ?? 0) > 0) return false
     const at = feed.order.indexOf(id)
-    return at >= 0 && feed.order.slice(at + 1).every((later) => feed.items[later]?.kind !== 'user')
+    // A prompt the provider never took is no answer to this failure: it is its casualty.
+    const sent = (later: string) => {
+      const item = feed.items[later]
+      if (item?.kind !== 'user') return false
+      return !item.requestId || feed.facts.prompts[item.requestId]?.state !== 'refused'
+    }
+    return at >= 0 && !feed.order.slice(at + 1).some(sent)
   })
 }
 

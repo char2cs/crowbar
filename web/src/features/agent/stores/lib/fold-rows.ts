@@ -52,6 +52,7 @@ const emptyFacts: TurnFacts = {
   traceless: {},
   efforts: {},
   providers: {},
+  provider: '',
   model: '',
   models: {},
   calls: {},
@@ -302,6 +303,7 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
 }
 
 const applyRunnerStarted: Apply<'runner_started'> = (fold, row) => {
+  fold.set('provider', row.body.provider)
   fold.set('model', row.body.launchModel)
 }
 
@@ -332,6 +334,9 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   endTurn(fold, row.turnId)
   endPlan(fold, row.turnId)
   endSubagents(fold, row)
+  // A turn that failed before it started was named by no turn_started: its CLI's provider.
+  const providers = fold.record('providers')
+  if (!providers[row.turnId] && fold.facts.provider) providers[row.turnId] = fold.facts.provider
   marker(fold, row, 'turn_failed', row.body.detail, row.body.reason)
 }
 

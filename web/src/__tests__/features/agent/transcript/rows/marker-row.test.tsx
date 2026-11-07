@@ -83,6 +83,39 @@ describe('MarkerRow', () => {
     )
   })
 
+  // A failure before its turn started: no turn names the provider, the CLI does.
+  it('still says how to sign in when the failure refused the prompt that follows it', () => {
+    const l = ledger()
+    const detail = 'unexpected status 401 Unauthorized'
+    const feed = seed([
+      l.row('runner_started', {
+        runnerId: 'run-1',
+        provider: 'fake',
+        terminalSession: '',
+        launchModel: '',
+        launchEffort: '',
+        launchPermissionLevel: '',
+        resumeSessionId: '',
+      }),
+      l.row(
+        'user_message',
+        { requestId: 'r1', text: 'hi', origin: 'crowbar' },
+        { turnId: 'turn-1' },
+      ),
+      l.row('turn_failed', { reason: detail, detail }, { turnId: 'fresh-1' }),
+      l.row('prompt_settled', { requestId: 'r1', consumed: false, reason: 'turn_failed' }),
+    ])
+    render(
+      <TranscriptRow
+        actions={noRowActions}
+        chatId="chat-1"
+        id={markerOf(feed)!}
+        providers={[codex]}
+      />,
+    )
+    expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent('Sign in: run codex login')
+  })
+
   it('says when a rate limit lifts, and gives no sign-in hint for it', () => {
     vi.spyOn(chatEntity, 'useChatTelemetry').mockReturnValue({
       observedAt: '2026-08-24T18:00:00Z',
