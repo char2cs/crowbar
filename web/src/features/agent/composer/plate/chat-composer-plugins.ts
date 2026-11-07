@@ -29,6 +29,7 @@ import { calloutMarkdownRules } from '@/features/editor/markdown/plate/markdown-
 import { htmlMarkdownRules } from '@/features/editor/markdown/plate/markdown-html-rules'
 import { underlineMarkdownRules } from '@/features/editor/markdown/plate/markdown-underline-rules'
 import { ChatFreshTextPlugin } from '@/features/agent/transcript/plate/chat-fresh-text-plugin'
+import { ChatMissingPathPlugin } from '@/features/agent/transcript/plate/chat-missing-path-plugin'
 import { shikiLowlight } from '@/components/editor/plugins/shiki-lowlight'
 import { CodeSyntaxLeaf } from '@/components/ui/code-block-node'
 import { CodeSyntaxLeafStatic } from '@/components/ui/code-syntax-leaf-static'
@@ -98,6 +99,7 @@ export const chatComposerPlugins = [
   ...MarkFloatingToolbarKit,
   // Inert outside streaming: only streaming-value-patch.ts sets its mark.
   ChatFreshTextPlugin,
+  ChatMissingPathPlugin,
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],
