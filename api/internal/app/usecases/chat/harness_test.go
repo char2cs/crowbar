@@ -357,6 +357,8 @@ func (f *fakeWorktreeCreator) CreateBranchOutWorkspace(ctx context.Context, pare
 	return f.CreateChildWorkspace(ctx, parentID, branch)
 }
 
+func (f *fakeWorktreeCreator) CheckBranchOutName(context.Context, string, string) error { return nil }
+
 func (f *fakeWorktreeCreator) CreateChildWorkspace(
 	_ context.Context,
 	forkParentID string,
@@ -397,10 +399,7 @@ func (f *fakeWorktreeCreator) imports() []string {
 	return append([]string{}, f.imported...)
 }
 
-func (f *fakeWorktreeCreator) DiscardChildWorkspace(
-	_ context.Context,
-	workspaceID string,
-) error {
+func (f *fakeWorktreeCreator) DiscardChildWorkspace(_ context.Context, workspaceID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.discarded = append(f.discarded, workspaceID)

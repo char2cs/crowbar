@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestBranchOut_AThreadBecomesTheBranchCutFromItsFolderAndItsThreadsFollow(t *testing.T) {
@@ -36,6 +37,15 @@ func TestBranchOut_AFailedCutLeavesTheThreadWhereItWas(t *testing.T) {
 	waitMoved(t, chats, "c1")
 	assert.Equal(t, "ws-a", rowOf(chats, "c1").WorkspaceID)
 	assert.Empty(t, chats.Moves.Done["c1"])
+}
+
+func TestBranchOut_ANameTheBranchCannotTakeIsRefusedAndNothingIsAsked(t *testing.T) {
+	chats, uc := rebindWorld(t)
+	taken := problem.New(problem.Conflict, `A branch named "main" already exists`)
+	chats.Moves.BranchNameErr = taken
+	err := uc.BranchOut(context.Background(), "c1", "main")
+	require.ErrorIs(t, err, taken)
+	assert.Empty(t, chats.Moves.Pending, "no move is recorded for a name that cannot be cut")
 }
 
 func TestBranchOut_RefusesAHomeThread(t *testing.T) {

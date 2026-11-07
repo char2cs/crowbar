@@ -53,6 +53,14 @@ func (u *Usecase) BranchOutWorkspace(ctx context.Context, workspaceID, branch st
 	return ws, nil
 }
 
+// CheckBranchOutName refuses a branch name BranchOutWorkspace could not cut from workspaceID.
+func (u *Usecase) CheckBranchOutName(ctx context.Context, workspaceID, branch string) error {
+	if err := u.worktree.CheckBranchOutName(ctx, workspaceID, branch); err != nil {
+		return fmt.Errorf("agent: branch out: %w", err)
+	}
+	return nil
+}
+
 // DiscardWorkspace removes a workspace a failed branch-out cut and nothing owns.
 func (u *Usecase) DiscardWorkspace(ctx context.Context, workspaceID string) error {
 	return u.worktree.DiscardChildWorkspace(ctx, workspaceID)

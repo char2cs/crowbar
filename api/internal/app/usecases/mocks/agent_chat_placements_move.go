@@ -25,7 +25,9 @@ type MoveLedger struct {
 	Projects     map[string]string // workspace id -> project id
 	BranchOuts   []string
 	BranchOutErr error
-	Discarded    []string
+	// BranchNameErr refuses every name CheckBranchOutName is asked about.
+	BranchNameErr error
+	Discarded     []string
 	// Finished is signalled with the chat id after each ExecuteMove that ran.
 	Finished chan string
 }
@@ -139,6 +141,13 @@ func (s *AgentChatPlacements) RequestBranchOut(ctx context.Context, chatID, work
 	return s.RequestMove(ctx, chatID, ledger.Move{
 		RequestID: "branch-" + chatID, BranchOut: true, Branch: branch, From: workspaceID, FromDir: dir, By: by,
 	})
+}
+
+func (s *AgentChatPlacements) CheckBranchOutName(context.Context, string, string) error {
+	l := s.moveLedger()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.BranchNameErr
 }
 
 func (s *AgentChatPlacements) BranchOutWorkspace(_ context.Context, workspaceID, branch string) (domain.Workspace, error) {

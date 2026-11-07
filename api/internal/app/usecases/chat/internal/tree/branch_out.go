@@ -29,6 +29,10 @@ func (u *chatFolderUsecase) BranchOut(ctx context.Context, chatID, branch string
 	if repoID == "" {
 		return ErrNoRepoToBranch
 	}
+	// The person is told now, while they can still edit the name, not after the turn ends.
+	if err := u.agent.CheckBranchOutName(ctx, chat.WorkspaceID, branch); err != nil {
+		return fmt.Errorf("agent chat folder: branch out %s: %w", chatID, err)
+	}
 	ready, err := u.agent.RequestBranchOut(ctx, chatID, chat.WorkspaceID, branch, "user")
 	if err != nil {
 		return fmt.Errorf("agent chat folder: branch out %s: %w", chatID, err)

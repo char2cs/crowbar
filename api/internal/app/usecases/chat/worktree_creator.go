@@ -31,6 +31,8 @@ type WorktreeCreator interface {
 		forkParentID string,
 		branch string,
 	) (domain.Workspace, error)
+	// CheckBranchOutName refuses a name CreateBranchOutWorkspace could not cut under forkParentID.
+	CheckBranchOutName(ctx context.Context, forkParentID, branch string) error
 	// DiscardChildWorkspace removes a just-minted workspace whose create then failed:
 	// a workspace is reachable only through its owning row, so an abandoned one
 	// would be a worktree on disk nothing can name again.

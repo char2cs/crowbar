@@ -19,6 +19,7 @@ type worktreeChildCreator struct {
 // chat delete reach through worktreeChildCreator.
 type worktreeCascade interface {
 	CreateChild(ctx context.Context, in workspace.CreateChildInput) (domain.Workspace, error)
+	CheckNewBranch(ctx context.Context, parentID, branch string) error
 	DeleteCascade(ctx context.Context, rootID string, consent domain.DeleteConsent) error
 	DeletionPlan(ctx context.Context, rootID string) ([]string, error)
 	WorkAtRisk(ctx context.Context, rootIDs []string) ([]domain.WorkAtRisk, error)
@@ -52,6 +53,11 @@ func (w worktreeChildCreator) CreateBranchOutWorkspace(
 		OwnWorktree:    &ownWorktree,
 		FromParentHead: true,
 	})
+}
+
+// CheckBranchOutName implements agentusecase.WorktreeCreator.
+func (w worktreeChildCreator) CheckBranchOutName(ctx context.Context, forkParentID, branch string) error {
+	return w.worktree.CheckNewBranch(ctx, forkParentID, branch)
 }
 
 // CreateImportedWorkspace implements agentusecase.WorktreeCreator and fills in nothing: an import

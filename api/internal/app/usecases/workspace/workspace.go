@@ -151,6 +151,8 @@ type Usecase interface {
 		ctx context.Context,
 		in CreateChildInput,
 	) (domain.Workspace, error)
+	// CheckNewBranch refuses a name a new branch under parentID could not take.
+	CheckNewBranch(ctx context.Context, parentID, branch string) error
 	// CreateFromImport batch-imports branches as managed workspaces, PR-parented
 	// up to a protected/default root, creating missing ancestors.
 	CreateFromImport(

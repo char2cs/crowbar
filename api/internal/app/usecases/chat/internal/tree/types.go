@@ -124,6 +124,8 @@ type Agent interface {
 	MovesWaiting(ctx context.Context) ([]string, error)
 	// RequestBranchOut records that the chat becomes a branch cut from workspaceID's HEAD.
 	RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error)
+	// CheckBranchOutName refuses a name BranchOutWorkspace could not cut from workspaceID.
+	CheckBranchOutName(ctx context.Context, workspaceID, branch string) error
 	// BranchOutWorkspace cuts that branch's worktree; DiscardWorkspace removes one nothing owns.
 	BranchOutWorkspace(ctx context.Context, workspaceID, branch string) (domain.Workspace, error)
 	DiscardWorkspace(ctx context.Context, workspaceID string) error

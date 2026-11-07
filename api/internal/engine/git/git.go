@@ -368,6 +368,9 @@ type Engine interface {
 	// LocalBranchExists reports whether refs/heads/<branch> is present.
 	LocalBranchExists(ctx context.Context, repoPath, branch string) (bool, error)
 
+	// CheckBranchName refuses, as invalid_argument, a name git would not take for a new branch.
+	CheckBranchName(ctx context.Context, repoPath, name string) error
+
 	// SetUpstream sets branch.<branch>.remote/merge to origin/<branch>, which must exist locally. An
 	// imported branch created by `git fetch origin b:b` has no upstream, so without this it is checked
 	// out untracked and is not a proper review target. It touches only repo config, by branch name.
