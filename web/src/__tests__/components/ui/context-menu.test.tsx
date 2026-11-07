@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
-import { ContextMenu } from '@/components/ui/context-menu'
+import { useState } from 'react'
+import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 
 describe('ContextMenu keyboard dismiss', () => {
   it('calls onClose when Escape is pressed', () => {
@@ -46,13 +47,24 @@ describe('ContextMenu keyboard dismiss', () => {
   })
 })
 
+// Closes for real on onClose, as every caller's useContextMenu does.
+function OwnedMenu({ items }: { items: ContextMenuItem[] }) {
+  const [isOpen, setOpen] = useState(true)
+  return (
+    <ContextMenu
+      isOpen={isOpen}
+      position={{ x: 0, y: 0 }}
+      items={items}
+      onClose={() => setOpen(false)}
+    />
+  )
+}
+
 describe('ContextMenu submenus', () => {
   it('opens a submenu on hover and fires the nested item onClick', async () => {
     const onNested = vi.fn()
     const { findByText, getByRole } = render(
-      <ContextMenu
-        isOpen={true}
-        position={{ x: 0, y: 0 }}
+      <OwnedMenu
         items={[
           {
             id: 'turn-into',
@@ -61,7 +73,6 @@ describe('ContextMenu submenus', () => {
             items: [{ id: 'h1', label: 'Heading 1', onClick: onNested }],
           },
         ]}
-        onClose={vi.fn()}
       />,
     )
 

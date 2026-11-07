@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
@@ -133,8 +134,9 @@ function ImperativeContextMenu({
   )
 
   return (
-    <MenuPrimitive.Root
-      modal={false}
+    // A context-menu root, not a plain one: a plain root gets its floating node id from a
+    // Trigger, and without one a submenu opening reads as a sibling and closes the whole menu.
+    <ContextMenuPrimitive.Root
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) onCloseRef.current()
@@ -156,7 +158,7 @@ function ImperativeContextMenu({
           </MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
-    </MenuPrimitive.Root>
+    </ContextMenuPrimitive.Root>
   )
 }
 
