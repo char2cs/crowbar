@@ -174,7 +174,7 @@ func legacyStamp(h home.Home) (string, error) {
 	return b.String(), nil
 }
 
-// census counts each chat's legacy records as ReadLegacy reads them, from the
+// census counts each chat's legacy records as the source reads them, from the
 // chat id indexes and the journal listing alone.
 func census(ctx context.Context, h home.Home) (map[string]int64, error) {
 	out := map[string]int64{}

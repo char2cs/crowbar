@@ -191,7 +191,7 @@ func (s *source) journals(fold func(*reader)) error {
 	return nil
 }
 
-// load reads one chat's records, as ReadLegacy once read them for all.
+// load reads one chat's records.
 func (s *source) load(ctx context.Context, id string) (LegacyChat, error) {
 	r := &reader{chats: map[string]*LegacyChat{}}
 	r.chat(id)

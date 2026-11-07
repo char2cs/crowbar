@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -146,7 +147,7 @@ func TestReadLegacy_ReadsWithoutWriting(t *testing.T) {
 	writeLegacy(t, h, want)
 	before := files(t, h.Root())
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	assert.Equal(t, []LegacyChat{want}, got)
@@ -158,7 +159,7 @@ func TestReadLegacy_ReadsWithoutWriting(t *testing.T) {
 func TestReadLegacy_AHomeWithoutLegacyRecordsIsEmpty(t *testing.T) {
 	h := testutil.FixtureHome(t)
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -172,7 +173,7 @@ func TestReadLegacy_AnUnreadablePromptIsNamedNotFatal(t *testing.T) {
 	testutil.WriteFile(t, h, "chats/chat-z/"+PromptsDir+"/bad.json", "{not json")
 	testutil.WriteFile(t, h, "chats/chat-z/"+PromptsDir+"/.prompt-request-123", "a temp file")
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -204,7 +205,7 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	spoil(t, h, ActivityDB, "agent_turns", "started_at", "chat-b", "not-a-date")
 	spoil(t, h, ActivityDB, "agent_interruptions", "seq", "chat-b", "four")
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -228,7 +229,7 @@ func TestReadLegacy_AConversationWithNoSessionLosesOnlyItsBinding(t *testing.T) 
 			writeLegacy(t, h, chatA(), chatB())
 			spoil(t, h, RunnerDB, "agent_chat_conversations", column, "chat-b", "")
 
-			got, err := ReadLegacy(context.Background(), h)
+			got, err := readLegacy(context.Background(), h)
 
 			require.NoError(t, err)
 			res, err := ConvertChat(got[1], nobody)
@@ -257,7 +258,7 @@ func TestReadLegacy_AConversationWithAnUnreadableTimeKeepsItsBinding(t *testing.
 	writeLegacy(t, h, chatA(), chatB())
 	spoil(t, h, RunnerDB, "agent_chat_conversations", "first_seen_at", "chat-b", "garbled")
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	res, err := ConvertChat(got[1], nobody)
@@ -282,7 +283,7 @@ func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T)
 	info, err := os.Stat(filepath.Join(h.Store(), RunnerDB))
 	require.NoError(t, err)
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	res := convert(t, got[1], nobody)
@@ -309,7 +310,7 @@ func TestReadLegacy_AChangedReaderRaisesTheConverterVersion(t *testing.T) {
 	spoil(t, h, ActivityDB, "agent_tool_calls", "duration_ms", "chat-a", "long")
 	spoil(t, h, ActivityDB, "agent_choices", "multi", "chat-a", "maybe")
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 	require.NoError(t, err)
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
@@ -349,7 +350,7 @@ func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) 
 					continue
 				}
 				damaged := table + "." + column + " = " + v
-				chats, err := ReadLegacy(t.Context(), h)
+				chats, err := readLegacy(t.Context(), h)
 				require.NoError(t, err, damaged)
 				for _, chat := range chats {
 					res, err := convertNoPanic(t, chat, damaged)
@@ -423,7 +424,7 @@ func convertNoPanic(t *testing.T, chat LegacyChat, damaged string) (Result, erro
 func TestSource_ReadsOneChatAtATimeOldestFirst(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
-	all, err := ReadLegacy(context.Background(), h)
+	all, err := readLegacy(context.Background(), h)
 	require.NoError(t, err)
 	src, err := openSource(context.Background(), h)
 	require.NoError(t, err)
@@ -446,7 +447,7 @@ func TestSource_ReadsOneChatAtATimeOldestFirst(t *testing.T) {
 func TestSource_ARowKeyedOtherwiseIsStillReadWithItsChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
-	want, err := ReadLegacy(context.Background(), h)
+	want, err := readLegacy(context.Background(), h)
 	require.NoError(t, err)
 	conn := writable(t, filepath.Join(h.Store(), ActivityDB))
 	_, err = conn.ExecContext(t.Context(), "UPDATE agent_turns SET key = 'stray-' || id WHERE rowid = "+
@@ -454,8 +455,31 @@ func TestSource_ARowKeyedOtherwiseIsStillReadWithItsChat(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, conn.Close())
 
-	got, err := ReadLegacy(context.Background(), h)
+	got, err := readLegacy(context.Background(), h)
 
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
+}
+
+// readLegacy reads every chat's records as the step reads them one at a time,
+// chats by id.
+func readLegacy(ctx context.Context, h home.Home) (out []LegacyChat, err error) {
+	src, err := openSource(ctx, h)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, src.Close()) }()
+	ids, err := src.ids(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		chat, err := src.load(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, chat)
+	}
+	return out, nil
 }

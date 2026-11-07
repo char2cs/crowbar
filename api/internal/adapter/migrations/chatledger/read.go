@@ -2,7 +2,6 @@ package chatledger
 
 import (
 	"cmp"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,33 +13,7 @@ import (
 	"strconv"
 	"time"
 	"unicode/utf8"
-
-	"github.com/char2cs/crowbar/api/internal/core/home"
 )
-
-// ReadLegacy reads every chat's records from the legacy runner and activity
-// databases and the legacy prompt journal, without writing. Missing files are
-// empty input; chats come back by id.
-func ReadLegacy(ctx context.Context, h home.Home) (out []LegacyChat, err error) {
-	src, err := openSource(ctx, h)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, src.Close()) }()
-	ids, err := src.ids(ctx)
-	if err != nil {
-		return nil, err
-	}
-	slices.Sort(ids)
-	for _, id := range ids {
-		chat, err := src.load(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, chat)
-	}
-	return out, nil
-}
 
 // dated gives each conversation with no time the chat's oldest record's, or
 // when the chat has none, when the legacy files were last written.
