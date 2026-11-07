@@ -79,11 +79,8 @@ func hookAPI(t *testing.T, f testFixture, runnerID, provider, kind string, paylo
 	f.wait()
 }
 
-// codexTurnStop delivers a codex turn_stop the way pumpAPIConn actually
-// receives one in production: api-shaped (threadId/turn.items[type=
-// agentMessage].text — codex.yaml's turn_stop:api: block), on an API-marked
-// ctx. turn()'s own flat last_assistant_message is claude's hooks shape and
-// silently resolves to an empty message under codex's api: block.
+// codexTurnStop delivers a codex turn_stop api-shaped, as pumpAPIConn receives it:
+// turn()'s flat last_assistant_message is the hooks shape and maps to nothing here.
 func codexTurnStop(t *testing.T, f testFixture, runnerID, sessionID, message string) {
 	t.Helper()
 	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
@@ -1341,15 +1338,8 @@ func TestRegression_ACodexFailedToolIsRecordedAsAnError(t *testing.T) {
 	assert.Equal(t, "rg --files", calls[0].Target)
 }
 
-// TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt is
-// codex's half of a9ebb6f1's promise ("elicitation... now answerable"),
-// mirroring TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt
-// for claude. codex.yaml's elicitation: map only extracts message (schema:
-// requestedSchema is the api-transport field name, with no hooks-shape
-// fallback the way permission's tool_name: "tool || tool_name" has), so
-// Title, Mode, and Schema all stay unset for a hooks-delivered elicitation —
-// that is the actual declared mapping today, not an oversight this test
-// should paper over.
+// codex's elicitation map extracts only message for a hooks delivery: Title, Mode
+// and Schema stay unset by the declared mapping, not by oversight.
 func TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -1829,15 +1819,8 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 		"dispatched first, so displays first, even though it was recorded last")
 }
 
-// TestRegression_StopChatSalvagesTheAlreadyStreamedText is a live-reproduced bug
-// (2026-08-30): stop a chat mid-stream — the exact "interrupt Claude, then send Codex
-// something else" report — and the assistant's partial reply, already received and
-// broadcast over message_delta, vanished entirely. closeAbandonedTurn (the function
-// StopChat's retire()/displace() path funnels through) recorded only a bare "stopped"
-// interruption marker and never looked at the streamed buffer at all, unlike the
-// quiet-screen sweep's AbandonMessage, which does. Confirmed live against the real
-// daemon and real claude CLI before this fix: the essay text visibly streamed to the
-// client over the WS feed, then StopChat left NO assistant turn behind for it.
+// TestRegression_StopChatSalvagesTheAlreadyStreamedText: a stop mid-stream lost the
+// partial reply already streamed to the client; the abandoned turn keeps it.
 func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
@@ -1921,12 +1904,8 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	rowsBefore, err := f.ledger.Read(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
 
-	// compact_pre: the contextCompaction item/started, in the same shape
-	// codex.yaml's own mapping reads (threadId, item.type, the envelope's
-	// turnId) — this is what ARMS the latch. turn_id only resolves off
-	// codex's api: channel block (the hooks: block maps only session_id), so
-	// this and the wrapper turn_stop below must both be api-shaped on an
-	// API-marked ctx.
+	// compact_pre's contextCompaction item/started arms the latch; turn_id resolves only
+	// off codex's api block, so this and the wrapper turn_stop are api-shaped.
 	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
 		"threadId": "sess-1",
 		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-1"},
@@ -1979,12 +1958,8 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 		"an ordinary turn_stop with its OWN turn id must still record its reply — the guard must not be overbroad")
 }
 
-// TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice is the failure
-// half of the sum type: turn_failed (not turn_stop) fires when
-// thread/compact/start's wrapper turn ends with turn.status: failed. Without
-// the same turn_id-armed guard in closeTurnFromFailure, this would append a
-// spurious TurnRoleNotice row to the transcript ("failed: ...") for a turn
-// that was never the assistant's own reply.
+// TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice: a compaction's
+// wrapper turn failing is not the assistant's reply, so it records no failure notice.
 func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T) {
 	f := newFixture(t)
 
@@ -2003,12 +1978,8 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 		"turnId":   "compact-turn-2",
 	})
 
-	// The wrapper's turn/completed with turn.status: failed. IngestHook takes
-	// the canonical event by name (not the raw wire frame), which bypasses
-	// dispatch.Resolve's own when:-based turn_stop/turn_failed selection —
-	// so this drives turn_failed directly, exactly as real dispatch would
-	// have resolved this exact payload to, given the SAME turn id
-	// compact_pre armed.
+	// The wrapper's failed turn/completed, driven as turn_failed by name: IngestHook
+	// bypasses dispatch.Resolve, so this is what it would resolve the payload to.
 	hookAPI(t, f, runnerID, "codex", "turn_failed", map[string]any{
 		"threadId": "sess-1",
 		"turn": map[string]any{
@@ -2080,15 +2051,9 @@ func TestRegression_CodexAutomaticCompactionIsNotLabelledManual(t *testing.T) {
 	assert.Empty(t, ints[0].Detail)
 }
 
-// TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery is
-// the live-reported bug: codex can decide, entirely on its own, to compact
-// its context before it even starts processing a message a person already
-// sent — the same compact_pre/compact_post pair a manual /compact produces,
-// but this time a REAL prompt is what the daemon has pending, not the
-// compaction (codex's own Compact() dispatch never records a prompt
-// at all — see settleCompactDelivery's own doc). Settling that real
-// delivery made the just-submitted message vanish from the transcript for
-// the whole compaction, reappearing only once the real turn finally opened.
+// TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery: codex may
+// compact on its own before a sent prompt starts; settling that real delivery hid
+// the message for the whole compaction.
 func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2099,11 +2064,8 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the real prompt is dispatched and still unconfirmed")
 
-	// SubmitPrompt's dispatch may have replaced the runner (this fixture has
-	// no live api connection registered, so it falls to the restart_tui
-	// path) — the delivery belongs to whichever runner is live NOW, exactly
-	// as the pre-existing claude version of this fix's own tests already
-	// account for.
+	// The delivery belongs to whichever runner is live now: with no api connection
+	// registered, SubmitPrompt's dispatch may have replaced it.
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 

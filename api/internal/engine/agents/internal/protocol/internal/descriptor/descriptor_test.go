@@ -433,22 +433,16 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 
 	// Only the TUI's hook relay reports these: they have a hooks: block and no
 	// api: block, so the api driver never resolves them.
-	hooksOnly := []string{"subagent_post", "session_end"}
-	// A subagent's start is both: the TUI's hook, and multi-agent v2's subAgentActivity.
-	for _, ch := range []spec.Channel{spec.ChannelAPI, spec.ChannelHooks} {
-		wire, _ := d.Events["subagent_pre"].WireEventFor(ch)
-		assert.False(t, wire.Empty(), "subagent_pre is reported over %s", ch)
-	}
-	for _, name := range hooksOnly {
+	start, _ := d.Events["subagent_pre"].WireEventFor(spec.ChannelAPI)
+	assert.False(t, start.Empty(), "multi-agent v2 reports a subagent's start over api too")
+	for _, name := range []string{"subagent_post", "session_end"} {
 		wire, _ := d.Events[name].WireEventFor(spec.ChannelAPI)
 		assert.True(t, wire.Empty(), "event %q must not be resolvable from the api channel", name)
 		hooksWire, _ := d.Events[name].WireEventFor(spec.ChannelHooks)
 		assert.False(t, hooksWire.Empty(), "event %q is reported over hooks", name)
 	}
-	// compact_pre/compact_post moved off hooks: confirmed live that
-	// thread/compact/start's contextCompaction item rides the same
-	// item/started/item/completed stream tool_pre/tool_post already consume
-	// on the api transport — see codex.yaml's own comment.
+	// A compaction's contextCompaction item rides the same item/started and
+	// item/completed stream as a tool's (live): see codex.yaml's own comment.
 	apiOnly := []string{
 		"session_start", "user_prompt", "turn_stop", "tool_pre", "tool_post",
 		"message_delta", "permission", "elicitation", "telemetry", "interrupt", "compact_start",
