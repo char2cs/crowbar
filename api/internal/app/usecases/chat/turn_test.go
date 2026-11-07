@@ -365,7 +365,7 @@ func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
 	subs, err = f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Equal(t, "done", subs[0].Status)
-	assert.Contains(t, subs[0].Messages, "bye")
+	assert.Equal(t, []string{"pong", "bye"}, subs[0].Messages)
 	assert.Equal(t, refused, deadLetters(t, f), "nothing of the child is refused")
 }
 

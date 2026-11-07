@@ -1,6 +1,8 @@
 package ingress
 
 import (
+	"fmt"
+
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -76,8 +78,20 @@ func startOrResume(
 	if known.Status.Live() {
 		return nil, nil
 	}
+	var rows []ledger.Row
+	if known.Result != "" {
+		// The resume clears its result: what its last run said stays as text of its scope.
+		said, err := ledger.NewRow(ledger.KindAssistantText, known.TurnID, known.Scope, ledger.AssistantText{
+			MessageID: fmt.Sprintf("%s-%d", ledger.ReplyID(known.Scope), known.EndSeq),
+			Index:     ledger.IndexComplete, Text: known.Result,
+		})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, said)
+	}
 	row, err := ledger.NewRow(ledger.KindSubagent, known.TurnID, known.Scope, ledger.SubagentBody{Phase: ledger.SubagentResume})
-	return []ledger.Row{row}, err
+	return append(rows, row), err
 }
 
 func started(turnID string, sub *engineagents.SubagentEvent) ([]ledger.Row, error) {

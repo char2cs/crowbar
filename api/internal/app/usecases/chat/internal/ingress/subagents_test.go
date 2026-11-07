@@ -167,7 +167,9 @@ func TestMap_AStartOfAnEndedSubagentResumesIt(t *testing.T) {
 
 	rows, _ := c.mapped(start, hooksSource())
 
-	require.Equal(t, []ledger.Kind{ledger.KindSubagent}, kinds(rows))
-	assert.Equal(t, ledger.SubagentResume, bodyOf[ledger.SubagentBody](t, rows[0]).Phase)
+	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindSubagent}, kinds(rows))
+	assert.Equal(t, "pong", bodyOf[ledger.AssistantText](t, rows[0]).Text, "its last run's reply stays in its scope")
+	assert.Equal(t, "A", rows[0].Scope)
+	assert.Equal(t, ledger.SubagentResume, bodyOf[ledger.SubagentBody](t, rows[1]).Phase)
 	assert.True(t, c.st.ScopeOpen("A"), "its next run's frames are its own")
 }
