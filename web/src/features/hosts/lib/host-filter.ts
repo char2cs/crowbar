@@ -30,8 +30,17 @@ export function projectsOnHost(projects: Project[], shown: string | undefined): 
   return shown === undefined ? projects : projects.filter((p) => p.hostId === shown)
 }
 
-/** Where choosing `hostId` lands: its project with the latest activity, the first on a tie. */
-export function landingProject(projects: readonly Project[], hostId: string): Project | undefined {
+/**
+ * Where choosing `hostId` lands: the project last open there while it still exists, else the
+ * one with the latest activity, the first on a tie.
+ */
+export function landingProject(
+  projects: readonly Project[],
+  hostId: string,
+  rememberedId?: string,
+): Project | undefined {
+  const remembered = projects.find((p) => p.id === rememberedId && p.hostId === hostId)
+  if (remembered) return remembered
   const time = (p: Project) => new Date(p.lastActivity).getTime() || 0
   return projects
     .filter((p) => p.hostId === hostId)

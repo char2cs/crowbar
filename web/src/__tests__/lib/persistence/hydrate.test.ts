@@ -1100,6 +1100,12 @@ describe('hydrateSidebar', () => {
     expect(useSidebarStore.getState().hostFilter).toBe('h1')
   })
 
+  it('restores each host’s last open project', async () => {
+    await saveSidebarUI({ collapsedChatRows: [], lastProjectByHost: { h1: 'p9' } })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().lastProjectByHost).toEqual({ h1: 'p9' })
+  })
+
   it('replays a record written before the host filter as no host chosen', async () => {
     useSidebarStore.setState({ hostFilter: 'h1' })
     await saveSidebarUI({ collapsedChatRows: [] })

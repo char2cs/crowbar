@@ -297,5 +297,6 @@ export async function hydrateSidebar(): Promise<void> {
     collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
     activeTab: parseSidebarTab(sidebarUI.activeTab),
     hostFilter: sidebarUI.hostFilter ?? '',
+    lastProjectByHost: sidebarUI.lastProjectByHost ?? {},
   })
 }

@@ -17,7 +17,7 @@ import {
 } from '@/features/panes/utils/pane-command-actions'
 import { useWorkspaceIsLocal } from '@/lib/host-resolve'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
-import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
+import { useHasViewStrip } from '@/features/panes/hooks/use-tab-view-ids'
 import { BuildReadout } from '@/components/layout/build-readout'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'

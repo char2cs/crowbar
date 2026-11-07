@@ -10,7 +10,7 @@ import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import { recentsRowOf, registerRecentsRow } from '@/components/sidebar/lib/recents-row-registry'
 import { BuildReadout } from '@/components/layout/build-readout'
-import { useProjectViewIds } from '@/features/panes/hooks/use-project-view-ids'
+import { useTabViewIds } from '@/features/panes/hooks/use-tab-view-ids'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds, viewMembers } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -33,7 +33,7 @@ const TAB_MIN_WIDTH_PX = 112
  */
 export const ViewTabsRow = memo(function ViewTabsRow() {
   const navigate = useNavigate()
-  const viewIds = useProjectViewIds()
+  const viewIds = useTabViewIds()
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])

@@ -4,6 +4,7 @@ import type { SearchEngine } from '@/features/browser/lib/search-engines'
 
 export type Theme = string
 export type ThemeMode = 'light' | 'dark' | 'system'
+export type TabListScope = 'project' | 'all'
 export type RenderWhitespaceMode = 'none' | 'boundary' | 'trailing' | 'all'
 
 export interface Settings {
@@ -11,6 +12,8 @@ export interface Settings {
   autoSave: boolean
   sidebarPosition: 'left' | 'right'
   sidebarFollowsFocus: boolean
+  /** Which views the tab strip lists: the active project's, or every one open on this client. */
+  tabListScope: TabListScope
   // Editor
   fontFamily: string
   fontSize: number

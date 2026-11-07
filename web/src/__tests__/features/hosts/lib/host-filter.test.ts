@@ -100,6 +100,24 @@ describe('landingProject', () => {
     expect(landingProject(list, 'h1')?.id).toBe('x')
   })
 
+  it('is the remembered project while it is still on the host', () => {
+    const list = [
+      project('old', 'h1', '2026-01-01T00:00:00Z'),
+      project('new', 'h1', '2026-03-01T00:00:00Z'),
+    ]
+    expect(landingProject(list, 'h1', 'old')?.id).toBe('old')
+  })
+
+  it('ignores a remembered project that is gone or sits on another host', () => {
+    const list = [
+      project('old', 'h1', '2026-01-01T00:00:00Z'),
+      project('new', 'h1', '2026-03-01T00:00:00Z'),
+      project('elsewhere', 'h2'),
+    ]
+    expect(landingProject(list, 'h1', 'deleted')?.id).toBe('new')
+    expect(landingProject(list, 'h1', 'elsewhere')?.id).toBe('new')
+  })
+
   it('is nothing for a host without projects', () => {
     expect(landingProject(PROJECTS, 'h3')).toBeUndefined()
   })

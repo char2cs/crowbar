@@ -96,7 +96,9 @@ export function useShellRouteState() {
       useProjectStore.getState().setActiveProject(activeProjectId)
     }
     windowPaneStore.getState().paneActions.setActiveProject(activeProjectId)
-  }, [activeProjectId])
+    const hostId = allProjects.find((p) => p.id === activeProjectId)?.hostId
+    if (hostId) useSidebarStore.getState().rememberHostProject(hostId, activeProjectId)
+  }, [activeProjectId, allProjects])
 
   // See the hook's own doc for the "viewing a project that no longer exists" invariant.
   useRedirectIfProjectMissing(activeProjectId, navigate)

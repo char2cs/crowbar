@@ -25,6 +25,7 @@ beforeEach(() => {
     collapsedChatRows: new Set<string>(),
     activeTab: 'chats',
     hostFilter: '',
+    lastProjectByHost: {},
   })
 })
 
@@ -74,7 +75,12 @@ describe('collapsedChatRows', () => {
   it('never writes a retired key back into the record', () => {
     useSidebarStore.getState().toggleChatRow('f1')
     const record = saveSidebarUI.mock.calls[0][0] as Record<string, unknown>
-    expect(Object.keys(record).sort()).toEqual(['activeTab', 'collapsedChatRows', 'hostFilter'])
+    expect(Object.keys(record).sort()).toEqual([
+      'activeTab',
+      'collapsedChatRows',
+      'hostFilter',
+      'lastProjectByHost',
+    ])
   })
 
   it('persists the fold without dropping the mode from the record', () => {
@@ -84,6 +90,7 @@ describe('collapsedChatRows', () => {
       collapsedChatRows: ['f1'],
       activeTab: 'git',
       hostFilter: '',
+      lastProjectByHost: {},
     })
   })
 })
@@ -103,6 +110,7 @@ describe('activeTab', () => {
       collapsedChatRows: ['f1'],
       activeTab: 'files',
       hostFilter: '',
+      lastProjectByHost: {},
     })
   })
 
@@ -127,6 +135,7 @@ describe('hostFilter', () => {
       collapsedChatRows: ['f1'],
       activeTab: 'git',
       hostFilter: 'h1',
+      lastProjectByHost: {},
     })
   })
 
@@ -137,6 +146,19 @@ describe('hostFilter', () => {
       collapsedChatRows: [],
       activeTab: 'files',
       hostFilter: 'h1',
+      lastProjectByHost: {},
+    })
+  })
+
+  it('remembering a host’s project persists it with the rest, once', () => {
+    useSidebarStore.getState().rememberHostProject('h1', 'p1')
+    useSidebarStore.getState().rememberHostProject('h1', 'p1')
+    expect(saveSidebarUI).toHaveBeenCalledOnce()
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({
+      collapsedChatRows: [],
+      activeTab: 'chats',
+      hostFilter: '',
+      lastProjectByHost: { h1: 'p1' },
     })
   })
 

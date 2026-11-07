@@ -114,6 +114,8 @@ const { sidebarState } = vi.hoisted(() => ({
     repos: [] as unknown[],
     hostFilter: '',
     setHostFilter: vi.fn(),
+    lastProjectByHost: {} as Record<string, string>,
+    rememberHostProject: vi.fn(),
     deleteWorkspace: vi.fn(),
     setActiveTab: vi.fn(),
   },

@@ -21,12 +21,17 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/utils/cn'
 import { FontSelector } from '../font-selector'
-import type { Theme, ThemeMode } from '@/features/settings/types/settings'
+import type { TabListScope, Theme, ThemeMode } from '@/features/settings/types/settings'
 
 const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'Sync with System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
+]
+
+const TAB_LIST_SCOPE_OPTIONS: { value: TabListScope; label: string }[] = [
+  { value: 'project', label: 'Current project' },
+  { value: 'all', label: 'Everything on this client' },
 ]
 
 const SIDEBAR_POSITION_OPTIONS: { value: 'left' | 'right'; label: string }[] = [
@@ -234,6 +239,31 @@ export const AppearanceSettings = () => {
             </SelectTrigger>
             <SelectContent>
               {SIDEBAR_POSITION_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          label="Tab list"
+          description="Which tabs the strip lists: those of the current project, or every tab open on this client across all projects and hosts"
+          onReset={() => updateSetting('tabListScope', getDefaultSetting('tabListScope'))}
+          canReset={settings.tabListScope !== getDefaultSetting('tabListScope')}
+        >
+          <Select
+            items={TAB_LIST_SCOPE_OPTIONS}
+            value={settings.tabListScope}
+            onValueChange={(value) => {
+              if (value) updateSetting('tabListScope', value as TabListScope)
+            }}
+          >
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TAB_LIST_SCOPE_OPTIONS.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
