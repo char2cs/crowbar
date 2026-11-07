@@ -34,7 +34,7 @@ func branchOutTools(deps Deps) []toolDef {
 		name: "branch_out",
 		description: "Make this conversation its own git branch. When your turn ends, Crowbar cuts a new branch " +
 			"from this folder's current commit (uncommitted edits are not carried over) and continues this " +
-			"conversation in the new worktree. Commit first what should come along.",
+			"conversation in the new worktree, once the person allows it. Commit first what should come along.",
 		schema: json.RawMessage(`{
 			"type":"object",
 			"properties":{"name":{"type":"string","description":"Branch name; omit to have one generated."}},
@@ -53,7 +53,8 @@ func branchOutTools(deps Deps) []toolDef {
 			if _, err := deps.Branches.RequestBranchOut(ctx, c.ChatID, c.Workspace.ID, strings.TrimSpace(in.Name), "agent"); err != nil {
 				return "", fmt.Errorf("agenttools: branch_out: %w", err)
 			}
-			return "Scheduled: when this turn ends, this conversation continues on a new branch.", nil
+			return "Crowbar asked the person to allow this branch. If they do, when this turn ends this " +
+				"conversation continues on the new branch; until then keep working here.", nil
 		},
 	}}
 }

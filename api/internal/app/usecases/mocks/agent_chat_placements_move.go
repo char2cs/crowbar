@@ -26,6 +26,7 @@ type MoveLedger struct {
 	BranchOuts   []string
 	BranchOutErr error
 	Discarded    []string
+	Cancelled    map[string]string // chat id -> the reason its move was withdrawn
 	// Finished is signalled with the chat id after each ExecuteMove that ran.
 	Finished chan string
 }
@@ -47,12 +48,29 @@ func (s *AgentChatPlacements) RequestMove(_ context.Context, chatID string, m le
 	return !l.Busy[chatID], nil
 }
 
-func (s *AgentChatPlacements) CancelMove(_ context.Context, chatID, _ string) error {
+func (s *AgentChatPlacements) CancelMove(_ context.Context, chatID, reason string) error {
 	l := s.moveLedger()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.Cancelled == nil {
+		l.Cancelled = map[string]string{}
+	}
 	delete(l.Pending, chatID)
+	l.Cancelled[chatID] = reason
 	return nil
+}
+
+func (s *AgentChatPlacements) ApproveMove(_ context.Context, chatID, requestID string) (bool, error) {
+	l := s.moveLedger()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	m, ok := l.Pending[chatID]
+	if !ok || m.RequestID != requestID {
+		return false, fmt.Errorf("approve move: %s: no such request", chatID)
+	}
+	m.AwaitsConsent = false
+	l.Pending[chatID] = m
+	return !l.Busy[chatID], nil
 }
 
 func (s *AgentChatPlacements) ExecuteMove(
@@ -61,7 +79,7 @@ func (s *AgentChatPlacements) ExecuteMove(
 	l := s.moveLedger()
 	l.mu.Lock()
 	m, ok := l.Pending[chatID]
-	busy := l.Busy[chatID]
+	busy := l.Busy[chatID] || m.AwaitsConsent
 	l.mu.Unlock()
 	if !ok || busy {
 		return ledger.Move{}, false, nil

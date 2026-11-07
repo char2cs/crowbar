@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
@@ -100,7 +101,7 @@ func TestBranchOut_SchedulesTheCallersThreadAsABranchForItsTurnsEnd(t *testing.T
 	if outer.workspaceID != "ws-a" || outer.branch != "fix-it" || outer.by != "agent" {
 		t.Fatalf("requested %+v", outer)
 	}
-	if got == "" {
-		t.Fatal("the agent is told what happens next")
+	if !strings.Contains(got, "asked the person") {
+		t.Fatalf("the agent is told the person decides: %q", got)
 	}
 }

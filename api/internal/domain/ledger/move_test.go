@@ -95,3 +95,21 @@ func withSeq(r ledger.Row, seq int64) ledger.Row {
 	r.ChatID, r.Seq = "c1", seq
 	return r
 }
+
+// An agent's branch-out waits for the person's word; it holds no turn, so it survives restarts.
+func TestMove_AnAgentsBranchOutWaitsForThePersonsConsent(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		moveRow(t, ledger.Move{Phase: ledger.MoveRequested, RequestID: "m1", BranchOut: true, By: "agent", AwaitsConsent: true}),
+	))
+	pending, ok := st.PendingMove()
+	require.True(t, ok)
+	assert.True(t, pending.AwaitsConsent)
+	_, ready := st.MoveReady()
+	assert.False(t, ready, "nothing the person has not allowed runs")
+
+	st.Apply(withSeq(moveRow(t, ledger.Move{Phase: ledger.MoveApproved, RequestID: "m1"}), 2))
+	got, ready := st.MoveReady()
+	require.True(t, ready)
+	assert.False(t, got.AwaitsConsent)
+	assert.True(t, got.BranchOut, "allowing keeps what was asked")
+}

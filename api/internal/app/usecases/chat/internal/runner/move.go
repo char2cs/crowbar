@@ -67,7 +67,33 @@ func (rs *Runners) RequestBranchOut(ctx context.Context, chatID, workspaceID, br
 	}
 	return rs.RequestMove(ctx, chatID, ledger.Move{
 		RequestID: uuid.NewString(), BranchOut: true, Branch: branch, From: workspaceID, FromDir: dir, By: by,
+		AwaitsConsent: by == "agent",
 	})
+}
+
+// ErrNoSuchMove refuses an answer to a move that is no longer waiting for one.
+var ErrNoSuchMove = problem.New(problem.Conflict, "That request is no longer waiting for an answer")
+
+// ApproveMove is the person allowing chatID's move requestID, which awaited their consent, and
+// reports whether it can run now.
+func (rs *Runners) ApproveMove(ctx context.Context, chatID, requestID string) (bool, error) {
+	ready := false
+	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		m, ok := st.PendingMove()
+		if !ok || m.RequestID != requestID || !m.AwaitsConsent {
+			return nil, ErrNoSuchMove
+		}
+		row, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{Phase: ledger.MoveApproved, RequestID: requestID})
+		next := st.Clone()
+		next.Apply(row)
+		_, ready = next.MoveReady()
+		return []ledger.Row{row}, err
+	})
+	if err != nil {
+		return false, fmt.Errorf("agent: approve move: %w", err)
+	}
+	rs.touch(ctx, chatID)
+	return ready, nil
 }
 
 // CancelMove closes chatID's pending move, if any, for reason.

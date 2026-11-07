@@ -111,6 +111,9 @@ type Agent interface {
 	RequestMove(ctx context.Context, chatID string, m ledger.Move) (bool, error)
 	// CancelMove withdraws the chat's pending move, if any.
 	CancelMove(ctx context.Context, chatID, reason string) error
+	// ApproveMove is the person allowing a move that awaited their consent; it reports whether it
+	// can run now.
+	ApproveMove(ctx context.Context, chatID, requestID string) (bool, error)
 	// ExecuteMove runs the chat's ready move under its lock once its CLI has ended; ran is false
 	// when none was ready.
 	ExecuteMove(
@@ -200,6 +203,9 @@ type Usecase interface {
 	StopMoves()
 	// CancelMove withdraws the chat's pending move.
 	CancelMove(ctx context.Context, chatID string) error
+	// AnswerMove is the person's word on a move the agent asked for: allow runs it at the turn
+	// boundary, deny withdraws it with reason.
+	AnswerMove(ctx context.Context, chatID, requestID string, allow bool, reason string) error
 	// BranchOut makes the thread a branch at its turn boundary.
 	BranchOut(ctx context.Context, chatID, branch string) error
 	// ListInRepo returns a repo's folder rows ("" for project home).

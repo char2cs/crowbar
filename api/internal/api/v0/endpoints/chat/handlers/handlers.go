@@ -57,6 +57,12 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	AnswerMove(
+		ctx context.Context,
+		chatID, requestID string,
+		allow bool,
+		reason string,
+	) error
 	BranchOut(
 		ctx context.Context,
 		chatID string,

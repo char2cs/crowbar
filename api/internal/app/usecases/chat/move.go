@@ -14,6 +14,11 @@ func (u *Usecase) RequestMove(ctx context.Context, chatID string, m ledger.Move)
 	return u.runners.RequestMove(ctx, chatID, m)
 }
 
+// ApproveMove is the person allowing chatID's move requestID, which awaited their consent.
+func (u *Usecase) ApproveMove(ctx context.Context, chatID, requestID string) (bool, error) {
+	return u.runners.ApproveMove(ctx, chatID, requestID)
+}
+
 // CancelMove withdraws chatID's pending move.
 func (u *Usecase) CancelMove(ctx context.Context, chatID, reason string) error {
 	return u.runners.CancelMove(ctx, chatID, reason)

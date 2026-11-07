@@ -156,7 +156,7 @@ export interface RowBodies {
 }
 
 export interface MoveBody {
-  phase: 'requested' | 'done' | 'failed' | 'cancelled'
+  phase: 'requested' | 'approved' | 'done' | 'failed' | 'cancelled'
   requestId: string
   to?: string
   parentId?: string
@@ -165,6 +165,8 @@ export interface MoveBody {
   branchOut?: boolean
   branch?: string
   by?: 'user' | 'agent'
+  /** The agent asked for it: it waits for the person's Allow (an `approved` row) or Deny. */
+  awaitsConsent?: boolean
   from?: string
   fromDir?: string
   toDir?: string

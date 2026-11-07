@@ -74,6 +74,9 @@ type PendingMoveDTO struct {
 	ParentID    string `json:"parentId,omitempty"`
 	Label       string `json:"label,omitempty"`
 	BranchOut   bool   `json:"branchOut,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	// AwaitsConsent: the agent asked for it, and it waits for the person to allow or deny it.
+	AwaitsConsent bool `json:"awaitsConsent,omitempty"`
 }
 
 func pendingMoveDTOFrom(m *ledger.Move) *PendingMoveDTO {
@@ -82,6 +85,7 @@ func pendingMoveDTOFrom(m *ledger.Move) *PendingMoveDTO {
 	}
 	return &PendingMoveDTO{
 		RequestID: m.RequestID, WorkspaceID: m.To, ParentID: m.ParentID, Label: m.Label, BranchOut: m.BranchOut,
+		Branch: m.Branch, AwaitsConsent: m.AwaitsConsent,
 	}
 }
 

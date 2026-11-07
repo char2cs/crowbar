@@ -107,3 +107,27 @@ func TestCancelMove_ClosesThePendingMove(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ran)
 }
+
+// The agent's branch-out waits for the person; the person's own runs as asked.
+func TestRequestBranchOut_TheAgentsWaitsForConsentThePersonsDoesNot(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	ready, err := h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "", "agent")
+	require.NoError(t, err)
+	assert.False(t, ready, "an agent's branch is cut only once the person allows it")
+	st, err := h.rs.ledger.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	asked, _ := st.PendingMove()
+	assert.True(t, asked.AwaitsConsent)
+
+	ready, err = h.rs.ApproveMove(t.Context(), "chat-1", "someone-else")
+	require.ErrorIs(t, err, ErrNoSuchMove, "an answer names the request it allows")
+	assert.False(t, ready)
+	ready, err = h.rs.ApproveMove(t.Context(), "chat-1", asked.RequestID)
+	require.NoError(t, err)
+	assert.True(t, ready)
+
+	require.NoError(t, h.rs.CancelMove(t.Context(), "chat-1", "cancelled"))
+	ready, err = h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "", "user")
+	require.NoError(t, err)
+	assert.True(t, ready)
+}
