@@ -77,6 +77,8 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
       <div
         ref={scrollRef}
         data-testid="view-tabs"
+        role="tablist"
+        aria-label="Open views"
         data-drop-axis="x"
         data-tauri-drag-region
         className="tab-scrollbar flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"

@@ -74,8 +74,25 @@ describe('ViewTabsRow', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     actions().openChat('chat-2', { workspaceId: 'ws-1' })
     render(<ViewTabsRow />)
-    await userEvent.click(within(screen.getByTestId('recents-row-chat-1')).getByRole('treeitem'))
+    await userEvent.click(within(screen.getByTestId('recents-row-chat-1')).getByRole('tab'))
     expect(windowPaneStore.getState().activeViewId).toBe(viewOf('chat-1'))
+  })
+
+  // A strip of views is a tablist: a treeitem outside any tree reads as nothing to a screen reader.
+  it('names each view as a tab of one tablist, the showing one selected', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().openChat('chat-2', { workspaceId: 'ws-1' })
+    render(<ViewTabsRow />)
+    const strip = screen.getByRole('tablist', { name: 'Open views' })
+    expect(within(strip).getByRole('tab', { name: 'Chat One' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+    expect(within(strip).getByRole('tab', { name: 'Chat Two' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.queryByRole('treeitem')).not.toBeInTheDocument()
   })
 
   it("a row's × ends that view", async () => {

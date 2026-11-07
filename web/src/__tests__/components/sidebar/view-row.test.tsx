@@ -122,7 +122,7 @@ describe('RecentsViewRow', () => {
   it('clicking a row calls onFocus with its view', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { props } = renderBand()
-    screen.getByRole('treeitem').click()
+    screen.getByRole('tab').click()
     expect(props.onFocus).toHaveBeenCalledWith(viewOf('chat-1'))
   })
 
