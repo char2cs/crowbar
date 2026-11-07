@@ -1,4 +1,8 @@
-import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
+import type {
+  AgentTerminalWait,
+  SlashCatalog,
+  SlashCatalogItem,
+} from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { forgetOutbox } from '@/features/agent/stores/chat-outbox'
 import { chatStore } from '@/features/agent/stores/chat-store'
@@ -94,4 +98,21 @@ export function provider(id: string, displayName: string, over: Partial<AgentPro
     terminalStartHere: false,
     ...over,
   } satisfies AgentProvider
+}
+
+/** A slash catalogue answer listing items; a built-in named by each of terminal. */
+export function slashCatalog(
+  items: SlashCatalogItem[] = [],
+  terminal: string[] = [],
+): SlashCatalog {
+  const builtins = terminal.map((name) => ({
+    ...{ id: name, kind: 'builtin' as const, label: `/${name}`, description: '' },
+    ...{ insertText: `/${name} `, source: '', terminal: true },
+  }))
+  return {
+    providerId: 'codex',
+    completeness: 'model_visible',
+    items: [...items, ...builtins],
+    warnings: [],
+  }
 }

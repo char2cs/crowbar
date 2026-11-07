@@ -14,9 +14,8 @@ import { applyFeedFrame, chatStore, failFeed } from '@/features/agent/stores/cha
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { entityStore } from '@/core/entities/entity-store'
-import { provider } from '@/__tests__/__fixtures__/agent-chat'
+import { provider, slashCatalog } from '@/__tests__/__fixtures__/agent-chat'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@/utils/platform', async (importOriginal) => ({
@@ -39,12 +38,7 @@ beforeEach(() => {
     return { ...rect, toJSON: () => rect } as DOMRect
   }
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-  vi.spyOn(reads, 'getSlashCatalog').mockResolvedValue({
-    providerId: 'codex',
-    completeness: 'model_visible',
-    items: [],
-    warnings: [],
-  })
+  vi.spyOn(reads, 'getSlashCatalog').mockResolvedValue(slashCatalog())
 })
 
 afterEach(() => {
@@ -228,6 +222,15 @@ describe('AgentChatView', () => {
     await press('Enter')
 
     await waitFor(() => expect(submit.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', '/compact']))
+  })
+
+  it('lists the commands a `/` matches in a chat with nothing in it yet', async () => {
+    vi.spyOn(reads, 'getSlashCatalog').mockResolvedValue(slashCatalog([], ['help']))
+    seedFeed('c1', [])
+    draw('c1')
+    await type('/he', DOCUMENT)
+
+    expect(await screen.findByRole('option', { name: /help.*runs in the terminal/i })).toBeVisible()
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {
@@ -477,7 +480,7 @@ describe('AgentChatView model name', () => {
   })
 
   it('keeps the reported display name when a live runner reports its raw launch id', () => {
-    const report: AgentTelemetry = {
+    const report: reads.AgentTelemetry = {
       observedAt: '2026-09-23T00:00:00Z',
       source: 'callback',
       model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },

@@ -380,6 +380,14 @@ export function AgentChatView({
     '--agent-transcript-header-clearance': `${transcriptHeaderClearancePx}px`,
   } as CSSProperties
 
+  const slashPicker = (mention.open || slash.open) && (
+    <ComposerSlashPicker
+      label={mention.open ? 'Files' : 'Commands'}
+      items={picker.items}
+      selected={picker.selected}
+      onSelect={selectSlashItem}
+    />
+  )
   const stashPicker = composer.stashPickerOpen && (
     <ComposerStashPicker
       items={composer.stashes}
@@ -419,14 +427,7 @@ export function AgentChatView({
               {!blank && <TodoStrip plan={facts.plan} />}
               {!blank && <SubagentShelf chatId={chatId} />}
               {!blank && stashPicker}
-              {!blank && (mention.open || slash.open) && (
-                <ComposerSlashPicker
-                  label={mention.open ? 'Files' : 'Commands'}
-                  items={picker.items}
-                  selected={picker.selected}
-                  onSelect={selectSlashItem}
-                />
-              )}
+              {!blank && slashPicker}
               {note && (
                 <p className="meta composer-note" data-testid="agent-session-note">
                   {note}
@@ -462,6 +463,8 @@ export function AgentChatView({
                 headerClearancePx={headerClearancePx}
                 documentRef={emptyDocRef}
               />
+              {/* The blank document's box is at the top: what it completes reads below it. */}
+              {blank && slashPicker}
               {!blank && (
                 <ProviderBar
                   {...selection}
