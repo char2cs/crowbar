@@ -217,6 +217,20 @@ func TestGate_HaltedUsesItsOwnCode(
 	assertRefused(t, send(g, http.MethodGet, projectsPath), "daemon_halted", haltedMessage)
 }
 
+// The page is all a person sees while Crowbar cannot start; in a dark desktop it must not flash
+// a white sheet, so it asks the browser for its dark canvas too.
+func TestGate_BrowserPageFollowsTheSystemColorScheme(
+	t *testing.T,
+) {
+	req := newRequest(http.MethodGet, "/")
+	req.Header.Set("Accept", "text/html")
+
+	rec := serve(newGate(halted), req)
+
+	assert.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Body.String(), `<meta name="color-scheme" content="light dark">`)
+}
+
 func TestGate_ReporterIsCalledPerRequest(
 	t *testing.T,
 ) {

@@ -163,6 +163,7 @@ func navigation(
 // once the real API answers it.
 const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<meta name="color-scheme" content="light dark">
 <title>Crowbar</title></head>
 <body style="font:16px system-ui,sans-serif;max-width:32rem;margin:20vh auto;padding:0 16px">
 <p>%s</p><p style="opacity:.6">%s</p><p>%s</p>
