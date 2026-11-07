@@ -654,6 +654,7 @@
 /* The bar as a QUESTION. Same box, same height; what changes is who is asking. */
 .agent-chat .pill.asking {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   min-height: 38px;
@@ -664,7 +665,8 @@
   cursor: default;
 }
 .agent-chat .pill.asking .q {
-  flex: 1;
+  /* An ask with many options wraps them below the question rather than crushing it. */
+  flex: 1 1 12rem;
   min-width: 0;
   font-size: 14px;
 }
@@ -678,9 +680,11 @@
 }
 .agent-chat .pill.asking .acts {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   flex: none;
+  max-width: 100%;
 }
 
 /* The options a question offers, above the bar that asks it. Crowbar green,
