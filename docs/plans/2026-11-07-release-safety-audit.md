@@ -1,8 +1,8 @@
 # Release safety: install, upgrade and rollback on real homes
 
 Status: audited 2026-11-07 on Linux with the embedded production binary, isolated
-`CROWBAR_HOME`s and copies only. macOS was read, not run. Two open items below need
-work before a home much larger than the ones measured here is upgraded.
+`CROWBAR_HOME`s and copies only. macOS was read, not run. The two serious open items
+(first-upgrade memory, version skew) are fixed; the residual risks are ranked below.
 
 ## Matrix
 
@@ -25,44 +25,53 @@ work before a home much larger than the ones measured here is upgraded.
 | Restore from the newest backup (README steps), then develop, then this build | ok: develop sees the exact pre-upgrade history; re-upgrade gives the identical ledger | API + ledger diff |
 | Develop turns added after the upgrade, then this build again | kept in the legacy files (retire keeps changed files) but not shown | ledger query |
 | 500 chats / 112k legacy records | 40 s in step 6, peak RSS 310 MB, progress shown | /proc sampling |
-| 500 chats / 443k legacy records | 2.5 min in step 6, peak RSS 1.0 GB | /proc sampling |
-| Old develop tab left open across the upgrade | stuck on "Backend unavailable" until reloaded | screenshot |
+| 500 chats / 443k legacy records | was 1.0 GB peak, ready in 114 s; now 81 MB peak, ready in 125 s, same ledger | /proc sampling, row diff |
+| Old develop tab left open across the upgrade | stuck on "Backend unavailable" until reloaded (a develop bundle cannot be fixed) | screenshot |
+| Tab of this build left open across a later upgrade | offers Reload on reconnect; reloads only when asked | Playwright |
 | Runner tokens | argv clean; `mcp.token`, `hook.curl`, `settings.json` 0600 in 0700 dirs, removed on stop; not in logs | live |
 
-## Open: `chat-ledger` holds the whole legacy history in memory
+## Fixed: `chat-ledger` held the whole legacy history in memory
 
-`ReadLegacy` loads every legacy chat before converting any (sorting by age needs
-them all), so peak memory grows with total history: about 2.3 KB per legacy record
-measured (310 MB at 112k, 1.0 GB at 443k). A home with a few million records would
-need several GB during the first boot.
+`ReadLegacy` loaded every legacy chat before converting any, about 2.3 KB per
+record. The step now lists the chat ids oldest first in one streaming pass, then
+reads, converts and imports one chat at a time (rows found by their
+`<chat id>\x00<id>` key when every row is keyed so, else by `chat_id`). Checkpoints
+and order are unchanged; the 37-point kill sweep and a row-by-row ledger diff on the
+443k home match the old build, except `runner_exited` times, which are stamped at
+boot either way.
 
-Plan (owner: `adapter/migrations/chatledger`): read the chat ids with their oldest
-timestamp first (one query per legacy table; add an index on `chat_id` in a scratch copy if the per-chat reads need it), then read, convert and import
-one chat at a time. The order, checkpoints and notes stay as they are; only the read
-becomes per chat. Pin it with a test that converts N chats while asserting at most
-one chat's records are held. Until then, measure the owner's own home with
-`crowbar migrate --plan` and the record counts before release.
+## Fixed: no way to tell a stale bundle from the daemon
 
-## Open: no way to tell a stale bundle from the daemon
-
-The daemon reports `version: 0.1.0` for every build, so neither a tab left open
-across an upgrade nor the desktop shell (which adopts any daemon already answering
-on its socket, logging only a pid mismatch) can tell it is talking to another build.
-Plan: stamp a build id into the binary and the web bundle, return it on
-`/v0/health`; the web reloads once on a mismatch, and the desktop shell refuses
-(and names) a daemon of another build instead of adopting it. A develop tab cannot
-be fixed after the fact: the release notes say to reload.
+`/v0/health` (served or behind the boot gate) now carries `build`: the commit from
+the Go VCS stamp, `dev` for a binary built outside a plain checkout (a git worktree
+counts). The web bundle already carries its short commit. A page the daemon served
+compares the two on its first and every resumed socket and, on a mismatch, pins a
+"Crowbar was updated" toast with Reload; it never reloads by itself, because an
+unsent prompt lives only in the composer. `index.html` is served `no-cache`. The
+desktop shell stamps its own commit and refuses a daemon it did not spawn whose
+build differs (or which names none), showing why on the halt screen; `dev` on
+either side is not compared.
 
 ## Residual risks, ranked
 
-1. Memory of the first upgrade on very large homes (above).
-2. Version skew in an open tab or with a stale desktop daemon (above).
-3. Turns made by an older build after the upgrade are not shown (kept on disk).
-4. The restore does not move attachments or `.refused` overrides back; the README
+1. Turns made by an older build after the upgrade are not shown. Running develop on
+   an upgraded home before `retire-legacy` writes new turns into the legacy files;
+   the next boot of this build imports chats it never converted, but for a
+   converted chat it only notes the change (`changed/<chat>`), since its ledger may
+   have grown since and an incremental import would interleave two histories. The
+   files are kept (retire keeps changed files), so nothing is lost, only hidden; the
+   restore README says so. Not fixed: no cheap, safe merge exists.
+2. A develop tab left open across the upgrade must be reloaded by hand (release
+   notes); builds from this one on offer the reload.
+3. The first-run screen shows no toasts, so a tab left on it across an upgrade gets
+   no reload offer (it has nothing to lose; the next navigation loads the new page).
+4. The skew check compares only stamped builds: `dev` builds (worktrees, `go run`)
+   are never refused or offered a reload.
+5. The restore does not move attachments or `.refused` overrides back; the README
    now says so.
-5. Step 11 makes the scaffolding above checkouts 0700: another local user or a
+6. Step 11 makes the scaffolding above checkouts 0700: another local user or a
    container uid can no longer reach a worktree through the home.
-6. A unix socket path over 108 bytes (long `TMPDIR` or `HOME`) fails to bind, with
+7. A unix socket path over 108 bytes (long `TMPDIR` or `HOME`) fails to bind, with
    the path in the error.
 
 Not run: macOS (paths, keychain, sidecar: read only; no updater plugin is
