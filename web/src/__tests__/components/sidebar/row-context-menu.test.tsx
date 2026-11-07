@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
@@ -91,8 +91,7 @@ const REPO: Repo = {
     { id: 'thread-1', repoId: 'repo-1', ownsWorktree: false, title: 'A thread', order: 2 },
   ],
 }
-/** A plain (repo-scoped) thread's row id, addendum's own reported gap: no
- *  right-click path to create the first folder from a bare chat row. */
+/** A plain (repo-scoped) thread's row id. */
 const THREAD_ROW_ID = 'thread-1'
 
 /** The repo-home row's id: the owning chat, never `defaultWorkspaceId`. */
@@ -138,9 +137,7 @@ function rightClick(tree: HTMLElement, rowId: string) {
   return target
 }
 
-/** sidebar-row.tsx's own "..." button, nested inside the row exactly as it
- *  really renders — the row-level `[role="treeitem"]` ancestor carries the
- *  id, not the button itself. */
+/** sidebar-row.tsx's own "..." button, nested in the row that carries the id. */
 function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
   const row = document.createElement('div')
   row.setAttribute('role', 'treeitem')
@@ -153,36 +150,22 @@ function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
   return button
 }
 
-/** A project-home folder, exactly as `deriveRows` would draw it — home
- *  rides no repo, so it is never part of `repoRows(REPO)`'s output. */
+/** A project-home folder as `deriveRows` draws it; home rides no repo, so not in `repoRows`. */
 const HOME_FOLDER_ROW_ID = 'home-folder-1'
-const homeFolderRow: SidebarRow = {
-  id: HOME_FOLDER_ROW_ID,
-  kind: 'folder',
-  parentId: null,
-  order: 0,
-  label: 'Home Folder',
-  ownsWorktree: false,
-  workspaceId: null,
-  working: false,
-  hasView: false,
-}
+const homeRow = (
+  id: string,
+  kind: SidebarRow['kind'],
+  order: number,
+  label: string,
+): SidebarRow => ({
+  ...{ id, kind, order, label, parentId: null, workspaceId: null },
+  ...{ ownsWorktree: false, working: false, hasView: false },
+})
+const homeFolderRow = homeRow(HOME_FOLDER_ROW_ID, 'folder', 0, 'Home Folder')
 
-/** A plain (home-scoped) thread, same gap as `THREAD_ROW_ID` above but for a
- *  project's home rather than a repo — likewise synthetic, since home rows
- *  never come out of `deriveRows`. */
+/** A plain home-scoped thread, the home side of `THREAD_ROW_ID`. */
 const HOME_THREAD_ROW_ID = 'home-thread-1'
-const homeThreadRow: SidebarRow = {
-  id: HOME_THREAD_ROW_ID,
-  kind: 'chat',
-  parentId: null,
-  order: 1,
-  label: 'A home thread',
-  ownsWorktree: false,
-  workspaceId: null,
-  working: false,
-  hasView: false,
-}
+const homeThreadRow = homeRow(HOME_THREAD_ROW_ID, 'chat', 1, 'A home thread')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -335,6 +318,19 @@ describe('SidebarRowContextMenu', () => {
     expect(screen.getByText('New folder')).toBeInTheDocument()
     fireEvent.click(screen.getByText('New folder'))
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
+  })
+
+  // Dragging was the only way to file a row; the menu offers the same drops by name, by keyboard.
+  it('Move to… opens from the keyboard on the folders a drag could file the row into', async () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.keyDown(screen.getByText('Move to…'), { key: 'ArrowRight' })
+    const submenu = (await screen.findByText('Bugs')).closest<HTMLElement>('[role="menu"]')!
+    const offered = within(submenu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+    expect(offered).toContain('Bugs')
+    expect(offered).not.toContain('A thread')
   })
 
   // Same gap, project-home side: a plain home chat rides no repo at all, so

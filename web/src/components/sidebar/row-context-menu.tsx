@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { ArrowsOutCardinal, Folder, GitBranch } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { rowIsLocked, rowMenuActions, runRowMenuAction } from '@/components/sidebar/lib/row-menu'
@@ -8,6 +9,8 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
 import { handleCreate } from '@/components/layout/create-actions'
 import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
+import { moveTargets } from '@/components/sidebar/lib/move-targets'
+import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
@@ -116,11 +119,32 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     }
     return [separator, item]
   })
-  // Kill agent sits with the destructive group, ahead of its first separator.
+  // Kill agent sits with the destructive group, ahead of its first separator; Move to… before it.
   const destructiveAt = items.findIndex((i) => i.separator)
-  items.splice(destructiveAt < 0 ? items.length : destructiveAt, 0, ...killItems)
+  items.splice(
+    destructiveAt < 0 ? items.length : destructiveAt,
+    0,
+    ...moveItem(row, rows),
+    ...killItems,
+  )
 
   return (
     <ContextMenu isOpen={menu.isOpen} items={items} position={menu.position} onClose={menu.close} />
   )
+}
+
+// Moving a row without a pointer: each folder or repo a drag could drop it into, committed as
+// that drop. A row with nowhere to go gets no entry.
+function moveItem(row: SidebarRow, rows: readonly SidebarRow[]): ContextMenuItem[] {
+  const targets = moveTargets(row, rows)
+  if (targets.length === 0) return []
+  const items = targets.map((target): ContextMenuItem => ({
+    id: `move-to-${target.id}`,
+    label: target.label,
+    icon: target.kind === 'folder' ? <Folder /> : <GitBranch />,
+    onClick: () => void performSidebarDrop([row], target, 'into'),
+  }))
+  return [
+    { id: 'move-to', label: 'Move to…', icon: <ArrowsOutCardinal />, onClick: () => {}, items },
+  ]
 }
