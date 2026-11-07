@@ -5,7 +5,7 @@
   "api/internal/api/v0/endpoints/home/handlers/files_test.go": 588,
   "api/internal/api/v0/endpoints/projects/handlers/projects_test.go": 523,
   "api/internal/api/v0/endpoints/repos/handlers/repos_test.go": 586,
-  "api/internal/api/v0/route_audit_test.go": 869,
+  "api/internal/api/v0/route_audit_test.go": 867,
   "api/internal/app/repositories/container_test.go": 521,
   "api/internal/app/repositories/workspace/workspace_test.go": 904,
   "api/internal/app/usecases/branchreview/branch_review_test.go": 777,
