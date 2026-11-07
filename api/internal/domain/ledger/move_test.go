@@ -70,6 +70,15 @@ func TestMove_ANoteForAnotherProjectNamesItsRepository(t *testing.T) {
 		moveRow(t, ledger.Move{Phase: ledger.MoveDone, RequestID: "m1", FromDir: "/a", ToDir: "/beta", Repo: "beta"}),
 	))
 	assert.Contains(t, st.MoveNote(), "repository beta")
+	assert.NotContains(t, st.MoveNote(), "set_branch_name", "a plain move names no branch of its own")
+}
+
+// A branch the conversation was cut onto is its own to name, and the note says how.
+func TestMove_ABranchOutNoteAsksForADescriptiveName(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		moveRow(t, ledger.Move{Phase: ledger.MoveDone, RequestID: "m1", FromDir: "/a", ToDir: "/wt/c", Branch: "chat-1a2b", BranchOut: true}),
+	))
+	assert.Contains(t, st.MoveNote(), "set_branch_name")
 }
 
 func TestMove_ACancelOrFailureClosesTheRequest(t *testing.T) {
@@ -94,22 +103,4 @@ func TestMove_CheckRefusesAnUnknownPhaseOrAMissingRequest(t *testing.T) {
 func withSeq(r ledger.Row, seq int64) ledger.Row {
 	r.ChatID, r.Seq = "c1", seq
 	return r
-}
-
-// An agent's branch-out waits for the person's word; it holds no turn, so it survives restarts.
-func TestMove_AnAgentsBranchOutWaitsForThePersonsConsent(t *testing.T) {
-	st := ledger.Fold("c1", sequenced(t,
-		moveRow(t, ledger.Move{Phase: ledger.MoveRequested, RequestID: "m1", BranchOut: true, By: "agent", AwaitsConsent: true}),
-	))
-	pending, ok := st.PendingMove()
-	require.True(t, ok)
-	assert.True(t, pending.AwaitsConsent)
-	_, ready := st.MoveReady()
-	assert.False(t, ready, "nothing the person has not allowed runs")
-
-	st.Apply(withSeq(moveRow(t, ledger.Move{Phase: ledger.MoveApproved, RequestID: "m1"}), 2))
-	got, ready := st.MoveReady()
-	require.True(t, ready)
-	assert.False(t, got.AwaitsConsent)
-	assert.True(t, got.BranchOut, "allowing keeps what was asked")
 }

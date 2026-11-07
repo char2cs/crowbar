@@ -75,10 +75,6 @@ interface PendingMove {
   parentId?: string
   /** Where, in the sidebar's words. */
   label?: string
-  branchOut?: boolean
-  branch?: string
-  /** The agent asked for it; it waits for the person to allow or deny it. */
-  awaitsConsent?: boolean
 }
 
 /** Where a chat is in its lifecycle. `dormant` and `live` follow placement;

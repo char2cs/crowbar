@@ -329,31 +329,6 @@ func (u *chatFolderUsecase) CancelMove(ctx context.Context, chatID string) error
 	return nil
 }
 
-// AnswerMove allows or denies chatID's move requestID, which awaited the person's consent.
-func (u *chatFolderUsecase) AnswerMove(ctx context.Context, chatID, requestID string, allow bool, reason string) error {
-	if !allow {
-		if err := u.agent.CancelMove(ctx, chatID, deniedReason(reason)); err != nil {
-			return fmt.Errorf("agent chat folder: deny move: %w", err)
-		}
-		return nil
-	}
-	ready, err := u.agent.ApproveMove(ctx, chatID, requestID)
-	if err != nil {
-		return fmt.Errorf("agent chat folder: allow move: %w", err)
-	}
-	if ready {
-		u.MoveWhenReady(ctx, chatID)
-	}
-	return nil
-}
-
-func deniedReason(reason string) string {
-	if reason == "" {
-		return "Denied"
-	}
-	return "Denied: " + reason
-}
-
 // moveRuns runs at most one move pass per chat; a kick during a pass runs one more after it, so
 // a boundary reached while a pass was deciding is never missed.
 type moveRuns struct {

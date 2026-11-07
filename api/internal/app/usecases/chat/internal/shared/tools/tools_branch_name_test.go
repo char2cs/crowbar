@@ -101,7 +101,22 @@ func TestBranchOut_SchedulesTheCallersThreadAsABranchForItsTurnsEnd(t *testing.T
 	if outer.workspaceID != "ws-a" || outer.branch != "fix-it" || outer.by != "agent" {
 		t.Fatalf("requested %+v", outer)
 	}
-	if !strings.Contains(got, "asked the person") {
-		t.Fatalf("the agent is told the person decides: %q", got)
+	if !strings.Contains(got, `"fix-it"`) {
+		t.Fatalf("the agent is told which branch it will be on: %q", got)
+	}
+}
+
+// Left unnamed, the branch gets a generated name, and the agent is told how to give it a real one.
+func TestBranchOut_AnUnnamedBranchIsGeneratedAndTheAgentToldToRenameIt(t *testing.T) {
+	res, minter := resolverOn(t, "ws-a")
+	outer := &fakeBranchOuter{}
+	ts := tools.NewToolSet(tools.Deps{Resolver: res, Branches: outer}, "RUN", minter.Mint("RUN"))
+
+	got, err := ts.Call(context.Background(), "branch_out", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outer.branch != "" || !strings.Contains(got, "set_branch_name") {
+		t.Fatalf("requested %+v, replied %q", outer, got)
 	}
 }

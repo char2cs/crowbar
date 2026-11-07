@@ -10,7 +10,11 @@ import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers
 import { handleCreate } from '@/components/layout/create-actions'
 import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
 import { moveTargets } from '@/components/sidebar/lib/move-targets'
-import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import {
+  performBranchOut,
+  performCancelMove,
+  performSidebarDrop,
+} from '@/components/sidebar/lib/drop-actions'
 import { readSelect, selectAgentChat } from '@/core/entities/select'
 import { entityStore } from '@/core/entities/entity-store'
 
@@ -178,6 +182,6 @@ function branchOutItem(row: SidebarRow): ContextMenuItem {
     id: 'branch-out',
     label: 'Make a branch',
     icon: <GitBranch />,
-    onClick: () => treeUiStore.getState().startBranching(row.id),
+    onClick: () => void performBranchOut(row),
   }
 }

@@ -438,6 +438,10 @@ The contract every step implements:
 2. **Should an agent's `branch_out` need your confirmation?** I recommend a confirmation card the
    first time in each chat, with "always allow for this chat" after that. It's a lasting write, and
    agents can loop.
+   **Decided (product owner, 2026-11-07): no confirmation.** The agent's `branch_out` runs at its
+   turn's end unasked, naming the branch itself (or taking a generated name it can rename with
+   `set_branch_name`). Loops are guarded instead: a repeat while one is pending is the same
+   request, and a chat that already owns its branch is refused.
 3. **What happens when a chat that already owns a workspace branches out?** I recommend it creates
    a child workspace and moves the chat to it, and the old workspace stays with its other chats. The
    other options are to refuse, or to move the workspace itself.

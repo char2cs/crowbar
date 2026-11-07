@@ -389,27 +389,6 @@ describe('MarkerRow', () => {
       expect(cut).toHaveBeenCalledWith('ws-a', 'chat-1', 'heron')
     })
 
-    // The agent's branch-out waits for the person, as a permission ask does, until answered.
-    it('asks the person to allow the agent’s branch, and carries Allow or Deny with a reason', () => {
-      const answer = vi.spyOn(chatCommands, 'answerChatMove').mockResolvedValue(undefined)
-      const pending = { requestId: 'm1', branchOut: true, branch: 'heron', awaitsConsent: true }
-      writeChat({ id: 'chat-1', workspaceId: 'ws-a', pendingMove: pending })
-      const asked = { phase: 'requested' as const, ...pending, by: 'agent' as const }
-      moveLine(seed([ledger().row('move', asked)]))
-      expect(screen.getByText(/The agent asks to make this conversation branch heron/)).toBeTruthy()
-
-      fireEvent.change(screen.getByPlaceholderText('Reason (optional)'), {
-        target: { value: 'not yet' },
-      })
-      fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
-      expect(answer).toHaveBeenCalledWith('ws-a', 'chat-1', {
-        requestId: 'm1',
-        allow: false,
-        reason: 'not yet',
-      })
-      expect(screen.getByRole('button', { name: 'Allow' })).toBeDisabled()
-    })
-
     it('says a withdrawn move was cancelled', () => {
       const l = ledger()
       const feed = seed([

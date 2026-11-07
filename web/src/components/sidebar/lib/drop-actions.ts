@@ -138,11 +138,11 @@ export async function performCancelMove(row: SidebarRow): Promise<void> {
   }
 }
 
-/** Makes a thread a branch of its own named branch; its threads follow it. */
-export async function performBranchOut(row: SidebarRow, branch: string): Promise<void> {
+/** Makes a thread a branch of its own; its threads follow it. */
+export async function performBranchOut(row: SidebarRow): Promise<void> {
   if (!row.workspaceId) return
   try {
-    await branchOutChat(row.workspaceId, row.id, branch)
+    await branchOutChat(row.workspaceId, row.id)
   } catch (err) {
     report(err, { action: 'Make a branch' })
   }

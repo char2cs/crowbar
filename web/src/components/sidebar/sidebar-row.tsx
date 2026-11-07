@@ -16,7 +16,6 @@ import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
-import { BranchOutInput } from '@/components/sidebar/branch-out-input'
 import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
@@ -104,7 +103,6 @@ export function SidebarRow({
       s.renaming === row.id &&
       (inlineRenameDisabled ? s.renamingRole === 'recents' : s.renamingRole !== 'recents'),
   )
-  const branching = useTreeUi((s) => !inlineRenameDisabled && s.branching?.rowId === row.id)
   // A chat dropped into another workspace mid-turn stays put until its turn ends; null: no move.
   const pendingMove = useChatField(row.id, (c) =>
     c?.pendingMove ? (c.pendingMove.label ?? '') : null,
@@ -170,13 +168,13 @@ export function SidebarRow({
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just
           // vacated before React re-renders) must not open the row.
-          if (renaming || branching) return
+          if (renaming) return
           // A pointer click leaves this tabIndex=0 row `:focus`ed with no ring, which keeps
           // `group-focus-within:` actions lit until something else takes focus; blur it.
           e.currentTarget.blur()
           onOpen(row.id)
         }}
-        onPointerDown={renaming || branching ? undefined : onPointerDownDrag}
+        onPointerDown={renaming ? undefined : onPointerDownDrag}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
@@ -208,9 +206,7 @@ export function SidebarRow({
           </span>
         )}
 
-        {branching ? (
-          <BranchOutInput row={row} />
-        ) : renaming ? (
+        {renaming ? (
           <InlineRenameInput
             defaultValue={row.label}
             mono={row.kind === 'branch' && !showBranchSecondLine && !tab}

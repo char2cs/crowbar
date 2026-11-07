@@ -19,6 +19,11 @@ var ErrChatMoving = &problem.Error{
 	Err: problem.ErrConflict,
 }
 
+// ErrOwnsItsBranch refuses a branch-out of a chat that already owns its workspace, so an
+// agent asking again does not cut branch after branch.
+var ErrOwnsItsBranch = problem.New(problem.Conflict,
+	"This conversation already has its own branch; rename it with set_branch_name instead")
+
 // MoveApplier points a chat at the workspace m names and returns m as done:
 // the folder left, the one entered, and what a branch-out cut.
 type MoveApplier func(ctx context.Context, m ledger.Move) (ledger.Move, error)
@@ -61,39 +66,20 @@ func (rs *Runners) RequestBranchOut(ctx context.Context, chatID, workspaceID, br
 		_, ready := st.MoveReady()
 		return ready, nil
 	}
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: branch out: %w", err)
+	}
+	if chat.OwnsWorkspace {
+		return false, ErrOwnsItsBranch
+	}
 	dir, _, _, err := rs.MoveSite(ctx, workspaceID)
 	if err != nil {
 		return false, err
 	}
 	return rs.RequestMove(ctx, chatID, ledger.Move{
 		RequestID: uuid.NewString(), BranchOut: true, Branch: branch, From: workspaceID, FromDir: dir, By: by,
-		AwaitsConsent: by == "agent",
 	})
-}
-
-// ErrNoSuchMove refuses an answer to a move that is no longer waiting for one.
-var ErrNoSuchMove = problem.New(problem.Conflict, "That request is no longer waiting for an answer")
-
-// ApproveMove is the person allowing chatID's move requestID, which awaited their consent, and
-// reports whether it can run now.
-func (rs *Runners) ApproveMove(ctx context.Context, chatID, requestID string) (bool, error) {
-	ready := false
-	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		m, ok := st.PendingMove()
-		if !ok || m.RequestID != requestID || !m.AwaitsConsent {
-			return nil, ErrNoSuchMove
-		}
-		row, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{Phase: ledger.MoveApproved, RequestID: requestID})
-		next := st.Clone()
-		next.Apply(row)
-		_, ready = next.MoveReady()
-		return []ledger.Row{row}, err
-	})
-	if err != nil {
-		return false, fmt.Errorf("agent: approve move: %w", err)
-	}
-	rs.touch(ctx, chatID)
-	return ready, nil
 }
 
 // CancelMove closes chatID's pending move, if any, for reason.

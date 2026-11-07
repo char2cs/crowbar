@@ -62,7 +62,6 @@ func Register(
 	// thread of another and back.
 	repoScoped.PATCH("/chats/:id/placement", h.PlaceChat)
 	repoScoped.POST("/chats/:id/move/cancel", h.CancelMove)
-	repoScoped.POST("/chats/:id/move/answer", h.AnswerMove)
 	// Cuts a branch from the thread's folder at its own HEAD and moves the thread there, at its
 	// turn boundary; one-way (a branch is never made a thread again).
 	repoScoped.POST("/chats/:id/branch-out", h.BranchOut)

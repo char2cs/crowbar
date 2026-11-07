@@ -34,10 +34,11 @@ func branchOutTools(deps Deps) []toolDef {
 		name: "branch_out",
 		description: "Make this conversation its own git branch. When your turn ends, Crowbar cuts a new branch " +
 			"from this folder's current commit (uncommitted edits are not carried over) and continues this " +
-			"conversation in the new worktree, once the person allows it. Commit first what should come along.",
+			"conversation in the new worktree. Commit first what should come along. Name the branch for the " +
+			"work, short and descriptive (e.g. fix-login-redirect).",
 		schema: json.RawMessage(`{
 			"type":"object",
-			"properties":{"name":{"type":"string","description":"Branch name; omit to have one generated."}},
+			"properties":{"name":{"type":"string","description":"Short descriptive branch name; omit to have one generated, and rename it later with set_branch_name."}},
 			"additionalProperties":false
 		}`),
 		run: func(ctx context.Context, c Caller, args json.RawMessage) (string, error) {
@@ -50,11 +51,15 @@ func branchOutTools(deps Deps) []toolDef {
 			if c.Workspace.RepoID == "" {
 				return "", fmt.Errorf("agenttools: branch_out: this folder is not a repository")
 			}
-			if _, err := deps.Branches.RequestBranchOut(ctx, c.ChatID, c.Workspace.ID, strings.TrimSpace(in.Name), "agent"); err != nil {
+			name := strings.TrimSpace(in.Name)
+			if _, err := deps.Branches.RequestBranchOut(ctx, c.ChatID, c.Workspace.ID, name, "agent"); err != nil {
 				return "", fmt.Errorf("agenttools: branch_out: %w", err)
 			}
-			return "Crowbar asked the person to allow this branch. If they do, when this turn ends this " +
-				"conversation continues on the new branch; until then keep working here.", nil
+			if name == "" {
+				return "Scheduled: when this turn ends, this conversation continues on a new branch with a " +
+					"generated name. Rename it with set_branch_name to a short descriptive one.", nil
+			}
+			return fmt.Sprintf("Scheduled: when this turn ends, this conversation continues on a new branch %q.", name), nil
 		},
 	}}
 }

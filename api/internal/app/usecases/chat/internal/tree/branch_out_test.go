@@ -10,7 +10,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 func TestBranchOut_AThreadBecomesTheBranchCutFromItsFolderAndItsThreadsFollow(t *testing.T) {
@@ -44,24 +43,4 @@ func TestBranchOut_RefusesAHomeThread(t *testing.T) {
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "h1", Type: domain.ChatTypeChat, WorkspaceID: "home"})
 	err := uc.BranchOut(context.Background(), "h1", "")
 	require.ErrorIs(t, err, tree.ErrNoRepoToBranch)
-}
-
-// The agent's branch-out runs only on the person's Allow; a Deny withdraws it with their reason.
-func TestAnswerMove_AllowRunsTheAgentsBranchOutDenyWithdrawsIt(t *testing.T) {
-	chats, uc := rebindWorld(t)
-	asked := ledger.Move{RequestID: "m1", BranchOut: true, From: "ws-a", By: "agent", AwaitsConsent: true}
-	_, err := chats.RequestMove(context.Background(), "c1", asked)
-	require.NoError(t, err)
-	uc.MoveWhenReady(context.Background(), "c1")
-	assert.Equal(t, "ws-a", rowOf(chats, "c1").WorkspaceID, "nothing runs before the person answers")
-
-	require.NoError(t, uc.AnswerMove(context.Background(), "c1", "m1", true, ""))
-	waitMoved(t, chats, "c1", "c2")
-	assert.Equal(t, "ws-cut", rowOf(chats, "c1").WorkspaceID)
-
-	_, err = chats.RequestMove(context.Background(), "c2",
-		ledger.Move{RequestID: "m2", BranchOut: true, From: "ws-cut", By: "agent", AwaitsConsent: true})
-	require.NoError(t, err)
-	require.NoError(t, uc.AnswerMove(context.Background(), "c2", "m2", false, "not now"))
-	assert.Equal(t, "Denied: not now", chats.Moves.Cancelled["c2"])
 }

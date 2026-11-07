@@ -96,6 +96,7 @@ type fakeAgentUsecase struct {
 	purgeCalls []string
 	purgeErr   error
 
+
 	resolveProviders []domain.AgentProvider
 	resolveErr       error
 

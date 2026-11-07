@@ -1248,3 +1248,4 @@ func (r *snapshotFrames) forChat(chatID string) []agentusecase.ChatSnapshotFrame
 	}
 	return out
 }
+

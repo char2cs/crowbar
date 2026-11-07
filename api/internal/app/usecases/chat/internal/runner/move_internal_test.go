@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -108,26 +109,25 @@ func TestCancelMove_ClosesThePendingMove(t *testing.T) {
 	assert.False(t, ran)
 }
 
-// The agent's branch-out waits for the person; the person's own runs as asked.
-func TestRequestBranchOut_TheAgentsWaitsForConsentThePersonsDoesNot(t *testing.T) {
+// The agent asking twice in a turn asks once; a thread that already owns its branch is refused,
+// so an agent cannot branch again and again.
+func TestRequestBranchOut_ARepeatIsTheSameAskAndAnOwnerIsRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	ready, err := h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "", "agent")
+	_, err := h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "fix-login", "agent")
 	require.NoError(t, err)
-	assert.False(t, ready, "an agent's branch is cut only once the person allows it")
+	_, err = h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "other", "agent")
+	require.NoError(t, err)
 	st, err := h.rs.ledger.State(t.Context(), "chat-1")
 	require.NoError(t, err)
 	asked, _ := st.PendingMove()
-	assert.True(t, asked.AwaitsConsent)
-
-	ready, err = h.rs.ApproveMove(t.Context(), "chat-1", "someone-else")
-	require.ErrorIs(t, err, ErrNoSuchMove, "an answer names the request it allows")
-	assert.False(t, ready)
-	ready, err = h.rs.ApproveMove(t.Context(), "chat-1", asked.RequestID)
-	require.NoError(t, err)
-	assert.True(t, ready)
-
+	assert.Equal(t, "fix-login", asked.Branch)
 	require.NoError(t, h.rs.CancelMove(t.Context(), "chat-1", "cancelled"))
-	ready, err = h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "", "user")
+
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", Surface: engineagents.SurfaceChat, OwnsWorkspace: true}}
+	_, err = h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "again", "agent")
+	require.ErrorIs(t, err, ErrOwnsItsBranch)
+	st, err = h.rs.ledger.State(t.Context(), "chat-1")
 	require.NoError(t, err)
-	assert.True(t, ready)
+	_, pending := st.PendingMove()
+	assert.False(t, pending)
 }

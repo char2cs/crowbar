@@ -17,7 +17,6 @@ const (
 	MoveDone      = "done"      // the chat runs in To from its next launch
 	MoveFailed    = "failed"
 	MoveCancelled = "cancelled"
-	MoveApproved  = "approved" // the person allowed a move that awaited their consent
 )
 
 // Move is the body of a move row. A request names where; done says what
@@ -34,22 +33,19 @@ type Move struct {
 	BranchOut bool   `json:"branchOut,omitempty"`
 	Branch    string `json:"branch,omitempty"`
 	By        string `json:"by,omitempty"` // "user" or "agent"
-	// AwaitsConsent holds an agent's request until the person allows it: a branch is a lasting
-	// write, and an agent can ask in a loop.
-	AwaitsConsent bool   `json:"awaitsConsent,omitempty"`
-	From          string `json:"from,omitempty"`
-	FromDir       string `json:"fromDir,omitempty"`
-	ToDir         string `json:"toDir,omitempty"`
-	Base          string `json:"base,omitempty"` // the commit a branch-out starts from
-	Repo          string `json:"repo,omitempty"` // set when the move crossed into another project
-	Reason        string `json:"reason,omitempty"`
+	From      string `json:"from,omitempty"`
+	FromDir   string `json:"fromDir,omitempty"`
+	ToDir     string `json:"toDir,omitempty"`
+	Base      string `json:"base,omitempty"` // the commit a branch-out starts from
+	Repo      string `json:"repo,omitempty"` // set when the move crossed into another project
+	Reason    string `json:"reason,omitempty"`
 }
 
 // ErrMoveWaits is a move's apply saying it cannot run yet (its parent thread
 // has not moved); the move stays asked for.
 var ErrMoveWaits = errors.New("ledger: move waits for its parent thread")
 
-var movePhases = []string{MoveRequested, MoveDone, MoveFailed, MoveCancelled, MoveApproved}
+var movePhases = []string{MoveRequested, MoveDone, MoveFailed, MoveCancelled}
 
 func checkMove(r Row) error {
 	return checkNamed(r, func(b Move) bool {
@@ -79,14 +75,6 @@ func (s *State) applyMove(r Row) {
 	}
 	if body.Phase == MoveRequested {
 		s.moves.pending = &body
-		return
-	}
-	if body.Phase == MoveApproved {
-		if s.moves.pending != nil && s.moves.pending.RequestID == body.RequestID {
-			allowed := *s.moves.pending
-			allowed.AwaitsConsent = false
-			s.moves.pending = &allowed
-		}
 		return
 	}
 	if s.moves.pending != nil && s.moves.pending.RequestID == body.RequestID {
@@ -125,7 +113,7 @@ func (s State) PendingMove() (Move, bool) {
 // is never moved mid-turn.
 func (s State) MoveReady() (Move, bool) {
 	m, ok := s.PendingMove()
-	if !ok || m.AwaitsConsent || s.Busy() || len(s.pending) > 0 {
+	if !ok || s.Busy() || len(s.pending) > 0 {
 		return Move{}, false
 	}
 	return m, true
@@ -157,9 +145,14 @@ func (s State) MoveNote() string {
 	if m.Base != "" {
 		fmt.Fprintf(&where, ", which starts from commit %s", m.Base)
 	}
+	rename := ""
+	if m.BranchOut {
+		rename = " This branch is yours: if its name does not say what the work is, rename it with " +
+			"set_branch_name to a short descriptive one."
+	}
 	from := s.moves.fromDir
 	return fmt.Sprintf("<system-reminder>Crowbar moved this conversation to another folder. %s. "+
 		"Run every command and write every file there. The folder you used before, %s, is no longer yours: "+
 		"do not write to it. Uncommitted edits you made there were not brought over; do not re-apply them "+
-		"unless the user asks.</system-reminder>\n\n", where.String(), from)
+		"unless the user asks.%s</system-reminder>\n\n", where.String(), from, rename)
 }

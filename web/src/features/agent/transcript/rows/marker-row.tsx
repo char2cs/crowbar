@@ -11,7 +11,7 @@ import {
   warningHeadline,
   type FailureKind,
 } from '@/features/agent/transcript/lib/turn-failure'
-import { MoveConsent, MoveRetry, moveLabel } from '@/features/agent/transcript/rows/move-marker'
+import { MoveRetry, moveLabel } from '@/features/agent/transcript/rows/move-marker'
 
 /** What a marker row can do: re-send a failed turn, open the CLI, start over. */
 export interface MarkerActions {
@@ -281,7 +281,6 @@ function MarkerRowBody({
       </div>
       {item.marker === 'warning' && <WarningDetails detail={item.detail} />}
       {item.move && <MoveRetry chatId={chatId} move={item.move} />}
-      {item.move && <MoveConsent chatId={chatId} move={item.move} />}
       {item.marker === 'turn_failed' && (
         <FailedActions
           chatId={chatId}

@@ -107,7 +107,6 @@ func registerAgent(
 	home.GET("/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
 	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
 	home.POST("/chats/:id/move/cancel", h.RequireHomeWorkspace, ah.CancelMove)
-	home.POST("/chats/:id/move/answer", h.RequireHomeWorkspace, ah.AnswerMove)
 	home.POST("/chats/:id/branch-out", h.RequireHomeWorkspace, ah.BranchOut)
 	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
 	// Chat folders: the project home accumulates the most chats, so it most needs them.
