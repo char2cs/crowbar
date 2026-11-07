@@ -152,9 +152,13 @@ func (u *chatFolderUsecase) ResumeMoves(ctx context.Context) error {
 func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 	var inherited, lineage []string
 	var left string
+	var stayed []domain.Chat
 	done, ran, err := u.agent.ExecuteMove(ctx, chatID, func(ctx context.Context, m ledger.Move) (ledger.Move, error) {
 		var err error
 		left = m.From
+		if stayed, err = u.threadsUnder(ctx, chatID, m.From); err != nil {
+			return ledger.Move{}, err
+		}
 		if m.BranchOut {
 			return u.applyBranchOut(ctx, chatID, m)
 		}
@@ -174,15 +178,7 @@ func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 		return
 	}
 	u.noteNewAncestors(ctx, chatID, inherited, lineage)
-	stayed, err := u.chats.ListByWorkspace(ctx, left)
-	if err != nil {
-		slog.WarnContext(ctx, "agent chat folder: move: threads under the moved chat", "chat_id", chatID, "err", err)
-		return
-	}
 	for _, c := range stayed {
-		if c.ParentID != chatID {
-			continue
-		}
 		if !done.BranchOut {
 			u.MoveWhenReady(ctx, c.ID)
 			continue
@@ -222,6 +218,26 @@ func (u *chatFolderUsecase) applyMove(ctx context.Context, chatID string, m ledg
 	}
 	lineage, _ := u.lineageOf(ctx, moved)
 	return inherited, lineage, nil
+}
+
+// threadsUnder are the chats directly under chatID, as the placement tree files them, in workspaceID.
+// It is read before chatID leaves workspaceID: after, the tree no longer files them under it.
+func (u *chatFolderUsecase) threadsUnder(ctx context.Context, chatID, workspaceID string) ([]domain.Chat, error) {
+	chat, err := u.chats.LoadChat(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agent chat folder: threads under %s: %w", chatID, err)
+	}
+	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, chat, chat.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	var out []domain.Chat
+	for _, row := range snapshot.rows {
+		if row.IsChat() && row.WorkspaceID == workspaceID && snapshot.planParentOf(row.ID) == chatID {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func (u *chatFolderUsecase) lineageOf(ctx context.Context, chat domain.Chat) ([]string, error) {

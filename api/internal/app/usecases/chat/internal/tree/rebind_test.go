@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // rebindWorld is one repo with a default checkout ws-a holding thread c1 and
@@ -115,4 +116,21 @@ func TestResumeMoves_RunsWhatAPreviousDaemonLeftAskedFor(t *testing.T) {
 	waitMoved(t, chats, "c1", "c2")
 	assert.Equal(t, "ws-b", rowOf(chats, "c1").WorkspaceID)
 	assert.Equal(t, "ws-b", rowOf(chats, "c2").WorkspaceID)
+}
+
+// A thread's parent can live only in the placement tree (its Node), not on its row:
+// it still follows the thread made a branch.
+func TestBranchOut_AThreadPlacedOnlyByItsNodeFollowsToo(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
+		domain.Chat{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
+	)
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "c2", Kind: dtree.KindChat, ParentID: "c1"})
+	gitStatus.SetRepo("ws-a", repoID)
+	chats.Moves.Finished = make(chan string, 8)
+
+	require.NoError(t, uc.BranchOut(context.Background(), "c1", ""))
+	waitMoved(t, chats, "c1", "c2")
+	assert.Equal(t, "ws-cut", rowOf(chats, "c2").WorkspaceID)
 }
