@@ -43,6 +43,9 @@ type TemplateCtx struct {
 	// silently falls back to the user's real ~/.crowbar.
 	CrowbarHome string
 
+	// AttachmentsDir is the chat's attachment store, where pasted files live.
+	AttachmentsDir string
+
 	// DaemonHost is the address the daemon bound (unix:// or tcp://). Callbacks
 	// dial it as handed over (--host, {daemon_host}) and never derive one: a socket
 	// derived from --home can differ from the bound one, and TCP has none.
@@ -142,6 +145,7 @@ func (c TemplateCtx) pairs() []string {
 		"{cwd}", c.Cwd,
 		"{cwd_json}", jsonString(c.Cwd),
 		"{crowbar_home}", c.CrowbarHome,
+		"{attachments_dir}", c.AttachmentsDir,
 		"{daemon_host}", c.DaemonHost,
 		"{hook_url}", c.HookURL(),
 		"{hook_curl}", c.HookCurl(),

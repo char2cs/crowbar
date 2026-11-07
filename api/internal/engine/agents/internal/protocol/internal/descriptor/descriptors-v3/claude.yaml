@@ -309,6 +309,8 @@ events:
       suggestion_label.setMode:        "Switch to a more permissive mode"
       suggestion_label.setMode.acceptEdits: "Allow edits for the rest of this session"
       suggestion_label.setMode.plan:   "Switch to plan mode"
+      suggestion_label.setMode.auto:   "Yes, and use auto mode"
+      suggestion_label.setMode.default: "Yes, manually approve edits"
       suggestion_label.default:        "A broader permission than this one"
       questions:              tool_input.questions
       question_title:         header
@@ -317,13 +319,18 @@ events:
       question_multi:         multiSelect
       option_label:           label
       option_description:     description
+    # ExitPlanMode lists no permission_suggestions; these are its TUI dialog's own options.
+    tool_suggestions:
+      ExitPlanMode:
+        - { type: setMode, mode: auto, destination: session }
+        - { type: setMode, mode: default, destination: session }
     reply:
       # The input echoed back: on a bare allow claude still opens its own plan dialog.
       allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       # Allows this call and applies the grants picked from permission_suggestions.
-      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":{suggestions_json}}}}'
+      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json},"updatedPermissions":{suggestions_json}}}}'
 
   elicitation:
     required: [session_id]
@@ -420,8 +427,8 @@ presentation:
       skip_prefixes: ["/", "!"]
       frame: "The user sent a new message while you were working. Respond to it now.\n\n{message}"
       reply: '{"decision":"block","reason":{message_json}}'
-  # Plugin metadata is readable without a model turn; project/user skills
-  # are not, hence plugin_only rather than complete.
+  # Plugin metadata is readable without a model turn; user skills are not,
+  # hence plugin_only rather than complete.
   slash_catalog:
     completeness: plugin_only
     timeout_ms: 10000
@@ -448,6 +455,32 @@ presentation:
         description: ""
         insert_text: "/{source}:{name} "
         source: "{source}"
+    # Read from claude 2.1.319's own `/` menu. terminal: the command opens a dialog
+    # (or paints its answer) that only the CLI's terminal shows.
+    builtins:
+      - { name: compact, description: "Free up context by summarizing the conversation so far" }
+      - { name: clear, description: "Start a new session with empty context" }
+      - { name: init, description: "Initialize a new CLAUDE.md file with codebase documentation" }
+      # Measured on 2.1.319 over the argv prompt: plans, then asks through ExitPlanMode.
+      - { name: plan, description: "Enable plan mode, then plan what follows" }
+      - { name: security-review, description: "Complete a security review of the pending changes on the current branch" }
+      - { name: context, description: "Visualize current context usage as a colored grid", terminal: true }
+      - { name: help, description: "Show help and available commands", terminal: true }
+      - { name: model, description: "Set the AI model for Claude Code", terminal: true }
+      - { name: resume, description: "Resume a previous conversation", terminal: true }
+      - { name: status, description: "Show version, model, account, API connectivity, and tool statuses", terminal: true }
+      - { name: usage, description: "Show session cost, plan usage, and activity stats", terminal: true }
+      - { name: config, description: "Open settings", terminal: true }
+      - { name: permissions, description: "Manage allow and deny tool permission rules", terminal: true }
+      - { name: mcp, description: "Manage MCP servers", terminal: true }
+      - { name: hooks, description: "View hook configurations for tool events", terminal: true }
+      - { name: memory, description: "Edit CLAUDE.md files and memory settings", terminal: true }
+      - { name: doctor, description: "Health-check your setup and fix issues", terminal: true }
+      - { name: rewind, description: "Restore the code and/or conversation to a previous point", terminal: true }
+    # The workspace's own commands and skills; never the user's home.
+    workspace:
+      - { dir: .claude/commands, source: project }
+      - { dir: .claude/skills, entry: SKILL.md, source: project }
 # claude exposes no machine-readable model list at all (no `models`
 # subcommand, --model's own --help gives examples not an enum, the
 # unauthenticated API 401s) — MANIFEST, not discover:, refreshed over the
@@ -561,6 +594,10 @@ mcp_injection:
   - pass_arg:
       arg: "--mcp-config"
       value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
+# A pasted image lives in Crowbar's home, outside the workspace, and claude asks to
+# Read each one otherwise. `=`: --add-dir is variadic, and the joined form takes one value.
+add_dirs:
+  - pass_arg: { arg: "--add-dir={attachments_dir}" }
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 # NOT --append-system-prompt on resume: confirmed live, a resumed session's

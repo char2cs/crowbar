@@ -55,8 +55,8 @@ func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnP
 // KnownVerb reports whether verb names an inject step Crowbar can apply.
 func KnownVerb(verb string) bool { return verbs.Known(verb) }
 
-// Inject applies a descriptor's MCPInject, ConfigInjection and HooksInjection
-// steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
+// Inject applies a descriptor's MCPInject, ConfigInjection, HooksInjection and
+// AddDirs steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
 // reports over the hooks channel, so it is the one process that gets hooks.
 func Inject(
 	d *spec.Descriptor,
@@ -86,11 +86,13 @@ func inject(
 	extra []spec.InjectStep,
 	hooks bool,
 ) error {
-	steps := make([]spec.InjectStep, 0, len(d.MCPInject)+len(d.ConfigInjection)+len(d.HooksInjection)+len(extra))
+	steps := make([]spec.InjectStep, 0,
+		len(d.MCPInject)+len(d.ConfigInjection)+len(d.HooksInjection)+len(d.AddDirs)+len(extra))
 	steps = append(steps, d.MCPInject...)
 	steps = append(steps, d.ConfigInjection...)
 	if hooks {
 		steps = append(steps, d.HooksInjection...)
+		steps = append(steps, d.AddDirs...)
 	}
 	steps = append(steps, extra...)
 

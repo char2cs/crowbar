@@ -83,3 +83,27 @@ describe('useSlashCatalog presaving', () => {
     expect(getSlashCatalog).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('useSlashCatalog filtering', () => {
+  const item = (name: string, description = '') => ({
+    id: name,
+    kind: 'builtin',
+    label: `/${name}`,
+    description,
+    insertText: `/${name} `,
+    source: '',
+  })
+
+  it('ranks the commands whose name starts with the query above a description match', async () => {
+    getSlashCatalog.mockResolvedValue({
+      ...catalog,
+      items: [item('clear', 'Start over'), item('resume', 'Pick a conversation'), item('config')],
+    })
+    const { result } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('ready'))
+
+    act(() => result.current.noteQuery('con'))
+
+    expect(result.current.items.map((i) => i.label)).toEqual(['/config', '/resume'])
+  })
+})

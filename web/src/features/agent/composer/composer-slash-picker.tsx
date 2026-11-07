@@ -1,17 +1,16 @@
 import { useEffect, useRef } from 'react'
-import type { SlashCatalogState } from '@/features/agent/hooks/use-slash-catalog'
 import { cn } from '@/lib/utils'
 
-/** One completion the picker offers: a skill, or a workspace path after an `@`. */
+/** One completion the picker offers: a command or skill, or a workspace path after an `@`. */
 export interface PickerItem {
   id: string
   insertText: string
   description: string
+  /** Running it opens a dialog only the CLI's terminal shows. */
+  terminal?: boolean
 }
 
 interface ComposerSlashPickerProps {
-  /** The skill catalogue's state; a path listing has none to report. */
-  state?: SlashCatalogState
   /** What the list is of, for its name. */
   label?: string
   items: PickerItem[]
@@ -19,11 +18,10 @@ interface ComposerSlashPickerProps {
   onSelect: (item: PickerItem) => void
 }
 
-/** No explanatory chrome: no probe reports a CLI's built-ins, so the catalogue is
- *  always incomplete, and an empty result must not claim the provider has no skills. */
+/** No explanatory chrome, and nothing at all over no match: the catalogue is partial by
+ *  declaration, so an empty list must not claim the provider has no such command. */
 export function ComposerSlashPicker({
-  state,
-  label = 'Skills',
+  label = 'Commands',
   items,
   selected,
   onSelect,
@@ -34,13 +32,9 @@ export function ComposerSlashPicker({
     listRef.current?.querySelector<HTMLElement>('.opt.on')?.scrollIntoView({ block: 'nearest' })
   }, [selected])
 
+  if (items.length === 0) return null
   return (
     <div ref={listRef} className="slash" id="agent-skill-picker" role="listbox" aria-label={label}>
-      {state?.state === 'error' && (
-        <div className="state" role="alert">
-          {state.unavailable ? 'No skill list from this provider.' : state.error.message}
-        </div>
-      )}
       {items.map((item, index) => (
         <button
           key={item.id}
@@ -53,6 +47,7 @@ export function ComposerSlashPicker({
         >
           <span className="t">{item.insertText.trim()}</span>
           {item.description && <span className="d">{item.description}</span>}
+          {item.terminal && <span className="h">Runs in the terminal</span>}
         </button>
       ))}
     </div>

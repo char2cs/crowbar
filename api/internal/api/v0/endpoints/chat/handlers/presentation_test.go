@@ -154,6 +154,8 @@ func TestSlashCatalog_MapsProviderNeutralEphemeralResult(t *testing.T) {
 			Completeness: engineagents.CatalogCompletenessModelVisible,
 			Items: []engineagents.SlashCatalogItem{{
 				ID: "skill-1", Kind: "skill", Label: "review", InsertText: "$review ", Source: "model-visible",
+			}, {
+				ID: "builtin-1", Kind: "builtin", Label: "/status", InsertText: "/status ", Terminal: true,
 			}},
 			Warnings: []string{"partial"},
 		},
@@ -164,6 +166,7 @@ func TestSlashCatalog_MapsProviderNeutralEphemeralResult(t *testing.T) {
 	assert.Equal(t, []string{"chat-1"}, uc.catalogCalls)
 	assert.Contains(t, rec.Body.String(), `"completeness":"model_visible"`)
 	assert.Contains(t, rec.Body.String(), `"insertText":"$review "`)
+	assert.Contains(t, rec.Body.String(), `"insertText":"/status ","source":"","terminal":true`)
 }
 
 func TestSlashCatalog_ErrorsCarryStableCodeAndStatus(t *testing.T) {

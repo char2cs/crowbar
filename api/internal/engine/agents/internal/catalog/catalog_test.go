@@ -393,6 +393,79 @@ func TestProbe_AcquireIsHonouredByTheRealRunner(t *testing.T) {
 	assert.Positive(t, held, "every provider command must take the shared budget")
 }
 
+func withStaticItems(d *spec.Descriptor) *spec.Descriptor {
+	d.Spawn.Cmd = "true"
+	d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{
+		{Name: "compact", Description: "Summarise the conversation"},
+		{Name: "help", Description: "Show help", Terminal: true},
+	}
+	d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{
+		{Dir: ".claude/commands", Source: "project"},
+		{Dir: ".claude/skills", Entry: "SKILL.md", Source: "project"},
+	}
+	return d
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+}
+
+func TestProbe_BuiltinsAndWorkspaceCommandsOutliveAFailedProbe(t *testing.T) {
+	d := withStaticItems(inventoryDescriptor(t))
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".claude/commands/deploy.md"),
+		"---\ndescription: \"Ship the branch\"\n---\nDeploy $ARGUMENTS\n")
+	writeFile(t, filepath.Join(dir, ".claude/commands/notes.md"), "# Take notes\nbody\n")
+	writeFile(t, filepath.Join(dir, ".claude/skills/review/SKILL.md"),
+		"---\nname: review-pr\ndescription: Review a pull request\n---\n")
+
+	got, err := catalog.Probe(context.Background(), d,
+		models.ProbeOptions{Cwd: dir, Env: []string{"PATH=" + os.Getenv("PATH")}}, nil)
+
+	require.NoError(t, err, "the plugin probe failing must not take the built-ins with it")
+	type row struct{ Kind, Insert, Description, Source string }
+	rows := make([]row, 0, len(got.Items))
+	for _, i := range got.Items {
+		rows = append(rows, row{i.Kind, i.InsertText, i.Description, i.Source})
+	}
+	assert.Equal(t, []row{
+		{"builtin", "/compact ", "Summarise the conversation", ""},
+		{"builtin", "/help ", "Show help", ""},
+		{"command", "/deploy ", "Ship the branch", "project"},
+		{"command", "/notes ", "Take notes", "project"},
+		{"skill", "/review-pr ", "Review a pull request", "project"},
+	}, rows)
+	assert.True(t, got.Items[1].Terminal, "a dialog-only built-in says so")
+	assert.False(t, got.Items[0].Terminal)
+	assert.NotEmpty(t, got.Warnings, "the failed plugin probe is still reported")
+	ids := map[string]bool{}
+	for _, i := range got.Items {
+		ids[i.ID] = true
+	}
+	assert.Len(t, ids, len(got.Items), "every item keeps a distinct identity")
+}
+
+func TestProbe_WorkspaceCommandsNeverLeaveTheWorkspaceTree(t *testing.T) {
+	d := withStaticItems(inventoryDescriptor(t))
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "secret.md"), "---\ndescription: outside\n---\n")
+	writeFile(t, filepath.Join(outside, "skill/SKILL.md"), "---\nname: outside-skill\n---\n")
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".claude/commands"), 0o755))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "secret.md"), filepath.Join(dir, ".claude/commands/secret.md")))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, ".claude/skills")))
+
+	got, err := catalog.Probe(context.Background(), d,
+		models.ProbeOptions{Cwd: dir, Env: []string{"PATH=" + os.Getenv("PATH")}}, nil)
+
+	require.NoError(t, err)
+	for _, i := range got.Items {
+		assert.Equal(t, "builtin", i.Kind, "nothing outside the workspace is listed: %s", i.InsertText)
+	}
+}
+
 type runnerFunc func(context.Context, []string) ([]byte, error)
 
 func (f runnerFunc) Run(ctx context.Context, argv []string) ([]byte, error) { return f(ctx, argv) }

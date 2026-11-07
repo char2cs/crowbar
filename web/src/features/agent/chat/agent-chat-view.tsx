@@ -365,6 +365,14 @@ export function AgentChatView({
     '--agent-transcript-header-clearance': `${transcriptHeaderClearancePx}px`,
   } as CSSProperties
 
+  const slashPicker = (mention.open || slash.open) && (
+    <ComposerSlashPicker
+      label={mention.open ? 'Files' : 'Commands'}
+      items={picker.items}
+      selected={picker.selected}
+      onSelect={selectSlashItem}
+    />
+  )
   const stashPicker = composer.stashPickerOpen && (
     <ComposerStashPicker
       items={composer.stashes}
@@ -398,21 +406,14 @@ export function AgentChatView({
               ))}
             </div>
           )}
-          {blank && stashPicker && <div className="blank-stash-picker">{stashPicker}</div>}
+          {blank && stashPicker && <div className="blank-picker">{stashPicker}</div>}
+          {blank && slashPicker && <div className="blank-picker">{slashPicker}</div>}
           {!settling && (
             <div ref={blank ? undefined : dock.dockRef} className={blank ? 'docframe' : 'dock'}>
               {!blank && <TodoStrip plan={facts.plan} />}
               {!blank && <SubagentShelf chatId={chatId} />}
               {!blank && stashPicker}
-              {!blank && (mention.open || slash.open) && (
-                <ComposerSlashPicker
-                  state={mention.open ? undefined : slash.state}
-                  label={mention.open ? 'Files' : 'Skills'}
-                  items={picker.items}
-                  selected={picker.selected}
-                  onSelect={selectSlashItem}
-                />
-              )}
+              {!blank && slashPicker}
               {note && (
                 <p className="meta composer-note" data-testid="agent-session-note">
                   {note}
@@ -434,7 +435,7 @@ export function AgentChatView({
                 terminalWait={terminalWait}
                 feedError={unfollowed}
                 canStop={live}
-                slashOpen={picker.open}
+                slashOpen={picker.highlighted !== undefined}
                 onShapeChange={composer.noteShape}
                 onKeyDown={handleKeyDown}
                 onSend={() => enqueueDraft()}

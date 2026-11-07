@@ -17,6 +17,8 @@ type SlashCatalogItemDTO struct {
 	Description string `json:"description"`
 	InsertText  string `json:"insertText"`
 	Source      string `json:"source"`
+	// Terminal says running it opens a dialog only the CLI's terminal answers.
+	Terminal bool `json:"terminal,omitempty"`
 }
 
 // AgentProviderDTO is the wire shape of domain.AgentProvider (see there for the field

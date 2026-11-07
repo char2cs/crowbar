@@ -68,6 +68,26 @@ type SlashCatalogSpec struct {
 	MaxStderrBytes int                 `yaml:"max_stderr_bytes"`
 	MaxItems       int                 `yaml:"max_items"`
 	Pipeline       CatalogPipelineSpec `yaml:"pipeline"`
+	// Builtins are the CLI's own commands, which no probe reports.
+	Builtins []CatalogBuiltin `yaml:"builtins"`
+	// Workspace names the directories, inside the workspace, the CLI reads commands from.
+	Workspace []CatalogWorkspaceDir `yaml:"workspace"`
+}
+
+// CatalogBuiltin is one command the CLI ships. Terminal marks one that opens a
+// dialog only the CLI's own terminal can answer.
+type CatalogBuiltin struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Terminal    bool   `yaml:"terminal"`
+}
+
+// CatalogWorkspaceDir is a directory of commands relative to the workspace root:
+// each *.md file is one, or with Entry, each subdirectory holding that file is a skill.
+type CatalogWorkspaceDir struct {
+	Dir    string `yaml:"dir"`
+	Entry  string `yaml:"entry"`
+	Source string `yaml:"source"`
 }
 
 type CatalogPipelineSpec struct {

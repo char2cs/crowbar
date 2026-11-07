@@ -871,6 +871,20 @@ func TestSubmitPrompt_FreshClaudeTerminatesVariadicMCPBeforeFinalPrompt(t *testi
 	assert.Equal(t, message, call.argv[len(call.argv)-1])
 }
 
+// A pasted image lives in the chat's attachment store, outside the workspace: the
+// CLI is handed that directory up front instead of asking to Read each file.
+func TestSubmitPrompt_ClaudeMayReadTheChatsAttachmentsWithoutAsking(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "look at this", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+
+	call := f.term.calls[f.term.callCount()-1]
+	assert.Contains(t, call.argv, "--add-dir="+worktreepath.AttachmentsDir(f.ws.home, chatID))
+	assert.Equal(t, "look at this", call.argv[len(call.argv)-1], "the variadic --add-dir swallows no prompt")
+}
+
 func TestSubmitPrompt_BlocksNextDispatchUntilUserPromptHook(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")

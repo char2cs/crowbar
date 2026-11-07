@@ -329,15 +329,37 @@ func TestDetector_Sweep_UnrecognisedPromptCarriesNoKind(t *testing.T) {
 	assert.Equal(t, domain.AgentTerminalWait{Waiting: true}, r.detector.Wait(chatID))
 }
 
-func TestDetector_Sweep_WorkingChatIsNeverWaiting(t *testing.T) {
+func TestDetector_Sweep_AWorkingChatWithNoDialogIsNotWaiting(t *testing.T) {
 	r := newRig(t)
 	r.busy.set(true)
+	r.screens.set(session, idleScreen)
 
 	r.sweep()
 
 	assert.False(t, r.detector.Wait(chatID).Waiting)
 	assert.Empty(t, r.rec.all())
-	assert.Zero(t, r.choices.asked, "a busy tick must not reach the choices read")
+	assert.Zero(t, r.choices.asked, "a busy tick with no dialog must not reach the choices read")
+}
+
+// A dialog no hook covers (claude's plan dialog, a command's) holds a running
+// turn too: without the banner the chat looks stuck.
+func TestDetector_Sweep_ADialogOverARunningTurnIsWaiting(t *testing.T) {
+	r := newRig(t)
+	r.busy.set(true)
+
+	r.sweep()
+
+	assert.True(t, r.detector.Wait(chatID).Waiting)
+}
+
+func TestDetector_Sweep_ADialogTheChatAlreadyAsksAboutIsNotWaiting(t *testing.T) {
+	r := newRig(t)
+	r.busy.set(true)
+	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
+
+	r.sweep()
+
+	assert.False(t, r.detector.Wait(chatID).Waiting, "the card answers it")
 }
 
 func TestDetector_Sweep_PendingChoiceIsNeverWaiting(t *testing.T) {

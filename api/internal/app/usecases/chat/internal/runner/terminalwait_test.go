@@ -193,7 +193,7 @@ func TestDetector_RealPTY_ReportsTheTrustDialog(t *testing.T) {
 	})
 }
 
-func TestDetector_RealPTY_WorkingChatIsNeverWaiting(t *testing.T) {
+func TestDetector_RealPTY_ADialogOverAWorkingChatStillWaits(t *testing.T) {
 	rig := newLiveRig(t, liveTrustScreen)
 	rig.awaitVerdict(t, "the dialog reaches the screen", func(w domain.AgentTerminalWait) bool {
 		return w.Waiting
@@ -202,7 +202,7 @@ func TestDetector_RealPTY_WorkingChatIsNeverWaiting(t *testing.T) {
 	rig.busy = true
 	rig.detector.Sweep(context.Background(), nil)
 
-	assert.False(t, rig.detector.Wait("chat-live").Waiting)
+	assert.True(t, rig.detector.Wait("chat-live").Waiting, "a running turn behind a dialog is stuck on it")
 }
 
 func TestDetector_RealPTY_PendingChoiceIsNeverWaiting(t *testing.T) {

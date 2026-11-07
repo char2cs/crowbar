@@ -165,8 +165,10 @@ func (rs *Runners) renderSpawnContext(
 		Cwd:         canonicalDir(in.worktree),
 		CrowbarBin:  rs.crowbarBin,
 		CrowbarHome: in.crowbarHome,
-		DaemonHost:  rs.daemonHost,
-		Segid:       in.runnerID,
+		// Created on the first paste: a CLI handed a missing directory carries on.
+		AttachmentsDir: worktreepath.AttachmentsDir(in.crowbarHome, in.chatID),
+		DaemonHost:     rs.daemonHost,
+		Segid:          in.runnerID,
 		// The token `crowbar mcp` attributes this runner's tool calls by, minted where
 		// the runner id is born and by the SAME minter DispatchMCP verifies against.
 		RunnerToken: rs.mintRunnerToken(in.runnerID),

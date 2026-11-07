@@ -95,12 +95,12 @@ func replacer(
 // pickedSuggestions are the suggestions raw offered that picked names, as offered.
 func pickedSuggestions(d *spec.Descriptor, canonical string, raw []byte, picked []string) []map[string]any {
 	out := []map[string]any{}
-	fields, declared := d.EventFields(canonical)
+	_, declared := d.EventFields(canonical)
 	var decoded map[string]any
 	if !declared || len(picked) == 0 || json.Unmarshal(raw, &decoded) != nil {
 		return out
 	}
-	offered := mapping.Objects(decoded, fields["suggestions"])
+	offered := d.EventSuggestions(canonical, decoded)
 	for _, id := range picked {
 		if i, ok := models.SuggestionIndex(id); ok && i < len(offered) {
 			out = append(out, offered[i])

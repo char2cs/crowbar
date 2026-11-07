@@ -374,6 +374,7 @@ func TestAnswer_ASuggestionReachesTheCLIAsTheGrantOffered(t *testing.T) {
 	f.wait()
 
 	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+		`"updatedInput":{"command":"touch PROOF","description":"Create proof control file"},`+
 		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, <-printed)
 }
 
