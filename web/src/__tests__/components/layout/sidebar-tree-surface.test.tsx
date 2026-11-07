@@ -324,6 +324,7 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
     vi.spyOn(sidebarPlacement, 'createHomeFolder').mockResolvedValueOnce({
       folder: { id: 'home-folder-2', repoId: '', projectId: 'p1', name: 'New folder', order: 1 },
       shifted: [],
+      shiftedRows: [],
     })
     render(
       <SidebarTreeSurface
