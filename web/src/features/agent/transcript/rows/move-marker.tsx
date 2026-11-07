@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { MoveBody } from '@/features/agent/api/chat-rows'
-import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
+import { branchOutChat, setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { report } from '@/lib/errors/report'
 
@@ -43,17 +43,19 @@ export function MoveRetry({ chatId, move }: { chatId: string; move: MoveBody }) 
   const runsIn = useChatField(chatId, (c) => c?.workspaceId || null)
   const waiting = useChatField(chatId, (c) => !!c?.pendingMove)
   const to = move.to
-  if (move.phase !== 'failed' || !to || !runsIn || waiting) return null
+  if (move.phase !== 'failed' || (!to && !move.branchOut) || !runsIn || waiting) return null
   const retry = async () => {
     setSent(true)
     try {
-      await setChatPlacement(runsIn, chatId, {
-        // The ledger omits a root parent; unsent, the daemon would keep the one it has here.
-        parentId: move.parentId ?? '',
-        ...(move.order !== undefined && { order: move.order }),
-        workspaceId: to,
-        ...(move.label && { label: move.label }),
-      })
+      if (move.branchOut) await branchOutChat(runsIn, chatId, move.branch ?? '')
+      else
+        await setChatPlacement(runsIn, chatId, {
+          // The ledger omits a root parent; unsent, the daemon would keep the one it has here.
+          parentId: move.parentId ?? '',
+          ...(move.order !== undefined && { order: move.order }),
+          workspaceId: to!,
+          ...(move.label && { label: move.label }),
+        })
     } catch (err) {
       setSent(false)
       report(err, { action: 'Move' })

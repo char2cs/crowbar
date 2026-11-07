@@ -194,12 +194,12 @@ export async function cancelChatMove(wsId: string, chatId: string): Promise<void
   })
 }
 
-/** Makes a thread a branch of its own, cut from its folder's HEAD at its turn boundary; the
- *  daemon names the branch. */
-export async function branchOutChat(wsId: string, chatId: string): Promise<void> {
+/** Makes a thread a branch of its own, cut from its folder's HEAD at its turn boundary; an
+ *  empty `branch` lets the daemon name it. */
+export async function branchOutChat(wsId: string, chatId: string, branch = ''): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/branch-out`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ branch }),
   })
 }
 

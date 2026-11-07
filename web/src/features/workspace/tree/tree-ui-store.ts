@@ -73,6 +73,8 @@ interface TreeUiState {
    *  Recents mirror) draws the editor. */
   renaming: string | null
   renamingRole: 'tree' | 'recents' | null
+  /** The thread being made a branch, and the name its input opens with. */
+  branching: { rowId: string; name: string } | null
   /** Folded rows (folder and chat ids in one set); unknown means open.
    *  Persisted as the sidebar-ui record's `collapsedChatRows`. */
   collapsed: ReadonlySet<string>
@@ -90,6 +92,9 @@ interface TreeUiActions {
   /** `role` defaults to the instance on screen; a row not drawn yet (just created) names it. */
   startRenaming: (rowId: string, role?: 'tree' | 'recents') => void
   stopRenaming: () => void
+  /** Opens the branch-name input on a thread, seeded with a generated name like the daemon's. */
+  startBranching: (rowId: string) => void
+  stopBranching: () => void
   /** Fold a row away, or open it again; the fold is persisted. */
   toggleChatRow: (rowId: string) => void
   /** Hold rows: hide them and put a row in the tray for each. */
@@ -137,6 +142,7 @@ function withIds(set: ReadonlySet<string>, ids: readonly string[]): Set<string> 
 export const treeUiStore = createStore<TreeUi>()((set) => ({
   renaming: null,
   renamingRole: null,
+  branching: null,
   collapsed: NO_IDS,
   removals: NO_REMOVALS,
   hiddenIds: NO_IDS,
@@ -146,6 +152,9 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
   startRenaming: (rowId, role) =>
     set({ renaming: rowId, renamingRole: role ?? renamingRoleFor(rowId) }),
   stopRenaming: () => set({ renaming: null, renamingRole: null }),
+  startBranching: (rowId) =>
+    set({ branching: { rowId, name: `chat-${crypto.randomUUID().slice(0, 8)}` } }),
+  stopBranching: () => set({ branching: null }),
 
   toggleChatRow: (rowId) =>
     set((s) => {

@@ -369,6 +369,17 @@ describe('MarkerRow', () => {
       expect(moveLine(feed)).toHaveTextContent('Now on branch heron — working in /src/heron')
     })
 
+    it('asks again for a branch that could not be made, under the name it asked for', () => {
+      const cut = vi.spyOn(chatCommands, 'branchOutChat').mockResolvedValue(undefined)
+      writeChat({ id: 'chat-1', workspaceId: 'ws-a' })
+      const l = ledger()
+      const failed = { phase: 'failed' as const, requestId: 'm1', branchOut: true, branch: 'heron' }
+      const feed = seed([l.row('move', { ...failed, reason: 'branch exists' })])
+      expect(moveLine(feed)).toHaveTextContent('Making a branch failed: branch exists')
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(cut).toHaveBeenCalledWith('ws-a', 'chat-1', 'heron')
+    })
+
     it('says a withdrawn move was cancelled', () => {
       const l = ledger()
       const feed = seed([
