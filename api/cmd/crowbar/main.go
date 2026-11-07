@@ -31,6 +31,8 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the Crowbar daemon",
+		// A failed start is the home or the host, never a mistyped flag.
+		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe(host)
 		},

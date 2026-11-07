@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"testing"
 
@@ -27,6 +29,23 @@ func TestCLIHelp(
 	if len(out) == 0 {
 		t.Fatal("expected help output, got nothing")
 	}
+}
+
+// A daemon that cannot start says why, not how to spell its flags: the usage
+// text made a full disk or a locked home read like a mistyped command.
+func TestServe_AFailedStartPrintsTheErrorWithoutUsage(t *testing.T) {
+	t.Setenv("PATH", os.Getenv("PATH"))
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"serve", "--host", "bogus://x"})
+
+	err := root.Execute()
+
+	require.Error(t, err)
+	assert.Contains(t, out.String(), "failed to start")
+	assert.NotContains(t, out.String(), "Usage:")
 }
 
 // healthStatus is the status the daemon on sock reports on its health route.
