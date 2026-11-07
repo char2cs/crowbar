@@ -12,8 +12,7 @@ import (
 
 // RegisterStatic serves the embedded web bundle, falling back to index.html for SPA
 // routes. A build-time `<file>.gz` sibling is served to gzip clients so nothing is
-// compressed per request; content-hashed /assets/* are cached as immutable and
-// index.html is revalidated, so a reload after an upgrade gets the new bundle.
+// compressed per request; content-hashed /assets/* are cached as immutable.
 func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 	fileServer := http.FileServer(http.FS(staticFS))
 
@@ -36,9 +35,6 @@ func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 
 		if strings.HasPrefix(urlPath, "/assets/") && c.Request.URL.Path != "/" {
 			c.Header("Cache-Control", "public, max-age=31536000, immutable")
-		}
-		if name == "index.html" {
-			c.Header("Cache-Control", "no-cache")
 		}
 
 		preferGzipSibling(c, staticFS, name)

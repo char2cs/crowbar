@@ -2,7 +2,6 @@ package metadata
 
 import (
 	_ "embed"
-	"runtime/debug"
 	"sync"
 
 	yaml "gopkg.in/yaml.v3"
@@ -52,24 +51,6 @@ func Get() *Metadata {
 // GetVersion returns the application version number.
 func GetVersion() string {
 	return Get().Version.Number
-}
-
-// GetBuild returns the commit this binary was built from, or "dev" for one built
-// outside a checkout. The web and the desktop shell compare it with their own.
-func GetBuild() string {
-	return buildOf(debug.ReadBuildInfo())
-}
-
-func buildOf(info *debug.BuildInfo, ok bool) string {
-	if !ok || info == nil {
-		return "dev"
-	}
-	for _, s := range info.Settings {
-		if s.Key == "vcs.revision" && s.Value != "" {
-			return s.Value
-		}
-	}
-	return "dev"
 }
 
 func defaultMetadata() *Metadata {

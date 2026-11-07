@@ -118,7 +118,7 @@ func New(
 		serveErr: make(chan error, len(listeners)+1),
 	}
 	report := &bootReport{}
-	c.gate = bootgate.New(metadata.GetVersion(), metadata.GetBuild(), report.report, middleware.CORSHandler)
+	c.gate = bootgate.New(metadata.GetVersion(), report.report, middleware.CORSHandler)
 	c.server = newHTTPServer(c.gate, idleConnTimeout)
 	for _, ln := range listeners {
 		c.serve(func() error { return c.server.Serve(ln) })

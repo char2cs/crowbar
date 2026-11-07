@@ -1,8 +1,5 @@
-import { apiBaseFor, apiFetch } from '@/lib/api/fetch'
-import { isTauri } from '@/lib/crowbar-bridge'
+import { apiFetch } from '@/lib/api/fetch'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
-import { toast } from '@/features/window/stores/toast-store'
-import { LOCAL_HOST } from '@/features/hosts/types'
 import { reportMigrating, type Migrating } from './connection-store'
 
 type DaemonHealthState =
@@ -50,49 +47,9 @@ const UNSHARED: RequestInit = { method: 'GET' }
 let opened = 0
 let inFlight: { sentAt: number; read: Promise<void> } | null = null
 
-/** Called by the wsManager each time a local socket opens; `resumed` when it
- *  replaces one that dropped, which is when the daemon may have been replaced. */
-export function noteSocketOpened(resumed = false): void {
+/** Called by the wsManager each time a socket opens. */
+export function noteSocketOpened(): void {
   opened++
-  if (resumed || !buildChecked) void checkBuild()
-}
-
-let buildChecked = false
-let buildRead: Promise<void> | null = null
-
-// The page carries its commit's short form, the daemon the full one. A dev build,
-// or an older daemon that names none, has nothing to compare.
-function sameBuild(page: string, daemon: string): boolean {
-  if (!page || !daemon || page === 'dev' || daemon === 'dev') return true
-  return daemon.startsWith(page) || page.startsWith(daemon)
-}
-
-/** A page the daemon served compares its build with the daemon's. One of another
- *  build is offered a reload, never given one: an unsent prompt lives only in its
- *  composer. The desktop shell ships its page with its daemon and checks it itself. */
-function checkBuild(): Promise<void> {
-  if (import.meta.env.DEV || isTauri() || apiBaseFor(LOCAL_HOST.id) !== '') return Promise.resolve()
-  buildChecked = true
-  buildRead ??= apiFetch<unknown>('/v0/health', UNSHARED, ONCE)
-    .then((data) => {
-      const daemon = isRecord(data) && typeof data.build === 'string' ? data.build : ''
-      if (sameBuild(__APP_VERSION__, daemon)) return
-      toast.show({
-        key: 'daemon-build',
-        type: 'info',
-        duration: 0,
-        message: 'Crowbar was updated',
-        description: 'Reload to use the new version. Text you have not sent is lost on reload.',
-        action: { label: 'Reload', onClick: () => window.location.reload() },
-      })
-    })
-    .catch((err: unknown) => {
-      if (import.meta.env.DEV) console.warn('daemon build check failed:', err)
-    })
-    .finally(() => {
-      buildRead = null
-    })
-  return buildRead
 }
 
 async function readHealth(sentAt: number): Promise<void> {

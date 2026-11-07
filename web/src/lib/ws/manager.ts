@@ -188,7 +188,7 @@ export function createWSManager(): WSManager {
       if (channels.get(endpoint) !== ch) return
       ch.opened = true
       for (const data of ch.outbox.splice(0)) socket.send(data)
-      if (hostId === LOCAL_HOST.id) noteSocketOpened(resumed)
+      if (hostId === LOCAL_HOST.id) noteSocketOpened()
       reportChannelState(endpoint, true, hostId)
       for (const waiter of ch.waiters.splice(0)) waiter.resolve()
       // Only now, not per attempt: a refetch while the daemon is still down

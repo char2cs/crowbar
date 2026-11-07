@@ -50,7 +50,6 @@ type Middleware func(http.Handler) http.Handler
 // Build it with New.
 type Gate struct {
 	version string
-	build   string
 	report  Reporter
 	own     http.Handler
 	real    atomic.Pointer[http.Handler]
@@ -60,7 +59,7 @@ type Gate struct {
 // everything else until Open is called, through mw. It panics if report or mw
 // is nil.
 func New(
-	version, build string,
+	version string,
 	report Reporter,
 	mw Middleware,
 ) *Gate {
@@ -70,7 +69,7 @@ func New(
 	if mw == nil {
 		panic("bootgate: New requires a Middleware")
 	}
-	g := &Gate{version: version, build: build, report: report}
+	g := &Gate{version: version, report: report}
 	g.own = mw(http.HandlerFunc(g.answer))
 	return g
 }
@@ -122,7 +121,6 @@ func (g *Gate) answer(
 		Data: healthData{
 			Status:  rep.State,
 			Version: g.version,
-			Build:   g.build,
 			PID:     os.Getpid(),
 			Detail:  rep.Detail,
 		},
@@ -137,7 +135,6 @@ type healthBody struct {
 type healthData struct {
 	Status  State  `json:"status"`
 	Version string `json:"version"`
-	Build   string `json:"build"`
 	PID     int    `json:"pid"`
 	Detail  any    `json:"detail"`
 }

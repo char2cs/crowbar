@@ -27,7 +27,7 @@ func New(deadLetters DeadLetters) *Health {
 	return &Health{deadLetters: deadLetters}
 }
 
-// Check is the GET /health liveness handler: status, version, build, pid and the refused-chat-hook count.
+// Check is the GET /health liveness handler: status, version, pid and the refused-chat-hook count.
 // The desktop supervisor signals the daemon by this self-reported pid because asking the tauri-shell
 // child handle deadlocks against its wait thread. An unreadable count is omitted, never a failure.
 func (h *Health) Check(
@@ -36,7 +36,6 @@ func (h *Health) Check(
 	data := gin.H{
 		"status":  "ok",
 		"version": metadata.GetVersion(),
-		"build":   metadata.GetBuild(),
 		"pid":     os.Getpid(),
 	}
 	count, err := h.deadLetters.DeadLetterCount(c.Request.Context())

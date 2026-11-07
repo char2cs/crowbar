@@ -20,7 +20,6 @@ import (
 
 const (
 	testVersion      = "1.2.3-test"
-	testBuild        = "1.2.3-build"
 	healthPath       = "/v0/health"
 	projectsPath     = "/v0/projects"
 	chatsPath        = "/v0/chats"
@@ -39,7 +38,6 @@ type healthBody struct {
 type healthData struct {
 	Status  string `json:"status"`
 	Version string `json:"version"`
-	Build   string `json:"build"`
 	PID     int    `json:"pid"`
 	Detail  any    `json:"detail"`
 }
@@ -72,7 +70,7 @@ func bare(
 func newGate(
 	report bootgate.Reporter,
 ) *bootgate.Gate {
-	return bootgate.New(testVersion, testBuild, report, bare)
+	return bootgate.New(testVersion, report, bare)
 }
 
 func realAPI() http.Handler {
@@ -196,7 +194,6 @@ func TestGate_ServesHealthBeforeOpen(
 	assert.True(t, body.Success)
 	assert.Equal(t, "migrating", body.Data.Status)
 	assert.Equal(t, testVersion, body.Data.Version)
-	assert.Equal(t, testBuild, body.Data.Build, "the shell refuses a daemon of another build even while it migrates")
 	assert.Equal(t, os.Getpid(), body.Data.PID)
 	assert.Equal(t, map[string]any{"step": "backup"}, body.Data.Detail)
 }
@@ -294,13 +291,13 @@ func TestGate_OpenRejectsNilHandler(
 func TestNew_RejectsNilReporter(
 	t *testing.T,
 ) {
-	assert.Panics(t, func() { bootgate.New(testVersion, testBuild, nil, bare) })
+	assert.Panics(t, func() { bootgate.New(testVersion, nil, bare) })
 }
 
 func TestNew_RejectsNilMiddleware(
 	t *testing.T,
 ) {
-	assert.Panics(t, func() { bootgate.New(testVersion, testBuild, migrating, nil) })
+	assert.Panics(t, func() { bootgate.New(testVersion, migrating, nil) })
 }
 
 // An encode failure must not leave a 200 behind with half a body.
@@ -332,7 +329,7 @@ func TestGate_AnswersThroughItsMiddlewareUntilOpen(
 			next.ServeHTTP(w, r)
 		})
 	}
-	g := bootgate.New(testVersion, testBuild, halted, through)
+	g := bootgate.New(testVersion, halted, through)
 
 	health := send(g, http.MethodGet, healthPath)
 	refused := send(g, http.MethodGet, projectsPath)
@@ -355,7 +352,6 @@ func pinned(
 	body string,
 ) string {
 	body = strings.Replace(body, fmt.Sprintf(`"pid":%d`, os.Getpid()), `"pid":4242`, 1)
-	body = strings.Replace(body, `"build":"`+testBuild+`"`, `"build":"5e7c1a90d2b34f6e8a1c0b9d7f3e2a4c6b8d0e1f"`, 1)
 	return strings.Replace(body, `"version":"`+testVersion+`"`, `"version":"0.1.0"`, 1)
 }
 

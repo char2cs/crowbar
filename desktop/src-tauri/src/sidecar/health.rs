@@ -19,14 +19,9 @@ const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Health {
-    Ready {
-        pid: Option<i32>,
-        build: Option<String>,
-    },
+    Ready { pid: Option<i32> },
     Migrating,
-    Halted {
-        message: String,
-    },
+    Halted { message: String },
 }
 
 /// Reads the /v0/health envelope. The halt text is `data.detail.message`. The
@@ -53,7 +48,6 @@ pub fn parse_health(body: &[u8]) -> Health {
                 .and_then(Value::as_i64)
                 .and_then(|pid| i32::try_from(pid).ok())
                 .filter(|pid| *pid > 0),
-            build: field("build").and_then(Value::as_str).map(str::to_string),
         },
     }
 }
@@ -63,15 +57,12 @@ pub fn parse_health(body: &[u8]) -> Health {
 pub enum Unready {
     Halted(String),
     GaveUp(u32),
-    /// Another daemon, of another build than this shell's, answers on our socket.
-    Foreign(String),
 }
 
 impl fmt::Display for Unready {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Halted(message) => write!(f, "the daemon halted: {message}"),
-            Self::Foreign(message) => f.write_str(message),
             Self::GaveUp(attempts) => {
                 write!(f, "daemon did not become healthy in {attempts} attempts")
             }
@@ -82,37 +73,12 @@ impl fmt::Display for Unready {
 impl std::error::Error for Unready {}
 
 /// Tells the window why the daemon will not come up. Nothing restarts a halted
-/// daemon or ends a foreign one, so this is the user's only explanation.
+/// daemon, so this is the user's only explanation.
 pub fn announce_halt<R: Runtime>(app: &AppHandle<R>, why: &Unready) {
-    if let Unready::Halted(message) | Unready::Foreign(message) = why {
-        log::error!("crowbar daemon will not serve: {message}");
+    if let Unready::Halted(message) = why {
+        log::error!("crowbar daemon halted: {message}");
         let _ = app.emit("daemon:halted", message);
     }
-}
-
-/// The commit this shell was built from, "dev" outside a checkout.
-pub const OWN_BUILD: &str = env!("CROWBAR_BUILD");
-
-/// Refuses a daemon this shell did not spawn whose build is not its own: its
-/// web bundle speaks only to its own daemon. One that names no build predates
-/// the field, so it is another build too; a dev build on either side is not
-/// compared, and neither is a daemon that names no pid.
-pub fn refuse_foreign(
-    own: &str,
-    spawned: i32,
-    pid: Option<i32>,
-    build: Option<&str>,
-) -> Result<(), Unready> {
-    let Some(pid) = pid.filter(|pid| *pid != spawned) else {
-        return Ok(());
-    };
-    if own == "dev" || build == Some("dev") || build == Some(own) {
-        return Ok(());
-    }
-    let build = build.unwrap_or("an older one");
-    Err(Unready::Foreign(format!(
-        "another Crowbar (pid {pid}, build {build}) already runs on this home; quit it, then reopen Crowbar"
-    )))
 }
 
 /// Probes /v0/health; on success reports what the daemon says about itself.
@@ -127,13 +93,9 @@ pub async fn check_health(
     Ok(parse_health(&body))
 }
 
-/// Polls until the daemon serves (returning its self-reported pid and build) or halts. A
-/// migrating daemon is waited for without spending `attempts`; only unreachable or wrong
-/// answers do.
-pub async fn wait_for_health(
-    socket: &PathBuf,
-    attempts: u32,
-) -> Result<(Option<i32>, Option<String>), Unready> {
+/// Polls until the daemon serves (returning its self-reported pid) or halts. A migrating
+/// daemon is waited for without spending `attempts`; only unreachable or wrong answers do.
+pub async fn wait_for_health(socket: &PathBuf, attempts: u32) -> Result<Option<i32>, Unready> {
     let mut failed = 0;
     loop {
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -142,7 +104,7 @@ pub async fn wait_for_health(
         // before it records `daemon_pid`, and the watchdog's pid-less fallback,
         // `CommandChild::kill()`, deadlocks on a live daemon.
         match tokio::time::timeout(HEALTH_PROBE_TIMEOUT, check_health(socket)).await {
-            Ok(Ok(Health::Ready { pid, build })) => return Ok((pid, build)),
+            Ok(Ok(Health::Ready { pid })) => return Ok(pid),
             Ok(Ok(Health::Halted { message })) => return Err(Unready::Halted(message)),
             Ok(Ok(Health::Migrating)) => continue,
             _ => failed += 1,
@@ -205,7 +167,7 @@ fn is_descriptor_exhaustion(err: &(dyn std::error::Error + 'static)) -> bool {
 mod tests {
     use super::super::supervisor;
     use super::super::watchdog::PROBE_FAILURE_THRESHOLD;
-    use super::{parse_health, probe_ready, refuse_foreign, wait_for_health, Health, Unready};
+    use super::{parse_health, probe_ready, wait_for_health, Health, Unready};
     use std::path::{Path, PathBuf};
     use supervisor::{probe_indicts_daemon, FailureTracker, Probe};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -218,7 +180,6 @@ mod tests {
         include_str!("../../../../api/internal/core/bootgate/testdata/health-migrating.json");
     const HALTED: &str =
         include_str!("../../../../api/internal/core/bootgate/testdata/health-halted.json");
-    const FIXTURE_BUILD: &str = "5e7c1a90d2b34f6e8a1c0b9d7f3e2a4c6b8d0e1f";
     const HALT_MESSAGE: &str =
         "this home is at layout 9 but this Crowbar only knows layout 0: run a newer Crowbar";
 
@@ -226,10 +187,7 @@ mod tests {
     fn the_three_known_states_map_to_their_health() {
         assert_eq!(
             parse_health(OK.as_bytes()),
-            Health::Ready {
-                pid: Some(4242),
-                build: Some(FIXTURE_BUILD.into())
-            }
+            Health::Ready { pid: Some(4242) }
         );
         assert_eq!(parse_health(MIGRATING.as_bytes()), Health::Migrating);
         assert_eq!(
@@ -238,38 +196,6 @@ mod tests {
                 message: HALT_MESSAGE.into()
             }
         );
-    }
-
-    #[test]
-    fn a_daemon_it_did_not_spawn_is_adopted_only_when_of_its_build() {
-        let own = FIXTURE_BUILD;
-        assert!(
-            refuse_foreign(own, 10, Some(10), Some("other")).is_ok(),
-            "its own child"
-        );
-        assert!(
-            refuse_foreign(own, 10, Some(11), Some(own)).is_ok(),
-            "same build"
-        );
-        assert!(
-            refuse_foreign(own, 10, None, Some("other")).is_ok(),
-            "no pid to judge by"
-        );
-        assert!(
-            refuse_foreign(own, 10, Some(11), Some("dev")).is_ok(),
-            "a dev daemon"
-        );
-        assert!(
-            refuse_foreign("dev", 10, Some(11), Some("other")).is_ok(),
-            "a dev shell"
-        );
-        for build in [Some("other"), None] {
-            let refused = refuse_foreign(own, 10, Some(11), build);
-            assert!(
-                matches!(refused, Err(Unready::Foreign(ref m)) if m.contains("pid 11")),
-                "{build:?}: {refused:?}"
-            );
-        }
     }
 
     #[test]
@@ -282,18 +208,12 @@ mod tests {
     fn a_daemon_that_names_no_state_or_an_unknown_one_is_ready() {
         assert_eq!(
             parse_health(br#"{"success":true,"data":{"pid":7}}"#),
-            Health::Ready {
-                pid: Some(7),
-                build: None
-            },
+            Health::Ready { pid: Some(7) },
             "older daemons predate the status field"
         );
         assert_eq!(
             parse_health(br#"{"success":true,"data":{"status":"resting","pid":7}}"#),
-            Health::Ready {
-                pid: Some(7),
-                build: None
-            }
+            Health::Ready { pid: Some(7) }
         );
     }
 
@@ -303,20 +223,11 @@ mod tests {
             &b"not json"[..],
             br#"{"success":true,"data":{"status":"ok"}}"#,
         ] {
-            assert_eq!(
-                parse_health(body),
-                Health::Ready {
-                    pid: None,
-                    build: None
-                }
-            );
+            assert_eq!(parse_health(body), Health::Ready { pid: None });
         }
         assert_eq!(
             parse_health(br#"{"success":true,"data":{"pid":0}}"#),
-            Health::Ready {
-                pid: None,
-                build: None
-            },
+            Health::Ready { pid: None },
             "pid 0 would signal the whole process group, so it is never accepted"
         );
     }
@@ -362,7 +273,7 @@ mod tests {
         let _serialised = crate::test_support::fd_tests().await;
         let path = socket("migrating");
         let daemon = serve(&path, vec![MIGRATING, MIGRATING, MIGRATING, OK], 503);
-        let (pid, _) = wait_for_health(&path, 1).await.expect("it came up");
+        let pid = wait_for_health(&path, 1).await.expect("it came up");
         daemon.abort();
         std::fs::remove_file(&path).unwrap();
         assert_eq!(
