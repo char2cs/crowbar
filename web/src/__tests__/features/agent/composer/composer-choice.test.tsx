@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
@@ -26,9 +26,7 @@ vi.mock('@/features/agent/api/agent-providers-api', () => ({
   ],
 }))
 
-// jsdom has no PointerEvent constructor; base-ui's Select opens/commits via
-// PointerEvent, same quirk documented in providers-settings.test.tsx's own
-// permission-level picker.
+// jsdom has no PointerEvent, which base-ui's Select opens and commits with.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
   // @ts-expect-error install the shim onto the jsdom window
@@ -168,8 +166,7 @@ describe('ComposerChoice that can be answered', () => {
 })
 
 describe('ComposerChoice that cannot be answered from here', () => {
-  // pending && !answerable is a REAL question asked at the CLI's own terminal, so
-  // it is drawn in full with nothing on it that would reach nobody.
+  // Asked at the CLI's own terminal: drawn in full, with nothing pressable.
   it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
     draw({ answerable: false })
 
@@ -190,9 +187,7 @@ describe('ComposerChoice that cannot be answered from here', () => {
     expect(onOpenTerminal).toHaveBeenCalled()
   })
 
-  // options/questions can both be empty for an unanswerable prompt (a form
-  // nobody can fill and nothing else asked) — there is nothing to list, and the
-  // read-only view draws nothing rather than an empty box.
+  // An unanswerable prompt with nothing to list draws nothing, not an empty box.
   it('renders nothing above the bar when there is nothing to list', () => {
     draw({ kind: 'elicitation', options: [], answerable: false })
 
@@ -230,8 +225,7 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByTestId('agent-choice-error')).toBeNull()
   })
 
-  // 409 means the relay let go between the poll and the click. The controls come
-  // down at once rather than lying until the next read.
+  // 409: the relay let go between poll and click, so the controls come down at once.
   it('takes the controls down when the gate has already closed', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
     const onOpenTerminal = vi.fn()
@@ -247,9 +241,7 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
   })
 
-  // A failure that is neither a closed gate nor an unsupported shape is not one
-  // the bar has a structural answer for — it stays on screen, in the server's
-  // own words, and the controls stay up because retrying might just work.
+  // Any other failure stays on screen in the server's words; retrying might work.
   it('still surfaces a failure that isn’t a closed gate or an unsupported shape', async () => {
     answerChoiceFn.mockRejectedValue(new Error('network blip'))
     draw()
@@ -399,9 +391,7 @@ describe('ComposerChoice with several questions', () => {
     expect(answerChoiceFn).toHaveBeenCalledTimes(1)
   })
 
-  // A single-answer question replaces its pick rather than accumulating one: two
-  // answers to it are refused by the backend, so the control must not be able to
-  // produce them.
+  // The backend refuses two answers to a single-answer question, so a pick replaces.
   it('replaces the pick on a single-answer question', async () => {
     draw(threeQuestions)
 
@@ -453,9 +443,7 @@ describe('ComposerChoice with several questions', () => {
   })
 })
 
-// The graceful fallback, and NOT a migration: a prompt recorded before questions
-// were modelled has no `questions` at all, and it is still a single question
-// described by the prompt's own text and options.
+// A prompt recorded before questions were modelled is one question: its text and options.
 describe('ComposerChoice for a prompt recorded before questions existed', () => {
   it('draws the prompt-level question as a question of one', async () => {
     draw({
@@ -488,9 +476,7 @@ describe('ComposerChoice elicitation', () => {
     schema: '{"type":"object","properties":{"target":{"type":"string"}}}',
   } satisfies Partial<AgentChoice>
 
-  // An accept means handing back a filled-in form built from the provider's own
-  // schema. Crowbar cannot compose that, so it does not offer a button that would
-  // send an empty one — it ships the two verbs it CAN mean and says so.
+  // Accept needs a form Crowbar cannot fill, so only the verbs it can mean are offered.
   it('offers decline and cancel only, with no accept button for a form Crowbar cannot fill', () => {
     draw(elicitation)
 
@@ -655,6 +641,33 @@ describe('ComposerChoice keys', () => {
     show()
     expect(screen.getByRole('button', { name: /Allow/ })).toHaveTextContent('1')
     expect(screen.getByRole('button', { name: /Deny/ })).toHaveTextContent('2')
+  })
+
+  // It replaces the composer just sent from; on the page, number keys answer nothing.
+  it('takes focus when it appears and nothing else holds it', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    expect(screen.getByTestId('agent-choice-prompt')).toHaveFocus()
+  })
+
+  it('lets a digit typed into its reason field be text, not an answer', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    reason.focus()
+    fireEvent.keyDown(reason, { key: '1' })
+    fireEvent.change(reason, { target: { value: '1' } })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    expect(reason).toHaveValue('1')
+  })
+
+  it('leaves focus where it is when something else holds it', () => {
+    const elsewhere = document.createElement('input')
+    document.body.append(elsewhere)
+    onTestFinished(() => elsewhere.remove())
+    elsewhere.focus()
+    show()
+    expect(elsewhere).toHaveFocus()
   })
 
   it('answers nothing by key while it cannot be answered here', () => {

@@ -23,11 +23,15 @@ import (
 // would let the ordering rules agree with a fiction.
 func newTable(t *testing.T, installed func(engineagents.Agent) bool) *provider.Providers {
 	t.Helper()
+	return newTableAt(t, t.TempDir(), installed)
+}
+
+func newTableAt(t *testing.T, home string, installed func(engineagents.Agent) bool) *provider.Providers {
+	t.Helper()
 
 	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
 
-	home := t.TempDir()
 	return provider.New(provider.Deps{
 		Agents:    engineagents.New(),
 		Home:      func() (string, error) { return home, nil },
@@ -260,6 +264,31 @@ func TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey(t *testing.T) {
 	for _, model := range claude.Models {
 		assert.NotEmpty(t, claude.Efforts[model], "every selectable model must answer its levels")
 	}
+}
+
+// A provider that states each model's default effort reports it, so a chat whose stored effort is
+// "" (provider default) can show which level that is. Seeded from the last probe's disk cache.
+func TestResolveProviders_ReportsEachDiscoveredModelsDefaultEffort(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cache := filepath.Join(home, "model-discover-cache")
+	require.NoError(t, os.MkdirAll(cache, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(cache, "codex.json"), []byte(`[
+		{"ID":"m1","Label":"M1","Efforts":["low","medium","high"],"DefaultEffort":"medium"},
+		{"ID":"m2","Label":"M2","Efforts":["low","high"],"DefaultEffort":""}]`), 0o600))
+
+	providers, err := newTableAt(t, home, func(engineagents.Agent) bool { return false }).
+		ResolveProviders(t.Context())
+
+	require.NoError(t, err)
+	for _, p := range providers {
+		if p.ID == "codex" {
+			assert.Equal(t, map[string]string{"m1": "medium"}, p.DefaultEfforts,
+				"a model stating no default is absent, never guessed")
+			return
+		}
+	}
+	t.Fatal("codex not listed")
 }
 
 // Connected is the install probe's answer, not a stored flag. It is injected so

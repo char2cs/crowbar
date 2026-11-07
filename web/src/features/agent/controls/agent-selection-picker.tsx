@@ -137,15 +137,19 @@ function ModelSections({
 function EffortSlider({
   levels,
   effort,
+  defaultEffort,
   onPick,
 }: {
   levels: string[]
   effort: string
+  defaultEffort: string
   onPick: (level: string) => void
 }) {
   // An unknown effort draws no thumb rather than clamping to the first level,
-  // which would look like a pick nobody made.
-  const knownIndex = levels.indexOf(effort)
+  // which would look like a pick nobody made. '' runs at the stated default.
+  const shown = effort || defaultEffort
+  const shownLabel = effort ? effortLabel(effort) : `${effortLabel(defaultEffort)} (default)`
+  const knownIndex = levels.indexOf(shown)
   const hasKnownEffort = knownIndex !== -1
   const effortIndex = Math.max(0, knownIndex)
   const effortPct = levels.length > 1 ? Math.round((effortIndex / (levels.length - 1)) * 100) : 0
@@ -199,7 +203,7 @@ function EffortSlider({
     <div className="border-border/60 border-t px-2.5 pt-2.5 pb-2">
       <div className="mb-2.5 flex items-baseline justify-between text-muted-foreground text-xs">
         <span>Effort</span>
-        <b className="font-semibold text-foreground">{effortLabel(effort)}</b>
+        <b className="font-semibold text-foreground">{shown ? shownLabel : ''}</b>
       </div>
       <div className="px-1.5 py-2">
         <div
@@ -208,7 +212,7 @@ function EffortSlider({
           aria-valuemin={0}
           aria-valuemax={levels.length - 1}
           aria-valuenow={hasKnownEffort ? effortIndex : undefined}
-          aria-valuetext={effortLabel(effort)}
+          aria-valuetext={shown ? shownLabel : ''}
           tabIndex={0}
           onPointerDown={onTrackPointerDown}
           onKeyDown={(event) => {
@@ -246,7 +250,7 @@ function EffortSlider({
             onClick={() => onPick(level)}
             className={cn(
               'rounded px-1 py-0.5 text-[10px] hover:bg-muted hover:text-foreground',
-              level === effort ? 'font-bold text-foreground' : 'text-muted-foreground',
+              level === shown ? 'font-bold text-foreground' : 'text-muted-foreground',
             )}
           >
             {effortLabel(level)}
@@ -438,7 +442,12 @@ export function AgentSelectionPicker({
                 onPick={pickModel}
               />
             </div>
-            <EffortSlider levels={levels} effort={effort} onPick={pickEffort} />
+            <EffortSlider
+              levels={levels}
+              effort={effort}
+              defaultEffort={provider?.defaultEfforts?.[model] ?? ''}
+              onPick={pickEffort}
+            />
           </div>
         </Dropdown>
       )}

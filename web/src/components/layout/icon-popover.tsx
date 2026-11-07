@@ -196,7 +196,7 @@ export function IconPopover({
         aria-label={`Edit ${name} icon`}
         // `align-middle`: inside a caller's bare inline `<span>`, an inline-flex box defaults to
         // baseline and sits a few px high. Harmless when the wrapper is flex/grid.
-        className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none"
+        className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >

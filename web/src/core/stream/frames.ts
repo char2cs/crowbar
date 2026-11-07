@@ -27,8 +27,9 @@ export type Frame =
   /** `seq`: a chat scope's ledger head. `unread`: repos whose rows this snapshot could not
    *  read, so it says nothing of them. */
   | { t: 'synced'; scope: string; seq?: number; unread?: string[] }
-  /** A chat's ledger row; its shape is the chat feature's (`LedgerRow`). */
-  | { t: 'row'; scope: string; row: Record<string, unknown> }
+  /** A chat's ledger row; its shape is the chat feature's (`LedgerRow`). `from`: on a
+   *  window's first row, the seq it follows. */
+  | { t: 'row'; scope: string; row: Record<string, unknown>; from?: number }
   /** Streamed text no row holds yet; its shape is the chat feature's (`FeedDelta`). */
   | { t: 'delta'; scope: string; delta: Record<string, unknown> }
   /** An unversioned fact about a scope (git status, a file change, diagnostics). */
@@ -94,7 +95,7 @@ const SHAPES: Record<Frame['t'], Record<string, { check: Check; optional?: true 
     seq: { check: num, optional: true },
     unread: { check: (v) => Array.isArray(v) && v.every(str), optional: true },
   },
-  row: { scope: { check: str }, row: { check: isRecord } },
+  row: { scope: { check: str }, row: { check: isRecord }, from: { check: num, optional: true } },
   delta: { scope: { check: str }, delta: { check: isRecord } },
   signal: { scope: { check: str }, kind: { check: str }, data: { check: any, optional: true } },
   closed: {

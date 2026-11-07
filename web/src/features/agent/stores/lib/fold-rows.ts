@@ -23,6 +23,7 @@ import {
   notePlan,
   endPlan,
 } from '@/features/agent/stores/lib/fold-subagents'
+import { ItemMap, type ItemDraft } from '@/features/agent/stores/lib/item-map'
 import { placeMessage, settleRound } from '@/features/agent/stores/lib/fold-rounds'
 import {
   liveKey,
@@ -63,9 +64,10 @@ export function emptyFeed(): ChatFeed {
     status: 'connecting',
     epoch: '',
     seq: 0,
+    from: 0,
     order: [],
     liveTail: [],
-    items: {},
+    items: ItemMap.empty,
     live: {},
     liveN: {},
     liveReasoning: null,
@@ -84,7 +86,7 @@ type FactRecord = {
  *  write, so what the rows leave alone keeps its identity, and a replay of
  *  n rows copies each part once instead of n times. */
 export class FeedFold {
-  private items: Record<string, TranscriptItem> | null = null
+  private items: ItemDraft | null = null
   private order: string[] | null = null
   private liveTail: string[] | null = null
   private scoped: Record<string, string[]> | null = null
@@ -93,9 +95,18 @@ export class FeedFold {
   private readonly ownedScopes = new Set<string>()
   private readonly ownedFacts = new Set<FactRecord>()
   private seq: number
+  private from: number
 
   constructor(private readonly base: ChatFeed) {
     this.seq = base.seq
+    this.from = base.from
+  }
+
+  /** An empty fold opens on a window: it holds the rows after `from` only. */
+  startAt(from: number) {
+    if (this.seq !== 0) return
+    this.seq = from
+    this.from = from
   }
 
   /** Folds the row right after the folded seq. One at or below it is already
@@ -108,12 +119,12 @@ export class FeedFold {
   }
 
   item<T extends TranscriptItem>(id: string): T | undefined {
-    return (this.items ?? this.base.items)[id] as T | undefined
+    return (this.items ?? this.base.items).get(id) as T | undefined
   }
 
   put(item: TranscriptItem) {
-    this.items ??= { ...this.base.items }
-    this.items[item.id] = item
+    this.items ??= this.base.items.edit()
+    this.items.set(item)
   }
 
   get facts(): TurnFacts {
@@ -240,7 +251,8 @@ export class FeedFold {
     return {
       ...this.base,
       seq: this.seq,
-      items: this.items ?? this.base.items,
+      from: this.from,
+      items: this.items?.finish() ?? this.base.items,
       order: this.order ?? this.base.order,
       liveTail: this.liveTail ?? this.base.liveTail,
       scoped: this.scoped ?? this.base.scoped,

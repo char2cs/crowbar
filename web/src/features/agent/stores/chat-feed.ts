@@ -15,6 +15,7 @@ import {
   dropFeed,
   failFeed,
   openFeed,
+  refoldFeed,
 } from '@/features/agent/stores/chat-store'
 import { streamFailureWords } from '@/features/hosts/lib/host-failure-notice'
 
@@ -26,7 +27,16 @@ interface Attachment {
   frame: number | null
   /** A synced disagreed with the last applied row and the scope was asked for again. */
   reasked: boolean
+  /** About how many of the newest rows a fresh replay opens on, in whole turns. */
+  rows: number
+  /** A wider window is replaying: the next sub asks for it, not for rows after the head. */
+  widening: boolean
 }
+
+/** A long chat opens on its newest rows; older ones replay as the reader reaches them.
+ *  Rows, not turns: one turn of a heavy chat can hold a thousand of them. */
+const OPEN_ROWS = 1500
+const OLDER_ROWS = 3000
 
 const attachments = new Map<string, Attachment>()
 /** host → the daemon run its stream's ready named: a feed synced under another drops its live tail. */
@@ -53,7 +63,7 @@ function release(chatId: string, attachment: Attachment) {
 function feedFrameOf(hostId: string, f: Frame): FeedFrame | undefined {
   switch (f.t) {
     case 'row':
-      return { type: 'row', row: f.row as unknown as LedgerRow }
+      return { type: 'row', row: f.row as unknown as LedgerRow, from: f.from }
     case 'synced':
       return { type: 'ready', epoch: epochs.get(hostId) ?? '' }
     case 'closed':
@@ -74,7 +84,9 @@ function onFrame(chatId: string, attachment: Attachment, f: Frame) {
   flush(chatId, attachment)
   const frame = feedFrameOf(attachment.hostId, f)
   if (frame) applyFeedFrame(chatId, frame)
-  if (f.t === 'synced') checkHead(chatId, attachment, f.seq)
+  if (f.t !== 'synced') return
+  attachment.widening = false
+  checkHead(chatId, attachment, f.seq)
 }
 
 /** A synced names the ledger's head: one past the last applied row means rows
@@ -91,8 +103,12 @@ function checkHead(chatId: string, attachment: Attachment, head: number | undefi
 }
 
 registerScopeKind('chat', {
-  since: (hostId, chatId) =>
-    attachments.get(chatId)?.hostId === hostId ? (chatStore.getState().feeds[chatId]?.seq ?? 0) : 0,
+  // Rows after the head the feed holds, or (a negative since) a window of the newest rows.
+  since: (hostId, chatId) => {
+    const attachment = attachments.get(chatId)
+    const held = attachment?.hostId === hostId && !attachment.widening
+    return (held && chatStore.getState().feeds[chatId]?.seq) || -(attachment?.rows ?? OPEN_ROWS)
+  },
   epoch: (hostId, next) => {
     epochs.set(hostId, next)
   },
@@ -110,8 +126,19 @@ registerScopeKind('chat', {
   },
 })
 
+/** Opens the chat on more of its older turns: a wider window replays behind the
+ *  shown feed and replaces it at ready. No-op while one replays or none is older. */
+export function loadOlder(chatId: string) {
+  const attachment = attachments.get(chatId)
+  if (!attachment || attachment.widening || !chatStore.getState().feeds[chatId]?.from) return
+  attachment.rows += OLDER_ROWS
+  attachment.widening = true
+  refoldFeed(chatId)
+  resubscribe(attachment.hostId, scopeOf(chatId))
+}
+
 /** Holds the chat's ledger scope on `hostId` while anything attached to it is mounted; the
- *  last detach drops its state, and the next attach replays from since=0. */
+ *  last detach drops its state, and the next attach replays its newest turns afresh. */
 export function attachFeed(hostId: string, chatId: string): () => void {
   let attachment = attachments.get(chatId)
   if (!attachment) {
@@ -123,6 +150,8 @@ export function attachFeed(hostId: string, chatId: string): () => void {
       pending: [],
       frame: null,
       reasked: false,
+      rows: OPEN_ROWS,
+      widening: false,
     }
     attachment = fresh
     attachments.set(chatId, fresh)

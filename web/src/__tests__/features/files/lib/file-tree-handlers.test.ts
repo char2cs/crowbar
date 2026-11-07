@@ -13,6 +13,7 @@ import {
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 import { ApiError } from '@/lib/errors/api-error'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
@@ -165,6 +166,24 @@ describe('refreshDirectory', () => {
     await refreshDirectory('ws-unopened', store, '.git/refs/heads/feat')
 
     expect(list).not.toHaveBeenCalled()
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+
+  // The tree still holds the open folder, but disk lost it before the parent's re-list ran.
+  it('an open folder deleted on disk leaves the expansion without a toast', async () => {
+    const list = vi
+      .spyOn(fileTreeApi, 'fetchFileTree')
+      .mockRejectedValueOnce(new ApiError('no such directory', 404))
+    onTestFinished(() => list.mockRestore())
+    const store = createWorkspaceStore('ws-gone')
+    store
+      .getState()
+      .fileTreeActions.setFiles([{ name: 'feat', path: 'feat', isDir: true, children: [] }])
+    useFileTreeStore.getState().setExpandedPaths('ws-gone', new Set(['feat']))
+
+    await refreshDirectory('ws-gone', store, 'feat')
+
+    expect(useFileTreeStore.getState().isExpanded('ws-gone', 'feat')).toBe(false)
     expect(toastAdd).not.toHaveBeenCalled()
   })
 })

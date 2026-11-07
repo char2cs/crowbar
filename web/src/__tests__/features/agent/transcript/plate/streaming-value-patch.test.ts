@@ -5,13 +5,13 @@ import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-compos
 import {
   applyStreamedValue,
   freshDecorations,
-  resumedFadeDelay,
   settleFreshGeneration,
   settleFreshWord,
   splitIntoWords,
   staggerDelay,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 import { stableBlockCount } from '@/features/agent/transcript/plate/streaming-value-blocks'
+import { resumedFadeDelay } from '@/features/agent/transcript/plate/streaming-fade-delay'
 
 describe('splitIntoWords', () => {
   it('concatenates back to the exact original string', () => {

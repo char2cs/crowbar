@@ -94,7 +94,7 @@ func TestChatSource_MapsEveryFeedFrame(t *testing.T) {
 	row := ledger.Row{ChatID: "c1", Seq: 4}
 	delta := ledger.FeedDelta{ID: "m1", Stream: "answer", N: 1, Text: "a"}
 	src := &feeds{frames: []agentusecase.FeedFrame{
-		{Type: "row", Row: &row},
+		{Type: "row", Row: &row, From: 3},
 		{Type: agentusecase.FeedReady, Seq: 4},
 		{Type: "delta", Delta: &delta},
 		{Type: agentusecase.FeedResync, Seq: 3},
@@ -107,7 +107,7 @@ func TestChatSource_MapsEveryFeedFrame(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c1 since 2"}, src.opened)
 	assert.Equal(t, []stream.Frame{
-		{T: stream.FrameRow, Row: &row},
+		{T: stream.FrameRow, Row: &row, From: 3},
 		{T: stream.FrameSynced, Seq: 4},
 		{T: stream.FrameDelta, Delta: &delta},
 		{T: stream.FrameClosed, Reason: stream.ReasonResync, Seq: 3},

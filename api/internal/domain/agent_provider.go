@@ -50,6 +50,10 @@ type AgentProvider struct {
 	// empty means unknown, never a cue to fall back to Models[0].
 	DefaultModel string
 
+	// DefaultEfforts is the effort each model runs at when none is chosen, keyed by model id, as the
+	// provider states it. A model stating none is absent: unknown, never a cue to use its first level.
+	DefaultEfforts map[string]string
+
 	// PermissionLevels lists which permission levels the descriptor declares, so a client offers only
 	// what SetChatPermissionLevel would accept (absent, never clamped). Nil when none.
 	PermissionLevels []string

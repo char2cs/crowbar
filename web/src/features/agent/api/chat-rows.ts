@@ -55,7 +55,6 @@ export interface ToolCallBody {
   mcpTool?: string
   exitCode?: number
   interrupted?: boolean
-  inputKey?: string
   spawnsScope?: string
   addressesScope?: string
 }
@@ -64,7 +63,6 @@ interface AskBody {
   askId: string
   event: string
   kind?: string
-  promptId?: string
   toolId?: string
   toolName?: string
   title?: string
@@ -85,7 +83,6 @@ interface AskBody {
   toolInput?: unknown
   toolInputTruncated?: boolean
   mcpServer?: string
-  inputKey?: string
   answerable: boolean
 }
 
@@ -96,17 +93,14 @@ export interface RowBodies {
     origin: 'crowbar' | 'provider' | 'harness' | 'note'
     delivery?: 'restart' | 'steer' | 'api'
     runnerId?: string
-    dispatch?: string
     /** The refused prompt this one sends again. */
     retryOf?: string
   }
   turn_started: {
     requestId?: string
-    providerTurnId?: string
     runnerId?: string
     provider?: string
     sessionId?: string
-    persists?: 'turn_start' | 'turn_end'
   }
   prompt_settled: { requestId: string; consumed: boolean; reason: string }
   turn_ended: {
@@ -117,16 +111,8 @@ export interface RowBodies {
     diff?: string
   }
   turn_failed: { reason: string; detail?: string }
-  session_bound: {
-    provider: string
-    sessionId: string
-    cause: 'assigned' | 'announced' | 'fresh' | 'moved'
-    previous?: string
-    /** `moved`: the chat that gave the session up. */
-    from?: string
-  }
-  /** `movedTo`: the chat that resumed the session and took it. */
-  session_lost: { provider: string; sessionId: string; reason: string; movedTo?: string }
+  session_bound: { provider: string; sessionId: string; cause: string }
+  session_lost: { provider: string; sessionId: string; reason: string }
   runner_started: {
     runnerId: string
     provider: string
@@ -147,7 +133,7 @@ export interface RowBodies {
     reply?: string
   }
   reasoning: { messageId?: string; text: string }
-  marker: { kind: MarkerKind; detail?: string; providerTurnId?: string }
+  marker: { kind: MarkerKind; detail?: string }
   tool_call: ToolCallBody
   ask: AskBody
   ask_resolved: {
@@ -182,7 +168,8 @@ export interface FeedDelta {
 
 // Go `omitempty`: an absent seq is 0.
 export type FeedFrame =
-  | { type: 'row'; row: LedgerRow }
+  /** `from`: on a window's first row, the seq it follows. */
+  | { type: 'row'; row: LedgerRow; from?: number }
   | { type: 'ready'; epoch: string }
   | { type: 'delta'; delta: FeedDelta }
   | { type: 'resync'; seq?: number }

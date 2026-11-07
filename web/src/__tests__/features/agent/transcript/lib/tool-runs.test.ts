@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCallBody } from '@/features/agent/api/chat-rows'
+import { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolItem, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 import { toolFamily } from '@/features/agent/transcript/lib/tool-family'
 import { displayRows, runSentence } from '@/features/agent/transcript/lib/tool-runs'
@@ -40,10 +41,11 @@ const text = (id: string): TranscriptItem => ({
 })
 
 function rowsOf(list: TranscriptItem[]) {
-  const items = Object.fromEntries(list.map((item) => [item.id, item]))
+  const items = ItemMap.empty.edit()
+  for (const item of list) items.set(item)
   return displayRows(
     list.map((item) => item.id),
-    items,
+    items.finish(),
   )
 }
 
@@ -83,6 +85,20 @@ describe('displayRows', () => {
         { id: `g:${after.id}`, members: [after.id] },
       ])
     }
+  })
+
+  // A memoized row skips only while its props keep their identity.
+  it('keeps the rows a newer call leaves as they were', () => {
+    const a = tool({ kind: 'read', target: '/a' })
+    const b = tool({ kind: 'search', target: 'x' })
+    const edit = tool({ kind: 'edit', target: '/a' })
+    const items = ItemMap.empty.edit()
+    for (const item of [a, b, edit]) items.set(item)
+    const map = items.finish()
+    const before = displayRows([a.id, b.id, edit.id], map)
+    const after = displayRows([a.id, b.id, edit.id, 'later'], map, before)
+    expect(after[0]).toBe(before[0])
+    expect(after[1]).toBe(before[1])
   })
 
   it('hides meta and plan tool rows', () => {

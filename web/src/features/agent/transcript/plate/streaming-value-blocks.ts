@@ -24,7 +24,7 @@ export function nodesEqual(a: unknown, b: unknown): boolean {
 
 // Excludes `text` too: on a leaf, text is allowed to differ — only the marks
 // must match for a text change to be a pure append.
-function ownPropsEqual(a: Node, b: Node): boolean {
+export function ownPropsEqual(a: Node, b: Node): boolean {
   const keysA = Object.keys(a).filter(
     (k) => !IGNORED_KEYS.has(k) && k !== 'children' && k !== 'text',
   )

@@ -63,6 +63,12 @@ export function applyFeedDeltas(chatId: string, deltas: FeedDelta[]) {
   if (feed) publish(chatId, deltas.reduce(applyLive, feed))
 }
 
+/** Replays the chat afresh behind what is shown: the feed it publishes at ready
+ *  replaces this one, so a wider window lands in one write. */
+export function refoldFeed(chatId: string) {
+  draftOf(chatId, emptyFeed())
+}
+
 function draftOf(chatId: string, feed: ChatFeed): FeedFold {
   const draft = new FeedFold(feed)
   drafts.set(chatId, draft)
@@ -74,10 +80,11 @@ export function applyFeedFrame(chatId: string, frame: FeedFrame) {
   const feed = chatStore.getState().feeds[chatId] ?? emptyFeed()
   switch (frame.type) {
     case 'row': {
-      const draft = drafts.get(chatId)
-      if (draft) draft.apply(frame.row)
-      else if (feed.status !== 'live') draftOf(chatId, feed).apply(frame.row)
-      else publish(chatId, applyRow(feed, frame.row))
+      let draft = drafts.get(chatId)
+      if (!draft && (feed.status !== 'live' || frame.from)) draft = draftOf(chatId, feed)
+      if (!draft) return publish(chatId, applyRow(feed, frame.row))
+      if (frame.from) draft.startAt(frame.from)
+      draft.apply(frame.row)
       return
     }
     case 'ready': {

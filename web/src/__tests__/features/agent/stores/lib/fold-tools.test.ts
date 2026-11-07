@@ -25,6 +25,6 @@ describe('applyAsk', () => {
         { turnId: 'turn-1' },
       ),
     ])
-    expect((feed.items['a:q1'] as AskItem).family).toBe('execute')
+    expect((feed.items.get('a:q1') as AskItem).family).toBe('execute')
   })
 })

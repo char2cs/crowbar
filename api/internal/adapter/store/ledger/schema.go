@@ -10,6 +10,8 @@ var schema = []string{
 		at INTEGER NOT NULL,
 		body BLOB NOT NULL,
 		PRIMARY KEY (chat_id, seq)) WITHOUT ROWID`,
+	// A feed's window finds where each of its turns begins.
+	`CREATE INDEX IF NOT EXISTS chat_ledger_by_turn ON chat_ledger (chat_id, turn_id, seq)`,
 	`CREATE TABLE IF NOT EXISTS chat_ledger_heads (
 		chat_id TEXT PRIMARY KEY, last_seq INTEGER NOT NULL, open INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS chat_ledger_sessions (

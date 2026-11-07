@@ -102,7 +102,7 @@ function useNewestFailure(chatId: string, id: string): boolean {
     const at = feed.order.indexOf(id)
     // A prompt the provider never took is no answer to this failure: it is its casualty.
     const sent = (later: string) => {
-      const item = feed.items[later]
+      const item = feed.items.get(later)
       if (item?.kind !== 'user') return false
       return !item.requestId || feed.facts.prompts[item.requestId]?.state !== 'refused'
     }
@@ -116,7 +116,7 @@ function usePromptOf(chatId: string, turnId: string | undefined): string | undef
     const feed = s.feeds[chatId]
     if (!feed || !turnId) return undefined
     for (const id of feed.order) {
-      const item = feed.items[id]
+      const item = feed.items.get(id)
       if (item?.kind === 'user' && item.turnId === turnId) return item.requestId
     }
     return undefined

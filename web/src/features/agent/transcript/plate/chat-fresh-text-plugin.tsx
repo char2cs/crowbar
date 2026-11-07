@@ -7,10 +7,10 @@ import {
   CHAT_FRESH_WORD_INDEX_MARK,
   CHAT_FRESH_WORD_TOTAL_MARK,
   freshDecorations,
-  resumedFadeDelay,
   settleFreshGeneration,
   settleFreshWord,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
+import { resumedFadeDelay } from '@/features/agent/transcript/plate/streaming-fade-delay'
 
 /** Reads `props.leaf`, not `props.text`: the marks are decorations and never touch
  *  the document. Settles on the real `animationend`, never a timer. */

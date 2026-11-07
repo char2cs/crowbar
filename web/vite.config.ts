@@ -32,10 +32,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
       // @platejs/markdown imports remark-mdx only for an optional plugin we
       // never enable; the real one pulls acorn into the markdown chunk.
-      'remark-mdx': path.resolve(__dirname, './src/lib/stubs/remark-mdx.ts'),
+      'remark-mdx': path.resolve(import.meta.dirname, './src/lib/stubs/remark-mdx.ts'),
     },
     // Force a single copy of react/react-dom — pnpm's virtual store can
     // resolve multiple versions when peer deps differ across packages.
@@ -54,7 +54,7 @@ export default defineConfig({
     alias: {
       // Stub the Tauri desktop API — it is only available inside the native shell.
       '@tauri-apps/api/core': path.resolve(
-        __dirname,
+        import.meta.dirname,
         './src/__tests__/__mocks__/tauri-api-core.ts',
       ),
       // Vitest externalizes node_modules imports by default (bypassing Vite's
@@ -64,7 +64,7 @@ export default defineConfig({
       // Only takes effect once the module is inlined (below): an externalized
       // import is a raw Node `import()` that never consults this alias.
       'katex/dist/katex.min.css': path.resolve(
-        __dirname,
+        import.meta.dirname,
         './src/__tests__/__mocks__/katex-css-stub.ts',
       ),
     },

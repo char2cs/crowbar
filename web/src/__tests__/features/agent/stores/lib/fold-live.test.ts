@@ -30,7 +30,7 @@ describe('applyDelta', () => {
     expect(restarted.live).toEqual({})
     expect(restarted.liveN).toEqual({})
     expect(restarted.liveTail).toEqual([])
-    expect(restarted.items['m:turn-1:m1']).toBeUndefined()
+    expect(restarted.items.get('m:turn-1:m1')).toBeUndefined()
   })
 
   it('symptom 7: a delta changes only its own item live text', () => {
@@ -62,7 +62,7 @@ describe('applyDelta', () => {
     const landed = applyRows(feed, [l.text('turn-1', 'm1', 0, 'Hel')])
     expect(landed.liveTail).toEqual([])
     expect(landed.order).toEqual(['m:turn-1:m1'])
-    expect(landed.items['m:turn-1:m1']?.seq).toBe(1)
+    expect(landed.items.get('m:turn-1:m1')?.seq).toBe(1)
   })
 
   it('tracks the newest main reasoning stream', () => {

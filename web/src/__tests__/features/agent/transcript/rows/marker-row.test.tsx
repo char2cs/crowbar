@@ -22,7 +22,7 @@ function draw(id: string, actions = noRowActions) {
 }
 
 const markerOf = (feed: ReturnType<typeof seed>) =>
-  feed.order.find((id) => feed.items[id]?.kind === 'marker')
+  feed.order.find((id) => feed.items.get(id)?.kind === 'marker')
 
 beforeEach(() => chatStore.setState({ feeds: {}, outbox: {} }))
 afterEach(() => vi.restoreAllMocks())
@@ -146,7 +146,7 @@ describe('MarkerRow', () => {
     l.row('turn_failed', { reason: 'provider_error' }, { turnId: `turn-${n}` }),
   ]
   const markers = (feed: ReturnType<typeof seed>) =>
-    feed.order.filter((id) => feed.items[id]?.kind === 'marker')
+    feed.order.filter((id) => feed.items.get(id)?.kind === 'marker')
 
   it('offers Retry once, on the newest failed turn only, with that turn’s prompt', () => {
     const l = ledger()

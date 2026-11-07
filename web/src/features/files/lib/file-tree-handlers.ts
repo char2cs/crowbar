@@ -14,6 +14,8 @@ import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
 import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { report } from '@/lib/errors/report'
+import { isNotFoundError } from '@/lib/errors/api-error'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { joinPath } from '@/utils/path-helpers'
 
 /** Which pane a file opens into; omitted, the focused pane. */
@@ -71,7 +73,9 @@ export async function refreshDirectory(
   try {
     fresh = await fetchFileTree(wsId, path || undefined)
   } catch (err) {
-    report(err, { action: 'Refresh the file tree' })
+    // A folder gone from disk leaves the expansion; its parent's re-list drops the node.
+    if (path && isNotFoundError(err)) useFileTreeStore.getState().collapsePath(wsId, path)
+    else report(err, { action: 'Refresh the file tree' })
     return
   }
   const { files, fileTreeActions } = store.getState()

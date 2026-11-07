@@ -70,6 +70,10 @@ type Agent interface {
 	// or nothing has resolved yet; never inferred from Models()'s order.
 	DefaultModel() string
 
+	// DefaultEffort is the effort model runs at when none is chosen, as the provider states it; empty
+	// when it states none.
+	DefaultEffort(model string) string
+
 	// PermissionLevels reports which of Crowbar's own guarded/trusted/
 	// full-auto names this provider can actually reach. A level absent here
 	// must never be offered for this provider — never clamped to one that is.
@@ -246,6 +250,13 @@ func (a *agent) Efforts(model string) []string {
 func (a *agent) DefaultModel() string {
 	if a.discoversModels() {
 		return a.discovery.DefaultModel(a.spec.ID)
+	}
+	return ""
+}
+
+func (a *agent) DefaultEffort(model string) string {
+	if a.discoversModels() {
+		return a.discovery.DefaultEffort(a.spec.ID, model)
 	}
 	return ""
 }

@@ -14,6 +14,9 @@ export function TurnDiffPreview({ diff, turnId }: TurnDiffPreviewProps) {
   const options = useMemo<CodeViewOptions<undefined, undefined>>(
     () => ({
       diffStyle: 'unified',
+      // A patch has no count of the lines between hunks; the default separator then
+      // prints a vague "may be available" line.
+      hunkSeparators: 'simple',
       // The bordered wrapper is the frame: CodeView's own top/bottom padding
       // would float the diff away from its border.
       layout: { paddingTop: 0, paddingBottom: 0, gap: 8 },

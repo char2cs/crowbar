@@ -1,5 +1,5 @@
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
-import { useEffect, useEffectEvent, useState, type KeyboardEvent } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type KeyboardEvent } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -110,6 +110,13 @@ export function ComposerChoice({
   const detail = choiceDetail(choice, toolTarget)
   const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  // The card replaces the composer the person sent from; with that focus gone to the page, the
+  // card takes it so its number keys answer. Focus held anywhere else is left alone.
+  useEffect(() => {
+    if (!document.activeElement || document.activeElement === document.body)
+      cardRef.current?.focus({ preventScroll: true })
+  }, [choice.id])
   const expanded = expandedId === choice.id
   const view = request && choice.kind === 'tool_permission' ? requestView(request) : null
   const hiddenCue = view && !expanded ? foldedCue(foldCode(view.code)) : ''
@@ -195,6 +202,7 @@ export function ComposerChoice({
   // into a column squeezed against the sentence that introduces them.
   return (
     <div
+      ref={cardRef}
       className="asks"
       role="group"
       aria-label={`${providerLabel} is waiting for your answer`}

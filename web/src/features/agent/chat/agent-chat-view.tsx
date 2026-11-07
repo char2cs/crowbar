@@ -33,7 +33,8 @@ import { handleComposerKey } from '@/features/agent/chat/lib/composer-keys'
 import { useChatSend } from '@/features/agent/chat/use-chat-send'
 import { useConfirmedModel } from '@/features/agent/chat/use-confirmed-model'
 import { useComposerDraft } from '@/features/agent/chat/use-composer-draft'
-import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
+import { ChatWorkingLine } from '@/features/agent/chat/chat-working-line'
+import { promptTexts, useComposerFacts } from '@/features/agent/chat/use-composer-facts'
 import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
@@ -161,7 +162,8 @@ export function AgentChatView({
     return () => cancelAnimationFrame(raf)
   }, [opened])
 
-  const history = usePromptHistory(facts.userTexts)
+  const readPrompts = useCallback(() => promptTexts(chatId), [chatId])
+  const history = usePromptHistory(readPrompts)
   const composer = useComposerDraft({
     wsId,
     chatId,
@@ -345,19 +347,7 @@ export function AgentChatView({
       providers={providers}
       status={facts.status}
       working={working}
-      line={{
-        working: facts.active,
-        since: facts.since,
-        compacting,
-        asking: facts.asks.length > 0,
-        activeTodo: facts.activeTodo,
-        toolLabel: facts.toolLabel,
-        agents: facts.agents,
-        reasoning: facts.reasoning,
-        streaming: facts.streaming,
-        stopping: facts.stopping,
-        connecting,
-      }}
+      tail={<ChatWorkingLine chatId={chatId} connecting={connecting} />}
       onOpenTerminal={onOpenTerminal}
       promptActions={rowActions}
       dockHeight={dock.dockHeight}
