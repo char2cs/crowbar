@@ -102,5 +102,6 @@ func TestCheckMatchesTheDesktopFixture(
 
 	body := strings.Replace(rec.Body.String(), `"pid":`+strconv.Itoa(os.Getpid()), `"pid":4242`, 1)
 	body = strings.Replace(body, `"version":"`+metadata.GetVersion()+`"`, `"version":"0.1.0"`, 1)
+	body = strings.Replace(body, `"build":"`+metadata.GetBuild()+`"`, `"build":"5e7c1a90d2b34f6e8a1c0b9d7f3e2a4c6b8d0e1f"`, 1)
 	assert.Equal(t, string(want), body)
 }

@@ -150,7 +150,7 @@ func TestRegisterStatic_CompressesTheSPAFallbackIndex(t *testing.T) {
 		assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), target)
 		assert.Contains(t, rec.Header().Get("Content-Type"), "text/html", target)
 		assert.Equal(t, "<html>app</html>", gunzip(t, rec.Body.Bytes()), target)
-		assert.Empty(t, rec.Header().Get("Cache-Control"), target)
+		assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"), target, "a reload after an upgrade fetches the new page")
 	}
 }
 
@@ -166,6 +166,6 @@ func TestRegisterStatic_AMissingAssetFallsBackWithoutImmutableCaching(t *testing
 	rec := serveStatic(t, newCompressedStaticFS(t), "/assets/gone-123.js", "")
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
 	assert.Contains(t, rec.Body.String(), "app")
 }
