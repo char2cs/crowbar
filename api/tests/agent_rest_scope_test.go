@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 // stubProviderDescriptorYAML is a minimal valid agent provider descriptor
@@ -478,17 +480,18 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 	require.Equal(t, wantIDs, chatIDs(t, h, repoBase(ws)),
 		"the chat list must agree with the answer the API gave: a refusal leaves nothing behind")
 
-	// Nor a directory of its own. Nothing under the workspace's chats dir may be
-	// keyed by a chat that does not exist — only the shared dir the RUNNER
-	// lifecycle owns, which is not a chat's.
+	// Nor a directory of its own, under the workspace's chats dir or the home's:
+	// none keyed by a chat that does not exist, only the RUNNER lifecycle's shared
+	// dir. A refusal may leave either dir uncreated.
 	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(context.Background(), ws.workspaceID)
 	require.NoError(t, err)
-	entries, err := os.ReadDir(chatsDir)
-	require.NoError(t, err)
 	allowed := append([]string{"runners"}, wantIDs...)
-	for _, entry := range entries {
-		assert.Contains(t, allowed, entry.Name(),
-			"a refused spawn left a per-chat directory behind")
+	for _, dir := range []string{chatsDir, worktreepath.LedgerChatsDir(h.home)} {
+		entries, err := os.ReadDir(dir)
+		require.Truef(t, err == nil || os.IsNotExist(err), "read %s: %v", dir, err)
+		for _, entry := range entries {
+			assert.Contains(t, allowed, entry.Name(), "a refused spawn left a per-chat directory behind")
+		}
 	}
 
 	created := createAgentChat(t, h, ws)
