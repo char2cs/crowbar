@@ -221,6 +221,10 @@ jobs:
         # (verified locally: a single-warning finding scored 98/100 but still
         # exited 0 under the default). `warning` is the level that actually
         # gates on "not 100/100".
+        # A cold runner never reuses its cache, and building it takes ~130s versus
+        # ~10s without, which put the lint phase on the 300s timeout.
+        env:
+          REACT_DOCTOR_NO_CACHE: '1'
         run: cd web && bunx react-doctor . -y --blocking warning --no-color
 
   website-checks:

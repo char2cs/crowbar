@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
+import { useHasViewStrip } from '@/features/panes/hooks/use-tab-view-ids'
 
 // See the `isAtTopEdge` check's own doc below for why this isn't 10.
 // Exported: `useMacTrafficLightSync` re-runs the identical "is this row the

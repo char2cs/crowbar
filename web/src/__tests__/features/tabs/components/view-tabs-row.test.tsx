@@ -59,6 +59,23 @@ describe('ViewTabsRow', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('lists every project’s views when the tab list is set to all', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().setActiveProject('p2')
+    actions().openChat('chat-2', { workspaceId: 'ws-1' })
+    render(<ViewTabsRow />)
+    expect(screen.queryByTestId('recents-row-chat-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('recents-row-chat-2')).toBeInTheDocument()
+
+    act(() =>
+      useSettingsStore.setState((state) => {
+        state.settings.tabListScope = 'all'
+      }),
+    )
+    expect(screen.getByTestId('recents-row-chat-1')).toBeInTheDocument()
+    expect(screen.getByTestId('recents-row-chat-2')).toBeInTheDocument()
+  })
+
   it('renders nothing before any project is active', () => {
     resetWindowPaneStoreForTests()
     const { container } = render(<ViewTabsRow />)

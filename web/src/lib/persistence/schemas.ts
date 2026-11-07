@@ -79,6 +79,8 @@ export interface SidebarUI {
   /** The host whose projects the switcher lists. Absent on an older record; 'all' on one written
    *  before the switcher showed one host at a time, which matches no host. */
   hostFilter?: string
+  /** Host id → the project last open on it. Absent on a record written before it existed. */
+  lastProjectByHost?: Record<string, string>
   updatedAt: number
 }
 

@@ -231,6 +231,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['sidebar', 'position', 'left', 'right', 'layout'],
   },
   {
+    id: 'appearance-tab-list',
+    tab: 'appearance',
+    section: 'Layout',
+    label: 'Tab list',
+    description: 'List the tabs of the current project, or every tab open on this client',
+    keywords: ['tab', 'tabs', 'list', 'strip', 'project', 'host', 'all'],
+  },
+  {
     id: 'appearance-sidebar-follows-focus',
     tab: 'appearance',
     section: 'Layout',

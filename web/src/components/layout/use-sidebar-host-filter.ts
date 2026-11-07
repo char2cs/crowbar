@@ -24,12 +24,13 @@ export function useSidebarHostFilter(
   const shown = shownHostOf(filter, hostIds, projects, activeProjectId)
   const shownProjects = useMemo(() => projectsOnHost(projects, shown), [projects, shown])
 
-  // Land on the host's latest project unless the active one is already there.
+  // Land on the host's remembered project, else its latest, unless the active one is already there.
   const selectHost = useCallback(
     (hostId: string) => {
       useSidebarStore.getState().setHostFilter(hostId)
       if (projects.find((p) => p.id === activeProjectId)?.hostId === hostId) return
-      const landing = landingProject(projects, hostId)
+      const remembered = useSidebarStore.getState().lastProjectByHost[hostId]
+      const landing = landingProject(projects, hostId, remembered)
       if (landing) onSelectProject(landing.id)
     },
     [projects, activeProjectId, onSelectProject],

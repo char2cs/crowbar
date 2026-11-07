@@ -92,6 +92,10 @@ function normalizeSidebarFollowsFocus(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('sidebarFollowsFocus')
 }
 
+function normalizeTabListScope(value: unknown): Settings['tabListScope'] {
+  return value === 'all' || value === 'project' ? value : getDefaultSetting('tabListScope')
+}
+
 function normalizeBrowserZoom(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return getDefaultSetting('browserZoom')
   return Math.min(BROWSER_ZOOM_MAX, Math.max(BROWSER_ZOOM_MIN, Math.round(value)))
@@ -160,6 +164,9 @@ export function normalizeSettings(settings: Settings): Settings {
   )
   normalizedSettings.sidebarFollowsFocus = normalizeSidebarFollowsFocus(
     (normalizedSettings as { sidebarFollowsFocus?: unknown }).sidebarFollowsFocus,
+  )
+  normalizedSettings.tabListScope = normalizeTabListScope(
+    (normalizedSettings as { tabListScope?: unknown }).tabListScope,
   )
 
   if (!normalizedSettings.themeMode) {
@@ -238,6 +245,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'sidebarFollowsFocus') {
     return normalizeSidebarFollowsFocus(value) as Settings[K]
+  }
+
+  if (key === 'tabListScope') {
+    return normalizeTabListScope(value) as Settings[K]
   }
 
   if (key === 'themeMode') {

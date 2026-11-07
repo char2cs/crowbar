@@ -45,7 +45,7 @@ function setup(activeProjectId: string | undefined, projects = PROJECTS) {
 
 beforeEach(() => {
   resetHostWorld()
-  useSidebarStore.setState({ hostFilter: '' })
+  useSidebarStore.setState({ hostFilter: '', lastProjectByHost: {} })
 })
 
 describe('useSidebarHostFilter', () => {
@@ -84,6 +84,13 @@ describe('useSidebarHostFilter', () => {
       act(() => result.current.selectHost('h1'))
       expect(useSidebarStore.getState().hostFilter).toBe('h1')
       expect(onSelectProject).toHaveBeenCalledExactlyOnceWith('b-new')
+    })
+
+    it('choosing a host returns to the project last open there, not its latest', () => {
+      useSidebarStore.getState().rememberHostProject('h1', 'b-old')
+      const { result, onSelectProject } = setup('a')
+      act(() => result.current.selectHost('h1'))
+      expect(onSelectProject).toHaveBeenCalledExactlyOnceWith('b-old')
     })
 
     it('keeps the active project when it is already on the chosen host', () => {

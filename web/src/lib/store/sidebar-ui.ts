@@ -26,28 +26,36 @@ export interface SidebarUIState {
    * shows is `shownHostOf` (host-filter.ts), where the active project's host wins.
    */
   hostFilter: string
+  /** Each host's project the window last had open, so choosing the host returns there. */
+  lastProjectByHost: Record<string, string>
   /** Fold a Chats-panel row away, or open it again. */
   toggleChatRow: (rowId: string) => void
   setActiveTab: (tab: SidebarTab) => void
   setHostFilter: (hostId: string) => void
+  rememberHostProject: (hostId: string, projectId: string) => void
 }
 
-type Persisted = Pick<SidebarUIState, 'collapsedChatRows' | 'activeTab' | 'hostFilter'>
+type Persisted = Pick<
+  SidebarUIState,
+  'collapsedChatRows' | 'activeTab' | 'hostFilter' | 'lastProjectByHost'
+>
 
 export function initialSidebarUIState(): Persisted {
   return {
     collapsedChatRows: new Set<string>(),
     activeTab: 'chats',
     hostFilter: '',
+    lastProjectByHost: {},
   }
 }
 
-// Folds, mode and host filter share one record, so every write carries all three.
+// Folds, mode, host filter and per-host projects share one record, so every write carries all.
 function persist(state: Persisted): void {
   void saveSidebarUI({
     collapsedChatRows: [...state.collapsedChatRows],
     activeTab: state.activeTab,
     hostFilter: state.hostFilter,
+    lastProjectByHost: state.lastProjectByHost,
   })
 }
 
@@ -74,5 +82,12 @@ export const createSidebarUISlice: StateCreator<SidebarUIState, [], [], SidebarU
       if (s.hostFilter === hostId) return s
       persist({ ...s, hostFilter: hostId })
       return { hostFilter: hostId }
+    }),
+  rememberHostProject: (hostId, projectId) =>
+    set((s) => {
+      if (s.lastProjectByHost[hostId] === projectId) return s
+      const lastProjectByHost = { ...s.lastProjectByHost, [hostId]: projectId }
+      persist({ ...s, lastProjectByHost })
+      return { lastProjectByHost }
     }),
 })
