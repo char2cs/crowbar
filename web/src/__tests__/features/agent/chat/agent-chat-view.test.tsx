@@ -325,14 +325,14 @@ describe('AgentChatView Esc', () => {
     return (value: { state: 'retracted'; text: string }) => answer(value)
   }
 
-  it('symptom 5: Esc in an empty composer puts the retracted text back', async () => {
+  it('symptom 5: Stop before the turn begins puts the retracted text back', async () => {
     const submit = submitted()
     const retract = vi
       .spyOn(commands, 'retractPrompt')
       .mockResolvedValue({ state: 'retracted', text: 'never mind' })
     const l = ledger('c1', 4)
     seedFeed('c1', spokenIn('c1'))
-    draw('c1')
+    draw('c1', { live: false })
 
     await type('never mind')
     await press('Enter')
@@ -341,7 +341,7 @@ describe('AgentChatView Esc', () => {
     act(() => seedFeed('c1', [l.prompt(requestId, 'never mind')]))
     expect(markdown()).toBe('')
 
-    await press('Escape')
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
 
     expect(retract).toHaveBeenCalledWith('w1', 'c1', requestId)
     await waitFor(() => expect(markdown()).toBe('never mind'))

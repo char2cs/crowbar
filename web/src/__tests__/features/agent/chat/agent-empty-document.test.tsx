@@ -311,6 +311,12 @@ describe('AgentEmptyDocument sending state', () => {
     expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
+  it('stops a first prompt it can take back while that prompt is on its way', () => {
+    draw({ sending: true, canStop: true })
+
+    expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeEnabled()
+  })
+
   it('prefers the stop control over the sending spinner when both apply', () => {
     draw({ working: true, canStop: true, sending: true })
 

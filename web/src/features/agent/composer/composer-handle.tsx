@@ -9,7 +9,7 @@ interface ComposerHandleProps {
   fieldHeight: number
   hasText: boolean
   working: boolean
-  /** The provider declares an interrupt Crowbar can send. */
+  /** The running turn can be interrupted, or the prompt being taken up taken back. */
   canStop: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
@@ -33,7 +33,7 @@ export function ComposerHandle({
   onOpenAttachFile,
 }: ComposerHandleProps) {
   // A phone has no Enter to queue with, so typed text makes the button send.
-  const stopping = working && canStop && !(IS_MOBILE && hasText)
+  const stopping = (working || sending) && canStop && !(IS_MOBILE && hasText)
   const sendingVisual = !stopping && !hasText && sending
   const idle = !stopping && !sendingVisual && !hasText
 

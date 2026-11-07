@@ -114,7 +114,7 @@ export function AgentEmptyDocument({
   const empty = !hasText
   // Stopping wins even with text in the document: a turn already running must
   // keep its only way to be interrupted while the person writes.
-  const stopping = working && canStop
+  const stopping = (working || sending) && canStop
   const sendingVisual = !stopping && empty && sending
   const idle = !stopping && !sendingVisual && empty
 

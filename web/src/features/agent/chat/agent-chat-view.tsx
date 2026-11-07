@@ -255,7 +255,10 @@ export function AgentChatView({
     history.reset()
   }
 
-  const handleStop = () => void stopTurn(wsId, chatId)
+  // Before its turn begins a prompt is stopped by taking it back, so Stop shows while it is
+  // taken up (a provider switch can hold that for seconds), not only once the CLI runs it.
+  const canStop = working ? live : prompts.sending
+  const handleStop = () => (working ? void stopTurn(wsId, chatId) : void retract())
 
   // An open @ path picker takes the keys before the skill picker: it completes in place.
   const picker = mention.open ? mention : slash
@@ -434,7 +437,7 @@ export function AgentChatView({
                 submitUnavailable={prompts.unsupported}
                 terminalWait={terminalWait}
                 feedError={unfollowed}
-                canStop={live}
+                canStop={canStop}
                 slashOpen={picker.highlighted !== undefined}
                 onShapeChange={composer.noteShape}
                 onKeyDown={handleKeyDown}

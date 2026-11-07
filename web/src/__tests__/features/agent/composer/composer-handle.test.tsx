@@ -122,6 +122,14 @@ describe('ComposerHandle', () => {
     expect(onStop).not.toHaveBeenCalled()
   })
 
+  // A prompt still being taken up can be taken back, so it is stopped like a turn.
+  it('becomes the stop control while a prompt it can take back is on its way', () => {
+    const { onStop } = draw({ sending: true, canStop: true })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    expect(onStop).toHaveBeenCalled()
+  })
+
   // A real interrupt is worth more than a spinner that only says something is
   // in flight — stopping wins whenever both apply.
   it('prefers the stop control over the sending spinner when both apply', () => {
