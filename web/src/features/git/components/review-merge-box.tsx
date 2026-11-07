@@ -80,7 +80,9 @@ export function ReviewMergeBox({ wsId }: { wsId: string }) {
 
       {merged ? null : (
         <CardContent className="flex min-w-0 flex-col gap-2 p-3">
-          {action.kind === 'commit' && <CommitChangesForm wsId={wsId} changes={uncommitted} />}
+          {action.kind === 'commit' && (
+            <CommitChangesForm wsId={wsId} files={gitStatus?.files ?? []} />
+          )}
           <div className="flex min-w-0 flex-col gap-2">
             <Select
               value={strategy}
