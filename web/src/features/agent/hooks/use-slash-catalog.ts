@@ -8,7 +8,7 @@ import { ApiError } from '@/lib/errors/api-error'
 
 const SLASH_DEBOUNCE_MS = 150
 
-export type SlashCatalogState =
+type SlashCatalogState =
   | { state: 'closed' }
   | { state: 'ready'; catalog: SlashCatalog }
   | { state: 'error'; error: Error; unavailable: boolean }
@@ -117,14 +117,19 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     }
   }, [open, active, probe])
 
+  // A command named by what was typed leads, as in the CLI's own menu; a match in
+  // its description or source still shows, below.
   const items = useMemo(() => {
     if (state.state !== 'ready') return []
     if (!query) return state.catalog.items
-    return state.catalog.items.filter((item) =>
+    const named = (item: SlashCatalogItem) =>
+      item.insertText.replace(/^[/$]/, '').toLowerCase().startsWith(query)
+    const mentions = (item: SlashCatalogItem) =>
       `${item.label}\n${item.description}\n${item.source}\n${item.insertText}`
         .toLowerCase()
-        .includes(query),
-    )
+        .includes(query)
+    const all = state.catalog.items
+    return [...all.filter(named), ...all.filter((item) => !named(item) && mentions(item))]
   }, [state, query])
 
   useEffect(() => {

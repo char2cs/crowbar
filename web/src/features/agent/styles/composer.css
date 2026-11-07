@@ -1050,11 +1050,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.agent-chat .slash .state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+.agent-chat .slash .opt .h {
+  flex: none;
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
 }

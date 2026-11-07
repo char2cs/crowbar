@@ -39,7 +39,7 @@ describe('handleComposerKey', () => {
       event,
       () => 'tests',
       { atStart: false, atEnd: true },
-      { empty: false, slashQuery: null },
+      { empty: false, slashQuery: null, mentionQuery: null },
     )
 
     expect(event.preventDefault).toHaveBeenCalled()

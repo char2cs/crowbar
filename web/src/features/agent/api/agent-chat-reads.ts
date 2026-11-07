@@ -125,11 +125,13 @@ type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
 
 export interface SlashCatalogItem {
   id: string
-  kind: 'skill'
+  kind: 'skill' | 'builtin' | 'command'
   label: string
   description: string
   insertText: string
   source: string
+  /** Running it opens a dialog only the CLI's terminal shows. */
+  terminal?: boolean
 }
 
 export interface SlashCatalog {

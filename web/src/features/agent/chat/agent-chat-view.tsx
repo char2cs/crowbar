@@ -421,8 +421,7 @@ export function AgentChatView({
               {!blank && stashPicker}
               {!blank && (mention.open || slash.open) && (
                 <ComposerSlashPicker
-                  state={mention.open ? undefined : slash.state}
-                  label={mention.open ? 'Files' : 'Skills'}
+                  label={mention.open ? 'Files' : 'Commands'}
                   items={picker.items}
                   selected={picker.selected}
                   onSelect={selectSlashItem}
@@ -451,7 +450,7 @@ export function AgentChatView({
                 haltedResetsAt={limitResetsAt(telemetry)}
                 feedError={unfollowed}
                 canStop={live}
-                slashOpen={picker.open}
+                slashOpen={picker.highlighted !== undefined}
                 onShapeChange={composer.noteShape}
                 onKeyDown={handleKeyDown}
                 onSend={() => enqueueDraft()}

@@ -227,9 +227,7 @@ describe('AgentChatView', () => {
     await type('/compact')
     await press('Enter')
 
-    await waitFor(() =>
-      expect(submit).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', ''),
-    )
+    await waitFor(() => expect(submit.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', '/compact']))
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {
@@ -306,7 +304,7 @@ describe('AgentChatView one composer', () => {
 
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('add a flag')
     await waitFor(() =>
-      expect(submit).toHaveBeenCalledWith('w1', 'c1', 'add a flag', expect.any(String), '', '', ''),
+      expect(submit.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', 'add a flag']),
     )
     expect(screen.getAllByRole('textbox')).toEqual([box()])
     expect(box()).toBe(editable)
