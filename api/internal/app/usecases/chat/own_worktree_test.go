@@ -266,3 +266,24 @@ func TestSwitchToTerminal_ADormantChatThatRanOnlyRecordsTheMove(t *testing.T) {
 	assert.Equal(t, forks, f.term.callCount())
 	assert.Equal(t, "terminal", f.chat(t, chatID).Surface)
 }
+
+// seedBubbleChat mints a workspace-less chat ("bubble") threaded under a
+// workspace-anchored one and starts a runner on it: placed first, since the
+// spawn resolves a bubble's cwd through its ancestors.
+func seedBubbleChat(
+	t *testing.T,
+	f testFixture,
+	provider string,
+) (bubbleID, runnerID, rootChatID string) {
+	t.Helper()
+	rootChatID, _ = f.spawn(t, provider)
+
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
+	require.NoError(t, err)
+	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
+	require.NoError(t, err)
+	runnerID, err = f.usecase.StartRunner(f.ctx, bubbleID, provider)
+	require.NoError(t, err)
+	f.wait()
+	return bubbleID, runnerID, rootChatID
+}
