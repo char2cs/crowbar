@@ -210,6 +210,7 @@ describe('SidebarRow', () => {
     const input = screen.getByRole('textbox')
     expect(input).toHaveFocus()
     expect(screen.getByRole('treeitem', { name: 'Fix the thing' })).toContainElement(input)
+    expect(screen.queryByRole('button', { name: 'Make this thread a branch' })).toBeNull()
     fireEvent.click(input)
     expect(onOpen).not.toHaveBeenCalled()
     fireEvent.keyDown(input, { key: 'Escape' })

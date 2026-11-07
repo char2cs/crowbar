@@ -138,7 +138,7 @@ describe('InlineRenameInput', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onConfirm).toHaveBeenCalledTimes(1)
 
-    await act(async () => refuse(new Error('A branch named "taken" already exists')))
+    await act(async () => refuse(new Error('"taken" already exists')))
     expect(input).toHaveFocus()
     fireEvent.change(input, { target: { value: 'free' } })
     fireEvent.keyDown(input, { key: 'Enter' })

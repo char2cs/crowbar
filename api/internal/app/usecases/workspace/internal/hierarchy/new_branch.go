@@ -40,7 +40,7 @@ func (u *hierarchyUsecase) CheckNewBranch(ctx context.Context, parentID, branch 
 	if held || local || onOrigin {
 		return &problem.Error{
 			Code:    problem.Conflict,
-			Message: fmt.Sprintf("A branch named %q already exists", branch),
+			Message: fmt.Sprintf("%q already exists", branch),
 			Err:     problem.ErrConflict,
 		}
 	}

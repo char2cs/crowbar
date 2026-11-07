@@ -45,7 +45,7 @@ describe('BranchOutInput', () => {
   })
 
   it('says why the daemon refused a name and stays open to fix it', async () => {
-    const taken = new ApiError('A branch named "main" already exists', 409, 'conflict')
+    const taken = new ApiError('"main" already exists', 409, 'conflict')
     const branchOut = vi
       .spyOn(chatCommands, 'branchOutChat')
       .mockRejectedValueOnce(taken)
@@ -54,7 +54,7 @@ describe('BranchOutInput', () => {
     fireEvent.change(input, { target: { value: 'main' } })
     await act(async () => fireEvent.keyDown(input, { key: 'Enter' }))
 
-    expect(screen.getByRole('alert')).toHaveTextContent('A branch named "main" already exists')
+    expect(screen.getByRole('alert')).toHaveTextContent('"main" already exists')
     expect(input).toHaveAttribute('aria-invalid', 'true')
     expect(treeUiStore.getState().branching).toBe('thread-1')
 

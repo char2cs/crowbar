@@ -271,17 +271,20 @@ export function SidebarRow({
           </span>
         )}
 
-        <SidebarRowActions
-          row={row}
-          isProjectHome={isProjectHome}
-          expanded={expanded}
-          movePending={pendingMove !== null}
-          subActionClass={subActionClass}
-          onCreate={onCreate}
-          onTrash={onTrash}
-          onClose={onClose}
-          onToggleFold={onToggleFold}
-        />
+        {/* Naming a branch takes the row's width, so the reason a name is refused can be read. */}
+        {!branching && (
+          <SidebarRowActions
+            row={row}
+            isProjectHome={isProjectHome}
+            expanded={expanded}
+            movePending={pendingMove !== null}
+            subActionClass={subActionClass}
+            onCreate={onCreate}
+            onTrash={onTrash}
+            onClose={onClose}
+            onToggleFold={onToggleFold}
+          />
+        )}
       </div>
     </div>
   )

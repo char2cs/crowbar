@@ -32,6 +32,6 @@ func TestCheckNewBranch_RefusesABranchTheRepoAlreadyHas(t *testing.T) {
 	for _, name := range []string{"loose", held.Branch, h.baseBranch, "upstream-only"} {
 		err := h.uc.CheckNewBranch(context.Background(), h.parentID, name)
 		assert.Equal(t, problem.Conflict, problem.CodeOf(err), name)
-		assert.Equal(t, `A branch named "`+name+`" already exists`, problem.Of(err).Message, name)
+		assert.Equal(t, `"`+name+`" already exists`, problem.Of(err).Message, name)
 	}
 }

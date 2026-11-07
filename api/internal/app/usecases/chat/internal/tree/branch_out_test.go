@@ -41,7 +41,7 @@ func TestBranchOut_AFailedCutLeavesTheThreadWhereItWas(t *testing.T) {
 
 func TestBranchOut_ANameTheBranchCannotTakeIsRefusedAndNothingIsAsked(t *testing.T) {
 	chats, uc := rebindWorld(t)
-	taken := problem.New(problem.Conflict, `A branch named "main" already exists`)
+	taken := problem.New(problem.Conflict, `"main" already exists`)
 	chats.Moves.BranchNameErr = taken
 	err := uc.BranchOut(context.Background(), "c1", "main")
 	require.ErrorIs(t, err, taken)
