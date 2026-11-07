@@ -507,6 +507,9 @@ func TestShippedCodex_HooksPostThroughCurlReadingTheTokenFromAFile(t *testing.T)
 		}
 	}
 
+	// The CLI keeps a held hook past the daemon's budget for its ask.
+	assert.Contains(t, argv, `/hooks/codex/permission",timeout=86400}]`)
+
 	cfg := filepath.Join(tmp, "hook.curl")
 	assert.Contains(t, readFile(t, cfg), `header = "X-Crowbar-Runner-Token: TOK"`)
 	info, err := os.Stat(cfg)
@@ -854,7 +857,6 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 	capability, ok := a.AnswerCapability(agents.HookPermission)
 	require.True(t, ok, "claude declares an answer channel for its permission hook")
 	assert.Equal(t, []string{"allow", "answer", "deny", "suggestion"}, capability.Keys)
-	assert.Positive(t, capability.Wait)
 	assert.GreaterOrEqual(t, capability.Wait, 23*time.Hour, "a person may take long over a plan")
 
 	// An allow echoes the input: claude's own plan dialog stays open on a bare allow.
@@ -933,15 +935,13 @@ func TestAgent_ClaudeAnswersAnElicitationWithTheMCPVerbs(t *testing.T) {
 		string(got))
 }
 
-// codex's permission is now ANSWERABLE: the merged mixed-transport descriptor
-// carries it over the api transport, which declares real allow/deny reply
-// templates — unlike the old hooks-only observation this replaces (design spec
-// §2.1, §2.3: "Permission requests become answerable from the chat").
+// codex's permission is answerable from the chat, and held for as long as a person may take.
 func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 	a := get(t, "codex")
 
 	cap, ok := a.AnswerCapability(agents.HookPermission)
 	require.True(t, ok)
+	assert.GreaterOrEqual(t, cap.Wait, 23*time.Hour)
 	assert.True(t, cap.Accepts(agents.ChoiceOptionAllow))
 	assert.True(t, cap.Accepts(agents.ChoiceOptionDeny))
 

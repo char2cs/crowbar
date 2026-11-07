@@ -501,7 +501,8 @@ events:
   # widen to every later command in the session.
   permission:
     required: [session_id, tool_name]
-    timeout_seconds: 270
+    # A person may take long over an ask: a lapsed hold strands the CLI on it.
+    timeout_seconds: 86340
     # api's own fixtures below ARE genuine live captures (codex-cli 0.149.1,
     # verbatim from dispatch_test.go's commandExecutionApproval/
     # fileChangeApproval consts) and prove session_id/message (threadId/reason)
@@ -550,7 +551,7 @@ events:
     # question, which no capture session has exercised.
     unverified: true
     ask: mcpServer/elicitation/request
-    timeout_seconds: 270
+    timeout_seconds: 86340
     map:
       message: message
       schema:  requestedSchema
@@ -937,7 +938,8 @@ hooks_injection:
       value: 'hooks.SubagentStop=[{hooks=[{type="command",command="{hook_curl} {hook_url}/subagent_post"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{hook_curl} {hook_url}/permission"}]}]'
+      # Held while a person decides: its own timeout (seconds) is just past the ask's budget.
+      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{hook_curl} {hook_url}/permission",timeout=86400}]}]'
   - pass_arg:
       arg: "-c"
       value: 'hooks.PreCompact=[{hooks=[{type="command",command="{hook_curl} {hook_url}/compact_pre"}]}]'
