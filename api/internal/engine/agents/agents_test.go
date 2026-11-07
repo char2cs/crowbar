@@ -584,26 +584,14 @@ func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *test
 
 func TestAgent_ToolDenialRefusesTheCallWithItsReasonAsJSON(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
-		assertDenies(t, id)
+		stdout, ok := get(t, id).ToolDenial(`write "elsewhere"`)
+		require.True(t, ok, id)
+		var reply map[string]map[string]string
+		require.NoError(t, json.Unmarshal([]byte(stdout), &reply), id)
+		assert.Equal(t, map[string]string{
+			"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": `write "elsewhere"`,
+		}, reply["hookSpecificOutput"], id)
 	}
-}
-
-func assertDenies(t *testing.T, id string) {
-	t.Helper()
-	stdout, ok := get(t, id).ToolDenial(`write "elsewhere"`)
-
-	require.True(t, ok, id)
-	var reply struct {
-		Out struct {
-			Event    string `json:"hookEventName"`
-			Decision string `json:"permissionDecision"`
-			Reason   string `json:"permissionDecisionReason"`
-		} `json:"hookSpecificOutput"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(stdout), &reply))
-	assert.Equal(t, "PreToolUse", reply.Out.Event)
-	assert.Equal(t, "deny", reply.Out.Decision)
-	assert.Equal(t, `write "elsewhere"`, reply.Out.Reason)
 }
 
 func TestAgent_ProbeTelemetryIsUnsupportedForBothShippedAgents(t *testing.T) {
