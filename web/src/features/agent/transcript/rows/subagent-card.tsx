@@ -7,6 +7,7 @@ import { useChatItem, useChatItems } from '@/features/agent/hooks/use-chat-feed'
 import { useSubagentAction } from '@/features/agent/hooks/use-subagent-action'
 import { CheckIcon, CloseIcon, SubagentIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
+import { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { SubagentItem } from '@/features/agent/stores/lib/transcript-items'
 import { displayRows } from '@/features/agent/transcript/lib/tool-runs'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -37,14 +38,14 @@ function took(card: SubagentItem): string {
 function Work({ chatId, scope }: { chatId: string; scope: string }) {
   const ids = useChatStore((s) => s.feeds[chatId]?.scoped[scope] ?? NO_IDS)
   const items = useChatItems(chatId)
-  const rows = useMemo(() => displayRows(ids, items ?? {}), [ids, items])
+  const rows = useMemo(() => displayRows(ids, items ?? ItemMap.empty), [ids, items])
   return (
     <div className="subagent-work">
       {rows.map((row) => {
         if (row.members) {
           return <ToolRunRow key={row.id} chatId={chatId} id={row.id} members={row.members} />
         }
-        const item = items?.[row.id]
+        const item = items?.get(row.id)
         switch (item?.kind) {
           case 'tool':
             return <ToolRow key={row.id} chatId={chatId} item={item} />

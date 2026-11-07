@@ -157,7 +157,6 @@ export function useChatPresentation(
 
   return {
     presentation,
-    chosen,
     setPresentation: setChosen,
     splitEnabled,
     splitting,

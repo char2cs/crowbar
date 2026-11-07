@@ -6,8 +6,8 @@ import {
   liveKey,
   type ChatFeed,
   type TranscriptItem,
-  type TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
+import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import { displayRows, type DisplayRow } from '@/features/agent/transcript/lib/tool-runs'
 
 const EMPTY_IDS: string[] = []
@@ -22,14 +22,12 @@ export function useChatFeed(chatId: string | undefined) {
 const feedOf = (feeds: Record<string, ChatFeed>, chatId: string | undefined) =>
   chatId ? feeds[chatId] : undefined
 
-export function useChatOrder(chatId: string | undefined): string[] {
-  return useChatStore((s) => feedOf(s.feeds, chatId)?.order ?? EMPTY_IDS)
-}
-
 const NO_ROWS: DisplayRow[] = []
 // An order array is replaced whenever an item joins it, and the grouping reads
 // only facts an item never changes, so one result per order array is exact.
 const drawn = new WeakMap<string[], DisplayRow[]>()
+/** Each chat's rows as last drawn, which its next order's rows reuse. */
+const lastDrawn = new Map<string, DisplayRow[]>()
 
 /** The main-scope order as drawn: hidden calls left out, read-only runs folded. */
 export function useDisplayRows(chatId: string | undefined): DisplayRow[] {
@@ -38,8 +36,9 @@ export function useDisplayRows(chatId: string | undefined): DisplayRow[] {
     if (!feed) return NO_ROWS
     let rows = drawn.get(feed.order)
     if (!rows) {
-      rows = displayRows(feed.order, feed.items)
+      rows = displayRows(feed.order, feed.items, lastDrawn.get(chatId!))
       drawn.set(feed.order, rows)
+      lastDrawn.set(chatId!, rows)
     }
     return rows
   })
@@ -49,9 +48,7 @@ export function useLiveTail(chatId: string | undefined): string[] {
   return useChatStore((s) => feedOf(s.feeds, chatId)?.liveTail ?? EMPTY_IDS)
 }
 
-export function useChatItems(
-  chatId: string | undefined,
-): Record<string, TranscriptItem> | undefined {
+export function useChatItems(chatId: string | undefined): ItemMap | undefined {
   return useChatStore((s) => feedOf(s.feeds, chatId)?.items)
 }
 
@@ -59,7 +56,7 @@ export function useChatItem<T extends TranscriptItem = TranscriptItem>(
   chatId: string | undefined,
   id: string,
 ): T | undefined {
-  return useChatStore((s) => feedOf(s.feeds, chatId)?.items[id] as T | undefined)
+  return useChatStore((s) => feedOf(s.feeds, chatId)?.items.get(id) as T | undefined)
 }
 
 /** The live text of one delta stream: `answer`/`reasoning` by message id,
@@ -77,10 +74,6 @@ export function useLiveReasoning(chatId: string | undefined): string | undefined
     const feed = feedOf(s.feeds, chatId)
     return feed?.liveReasoning ? feed.live[feed.liveReasoning] : undefined
   })
-}
-
-export function useTurnFacts(chatId: string | undefined): TurnFacts | undefined {
-  return useChatStore((s) => feedOf(s.feeds, chatId)?.facts)
 }
 
 export function useFeedStatus(chatId: string | undefined): ChatFeed['status'] | undefined {

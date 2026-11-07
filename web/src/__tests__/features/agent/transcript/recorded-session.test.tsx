@@ -19,9 +19,10 @@ beforeEach(() => {
 describe('the recorded subagent session', () => {
   it('symptom 8: every tool row of the recorded subagent session has a non-empty label', () => {
     const feed = chatStore.getState().feeds['id-1']!
-    const tools = Object.values(feed.items).filter(
-      (item) => item.kind === 'tool' && item.family !== 'meta' && item.family !== 'plan',
-    )
+    const tools = [...feed.order, ...Object.values(feed.scoped).flat()]
+      .map((id) => feed.items.get(id))
+      .filter((item) => item?.kind === 'tool' && item.family !== 'meta' && item.family !== 'plan')
+      .map((item) => item!)
     expect(tools.length).toBeGreaterThanOrEqual(4)
     for (const tool of tools) {
       const view = render(

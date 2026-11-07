@@ -12,6 +12,8 @@ type Descriptor struct {
 
 	DisplayName string `yaml:"display_name"`
 	Icon        string `yaml:"icon"`
+	// SignIn is the shell command that logs the CLI in, for a turn refused for want of one.
+	SignIn string `yaml:"sign_in"`
 
 	Spawn   SpawnSpec   `yaml:"spawn"`
 	Session SessionSpec `yaml:"session"`

@@ -52,7 +52,7 @@ export interface AgentChatPaneProps {
   /** The `PaneGroup` this surface renders inside. */
   paneId: string
   isActivePane: boolean
-  /** This tab is the visible one in its pane; hidden tabs stay mounted and attached. */
+  /** This tab is the visible one in its pane; a hidden tab stays mounted, its chat attached once shown. */
   isVisible: boolean
   /** An overlay chat header owns a clickable row that top-pinned surfaces must clear. */
   belowOverlayHeader?: boolean
@@ -83,6 +83,10 @@ export function AgentChatPaneBody({
   // Banners clear the header's row (+8px of air); the transcript its whole dissolve.
   const headerClearancePx = belowOverlayHeader ? HEADER_ROW_HEIGHT_PX + 8 : 8
   const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
+
+  // A restored tab opens its chat the first time it is shown, not behind the one in view.
+  const [opened, setOpened] = useState(isVisible)
+  if (isVisible && !opened) setOpened(true)
 
   // My runner's chat, '' when it is nowhere; a move shows up as a different id.
   const runnerChatId = useSelect((s) => (runnerId ? selectRunnerChat(s, runnerId) : ''))
@@ -346,41 +350,43 @@ export function AgentChatPaneBody({
               ...(splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined),
             }}
           >
-            <AgentChatView
-              key={`${wsId}:${shownChatId}`}
-              wsId={wsId}
-              chatId={shownChatId}
-              providerId={activeProviderId}
-              providers={providers}
-              switchDisabled={switchBlocked}
-              live={attachment.state === 'attached' || deliveryPending}
-              canSend={canSend}
-              sessionNote={sessionNote}
-              connecting={revivingBannerShown ? undefined : connecting}
-              // In split the chat is in front of the user, so it is active.
-              active={presentation === 'chat' || splitting}
-              visible={isVisible && (known || (!listSeeded && placed))}
-              isActivePane={isActivePane}
-              onOpenTerminal={escort.openTerminal}
-              terminalWaiting={waiting}
-              terminalWaitKind={waitKind ?? ''}
-              terminalWaitAnswers={waitAnswers}
-              headerClearancePx={headerClearancePx}
-              transcriptHeaderClearancePx={transcriptHeaderClearancePx}
-              blankSignpost={blankSignpost}
-              presentation={presentation}
-              splitEnabled={splitEnabled}
-              onSelectPresentation={escort.chooseSurface}
-              onTerminalSurface={onTerminalSurface}
-              provider={effectiveProviderId}
-              model={effectiveModel}
-              effort={effectiveEffort}
-              launchModel={launchModel}
-              // Until `known`, model/effort are '' fallbacks a send would commit as a clear.
-              selectionKnown={known}
-              onSelectionChange={stageSelection}
-              onBlankChange={setChatBlank}
-            />
+            {opened && (
+              <AgentChatView
+                key={`${wsId}:${shownChatId}`}
+                wsId={wsId}
+                chatId={shownChatId}
+                providerId={activeProviderId}
+                providers={providers}
+                switchDisabled={switchBlocked}
+                live={attachment.state === 'attached' || deliveryPending}
+                canSend={canSend}
+                sessionNote={sessionNote}
+                connecting={revivingBannerShown ? undefined : connecting}
+                // In split the chat is in front of the user, so it is active.
+                active={presentation === 'chat' || splitting}
+                visible={isVisible && (known || (!listSeeded && placed))}
+                isActivePane={isActivePane}
+                onOpenTerminal={escort.openTerminal}
+                terminalWaiting={waiting}
+                terminalWaitKind={waitKind ?? ''}
+                terminalWaitAnswers={waitAnswers}
+                headerClearancePx={headerClearancePx}
+                transcriptHeaderClearancePx={transcriptHeaderClearancePx}
+                blankSignpost={blankSignpost}
+                presentation={presentation}
+                splitEnabled={splitEnabled}
+                onSelectPresentation={escort.chooseSurface}
+                onTerminalSurface={onTerminalSurface}
+                provider={effectiveProviderId}
+                model={effectiveModel}
+                effort={effectiveEffort}
+                launchModel={launchModel}
+                // Until `known`, model/effort are '' fallbacks a send would commit as a clear.
+                selectionKnown={known}
+                onSelectionChange={stageSelection}
+                onBlankChange={setChatBlank}
+              />
+            )}
           </div>
 
           {splitting && (

@@ -164,6 +164,8 @@ export function Dropdown(props: DropdownProps) {
         e.stopPropagation()
         e.stopImmediatePropagation()
         onClose()
+        // Esc is a keyboard exit: focus goes back to the trigger, not to <body>.
+        anchorRef?.current?.focus()
       }
     }
     document.addEventListener('mousedown', handleClickOutside)

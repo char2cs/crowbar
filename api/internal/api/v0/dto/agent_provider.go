@@ -33,6 +33,8 @@ type AgentProviderDTO struct {
 	MCPEnabled  bool   `json:"mcpEnabled"`
 	Compaction  bool   `json:"compaction"`
 	Hotswap     bool   `json:"hotswap"`
+	// SignIn is the shell command that logs the CLI in, omitted when undeclared.
+	SignIn string `json:"signIn,omitempty"`
 	// PromptSteer says a message sent while a turn runs is delivered into that
 	// turn, so the composer need not hold it until the turn ends.
 	PromptSteer bool `json:"promptSteer"`
@@ -48,6 +50,8 @@ type AgentProviderDTO struct {
 	// client can't misread "" as a fact.
 	DefaultModel string              `json:"defaultModel,omitempty"`
 	Efforts      map[string][]string `json:"efforts,omitempty"`
+	// DefaultEfforts is each model's stated default effort, absent for a model stating none.
+	DefaultEfforts map[string]string `json:"defaultEfforts,omitempty"`
 
 	// PermissionLevels mirrors Models/Efforts' own "omitted, not empty" rule:
 	// absent says this provider's picker offers nothing, where an empty array

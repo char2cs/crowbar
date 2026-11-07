@@ -106,6 +106,21 @@ export function SidebarSplitPane({
     [],
   )
 
+  // Over the content (the scrim is shown only in a narrow window) the sidebar is an overlay,
+  // so Esc dismisses it, unless something on top of it already took the key.
+  const scrimRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      const scrim = scrimRef.current
+      if (!scrim || getComputedStyle(scrim).display === 'none') return
+      onOpenChange(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onOpenChange])
+
   const commitKeyboardWidth = useCallback(
     (requestedWidth: number) => {
       const container = rootRef.current
@@ -331,6 +346,7 @@ export function SidebarSplitPane({
 
       {open && (
         <button
+          ref={scrimRef}
           type="button"
           tabIndex={-1}
           aria-label="Close sidebar"

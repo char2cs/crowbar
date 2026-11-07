@@ -192,6 +192,7 @@ func (p *Providers) ResolveProviders(
 			ID:                d.ID(),
 			DisplayName:       display.Name,
 			Icon:              display.Icon,
+			SignIn:            display.SignIn,
 			Connected:         p.installed(d),
 			Enabled:           !pref.Disabled,
 			MCPEnabled:        !pref.MCPDisabled,
@@ -206,6 +207,7 @@ func (p *Providers) ResolveProviders(
 			Models:            d.Models(),
 			DefaultModel:      d.DefaultModel(),
 			Efforts:           resolveEfforts(d),
+			DefaultEfforts:    resolveDefaultEfforts(d),
 			PermissionLevels:  d.PermissionLevels(),
 		})
 	}
@@ -315,6 +317,23 @@ func resolveEfforts(
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// resolveDefaultEfforts keys each model's stated default effort by id, nil when no model states one.
+func resolveDefaultEfforts(agent engineagents.Agent) map[string]string {
+	if !agent.Capabilities().EffortSelect {
+		return nil
+	}
+	var out map[string]string
+	for _, model := range agent.Models() {
+		if effort := agent.DefaultEffort(model); effort != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[model] = effort
+		}
 	}
 	return out
 }

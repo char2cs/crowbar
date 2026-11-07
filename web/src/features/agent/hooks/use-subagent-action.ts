@@ -9,7 +9,7 @@ export function useSubagentAction(chatId: string, scope: string | undefined): st
     const ids = scope ? (feed?.scoped[scope] ?? []) : []
     let settled: string | undefined
     for (let i = ids.length - 1; i >= 0; i--) {
-      const item = feed?.items[ids[i]!]
+      const item = feed?.items.get(ids[i]!)
       if (item?.kind !== 'tool' || item.family === 'meta' || item.family === 'plan') continue
       if (item.status === 'running') return liveLabel(item)
       settled ??= labelText(item)

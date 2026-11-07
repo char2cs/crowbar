@@ -74,7 +74,8 @@ const (
 // CloseResync is the WebSocket close code of a connection whose queue overflowed.
 const CloseResync = 4000
 
-// Frame is one message to the client, discriminated by T.
+// Frame is one message to the client, discriminated by T. A chat window's
+// first row carries From, the seq it follows: the client holds none before.
 type Frame struct {
 	T       string            `json:"t"`
 	Scope   string            `json:"scope,omitempty"`
@@ -85,6 +86,7 @@ type Frame struct {
 	Data    json.RawMessage   `json:"data,omitempty"`
 	Gone    bool              `json:"gone,omitempty"`
 	Seq     int64             `json:"seq,omitempty"`
+	From    int64             `json:"from,omitempty"`
 	Row     *ledger.Row       `json:"row,omitempty"`
 	Delta   *ledger.FeedDelta `json:"delta,omitempty"`
 	Reason  string            `json:"reason,omitempty"`

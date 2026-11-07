@@ -1,4 +1,4 @@
-import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
+import { type AgentTerminalWait, TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-chat-reads'
 import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
 
 /** What occupies the composer's slot: an input when you can talk, else the one
@@ -7,7 +7,6 @@ import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
 export type ComposerState =
   | { kind: 'input' }
   | { kind: 'choices'; asks: AskItem[] }
-  | { kind: 'halted'; message: string; resetsAt?: string }
   | { kind: 'compacting' }
   | { kind: 'signpost'; reason: SignpostReason; message: string }
 
@@ -35,14 +34,9 @@ export interface ComposerInputs {
   compacting: boolean
   /** The asks still pending, oldest first. */
   asks: AskItem[]
-  /** The provider's own words about why it stopped, from a `notice` message. */
-  haltedMessage?: string
-  haltedResetsAt?: string
   /** Why the chat's feed failed, while it has. */
   feedError?: string
 }
-
-export const TERMINAL_WAIT_TRUST = 'workspace_trust'
 
 /** What to say about a wait Crowbar cannot answer; an unknown kind is not guessed at. */
 export function describeTerminalWait(wait: AgentTerminalWait): string {
@@ -52,8 +46,8 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
 }
 
 /** Resolves the bar in precedence order, the one thing a person can act on
- *  first: unfollowed, dormant, unsupported, terminal wait, ask, halted,
- *  compacting, input. A trust dialog outranks an ask because only it can be acted on. */
+ *  first: unfollowed, dormant, unsupported, terminal wait, ask, compacting, input.
+ *  A failed turn is not here: its row says why, and the next prompt is the way on. */
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   const { live, submitUnavailable, terminalWait, compacting, asks } = inputs
 
@@ -78,13 +72,6 @@ export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   // even when only its terminal can answer; the card then draws no controls.
   if (asks.length > 0) return { kind: 'choices', asks }
 
-  if (inputs.haltedMessage) {
-    return {
-      kind: 'halted',
-      message: inputs.haltedMessage,
-      resetsAt: inputs.haltedResetsAt,
-    }
-  }
   if (compacting) return { kind: 'compacting' }
   return { kind: 'input' }
 }

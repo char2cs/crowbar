@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -268,6 +269,57 @@ func TestOpenFeed_ReplaysAfterSinceThenIsReadyThenLive(t *testing.T) {
 
 	assert.Equal(t, []int64{2, 3, 4}, seqsOf(frames))
 	assert.Equal(t, FeedFrame{Type: FeedReady, Seq: 3}, frames[2])
+}
+
+// turnRows are turnID's prompt, start, also and end.
+func turnRows(t *testing.T, turnID string, also ...ledger.Row) []ledger.Row {
+	t.Helper()
+	row := func(kind ledger.Kind, body any) ledger.Row {
+		r, err := ledger.NewRow(kind, turnID, "", body)
+		require.NoError(t, err)
+		return r
+	}
+	rows := []ledger.Row{
+		row(ledger.KindUserMessage, ledger.UserMessage{RequestID: turnID, Text: "hi", Origin: ledger.OriginCrowbar}),
+		row(ledger.KindTurnStarted, ledger.TurnStarted{RequestID: turnID}),
+	}
+	return append(append(rows, also...), row(ledger.KindTurnEnded, ledger.TurnEnded{Status: "done"}))
+}
+
+// imported writes rows into c1 as its whole ledger.
+func imported(t *testing.T, u *Usecase, rows ...ledger.Row) {
+	t.Helper()
+	for i := range rows {
+		rows[i].ChatID, rows[i].Seq, rows[i].At = "c1", int64(i+1), time.Now()
+	}
+	require.NoError(t, u.ledger.Import(t.Context(), "c1", rows))
+}
+
+func TestOpenFeed_ANegativeSinceOpensOnTheNewestRowsAndSaysWhere(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	imported(t, u, slices.Concat(turnRows(t, "T1"), turnRows(t, "T2"), turnRows(t, "T3"))...)
+
+	out, err := u.OpenFeed(t.Context(), "c1", -1)
+	require.NoError(t, err)
+	frames := take(t, out, 4)
+
+	assert.Equal(t, []int64{7, 8, 9}, seqsOf(frames))
+	assert.Equal(t, []int64{6, 0, 0}, []int64{frames[0].From, frames[1].From, frames[2].From})
+	assert.Equal(t, FeedFrame{Type: FeedReady, Seq: 9}, frames[3])
+}
+
+func TestOpenFeed_AWindowReachesBackToATurnWhoseSubagentStillRuns(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	start, err := ledger.NewRow(ledger.KindSubagent, "T1", "S1", ledger.SubagentBody{Phase: ledger.SubagentStart})
+	require.NoError(t, err)
+	imported(t, u, slices.Concat(turnRows(t, "T1", start), turnRows(t, "T2"))...)
+
+	out, err := u.OpenFeed(t.Context(), "c1", -1)
+	require.NoError(t, err)
+
+	assert.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7}, seqsOf(take(t, out, 7)))
 }
 
 func TestOpenFeed_AnUnknownChatIsNotFound(t *testing.T) {

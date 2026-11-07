@@ -10,8 +10,9 @@ type SpawnPlan struct {
 }
 
 type Display struct {
-	Name string
-	Icon string
+	Name   string
+	Icon   string
+	SignIn string
 }
 
 type Capabilities struct {

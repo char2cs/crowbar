@@ -1,5 +1,7 @@
+import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { chatIsThreadIn } from '@/features/panes/hooks/use-chat-is-thread'
+import { chatIsThreadIn, useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
+import { seedChats, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/core/entities/views-from-entities'
 
@@ -119,5 +121,22 @@ describe('chatIsThreadIn', () => {
     const homeTrees = { 'proj-1': makeHomeTree({ chats: [makeChat({ id: 'chat-home' })] }) }
     expect(chatIsThreadIn([makeRepo({ chats: undefined })], 'chat-1', homeTrees)).toBe(false)
     expect(chatIsThreadIn([], 'chat-1', {})).toBe(false)
+  })
+})
+
+// Every chat's working flag and title rewrite the repos; a tab bar or a New Tab page
+// reading this must not render for each.
+describe('useChatIsThread', () => {
+  it('renders nothing for a change to a chat that leaves the answer as it was', () => {
+    seedChats([{ id: 'c1' }, { id: 'c2' }])
+    let renders = 0
+    renderHook(() => {
+      renders += 1
+      return useChatIsThread('c1')
+    })
+    const before = renders
+    act(() => writeChat({ id: 'c2', title: 'renamed' }))
+    act(() => writeChat({ id: 'c1', title: 'renamed too' }))
+    expect(renders).toBe(before)
   })
 })

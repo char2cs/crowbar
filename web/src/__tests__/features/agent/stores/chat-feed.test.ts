@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attachFeed as attachReal } from '@/features/agent/stores/chat-feed'
+import { attachFeed as attachReal, loadOlder } from '@/features/agent/stores/chat-feed'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { heldScopes, streamDaemon, streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
@@ -34,7 +34,7 @@ describe('attachFeed', () => {
   it('attaching a feed holds chat:<id> and detaching releases it', () => {
     const a = attachFeed('chat-1')
     const b = attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
     a()
     a()
     expect(heldScopes('chat:')).toEqual([SCOPE])
@@ -73,15 +73,49 @@ describe('attachFeed', () => {
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2 })
   })
 
-  it('rebuilds from since=0 when a resync names a seq behind the feed', () => {
+  it('rebuilds from the newest rows when a resync names a seq behind the feed', () => {
     attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'hi') })
     push({ t: 'row', row: l.prompt('r2', 'again') })
     push({ t: 'synced', seq: 2 })
     push({ t: 'closed', reason: 'resync', seq: 1 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -1500 })
     expect(feed()?.order).toEqual([])
+  })
+
+  it('opens on a window of the newest rows, and loads older ones behind the shown feed', () => {
+    const l = ledger('chat-1', 39)
+    const [p39, s39, p41, s41] = [
+      l.prompt('r39', 'older'),
+      l.start('turn-39', 'r39'),
+      l.prompt('r41', 'newest'),
+      l.start('turn-41', 'r41'),
+    ]
+    attachFeed('chat-1')
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
+    push({ t: 'row', row: p41, from: 40 })
+    push({ t: 'row', row: s41 })
+    push({ t: 'synced', seq: 42 })
+    expect(feed()).toMatchObject({ status: 'live', from: 40, seq: 42, order: ['p:r41'] })
+
+    loadOlder('chat-1')
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -4500 })
+    // The old sub's live row lands before the wider replay: it is not the window's start.
+    push({ t: 'row', row: l.prompt('r43', 'live') })
+    push({ t: 'row', row: p39, from: 38 })
+    for (const row of [s39, p41, s41]) push({ t: 'row', row })
+    expect(feed()?.order).toEqual(['p:r41'])
+    push({ t: 'synced', seq: 42 })
+    expect(feed()).toMatchObject({ from: 38, seq: 42, order: ['p:r39', 'p:r41'] })
+  })
+
+  it('asks for no older turns when the feed holds the chat from its start', () => {
+    attachFeed('chat-1')
+    push({ t: 'row', row: ledger().prompt('r1', 'hi') })
+    push({ t: 'synced', seq: 1 })
+    loadOlder('chat-1')
+    expect(subs()).toHaveLength(1)
   })
 
   it('drops a row that does not follow the last applied one, so the replay fills the hole', () => {
@@ -152,7 +186,7 @@ describe('attachFeed', () => {
     attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'closed', reason: 'resync', seq: 1 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -1500 })
     push({ t: 'row', row: ledger().prompt('r9', 'replayed') })
     push({ t: 'synced', seq: 1 })
     expect(feed()?.order).toEqual(['p:r9'])
@@ -231,7 +265,7 @@ describe("a paired host's chat", () => {
     await Promise.resolve()
     host1.answer = () => []
     held.push(attachReal('host-1', 'chat-1'))
-    expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE }])
+    expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
     expect(subs()).toEqual([])
     const l = ledger()
     host1.deliver({ t: 'row', scope: SCOPE, row: l.prompt('r1', 'hi') })

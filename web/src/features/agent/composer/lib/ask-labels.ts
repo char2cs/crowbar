@@ -3,6 +3,7 @@ import type {
   AgentChoiceOption,
   AgentChoiceQuestion,
 } from '@/features/agent/api/agent-chat-activity'
+import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
 
 /** A prompt's questions in one shape: one without `questions` is a single question of its own
  *  `question` and `options`. A permission or elicitation asks none. */
@@ -22,11 +23,22 @@ export function choiceQuestions(choice: AgentChoice): AgentChoiceQuestion[] {
   ]
 }
 
+// A permission's headline by the gated call's family: a provider's internal tool
+// name ("commandExecution") is not words a person reads.
+const ASKED: Partial<Record<ToolFamily, string>> = {
+  execute: 'Run a command?',
+  edit: 'Edit files?',
+  read: 'Read a file?',
+  fetch: 'Fetch a web page?',
+  search: 'Search?',
+}
+
 /** The headline of a prompt; a kind this build does not know falls through to
  *  whatever the provider said rather than to a guess. */
-export function describeChoice(choice: AgentChoice): string {
+export function describeChoice(choice: AgentChoice, family?: ToolFamily): string {
   switch (choice.kind) {
     case 'tool_permission':
+      if (family && ASKED[family]) return ASKED[family]
       return choice.toolName ? `Run ${choice.toolName}?` : 'The agent is asking for permission'
     case 'question': {
       if (choice.question || choice.title) return choice.question || choice.title || ''

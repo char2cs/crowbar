@@ -1,10 +1,9 @@
-import { Profiler, type ComponentProps } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { Profiler, type ComponentProps, type ReactNode } from 'react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 import { applyFeedFrame, chatStore, failFeed, openFeed } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
-import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import {
   layOut,
   measureRows,
@@ -12,7 +11,6 @@ import {
   rect,
 } from '@/__tests__/__fixtures__/transcript-layout'
 import { drawTranscript as draw } from '@/__tests__/__fixtures__/agent-transcript'
-import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 const { toolRenders } = vi.hoisted(() => ({ toolRenders: new Map<string, number>() }))
 vi.mock('@/features/agent/transcript/rows/tool-row', async (importOriginal) => {
@@ -86,19 +84,12 @@ describe('AgentTranscript', () => {
   it('folds 5000 replayed rows into one order without re-rendering per row', () => {
     openFeed('chat-1')
     let commits = 0
-    render(
+    const counted = ({ children }: { children: ReactNode }) => (
       <Profiler id="transcript" onRender={() => void (commits += 1)}>
-        <AgentTranscript
-          chatId="chat-1"
-          providers={[]}
-          status="connecting"
-          working={false}
-          line={{ working: false }}
-          onOpenTerminal={() => {}}
-          promptActions={noRowActions}
-        />
-      </Profiler>,
+        {children}
+      </Profiler>
     )
+    draw({ status: 'connecting' }, { wrapper: counted })
     const l = ledger()
     const rows = Array.from({ length: 2500 }, (_, i) => [
       l.prompt(`r${i}`, `prompt ${i}`),
@@ -128,6 +119,16 @@ describe('AgentTranscript', () => {
 
     expect(screen.getByTestId('agent-compaction-divider')).toHaveTextContent('Compacted')
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
+  })
+
+  it('marks the first turn only on a feed that holds the chat from its start', () => {
+    seedFeed('chat-1', [ledger().prompt('r1', 'ask')])
+    draw()
+    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
+    applyFeedFrame('c2', { type: 'row', row: ledger('c2', 41).prompt('r1', 'ask'), from: 40 })
+    seedFeed('c2')
+    const { container } = draw({ chatId: 'c2' })
+    expect(container.querySelector('[data-testid="agent-first-turn-divider"]')).toBeNull()
   })
 
   it('keeps the turn actions of earlier turns while a new one runs', () => {
@@ -252,7 +253,7 @@ describe('AgentTranscript', () => {
 
     // A streaming row's growth reaches the list as a virtualizer re-render.
     box.scrollHeight = 2300
-    redraw({ line: { working: false, since: '2026-10-01T12:00:00Z' } })
+    redraw({ tail: '2026-10-01T12:00:00Z' })
     expect(list.scrollTop).toBe(1200)
     act(() => vi.advanceTimersByTime(1500))
     expect(list.scrollTop).toBe(1500)
@@ -267,9 +268,9 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ line: { working: false, since: 'a' } })
+    redraw({ tail: 'a' })
     box.scrollHeight = 2300
-    redraw({ line: { working: false, since: 'b' } })
+    redraw({ tail: 'b' })
     act(() => vi.advanceTimersByTime(16))
     fireEvent.scroll(list)
 
@@ -280,7 +281,7 @@ describe('AgentTranscript', () => {
     act(() => observed.get(first)?.([{ target: first } as never], {} as ResizeObserver))
     fireEvent.scroll(list)
     box.scrollHeight = 2600
-    redraw({ line: { working: false, since: 'c' } })
+    redraw({ tail: 'c' })
     act(() => vi.advanceTimersByTime(1500))
 
     expect(list.scrollTop).toBe(1800)
@@ -294,7 +295,7 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2600, clientHeight: 800 }
     layOut(list, box)
-    redraw({ line: { working: false, since: 'a' } })
+    redraw({ tail: 'a' })
     expect(list.scrollTop).toBe(1800)
 
     // Its report comes between layout and paint; the re-render it asks for comes after.
@@ -312,7 +313,7 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2700, clientHeight: 800 }
     layOut(list, box)
-    redraw({ line: { working: false, since: 'a' } })
+    redraw({ tail: 'a' })
     list.scrollTop = 1700
     fireEvent.scroll(list)
 
@@ -351,14 +352,14 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 3000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ line: { working: false, since: 'a' } })
+    redraw({ tail: 'a' })
     list.scrollTop = 500
     fireEvent.scroll(list)
 
     act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
     act(() => chatStore.setState({ outbox: { 'chat-1': [] } }))
     box.scrollHeight = 3400
-    redraw({ line: { working: false, since: 'b' } })
+    redraw({ tail: 'b' })
 
     expect(list.scrollTop).toBe(500)
   })
@@ -370,12 +371,12 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 3000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ line: { working: true, since: 'a' } })
+    redraw({ tail: 'a' })
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
     list.scrollTop = 500
     fireEvent.scroll(list)
     box.scrollHeight = 3400
-    redraw({ line: { working: true, since: 'b' } })
+    redraw({ tail: 'b' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Jump to latest' }))
     expect(list.scrollTop).toBe(2600)
@@ -486,7 +487,7 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ line: { working: false, since: 'a' } })
+    redraw({ tail: 'a' })
     expect(list.scrollTop).toBe(1200)
 
     // The dock measures after the opening, and its room grows the list.

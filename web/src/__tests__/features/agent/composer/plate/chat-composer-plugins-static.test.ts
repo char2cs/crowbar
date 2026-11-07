@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPlateEditor } from 'platejs/react'
 
 import {
   chatComposerPlugins,
@@ -26,5 +27,28 @@ describe('chatComposerPluginsStatic', () => {
     expect(changed.map((p) => p.key).sort()).toEqual(
       ['a', 'callout', 'code_block', 'code_syntax', 'img', 'p', 'p'].sort(),
     )
+  })
+})
+
+const line = (text: string) => ({ type: 'p', children: [{ text }] })
+
+afterEach(() => vi.restoreAllMocks())
+
+describe('chatComposerPlugins', () => {
+  // Slate's lookup throws with the whole document serialised into its message, and the list
+  // plugin probes the path after every inserted node: a streamed answer paid that per line.
+  it('appends a block without serialising the document', () => {
+    const editor = createPlateEditor({ plugins: chatComposerPlugins, value: [line('a')] })
+    const stringify = vi.spyOn(JSON, 'stringify')
+    editor.tf.insertNodes(line('b'), { at: [1] })
+    expect(editor.children).toHaveLength(2)
+    expect(stringify).not.toHaveBeenCalled()
+  })
+
+  it('still finds a node that is there and nothing where there is none', () => {
+    const editor = createPlateEditor({ plugins: chatComposerPlugins, value: [line('a')] })
+    expect(editor.api.node([0])?.[0]).toMatchObject(line('a'))
+    expect(editor.api.node([3])).toBeUndefined()
+    expect(editor.api.node([0, 4])).toBeUndefined()
   })
 })

@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -22,7 +23,6 @@ import { markEnd } from '@/lib/perf/instrumentation'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { WorkingLine, type WorkingLineProps } from '@/features/agent/activity/working-line'
 import {
   useChatItems,
   useDisplayRows,
@@ -33,6 +33,7 @@ import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
 } from '@/features/agent/hooks/use-transcript-anchor'
+import { useOlderTurns } from '@/features/agent/hooks/use-older-turns'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
@@ -55,10 +56,8 @@ interface AgentTranscriptProps {
   providers: AgentProvider[]
   status?: ChatFeed['status']
   working: boolean
-  /** What the working line at the tail says. */
-  line: WorkingLineProps
-  /** A row the composer already shows (the provider's halt notice): said once. */
-  suppressId?: string
+  /** Drawn after the rows: the chat's working line. */
+  tail?: ReactNode
   onOpenTerminal: () => void
   /** Stable for the view's life: every prompt row holds it. */
   promptActions: RowActions
@@ -219,9 +218,11 @@ function placesOf(
   ids: string[],
   itemOf: (id: string) => TranscriptItem | undefined,
   working: boolean,
+  fromStart: boolean,
 ): Map<string, RowPlace> {
   const places = new Map<string, RowPlace>()
-  const first = itemOf(ids[0] ?? '')
+  // A window of a longer chat starts mid-way: its first prompt is not the chat's.
+  const first = fromStart ? itemOf(ids[0] ?? '') : undefined
   const firstTurn = first?.kind === 'user' ? first.id : undefined
   let firstReply: string | undefined
   let lastUserAt: string | undefined
@@ -311,7 +312,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     const byId = new Map<string, UserItem>()
     for (const item of outbox) {
       const id = `p:${item.requestId}`
-      if (!items?.[id]) byId.set(id, asUser(item))
+      if (!items?.has(id)) byId.set(id, asUser(item))
     }
     return byId
   }, [outbox, items])
@@ -321,23 +322,22 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     [display],
   )
   const rows = useMemo(() => {
-    const all =
-      liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
-    return props.suppressId ? all.filter((id) => id !== props.suppressId) : all
-  }, [order, liveTail, unsent, props.suppressId])
-  const itemOf = useCallback((id: string) => items?.[id] ?? unsent.get(id), [items, unsent])
+    return liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
+  }, [order, liveTail, unsent])
+  const itemOf = useCallback((id: string) => items?.get(id) ?? unsent.get(id), [items, unsent])
+  const fromStart = useChatStore((s) => !s.feeds[chatId]?.from)
 
   // Place objects keep their identity while unchanged, so memoized rows skip.
   const placeCache = useRef(new Map<string, RowPlace>())
   const places = useMemo(() => {
-    const next = placesOf(rows, itemOf, props.working)
+    const next = placesOf(rows, itemOf, props.working, fromStart)
     for (const [id, place] of next) {
       const prev = placeCache.current.get(id)
       if (samePlace(prev, place)) next.set(id, prev!)
     }
     placeCache.current = next
     return next
-  }, [rows, itemOf, props.working])
+  }, [rows, itemOf, props.working, fromStart])
 
   // A send lifts its prompt to the top, so its reply has the viewport to grow
   // into. A prompt still queued (behind a turn, or held) starts nothing, and one
@@ -364,7 +364,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         // taken back has no row, so its pin has no offset and reserves nothing.
         const waiting = pendingPin.current
         pendingPin.current = null
-        if (waiting && items?.[waiting]) pin(waiting)
+        if (waiting && items?.has(waiting)) pin(waiting)
         return
       }
       pendingPin.current = `p:${newestUnsent}`
@@ -398,6 +398,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
   const measuring = virtualItems.some((row) => !measured.has(row.key))
+  useOlderTurns(chatId, virtualItems[0]?.index, scrollRef, anchor.keepPlace)
   useLayoutEffect(() => afterCommit(measuring))
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
@@ -487,7 +488,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        <WorkingLine {...props.line} />
+        {props.tail}
         {!holding && !empty && <JumpToLatest onJump={jumpToLatest} />}
         <div className="dock-spacer" aria-hidden="true" />
       </div>

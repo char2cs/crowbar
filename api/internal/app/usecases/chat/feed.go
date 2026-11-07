@@ -33,11 +33,12 @@ const feedCapacity = 1024
 const feedReplayPage = 512
 
 // FeedFrame is one frame on a chat feed. Row is set on "row", Delta on "delta",
-// Seq on "ready" and "resync".
+// Seq on "ready" and "resync"; From on a window's first row, the seq it follows.
 type FeedFrame struct {
 	Type  string            `json:"type"` // "row" | "ready" | "delta" | "resync" | "deleted"
 	Row   *ledger.Row       `json:"row,omitempty"`
 	Seq   int64             `json:"seq,omitempty"`
+	From  int64             `json:"from,omitempty"`
 	Delta *ledger.FeedDelta `json:"delta,omitempty"`
 }
 
@@ -47,8 +48,10 @@ func rowFrame(r ledger.Row) FeedFrame { return FeedFrame{Type: feedRow, Row: &r}
 var errFeedEnded = errors.New("chat feed: ended while attaching")
 
 // OpenFeed is chatID's feed: rows after since, ready, a snapshot of its live
-// streams, then live frames. It registers before reading the head, so a row
-// committed meanwhile is sent once; an unknown chat is problem.ErrNotFound.
+// streams, then live frames. A since below 0 is a window of about the newest
+// -since rows in whole turns, whose first row says where it begins. It registers before reading the
+// head, so a row committed meanwhile is sent once; an unknown chat is
+// problem.ErrNotFound.
 func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error) {
 	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {
@@ -104,6 +107,13 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, em
 		emit(FeedFrame{Type: FeedResync, Seq: head})
 		return errFeedEnded
 	}
+	from := int64(0)
+	if since < 0 {
+		if since, err = u.ledger.WindowStart(ctx, chatID, -since, openTurns(st)); err != nil {
+			return fmt.Errorf("chat feed: %s: %w", chatID, err)
+		}
+		from = since
+	}
 	for after := since; after < head; {
 		rows, err := u.ledger.Read(ctx, chatID, after, int(min(head-after, feedReplayPage)))
 		if err != nil {
@@ -113,7 +123,9 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, em
 			break
 		}
 		for _, r := range rows {
-			if !emit(rowFrame(r)) {
+			f := rowFrame(r)
+			f.From, from = from, 0
+			if !emit(f) {
 				return ctx.Err()
 			}
 		}
@@ -128,6 +140,25 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, em
 		}
 	}
 	return nil
+}
+
+// openTurns are the turns st still has work open in: a window that cut one
+// would lose the running turn, an ask, a subagent or a prompt it holds.
+func openTurns(st ledger.State) []string {
+	var ids []string
+	if t, ok := st.RunningTurn(); ok {
+		ids = append(ids, t.ID)
+	}
+	for _, a := range st.PendingAsks() {
+		ids = append(ids, a.TurnID)
+	}
+	for _, a := range st.Subagents() {
+		ids = append(ids, a.TurnID)
+	}
+	for _, p := range st.PendingPrompts() {
+		ids = append(ids, p.TurnID)
+	}
+	return ids
 }
 
 // feeds is every open chat feed. Publishing never blocks: each feed queues

@@ -1,5 +1,6 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { MarkerKind, PlanItem, RowBodies, ToolCallBody } from '@/features/agent/api/chat-rows'
+import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
 import type { CallRound } from '@/features/agent/stores/lib/fold-rounds'
 
@@ -84,6 +85,8 @@ export interface AskItem extends ItemBase {
   toolInput?: unknown
   toolInputTruncated?: boolean
   mcpServer?: string
+  /** The gated call's family, when its row came first: what kind of call is asked about. */
+  family?: ToolFamily
 }
 
 export type MarkerName =
@@ -192,11 +195,13 @@ export interface ChatFeed {
   epoch: string
   /** The last applied row. */
   seq: number
+  /** Rows at or below it are not held: the feed opened on a window of a longer ledger. */
+  from: number
   /** Main-scope item ids by the seq of their first row. */
   order: string[]
   /** Ids known only from deltas, after the order. */
   liveTail: string[]
-  items: Record<string, TranscriptItem>
+  items: ItemMap
   /** `<stream>:<delta id>` → live text; each stream numbers its own frames. */
   live: Record<string, string>
   liveN: Record<string, number>

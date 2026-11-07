@@ -248,3 +248,28 @@ describe('SidebarSplitPane retained layout and keyboard behavior', () => {
     expect(right.onOpenChange).toHaveBeenCalledWith(false)
   })
 })
+
+// Laid over the content (a narrow window, its scrim shown), the sidebar is an overlay, and
+// Esc dismisses an overlay. Docked beside the content (scrim hidden by CSS) Esc leaves it be.
+describe('SidebarSplitPane Esc', () => {
+  it('closes the sidebar while it covers the content', () => {
+    const { onOpenChange } = renderSplit()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('leaves a docked sidebar open', () => {
+    const { onOpenChange } = renderSplit()
+    screen.getByRole('button', { name: 'Close sidebar', hidden: true }).style.display = 'none'
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves it open when something on top already took the Esc', () => {
+    const { onOpenChange } = renderSplit()
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    event.preventDefault()
+    window.dispatchEvent(event)
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+})

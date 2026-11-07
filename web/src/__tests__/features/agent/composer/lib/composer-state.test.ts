@@ -26,7 +26,6 @@ describe('resolveComposerState', () => {
     const state = resolveComposerState(
       inputs({
         feedError: 'This chat’s history did not line up',
-        haltedMessage: 'limit',
         asks: [askItem()],
       }),
     )
@@ -78,34 +77,6 @@ describe('resolveComposerState', () => {
     expect(resolveComposerState(inputs({ asks }))).toMatchObject({ kind: 'choices' })
   })
 
-  it('puts a pending choice ahead of a halt', () => {
-    const state = resolveComposerState(
-      inputs({ asks: [askItem()], haltedMessage: 'limit reached' }),
-    )
-    expect(state.kind).toBe('choices')
-  })
-
-  it('relays the provider’s own stop reason, with the reset when there is one', () => {
-    expect(
-      resolveComposerState(
-        inputs({
-          haltedMessage: "You've hit your usage limit.",
-          haltedResetsAt: '2026-08-24T19:00:00Z',
-        }),
-      ),
-    ).toEqual({
-      kind: 'halted',
-      message: "You've hit your usage limit.",
-      resetsAt: '2026-08-24T19:00:00Z',
-    })
-  })
-
-  it('puts a halt ahead of a compaction', () => {
-    expect(resolveComposerState(inputs({ compacting: true, haltedMessage: 'stopped' })).kind).toBe(
-      'halted',
-    )
-  })
-
   it('is compacting when that is all that is true', () => {
     expect(resolveComposerState(inputs({ compacting: true }))).toEqual({ kind: 'compacting' })
   })
@@ -120,7 +91,7 @@ describe('acceptsTyping', () => {
   })
 
   it('refuses typing for everything that is not an input', () => {
-    expect(acceptsTyping({ kind: 'halted', message: 'x' })).toBe(false)
+    expect(acceptsTyping({ kind: 'choices', asks: [askItem()] })).toBe(false)
     expect(acceptsTyping({ kind: 'signpost', reason: 'dormant', message: 'x' })).toBe(false)
   })
 })

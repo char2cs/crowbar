@@ -41,7 +41,7 @@ export function textOf(item: Pick<TextItem, 'chunks' | 'finalIndex' | 'complete'
 function liveItem(feed: ChatFeed, delta: FeedDelta): ChatFeed {
   if (delta.stream !== 'answer' || delta.scope) return feed
   const id = textItemId(delta.turnId, delta.id)
-  if (feed.items[id]) return feed
+  if (feed.items.has(id)) return feed
   const item: TextItem = {
     kind: 'text',
     id,
@@ -54,7 +54,9 @@ function liveItem(feed: ChatFeed, delta: FeedDelta): ChatFeed {
     settled: false,
     phase: '',
   }
-  return { ...feed, items: { ...feed.items, [id]: item }, liveTail: [...feed.liveTail, id] }
+  const items = feed.items.edit()
+  items.set(item)
+  return { ...feed, items: items.finish(), liveTail: [...feed.liveTail, id] }
 }
 
 /** Appends a delta that follows its stream's last, replaces on `replace`, and
@@ -79,13 +81,13 @@ export function applyDelta(feed: ChatFeed, delta: FeedDelta): ChatFeed {
 export function applyReady(feed: ChatFeed, epoch: string): ChatFeed {
   if (feed.epoch === epoch) return feed.status === 'live' ? feed : { ...feed, status: 'live' }
   if (feed.epoch === '') return { ...feed, epoch, status: 'live' }
-  const items = { ...feed.items }
-  for (const id of feed.liveTail) delete items[id]
+  const items = feed.items.edit()
+  for (const id of feed.liveTail) items.delete(id)
   return {
     ...feed,
     epoch,
     status: 'live',
-    items,
+    items: items.finish(),
     liveTail: [],
     live: {},
     liveN: {},

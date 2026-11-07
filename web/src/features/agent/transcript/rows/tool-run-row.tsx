@@ -94,7 +94,7 @@ function ToolRunRowBody({
 }) {
   const items = useChatStore(
     useShallow((s) =>
-      members.map((member) => s.feeds[chatId]?.items[member] as ToolItem | undefined),
+      members.map((member) => s.feeds[chatId]?.items.get(member) as ToolItem | undefined),
     ),
   )
   const tools = items.filter((item): item is ToolItem => item?.kind === 'tool')

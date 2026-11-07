@@ -260,3 +260,19 @@ describe('the structural floor leaves ordinary editing alone', () => {
     }
   })
 })
+
+// Tab is how a keyboard user leaves the box: only a list item or code line keeps it.
+describe('Tab in the composer', () => {
+  it('leaves a plain line alone, both ways, so focus can move on', () => {
+    const editor = composer('hello')
+    expect(editor.tf.tab({ reverse: false })).toBeFalsy()
+    expect(editor.tf.tab({ reverse: true })).toBeFalsy()
+    expect(chatValueToMarkdown(editor.children as Value)).toBe('hello')
+  })
+
+  it('still nests a list item', () => {
+    const editor = composer('- one\n- two')
+    expect(editor.tf.tab({ reverse: false })).toBe(true)
+    expect(chatValueToMarkdown(editor.children as Value)).toMatch(/- one\n\s+- two/)
+  })
+})

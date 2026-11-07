@@ -1,5 +1,5 @@
 import type { DecoratedRange } from '@platejs/slate'
-import type { NodeEntry, Path, TText, Value } from 'platejs'
+import type { NodeEntry, Path, Value } from 'platejs'
 import type { PlateEditor } from 'platejs/react'
 import {
   commonPrefixLength,
@@ -9,6 +9,7 @@ import {
   leafDivergences,
   markKeys,
   nodesEqual,
+  ownPropsEqual,
   stableBlockCount,
   trailingTextDivergence,
   type LeafDiff,
@@ -46,12 +47,6 @@ const SCROLL_LEAD_MS = 150
 // Past this many words the stagger step is imperceptible, so the chunk fades
 // as one span instead of paying for hundreds.
 const WORD_SPLIT_CAP = 80
-
-// How long `chat-token-fade` itself runs — keep in step with transcript.css.
-const FADE_DURATION_MS = 260
-
-// One frame, the resolution `resumedFadeDelay` measures a run's age in.
-const FRAME_MS = 16
 
 /** Whitespace-preserving split: joining the result reconstructs the input. */
 export function splitIntoWords(text: string): string[] {
@@ -314,6 +309,32 @@ function recordBlockRuns(
   })
 }
 
+/** A block that only grew or changed at its end (a code fence gaining lines, a
+ *  table gaining rows) keeps the children it already drew: a whole-block replace
+ *  remounts and re-decorates every one. False when no leading child agrees. */
+function replaceChildTail(editor: PlateEditor, prevBlock: Node, nextBlock: Node, at: Path) {
+  const prev = prevBlock.children
+  const next = nextBlock.children
+  if (!prev || !next || !ownPropsEqual(prevBlock, nextBlock)) return false
+  let kept = 0
+  while (kept < Math.min(prev.length, next.length) && nodesEqual(prev[kept], next[kept])) kept++
+  if (kept === 0) return false
+  for (let i = prev.length - 1; i >= kept; i--) editor.tf.removeNodes({ at: [...at, i] })
+  const added = next.slice(kept)
+  if (added.length === 0) return true
+  editor.tf.insertNodes(added as Value, { at: [...at, kept] })
+  const prevText = prev.slice(kept).map(flattenText).join('')
+  const nextText = added.map(flattenText).join('')
+  const skip = { remaining: commonPrefixLength(prevText, nextText) }
+  const total = splitIntoWords(nextText.slice(skip.remaining)).length
+  const generation = nextFreshGeneration(editor)
+  const wordIndex = { current: 0 }
+  added.forEach((child, i) => {
+    recordBlockRuns(editor, child, [...at, kept + i], generation, wordIndex, total, skip)
+  })
+  return true
+}
+
 /** Applies `next` touching only the blocks that differ — `setValue` would tear
  *  down and rebuild every settled paragraph per token. A growing tail becomes
  *  one `insert_text`, and the fade is recorded as runs, not document marks. */
@@ -378,8 +399,9 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
           patchLeavesInPlace(editor, leafDiffs)
           return
         }
-        // Shape changed: replace the block, fading only the genuinely new text.
         pruneRuns(editor, stable)
+        if (replaceChildTail(editor, prevBlock, nextBlock, [stable])) return
+        // Shape changed: replace the block, fading only the genuinely new text.
         editor.tf.removeNodes({ at: [stable] })
         editor.tf.insertNodes([nextBlock] as Value, { at: [stable] })
         const prevText = flattenText(prevBlock)
@@ -437,47 +459,4 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
       })
     }
   })
-}
-
-/** The fade delay a DECORATED leaf (`props.leaf`) carries, if any. */
-function freshLeafDelay(leaf: TText): number | null {
-  const record = leaf as unknown as Record<string, unknown>
-  if (typeof record[CHAT_FRESH_MARK] !== 'number') return null
-  const delay = record[CHAT_FRESH_DELAY_MARK]
-  return typeof delay === 'number' ? delay : 0
-}
-
-// First paint per run, keyed by `bornAt`: one chunk's words resolve in a single
-// commit that may straddle a frame, and a shared origin keeps their cascade.
-const firstPaintedAt = new Map<number, number>()
-// Only has to stop unbounded growth across a long session.
-const MAX_TRACKED_PAINTS = 512
-
-function paintOriginFor(bornAt: number, now: number): number {
-  const seen = firstPaintedAt.get(bornAt)
-  if (seen !== undefined) return seen
-  if (firstPaintedAt.size >= MAX_TRACKED_PAINTS) {
-    // Insertion-ordered, so the oldest half goes first.
-    let drop = MAX_TRACKED_PAINTS / 2
-    for (const key of firstPaintedAt.keys()) {
-      if (drop-- <= 0) break
-      firstPaintedAt.delete(key)
-    }
-  }
-  firstPaintedAt.set(bornAt, now)
-  return now
-}
-
-/** The `animation-delay` to mount with: the word's wait minus time already on
- *  screen, so a remount resumes rather than restarts (negative = started that
- *  long ago). Call once per mount; clamped at the fade's length. */
-export function resumedFadeDelay(leaf: TText): number | null {
-  const base = freshLeafDelay(leaf)
-  if (base === null) return null
-  const bornAt = (leaf as unknown as Record<string, unknown>)[CHAT_FRESH_BORN_MARK]
-  if (typeof bornAt !== 'number') return base
-  const now = typeof performance === 'object' ? performance.now() : Date.now()
-  // Floored to whole frames so a first-frame mount gets its nominal delay exactly.
-  const elapsed = Math.max(0, Math.floor((now - paintOriginFor(bornAt, now)) / FRAME_MS) * FRAME_MS)
-  return Math.max(base - elapsed, -FADE_DURATION_MS)
 }

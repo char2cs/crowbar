@@ -89,11 +89,17 @@ const PILL_MARKERS = new Set([
 ])
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
 
+// The ids a provider stamps on each repeat of the same warning (cf-ray, request id).
+const STAMP = /\b(cf-ray|request[ _-]?id)\s*[:=]\s*[\w-]+/gi
+
+const sameWarning = (detail: string | undefined) => (detail ?? '').replace(STAMP, '$1')
+
 /** A CLI repeats some warnings on every connection; the chat says each once. */
 export function warningShown(fold: FeedFold, detail: string | undefined) {
+  const said = sameWarning(detail)
   return fold.placedOrder.some((id) => {
     const item = fold.item(id)
-    return item?.kind === 'marker' && item.marker === 'warning' && item.detail === detail
+    return item?.kind === 'marker' && item.marker === 'warning' && sameWarning(item.detail) === said
   })
 }
 

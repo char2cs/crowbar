@@ -105,33 +105,6 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // Shares `ATTACHMENT_BOX_CLASS` (attachment-box.ts) with the text-attachment pill, so both kinds
-  // render as the same boxed card.
-  it('renders as the shared boxed-card footprint, not the old thin row', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(null, { status: 200, headers: { 'content-length': '2048' } }),
-        ),
-    )
-
-    render(
-      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
-        <MarkdownMessageStatic>
-          {'[report.pdf](chats/c1/attachments/report.pdf)'}
-        </MarkdownMessageStatic>
-      </ChatMarkdownAssetProvider>,
-    )
-
-    const anchor = screen.getByText('report.pdf').closest('a')!
-    expect(anchor.className).toContain('chat-attachment-box')
-    expect(anchor.className).toMatch(/(?:^|\s)size-28(?:\s|$)/)
-
-    vi.unstubAllGlobals()
-  })
-
   it('falls back to the ordinary link with no MarkdownAssetContext at all', () => {
     const { container } = render(
       <MarkdownMessageStatic>

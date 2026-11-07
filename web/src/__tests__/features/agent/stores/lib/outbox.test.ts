@@ -155,10 +155,22 @@ describe('send outcomes', () => {
     ])
     const fresh = item('fresh')
     for (const id of ['p:r1', 'p:r2']) {
-      const row = feed.items[id] as UserItem
+      const row = feed.items.get(id) as UserItem
       expect(retryRow([], feed.facts, row, fresh)).toEqual([{ ...fresh, retryOf: row.requestId }])
     }
-    expect(retryRow([], feed.facts, feed.items['p:r3'] as UserItem, fresh)).toEqual([])
+    expect(retryRow([], feed.facts, feed.items.get('p:r3') as UserItem, fresh)).toEqual([])
+  })
+
+  it('Retry on the prompt of a failed turn sends it again, never while that turn runs', () => {
+    const l = ledger()
+    const started = applyRows(emptyFeed(), [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
+    const row = started.items.get('p:r1') as UserItem
+    const fresh = item('fresh')
+    expect(retryRow([], started.facts, row, fresh)).toEqual([])
+    const failed = applyRows(started, [
+      l.row('turn_failed', { reason: 'turn_failed' }, { turnId: 'turn-1' }),
+    ])
+    expect(retryRow([], failed.facts, row, fresh)).toEqual([{ ...fresh, retryOf: 'r1' }])
   })
 })
 
@@ -220,6 +232,19 @@ describe('deliveryPending', () => {
     expect(deliveryPending(onSending([item('a')], 'a'), idle())).toBe(true)
     expect(deliveryPending([], pending.facts)).toBe(true)
     expect(deliveryPending([item('a')], applyRows(pending, [l.start('t', 'r1')]).facts)).toBe(false)
+  })
+
+  // Every store change re-asks it, and a long chat holds thousands of prompts.
+  it('reads the prompts once until one of them changes', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [l.prompt('r1', 'one'), l.start('t', 'r1')])
+    let reads = 0
+    const prompts = new Proxy(feed.facts.prompts, {
+      ownKeys: (target) => (reads++, Reflect.ownKeys(target)),
+    })
+    const facts = { ...feed.facts, prompts }
+    for (let i = 0; i < 3; i++) expect(deliveryPending([], facts)).toBe(false)
+    expect(reads).toBe(1)
   })
 })
 

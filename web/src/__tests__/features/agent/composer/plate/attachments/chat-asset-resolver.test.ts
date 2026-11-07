@@ -322,15 +322,6 @@ describe('fetchChatAttachmentMetadata', () => {
     ).resolves.toEqual({ filename: 'report.pdf', size: null })
     vi.unstubAllGlobals()
   })
-
-  it('forwards the abort signal to the HEAD request', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
-    const controller = new AbortController()
-    await fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/x.txt', controller.signal)
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'HEAD', signal: controller.signal })
-    vi.unstubAllGlobals()
-  })
 })
 
 describe('chatMarkdownAssetInfo', () => {

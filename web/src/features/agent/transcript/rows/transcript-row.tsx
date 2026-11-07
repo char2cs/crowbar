@@ -87,7 +87,15 @@ function TranscriptRowBody({
     case 'ask':
       return <AskRow item={item} />
     case 'marker':
-      return <MarkerRow chatId={chatId} item={item} providers={providers} actions={actions} />
+      return (
+        <MarkerRow
+          chatId={chatId}
+          item={item}
+          providers={providers}
+          provider={provider}
+          actions={actions}
+        />
+      )
     case 'subagent':
       return <SubagentCard chatId={chatId} id={id} />
     case 'reasoning':

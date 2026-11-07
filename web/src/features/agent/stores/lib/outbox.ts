@@ -128,8 +128,11 @@ export function retryRow(
   row: UserItem,
   fresh: OutboxItem,
 ): OutboxItem[] {
-  const state = row.requestId ? facts.prompts[row.requestId]?.state : undefined
-  if (state !== 'settled' && state !== 'refused' && state !== 'retracted') return items
+  const fact = row.requestId ? facts.prompts[row.requestId] : undefined
+  // A delivered prompt whose turn is over ran and ended, a failed turn's included.
+  const ended = fact?.state === 'delivered' && facts.running?.turnId !== fact.turnId
+  const state = fact?.state
+  if (!ended && state !== 'settled' && state !== 'refused' && state !== 'retracted') return items
   if (items.some((item) => item.retryOf === row.requestId)) return items
   return [...items, { ...fresh, retryOf: row.requestId }]
 }
@@ -153,7 +156,7 @@ export type Retractable =
 /** Whether `turnId` showed output: its rows, or a reply streaming ahead of them. */
 const spoke = (feed: ChatFeed, turnId: string) =>
   feed.facts.output[turnId] === true ||
-  feed.liveTail.some((id) => feed.items[id]?.turnId === turnId)
+  feed.liveTail.some((id) => feed.items.get(id)?.turnId === turnId)
 
 /** Whether the turn `requestId` started showed output: then its row is the record. */
 export function promptSpoke(feed: ChatFeed | undefined, requestId: string) {
@@ -178,7 +181,7 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
   const { running, prompts } = feed.facts
   let item: UserItem | undefined
   for (let at = feed.order.length - 1; at >= 0 && !item; at--) {
-    const candidate = feed.items[feed.order[at]!]
+    const candidate = feed.items.get(feed.order[at]!)
     if (candidate?.kind === 'user' && candidate.origin === 'crowbar') item = candidate
   }
   const fact = item?.requestId ? prompts[item.requestId] : undefined
@@ -192,8 +195,17 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
   return running ? { kind: 'stop' } : null
 }
 
-/** A prompt is on its way: sending, or held by the daemon until a turn takes it. */
+const held = new WeakMap<TurnFacts['prompts'], boolean>()
+
+/** A prompt is on its way: sending, or held by the daemon until a turn takes it.
+ *  The fold copies `prompts` only to change it, so the scan is cached on it. */
 export function deliveryPending(items: OutboxItem[] | undefined, facts: TurnFacts | undefined) {
   if (items?.some((item) => item.state === 'sending')) return true
-  return Object.values(facts?.prompts ?? {}).some((fact) => fact.state === 'pending')
+  if (!facts) return false
+  let pending = held.get(facts.prompts)
+  if (pending === undefined) {
+    pending = Object.values(facts.prompts).some((fact) => fact.state === 'pending')
+    held.set(facts.prompts, pending)
+  }
+  return pending
 }

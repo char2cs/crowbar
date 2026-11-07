@@ -4,11 +4,17 @@ import { Button } from '@/components/ui/button'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import type { MarkerItem } from '@/features/agent/stores/lib/transcript-items'
+import { limitResetsAt, useChatTelemetry } from '@/features/agent/hooks/use-chat-entity'
+import {
+  describeFailure,
+  resetLabel,
+  type FailureKind,
+} from '@/features/agent/transcript/lib/turn-failure'
 
 /** What a marker row can do: re-send a failed turn, open the CLI, start over. */
 export interface MarkerActions {
-  /** Sends `text` again as a new prompt. */
-  resend: (text: string) => void
+  /** Sends the prompt `requestId` again, as its retry. */
+  retry: (requestId: string) => void
   openTerminal: () => void
   /** The next prompt starts a fresh conversation. */
   newConversation: () => void
@@ -94,58 +100,101 @@ function useNewestFailure(chatId: string, id: string): boolean {
     const feed = s.feeds[chatId]
     if (!feed || (s.outbox[chatId]?.length ?? 0) > 0) return false
     const at = feed.order.indexOf(id)
-    return at >= 0 && feed.order.slice(at + 1).every((later) => feed.items[later]?.kind !== 'user')
+    return (
+      at >= 0 && feed.order.slice(at + 1).every((later) => feed.items.get(later)?.kind !== 'user')
+    )
   })
 }
 
-/** The text of the prompt that started `turnId`. */
+/** The request id of the prompt that started `turnId`. */
 function usePromptOf(chatId: string, turnId: string | undefined): string | undefined {
   return useChatStore((s) => {
     const feed = s.feeds[chatId]
     if (!feed || !turnId) return undefined
     for (const id of feed.order) {
-      const item = feed.items[id]
-      if (item?.kind === 'user' && item.turnId === turnId) return item.text
+      const item = feed.items.get(id)
+      if (item?.kind === 'user' && item.turnId === turnId) return item.requestId
     }
     return undefined
   })
 }
 
-function FailedActions({ chatId, item, actions }: MarkerProps & { actions: MarkerActions }) {
+/** The way on from the newest failure: a sign-in to run, or when a limit lifts. */
+function FailureHint({
+  chatId,
+  kind,
+  provider,
+}: {
+  chatId: string
+  kind: FailureKind
+  provider?: AgentProvider
+}) {
+  const telemetry = useChatTelemetry(chatId)
+  const resetsAt = kind === 'limit' ? limitResetsAt(telemetry) : undefined
+  const when = resetsAt ? resetLabel(resetsAt) : ''
+  if (kind === 'auth' && provider?.signIn) {
+    return (
+      <p className="marker-hint" data-testid="agent-failed-hint">
+        Sign in: run <code>{provider.signIn}</code> in a terminal
+      </p>
+    )
+  }
+  if (!when) return null
+  return (
+    <p className="marker-hint" data-testid="agent-failed-hint">
+      {when}
+    </p>
+  )
+}
+
+// The reason shows on the row itself: a failure read only behind a toggle reads as a hang.
+function FailedActions({
+  chatId,
+  item,
+  actions,
+  provider,
+}: MarkerProps & { actions: MarkerActions; provider?: AgentProvider }) {
   const [open, setOpen] = useState(false)
   const [sent, setSent] = useState(false)
-  const prompt = usePromptOf(chatId, item.turnId)
+  const requestId = usePromptOf(chatId, item.turnId)
   const newest = useNewestFailure(chatId, item.id)
+  const failure = describeFailure(item.reason, item.detail)
   return (
-    <div className="marker-actions" data-testid="agent-failed-turn">
-      {item.detail && (
-        <button
-          type="button"
-          className="reasoning-toggle"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          Details
-          <CaretRightIcon size={12} />
-        </button>
-      )}
-      {prompt !== undefined && newest && (
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={sent}
-          onClick={() => {
-            setSent(true)
-            actions.resend(prompt)
-          }}
-        >
-          Retry
+    <div className="marker-failure" data-testid="agent-failed-turn">
+      <p className="marker-reason" data-testid="agent-failed-reason">
+        {failure.text}
+      </p>
+      {newest && <FailureHint chatId={chatId} kind={failure.kind} provider={provider} />}
+      <div className="marker-actions">
+        {failure.more && (
+          <button
+            type="button"
+            className="reasoning-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+          >
+            Details
+            <CaretRightIcon size={12} />
+          </button>
+        )}
+        {requestId !== undefined && newest && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={sent}
+            onClick={() => {
+              setSent(true)
+              actions.retry(requestId)
+            }}
+          >
+            Retry
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onClick={actions.openTerminal}>
+          Open terminal
         </Button>
-      )}
-      <Button size="sm" variant="outline" onClick={actions.openTerminal}>
-        Open terminal
-      </Button>
-      {open && <pre className="marker-detail">{item.detail}</pre>}
+      </div>
+      {open && <pre className="marker-detail">{failure.more}</pre>}
     </div>
   )
 }
@@ -161,8 +210,9 @@ function MarkerRowBody({
   chatId,
   item,
   providers,
+  provider,
   actions,
-}: MarkerProps & { providers: AgentProvider[]; actions: MarkerActions }) {
+}: MarkerProps & { providers: AgentProvider[]; provider?: string; actions: MarkerActions }) {
   const { label, testId } = pill(item, providers)
   // Starting over is the answer only while nothing has followed the loss.
   const latest = useChatStore((s) => s.feeds[chatId]?.order.at(-1) === item.id)
@@ -176,7 +226,12 @@ function MarkerRowBody({
         <span className="wavy-rule" />
       </div>
       {item.marker === 'turn_failed' && (
-        <FailedActions chatId={chatId} item={item} actions={actions} />
+        <FailedActions
+          chatId={chatId}
+          item={item}
+          actions={actions}
+          provider={providers.find((p) => p.id === provider)}
+        />
       )}
       {item.marker === 'session_lost' && latest && (
         <div className="marker-actions">

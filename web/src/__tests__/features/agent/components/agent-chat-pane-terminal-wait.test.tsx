@@ -42,6 +42,7 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
 
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import {
   chatSnapshot,
@@ -89,6 +90,12 @@ const seedNonHotswap = (wait?: { kind: string }) =>
   seedOne(nonHotswapProviders, nonHotswapChat(wait))
 
 const renderPane = renderChatPane
+
+/** A tab the user looked at, then left: its chat is open, its pane hidden. */
+async function renderLeft(store: ReturnType<typeof seed>) {
+  const view = await renderPane(store)
+  await act(async () => view.rerender(chatPane(store, { isVisible: false })))
+}
 
 /** Raise or clear the daemon's verdict the way the WS frame does. */
 async function setWait(wait: { kind: string } | null) {
@@ -171,12 +178,23 @@ describe('AgentChatPane — waiting in the terminal', () => {
   // user finds the explanation waiting when they come back.
   it('does not switch a chat the user is not looking at (hidden tab)', async () => {
     const store = seed()
-    await renderPane(store, { isVisible: false })
+    await renderLeft(store)
 
     await setWait({ kind: 'workspace_trust' })
 
     expect(showing()).toBe('chat')
     expect(screen.getByTestId('agent-terminal-wait')).toBeInTheDocument()
+  })
+
+  // A restored tab nobody looks at would replay its feed at open, behind the one in view.
+  it('opens a hidden tab’s chat only once it is shown, and keeps it after', async () => {
+    const store = seed()
+    const view = await renderPane(store, { isVisible: false })
+    expect(chatStore.getState().feeds.c1).toBeUndefined()
+    await act(async () => view.rerender(chatPane(store)))
+    expect(chatStore.getState().feeds.c1).toBeDefined()
+    await act(async () => view.rerender(chatPane(store, { isVisible: false })))
+    expect(chatStore.getState().feeds.c1).toBeDefined()
   })
 
   it('does not switch a chat in a pane that does not have focus', async () => {
@@ -308,7 +326,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   // not auto-return — but Crowbar did send them, so it owes them the offer.
   it('offers the way back to a user who followed the banner', async () => {
     const store = seed()
-    await renderPane(store, { isVisible: false })
+    await renderLeft(store)
     await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
@@ -365,7 +383,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   // Open Terminal moves the surface but leaves `waiting` up until the CLI answers.
   it('keeps the chat surface hidden after Open Terminal, even while still waiting', async () => {
     const store = seed()
-    await renderPane(store, { isVisible: false })
+    await renderLeft(store)
     await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
@@ -410,7 +428,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
 
   it("calls switchToTerminal when the wait banner's Open Terminal button is used", async () => {
     const store = seedNonHotswap()
-    await renderPane(store, { isVisible: false })
+    await renderLeft(store)
     await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 

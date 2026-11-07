@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LedgerRow, MarkerKind } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 import { ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
+import { provider } from '@/__tests__/__fixtures__/agent-chat'
+import * as chatEntity from '@/features/agent/hooks/use-chat-entity'
 
 function seed(rows: LedgerRow[]) {
   openFeed('chat-1')
@@ -20,12 +22,13 @@ function draw(id: string, actions = noRowActions) {
 }
 
 const markerOf = (feed: ReturnType<typeof seed>) =>
-  feed.order.find((id) => feed.items[id]?.kind === 'marker')
+  feed.order.find((id) => feed.items.get(id)?.kind === 'marker')
 
 beforeEach(() => chatStore.setState({ feeds: {}, outbox: {} }))
+afterEach(() => vi.restoreAllMocks())
 
 describe('MarkerRow', () => {
-  it('offers Retry and Open terminal on a failed turn', () => {
+  it('says why a turn failed, in the provider’s words, and retries that prompt', () => {
     const l = ledger()
     const feed = seed([
       l.row(
@@ -40,17 +43,64 @@ describe('MarkerRow', () => {
         { turnId: 'turn-1' },
       ),
     ])
-    const actions = { ...noRowActions, resend: vi.fn(), openTerminal: vi.fn() }
+    const actions = { ...noRowActions, retry: vi.fn(), openTerminal: vi.fn() }
     draw(markerOf(feed)!, actions)
 
     expect(screen.getByTestId('agent-failed-divider')).toHaveTextContent('Turn failed')
-    expect(screen.queryByText(/rate limited/)).toBeNull()
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('rate limited')
     fireEvent.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText(/rate limited/)).toBeInTheDocument()
+    expect(screen.getByText(/retry later/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(actions.resend).toHaveBeenCalledWith('fix the build')
+    expect(actions.retry).toHaveBeenCalledWith('r1')
     fireEvent.click(screen.getByRole('button', { name: 'Open terminal' }))
     expect(actions.openTerminal).toHaveBeenCalled()
+  })
+
+  const failure = (reason: string, detail: string) => {
+    const l = ledger()
+    return seed([
+      l.prompt('r1', 'hi'),
+      l.start('turn-1', 'r1'),
+      l.row('turn_failed', { reason, detail }, { turnId: 'turn-1' }),
+    ])
+  }
+  const codex = provider('fake', 'Codex', { signIn: 'codex login' })
+
+  it('tells a signed-out person how to sign in, with the provider’s own command', () => {
+    const detail = 'unexpected status 401 Unauthorized: Missing bearer, cf-ray: a5678360fab4b516'
+    const feed = failure(detail, detail)
+    render(
+      <TranscriptRow
+        actions={noRowActions}
+        chatId="chat-1"
+        id={markerOf(feed)!}
+        providers={[codex]}
+      />,
+    )
+
+    expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent(
+      'Sign in: run codex login in a terminal',
+    )
+  })
+
+  it('says when a rate limit lifts, and gives no sign-in hint for it', () => {
+    vi.spyOn(chatEntity, 'useChatTelemetry').mockReturnValue({
+      observedAt: '2026-08-24T18:00:00Z',
+      source: 'callback',
+      rateLimits: [{ usedPercent: 100, resetsAt: '2026-08-24T19:00:00Z' }],
+    } as never)
+    const feed = failure('rate_limit', 'Rate limit reached. Please try again later.')
+    render(
+      <TranscriptRow
+        actions={noRowActions}
+        chatId="chat-1"
+        id={markerOf(feed)!}
+        providers={[codex]}
+      />,
+    )
+
+    expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent(/^Resets /)
+    expect(screen.queryByText(/Sign in/)).toBeNull()
   })
 
   const failedTurn = (l: ReturnType<typeof ledger>, n: number) => [
@@ -63,12 +113,12 @@ describe('MarkerRow', () => {
     l.row('turn_failed', { reason: 'provider_error' }, { turnId: `turn-${n}` }),
   ]
   const markers = (feed: ReturnType<typeof seed>) =>
-    feed.order.filter((id) => feed.items[id]?.kind === 'marker')
+    feed.order.filter((id) => feed.items.get(id)?.kind === 'marker')
 
   it('offers Retry once, on the newest failed turn only, with that turn’s prompt', () => {
     const l = ledger()
     const feed = seed([...failedTurn(l, 1), ...failedTurn(l, 2)])
-    const actions = { ...noRowActions, resend: vi.fn() }
+    const actions = { ...noRowActions, retry: vi.fn() }
     const [older, newer] = markers(feed)
     const first = draw(older!, actions)
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
@@ -78,8 +128,8 @@ describe('MarkerRow', () => {
     const retry = screen.getByRole('button', { name: 'Retry' })
     fireEvent.click(retry)
     fireEvent.click(retry)
-    expect(actions.resend).toHaveBeenCalledTimes(1)
-    expect(actions.resend).toHaveBeenCalledWith('prompt 2')
+    expect(actions.retry).toHaveBeenCalledTimes(1)
+    expect(actions.retry).toHaveBeenCalledWith('r2')
   })
 
   it('offers no Retry once a later prompt was sent', () => {

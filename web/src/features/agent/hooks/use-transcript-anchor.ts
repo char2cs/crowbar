@@ -42,6 +42,8 @@ export interface TranscriptAnchor {
   noteScrollWrite: () => void
   /** The reader's own prompt landed: rejoin the live end. */
   stick: () => void
+  /** Rows land above the reader: the next commit keeps their distance from the bottom. */
+  keepPlace: () => void
   /** The reader's hand on the scroller, passive: a wheel, drag or key up lets go
    *  of the bottom before the view has moved, which position alone cannot see. */
   intent: ReaderIntent
@@ -234,6 +236,10 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     reading.current = false
   }, [setStuck])
 
+  const keepPlace = useCallback(() => {
+    landNext.current = true
+  }, [])
+
   const holdsBottom = useCallback(() => stuck.current, [])
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -295,6 +301,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     notifyReflow,
     noteScrollWrite,
     stick,
+    keepPlace,
     holdsBottom,
     subscribe,
   }

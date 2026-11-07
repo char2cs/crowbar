@@ -36,43 +36,6 @@ export function formatAttachmentSize(bytes: number | null): string | null {
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${UNITS[unitIndex]}`
 }
 
-/** Falls through to `LinkElement` for a non-attachment url or with no
- *  `MarkdownAssetContext`. */
-export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
-  const asset = useMarkdownAsset()
-  const url = props.element.url
-  const parsed = parseChatAttachmentRef(url)
-
-  if (!parsed || !asset || !('wsId' in asset)) return <LinkElement {...props} />
-
-  return (
-    <ChatAttachmentFileCard
-      {...props}
-      wsId={asset.wsId}
-      attachmentRef={url}
-      filename={parsed.filename}
-    />
-  )
-}
-
-/** Never touches `useAttachmentDraggable`, so a settled message needs no `DndScope`. */
-export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
-  const asset = useMarkdownAsset()
-  const url = props.element.url
-  const parsed = parseChatAttachmentRef(url)
-
-  if (!parsed || !asset || !('wsId' in asset)) return <LinkElement {...props} />
-
-  return (
-    <ChatAttachmentFileCardStatic
-      {...props}
-      wsId={asset.wsId}
-      attachmentRef={url}
-      filename={parsed.filename}
-    />
-  )
-}
-
 function useChatAttachmentCardMeta(
   wsId: string,
   attachmentRef: string,
@@ -105,72 +68,78 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
   filename: string
 }
 
-/** The controls are siblings of the `<a>`, not children: a `<button>` inside an
- *  anchor is invalid HTML. `nodeRef` and Slate's ref still sit on the anchor itself. */
-function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
+/** The anchor a card draws; `editable` keeps the caret out of the filename. */
+function FileCardAnchor({
+  wsId,
+  attachmentRef,
+  filename,
+  editable = false,
+  className,
+  ...props
+}: FileCardProps & { editable?: boolean; className?: string }) {
   const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
-  const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(
-    props.element,
-  )
-
-  return (
-    <span className="group/attachment relative inline-flex align-middle">
-      <AttachmentControls handleProps={handleProps} onDelete={remove} />
-      <AttachmentDropLine line={dropLine} />
-      <PlateElement
-        {...props}
-        as="a"
-        ref={useComposedRef(props.ref, nodeRef)}
-        className={cn(
-          'chat-attachment-file-card',
-          ATTACHMENT_BOX_CLASS,
-          isDragging && 'opacity-50',
-        )}
-        attributes={{
-          ...props.attributes,
-          href: href ?? undefined,
-          onClick: (e) => handleMarkdownAnchorClick(e, href, wsId),
-          onMouseOver: (e) => {
-            e.stopPropagation()
-          },
-        }}
-      >
-        <FileExplorerIcon fileName={filename} size={28} className="shrink-0" />
-        {/* contentEditable={false} — a filename is a reference, not prose a caret should enter. */}
-        <span
-          contentEditable={false}
-          className="line-clamp-2 w-full break-words px-1 font-medium text-foreground text-xs"
-        >
-          {props.children}
-        </span>
-        {sizeLabel && <span className="text-[11px] text-muted-foreground">{sizeLabel}</span>}
-      </PlateElement>
-    </span>
-  )
-}
-
-function ChatAttachmentFileCardStatic({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
-  const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
-
   return (
     <PlateElement
       {...props}
       as="a"
-      className={cn('chat-attachment-file-card', ATTACHMENT_BOX_CLASS)}
+      className={cn('chat-attachment-file-card', ATTACHMENT_BOX_CLASS, className)}
       attributes={{
         ...props.attributes,
         href: href ?? undefined,
         onClick: (e) => handleMarkdownAnchorClick(e, href, wsId),
-        onMouseOver: (e) => {
-          e.stopPropagation()
-        },
+        onMouseOver: (e) => e.stopPropagation(),
       }}
     >
       <FileExplorerIcon fileName={filename} size={28} className="shrink-0" />
-      <span className="line-clamp-2 w-full break-words px-1 font-medium text-foreground text-xs">
+      <span
+        contentEditable={editable ? false : undefined}
+        className="line-clamp-2 w-full break-words px-1 font-medium text-foreground text-xs"
+      >
         {props.children}
       </span>
       {sizeLabel && <span className="text-[11px] text-muted-foreground">{sizeLabel}</span>}
     </PlateElement>
   )
+}
+
+/** The controls are siblings of the `<a>`, not children: a `<button>` inside an
+ *  anchor is invalid HTML. `nodeRef` and Slate's ref still sit on the anchor itself. */
+function ChatAttachmentFileCard(props: FileCardProps) {
+  const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(
+    props.element,
+  )
+  return (
+    <span className="group/attachment relative inline-flex align-middle">
+      <AttachmentControls handleProps={handleProps} onDelete={remove} />
+      <AttachmentDropLine line={dropLine} />
+      <FileCardAnchor
+        {...props}
+        ref={useComposedRef(props.ref, nodeRef)}
+        editable
+        className={isDragging ? 'opacity-50' : undefined}
+      />
+    </span>
+  )
+}
+
+/** The card a link draws when its url is an attachment and a `MarkdownAssetContext`
+ *  names the workspace; null falls through to `LinkElement`. */
+function useCardTarget(element: TLinkElement) {
+  const asset = useMarkdownAsset()
+  const parsed = parseChatAttachmentRef(element.url)
+  if (!parsed || !asset || !('wsId' in asset)) return null
+  return { wsId: asset.wsId, attachmentRef: element.url, filename: parsed.filename }
+}
+
+export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
+  const card = useCardTarget(props.element)
+  if (!card) return <LinkElement {...props} />
+  return <ChatAttachmentFileCard {...props} {...card} />
+}
+
+/** Never touches `useAttachmentDraggable`, so a settled message needs no `DndScope`. */
+export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
+  const card = useCardTarget(props.element)
+  if (!card) return <LinkElement {...props} />
+  return <FileCardAnchor {...props} {...card} />
 }
