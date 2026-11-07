@@ -186,7 +186,7 @@ func (rs *Runners) launchCarrying(
 	}
 	runnerID, err := rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, delivery.provider, spawnInput{
 		runnerID: carrier, launch: &delivery.launch, finalSteps: delivery.promptSteps,
-		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: note + text,
+		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text, moveNote: note,
 		selection: delivery.selection,
 	})
 	if err != nil {

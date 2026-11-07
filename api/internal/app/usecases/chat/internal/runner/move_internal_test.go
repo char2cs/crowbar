@@ -38,7 +38,22 @@ func TestExecuteMove_AnIdleChatMovesAtOnceAndItsNextPromptCarriesTheNote(t *test
 	assert.Contains(t, note, "/new")
 	p := promptReceipt(t, h.rs.ledger, "req-1")
 	assert.Equal(t, "where are you?", p.Text, "the person's words are kept as they typed them")
-	assert.Equal(t, note+"where are you?", p.Dispatch)
+	assert.Empty(t, p.Dispatch, "the note is the launch's, not the person's prompt")
+}
+
+// The CLI echoes the note with the prompt; the echo is the person's words, never
+// a second turn showing Crowbar's note as typed by them.
+func TestSpawnRunner_TheMoveNotesEchoIsCrowbarsNotAPrompt(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	note := "<system-reminder>moved</system-reminder>\n\n"
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude",
+		spawnInput{runnerID: "runner-1", promptMessage: "hello", moveNote: note})
+	require.NoError(t, err)
+	<-h.lifecycle.started
+
+	rest, injected := h.rs.agents.ConsumeInjectedPrefix("runner-1", note+"hello")
+	assert.True(t, injected)
+	assert.Equal(t, "hello", rest)
 }
 
 func TestExecuteMove_WaitsForTheRunningTurn(t *testing.T) {

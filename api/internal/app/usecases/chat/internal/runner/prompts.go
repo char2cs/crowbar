@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -209,9 +208,7 @@ func (rs *Runners) recordPrompt(
 			}
 			return nil, err
 		}
-		if note = st.MoveNote(); note != "" {
-			dispatch = note + cmp.Or(dispatch, text)
-		}
+		note = st.MoveNote()
 		if dispatch == text {
 			dispatch = ""
 		}
@@ -294,6 +291,9 @@ func (rs *Runners) submitPromptOverAPI(
 	session, err := rs.boundSession(ctx, chat.ID, live.ProviderID)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
+	}
+	if note != "" {
+		rs.agents.RecordInjection(live.ID, strings.TrimSpace(note))
 	}
 	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, session, worktree, note+dispatchText)
 	if pushErr != nil {

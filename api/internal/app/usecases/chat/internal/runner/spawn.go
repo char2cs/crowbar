@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -110,7 +111,7 @@ func (rs *Runners) spawnRunner(
 	// while refs are still the logical form its pattern is written against.
 	sigils, escape := descriptor.PromptLeadingSigils()
 	guardedMessage := promptsigil.Guard(sigils, escape, chatID, in.promptMessage)
-	dispatchMessage := materializeAttachmentsForDispatch(paths.crowbarHome, chatID, guardedMessage)
+	dispatchMessage := in.moveNote + materializeAttachmentsForDispatch(paths.crowbarHome, chatID, guardedMessage)
 	dispatchConversation := materializeAttachmentsForDispatch(paths.crowbarHome, chatID, in.conversation)
 
 	// Tools are switched off by rendering a descriptor without them, not by filtering
@@ -150,6 +151,9 @@ func (rs *Runners) spawnRunner(
 	// into the same positional: ConsumeInjectedPrefix strips the echo, keeps the rest.
 	if inject {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
+	}
+	if in.moveNote != "" {
+		rs.agents.RecordInjection(runnerID, strings.TrimSpace(in.moveNote))
 	}
 
 	// The chat's one entry, claimed before any process exists: a second

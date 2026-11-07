@@ -30,6 +30,8 @@ type spawnInput struct {
 	gapTurns      int
 	resuming      bool // the content signal: is the handoff a gap or the whole conversation
 	promptMessage string
+	// moveNote leads the dispatched prompt after a move; its echo is Crowbar's, never a turn.
+	moveNote string
 	// selection is a pick staged with the prompt, launched in place of the
 	// chat's own and made the chat's once the launch runs; nil stages none.
 	selection *domain.ChatSelection
