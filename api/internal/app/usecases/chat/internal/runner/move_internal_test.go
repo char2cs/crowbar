@@ -85,6 +85,7 @@ func TestExecuteMove_AFailureIsRecordedWithItsReason(t *testing.T) {
 	require.True(t, ran)
 	assert.Equal(t, ledger.MoveFailed, done.Phase)
 	assert.Contains(t, done.Reason, "the worktree could not be made")
+	assert.Equal(t, "ws-b", done.To, "a failed row says where it was going, for its Retry")
 	st, err := h.rs.ledger.State(t.Context(), "chat-1")
 	require.NoError(t, err)
 	_, pending := st.PendingMove()
@@ -93,9 +94,15 @@ func TestExecuteMove_AFailureIsRecordedWithItsReason(t *testing.T) {
 
 func TestCancelMove_ClosesThePendingMove(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	_, err := h.rs.RequestMove(t.Context(), "chat-1", ledger.Move{RequestID: "m1", To: "ws-b"})
+	_, err := h.rs.RequestMove(t.Context(), "chat-1", ledger.Move{RequestID: "m1", To: "ws-b", Label: "b2"})
 	require.NoError(t, err)
 	require.NoError(t, h.rs.CancelMove(t.Context(), "chat-1", "cancelled"))
+	rows, err := h.rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	cancelled, err := ledger.DecodeBody[ledger.Move](rows[len(rows)-1])
+	require.NoError(t, err)
+	assert.Equal(t, ledger.Move{Phase: ledger.MoveCancelled, RequestID: "m1", To: "ws-b", Label: "b2", Reason: "cancelled"},
+		cancelled, "a cancelled row names the move it withdrew")
 	_, ran, err := h.rs.ExecuteMove(t.Context(), "chat-1", doneTo("/new"))
 	require.NoError(t, err)
 	assert.False(t, ran)

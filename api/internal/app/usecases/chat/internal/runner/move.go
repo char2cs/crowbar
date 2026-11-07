@@ -31,9 +31,7 @@ func (rs *Runners) RequestMove(ctx context.Context, chatID string, m ledger.Move
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		var rows []ledger.Row
 		if prior, ok := st.PendingMove(); ok && prior.RequestID != m.RequestID {
-			gone, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{
-				Phase: ledger.MoveCancelled, RequestID: prior.RequestID, Reason: "replaced by a newer move",
-			})
+			gone, err := ledger.NewRow(ledger.KindMove, "", "", closed(prior, ledger.MoveCancelled, "replaced by a newer move"))
 			if err != nil {
 				return nil, err
 			}
@@ -89,10 +87,17 @@ func cancelPendingMove(st ledger.State, reason string) ([]ledger.Row, error) {
 	if !ok {
 		return nil, nil
 	}
-	row, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{
-		Phase: ledger.MoveCancelled, RequestID: m.RequestID, Reason: reason,
-	})
+	row, err := ledger.NewRow(ledger.KindMove, "", "", closed(m, ledger.MoveCancelled, reason))
 	return []ledger.Row{row}, err
+}
+
+// closed is m ended in phase for reason: it keeps what the request named, so a transcript that
+// no longer holds the request still says where the move went, and Retry can ask for it again.
+func closed(m ledger.Move, phase, reason string) ledger.Move {
+	return ledger.Move{
+		Phase: phase, RequestID: m.RequestID, To: m.To, ParentID: m.ParentID, Order: m.Order, Label: m.Label,
+		BranchOut: m.BranchOut, Branch: m.Branch, Reason: reason,
+	}
 }
 
 // ExecuteMove makes chatID's pending move once nothing in the chat runs: its CLI
@@ -114,7 +119,7 @@ func (rs *Runners) ExecuteMove(ctx context.Context, chatID string, apply MoveApp
 		return ledger.Move{}, false, nil
 	}
 	if applyErr != nil {
-		done = ledger.Move{Phase: ledger.MoveFailed, RequestID: m.RequestID, Reason: problem.Of(applyErr).Message}
+		done = closed(m, ledger.MoveFailed, problem.Of(applyErr).Message)
 	} else {
 		done.Phase, done.RequestID, done.Label = ledger.MoveDone, m.RequestID, m.Label
 	}
