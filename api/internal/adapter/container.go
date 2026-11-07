@@ -98,10 +98,14 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("adapter: home: %w", err)
 	}
-	// Owner-only, and narrowed when an older build made them looser.
+	// Owner-only, and narrowed when an older build made them looser. The root
+	// is created so but never narrowed: it is on the way to every checkout.
 	for _, dir := range []string{h.Root(), h.State(), h.Events(), h.Store()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("adapter: create %s: %w", dir, err)
+		}
+		if dir == h.Root() {
+			continue
 		}
 		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a directory needs its search bit; 0700 is owner-only
 			return nil, fmt.Errorf("adapter: restrict %s: %w", dir, err)

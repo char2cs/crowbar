@@ -183,6 +183,22 @@ func TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen(t *testing.T) {
 	}
 }
 
+// The home root is on the way to every checkout, which another uid may need to
+// traverse, so opening the home leaves its existing mode alone.
+func TestNew_LeavesTheModeOfAnExistingHomeRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	require.NoError(t, os.Chmod(root, 0o711))
+
+	c, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	info, err := os.Stat(root)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o711), info.Mode().Perm())
+}
+
 func TestNew_RejectsARelativeHome(t *testing.T) {
 	_, err := adapter.New(adapter.WithHomeDir("relative/home"))
 	require.ErrorContains(t, err, "must be an absolute path")
