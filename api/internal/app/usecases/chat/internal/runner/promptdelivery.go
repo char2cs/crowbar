@@ -19,20 +19,20 @@ type sessionLaunch struct {
 	resumeID string
 	// assign binds the session Crowbar minted; it is appended before the fork.
 	assign *ledger.Row
-	// lost: the provider refused the chat's session, so the new one starts
-	// with no memory of the conversation and is handed none until it turns.
-	lost bool
+	// afterLoss: the provider refused the chat's session, so what this launch is
+	// handed of the conversation is Crowbar's record, which the transcript says.
+	afterLoss bool
 }
 
 // launchSession is the launch decision. A bound session that turned is resumed
-// by its id, and only by its id. Any other starts anew: one that never turned
-// was never written by its CLI, so a new id replaces it rather than reusing it.
+// by its id, and only by its id. Any other starts anew, handed Crowbar's record:
+// one that never turned was never written by its CLI, so a new id replaces it.
 func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error) {
 	c, ok := st.Conversation(d.ID())
 	if ok && c.Resumable() {
 		return sessionLaunch{resumeID: c.SessionID}, nil
 	}
-	launch := sessionLaunch{lost: ok && (c.State == ledger.ConversationLost || c.Cause == ledger.CauseFresh)}
+	launch := sessionLaunch{afterLoss: ok && c.State == ledger.ConversationLost}
 	if _, ok := d.SessionAssignArg(); !ok {
 		return launch, nil
 	}
@@ -132,7 +132,7 @@ func (rs *Runners) resolvePromptDelivery(
 		provider: providerID, descriptor: descriptor, outgoing: live, promptSteps: promptSteps,
 		launch: launch, contextResuming: resuming,
 	}
-	if !turned && !launch.lost {
+	if !turned {
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)

@@ -104,7 +104,7 @@ func TestResumeBySessionID_AnUnturnedSessionOfAProviderThatTakesNoIDLaunchesFres
 }
 
 // A resume the CLI itself refuses loses the session: the chat says why its runner
-// ended, and the next launch starts a fresh session with no transcript.
+// ended, and the next launch starts a fresh session handed Crowbar's record.
 func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -133,7 +133,7 @@ func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	fresh := f.conversation(t, chatID, "claude")
 	assert.Equal(t, ledger.ConversationBound, fresh.State)
 	assert.Equal(t, fresh.SessionID, argAfter(t, argv, "--session-id"))
-	assert.NotContains(t, strings.Join(argv, "\x00"), "before the corruption", "no transcript is handed over")
+	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption", "the conversation carries on from the record")
 
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "after the loss", uuid.NewString(), "", nil)
 	require.NoError(t, err)
@@ -142,7 +142,8 @@ func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	assert.NotEqual(t, fresh.SessionID, argAfter(t, argv, "--session-id"), "the fresh session never turned")
 	assert.Equal(t, ledger.CauseFresh, f.conversation(t, chatID, "claude").Cause, "and its replacement is fresh too")
 	assert.Contains(t, strings.Join(argv, "\x00"), "after the loss")
-	assert.NotContains(t, strings.Join(argv, "\x00"), "before the corruption", "nor to the launch carrying the prompt")
+	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption", "as does the launch carrying the prompt")
+	assert.Equal(t, []string{ledger.MarkerFromRecord + ":"}, f.markers(t, chatID), "the transcript says so once, for the loss")
 }
 
 // The prompt that launched a resume the CLI refuses is lost with the session,

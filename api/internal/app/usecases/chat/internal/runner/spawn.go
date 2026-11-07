@@ -190,7 +190,7 @@ func (rs *Runners) spawnRunner(
 	}
 	plan.Env = withPWD(plan.Env, tctx.Cwd)
 	pointPlanAtAttach(plan, attachArgv)
-	if err := rs.bindAssigned(ctx, chatID, launch); err != nil {
+	if err := rs.bindLaunch(ctx, chatID, launch, in.conversation != ""); err != nil {
 		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", err
 	}

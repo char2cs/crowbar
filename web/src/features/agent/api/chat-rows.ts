@@ -27,6 +27,7 @@ export type MarkerKind =
   | 'notification'
   | 'warning'
   | 'legacy_unreadable'
+  | 'from_record'
 
 export interface PlanItem {
   id?: string

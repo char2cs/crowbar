@@ -84,6 +84,7 @@ const PILL_MARKERS = new Set([
   'model_changed',
   'effort_changed',
   'legacy_unreadable',
+  'from_record',
   'session_conflict',
   'warning',
 ])

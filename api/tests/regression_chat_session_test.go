@@ -309,16 +309,16 @@ func TestRegression_Symptom2_SwitchingBackResumesTheProvidersOwnSession(t *testi
 
 // dormantRefusingChat is a dormant chat bound to a session its CLI now refuses
 // to resume.
-func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo) (string, string) {
+func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo, spec kit.FakeSpec) (string, string, kit.FakeProvider) {
 	t.Helper()
-	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	fake := kit.InstallFakeProvider(t, h.home, spec)
 	chatID, l1 := createFakeChat(t, h, imported, fake)
 	s := argAfter(l1.Argv, "--session-id")
 	require.NotEmpty(t, s, "the first launch names its session: %v", l1.Argv)
 	completeTurn(t, h, l1, h.url+repoBase(imported), "claude", s, "one")
 	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l1)
 	fake.RefuseResume(t, s, "No conversation found with session ID: "+s)
-	return chatID, s
+	return chatID, s, fake
 }
 
 // answerOf is path's status and, for a failure, the problem code it carries.
@@ -354,7 +354,7 @@ func requireAnsweredAsLost(t *testing.T, status int, code string) {
 func TestRegression_C27_ASendRefusedForALostSessionIsTypedSessionLost(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	chatID, _ := dormantRefusingChat(t, h, imported)
+	chatID, _, _ := dormantRefusingChat(t, h, imported, kit.FakeSpec{Base: "claude"})
 	requestID := uuid.NewString()
 
 	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/prompts",
@@ -377,7 +377,7 @@ func TestRegression_C27_ASendRefusedForALostSessionIsTypedSessionLost(t *testing
 func TestRegression_C27_AResumeRefusedForALostSessionIsTypedSessionLost(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	chatID, s := dormantRefusingChat(t, h, imported)
+	chatID, s, _ := dormantRefusingChat(t, h, imported, kit.FakeSpec{Base: "claude"})
 
 	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/resume", nil)
 
@@ -386,4 +386,30 @@ func TestRegression_C27_AResumeRefusedForALostSessionIsTypedSessionLost(t *testi
 	view := readChatSession(t, h, imported, chatID)
 	require.NotNil(t, view.Conversation)
 	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: s, State: "lost"}, *view.Conversation)
+}
+
+// The CLI refusing a session retires it, and the conversation then carries on from Crowbar's own
+// record: the new session is handed the turns so far, and the transcript says so.
+func TestRegression_C27_ALostSessionContinuesFromCrowbarsRecord(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	// The shipped claude line that hands a new session its context, which the fake otherwise drops.
+	handsContext := func(doc map[string]any) {
+		doc["context_inject"] = []any{map[string]any{"pass_arg": map[string]any{"arg": "--append-system-prompt", "value": "{context}"}}}
+	}
+	chatID, s, fake := dormantRefusingChat(t, h, imported, kit.FakeSpec{Base: "claude", Patch: handsContext})
+	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/resume", nil)
+	requireAnsweredAsLost(t, status, code)
+	untilExitedWith(t, h, chatID, "resume_failed")
+
+	l := promptLaunch(t, h, imported, fake, chatID, "two", "")
+
+	assert.Empty(t, argAfter(l.Argv, "--resume"), "the refused session is not tried again")
+	assert.NotEqual(t, s, argAfter(l.Argv, "--session-id"))
+	assert.Contains(t, argAfter(l.Argv, "--append-system-prompt"), "one", "the new session is handed the turns so far")
+	var said []string
+	for _, m := range kit.Bodies[ledger.Marker](ledgerRows(t, h, chatID), ledger.KindMarker) {
+		said = append(said, m.Kind)
+	}
+	assert.Equal(t, []string{ledger.MarkerFromRecord}, said, "the transcript says so, once")
 }

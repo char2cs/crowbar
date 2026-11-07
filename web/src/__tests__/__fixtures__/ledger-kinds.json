@@ -4,6 +4,7 @@
     "compaction_started",
     "dead_letter",
     "effort_changed",
+    "from_record",
     "legacy_unreadable",
     "model_changed",
     "notification",

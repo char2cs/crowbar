@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -52,14 +53,26 @@ func (rs *Runners) spawnLaunch(
 	return *planned, steps, err
 }
 
-// bindAssigned appends the binding of a minted session before the CLI that
-// will announce it exists, so the announcement finds it already bound.
-func (rs *Runners) bindAssigned(ctx context.Context, chatID string, launch sessionLaunch) error {
-	if launch.assign == nil {
+// bindLaunch appends the binding of a minted session before the CLI that will
+// announce it exists, so the announcement finds it already bound; and, when a lost
+// session's replacement is handed the record, the marker that says so.
+func (rs *Runners) bindLaunch(ctx context.Context, chatID string, launch sessionLaunch, handsRecord bool) error {
+	var rows []ledger.Row
+	if launch.assign != nil {
+		rows = append(rows, *launch.assign)
+	}
+	if launch.afterLoss && handsRecord {
+		marker, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerFromRecord})
+		if err != nil {
+			return fmt.Errorf("agent: spawn runner: from-record marker: %w", err)
+		}
+		rows = append(rows, marker)
+	}
+	if len(rows) == 0 {
 		return nil
 	}
-	if _, _, err := rs.ledger.Append(ctx, chatID, *launch.assign); err != nil {
-		return fmt.Errorf("agent: spawn runner: bind assigned session: %w", err)
+	if _, _, err := rs.ledger.Append(ctx, chatID, rows...); err != nil {
+		return fmt.Errorf("agent: spawn runner: bind launch: %w", err)
 	}
 	return nil
 }

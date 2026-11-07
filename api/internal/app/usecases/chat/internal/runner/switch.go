@@ -95,12 +95,9 @@ func (rs *Runners) switchProviderLocked(
 		// Read BEFORE terminate, so a failure aborts with nothing destroyed. A provider
 		// resumed into its OWN conversation gets only the gap; a new one gets the recent
 		// conversation, capped like the gap.
-		conversation := ""
-		if !launch.lost {
-			conversation, err = rs.conversations.AssembleConversation(ctx, chatID, resuming, leftAt)
-			if err != nil {
-				return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
-			}
+		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, resuming, leftAt)
+		if err != nil {
+			return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
 		}
 
 		// How much of the record is NEW to the provider being resumed. It is what

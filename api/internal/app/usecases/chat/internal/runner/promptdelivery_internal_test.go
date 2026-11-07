@@ -77,7 +77,6 @@ func TestLaunchSession_ResumesOnlyABoundSessionThatTurned(t *testing.T) {
 
 	first, err := launchSession(ledger.State{}, claude)
 	require.NoError(t, err)
-	assert.False(t, first.lost)
 	assert.Equal(t, ledger.SessionBound{Provider: "claude", SessionID: assigned(t, first).SessionID, Cause: ledger.CauseAssigned},
 		assigned(t, first), "an unbound chat mints the id the CLI is launched with")
 
@@ -88,7 +87,6 @@ func TestLaunchSession_ResumesOnlyABoundSessionThatTurned(t *testing.T) {
 	unturned, err := launchSession(chatState(t, boundTestLedger(t, "claude", "S1")), claude)
 	require.NoError(t, err)
 	assert.Empty(t, unturned.resumeID, "a session that never turned was never written, so it is not resumed")
-	assert.False(t, unturned.lost)
 	again := assigned(t, unturned)
 	assert.Equal(t, ledger.CauseAssigned, again.Cause)
 	assert.Equal(t, "S1", again.Previous)
@@ -106,7 +104,6 @@ func TestLaunchSession_ALostSessionStartsFresh(t *testing.T) {
 	fresh, err := launchSession(chatState(t, l), claude)
 	require.NoError(t, err)
 	assert.Empty(t, fresh.resumeID, "a lost session is never resumed")
-	assert.True(t, fresh.lost, "and its replacement is handed no transcript")
 	replaced := assigned(t, fresh)
 	assert.Equal(t, ledger.CauseFresh, replaced.Cause)
 	assert.Equal(t, "S1", replaced.Previous)
@@ -115,7 +112,6 @@ func TestLaunchSession_ALostSessionStartsFresh(t *testing.T) {
 	require.NoError(t, err)
 	stillFresh, err := launchSession(chatState(t, l), claude)
 	require.NoError(t, err)
-	assert.True(t, stillFresh.lost, "a fresh session that never turned still carries no conversation")
 	assert.Equal(t, ledger.CauseFresh, assigned(t, stillFresh).Cause)
 	assert.NotEqual(t, replaced.SessionID, assigned(t, stillFresh).SessionID)
 }

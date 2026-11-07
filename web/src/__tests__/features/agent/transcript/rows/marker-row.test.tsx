@@ -304,6 +304,15 @@ describe('MarkerRow', () => {
     )
   })
 
+  it('says a lost session carried on from Crowbar’s record, never silently', () => {
+    const l = ledger()
+    const feed = seed([l.row('marker', { kind: 'from_record' })])
+    draw(markerOf(feed)!)
+    expect(screen.getByTestId('agent-from-record-divider')).toHaveTextContent(
+      'The session was lost; continued from Crowbar’s record',
+    )
+  })
+
   it('says the chat kept its session and ended the CLI that left it, not the session id', () => {
     const l = ledger()
     const feed = seed([l.row('marker', { kind: 'session_conflict', detail: 'S-1' })])
@@ -449,6 +458,7 @@ describe('MarkerRow', () => {
     model_changed: true,
     effort_changed: true,
     legacy_unreadable: true,
+    from_record: true,
     stopped: 'the turn it ends draws “you stopped this turn”',
     session_changed: 'the CLI’s own bookkeeping; the transcript reads on',
     session_conflict: true,

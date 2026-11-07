@@ -14,13 +14,14 @@ const (
 	MarkerNotification      = "notification"      // Detail: what the CLI told its user
 	MarkerWarning           = "warning"           // Detail: a warning the CLI printed in its transcript
 	MarkerUnreadable        = "legacy_unreadable" // Detail: in plain words, how many records the upgrade could not convert
+	MarkerFromRecord        = "from_record"       // a lost session's replacement was handed Crowbar's record of the chat
 )
 
 // markerKinds is every marker kind; a marker of any other kind is malformed.
 var markerKinds = []string{
 	MarkerSessionChanged, MarkerSessionConflict, MarkerDeadLetter, MarkerCompactionStarted, MarkerCompactionEnded,
 	MarkerStopped, MarkerProviderSwitched, MarkerModelChanged, MarkerEffortChanged, MarkerNotification, MarkerWarning,
-	MarkerUnreadable,
+	MarkerUnreadable, MarkerFromRecord,
 }
 
 // Marker is the body of a marker row: a fact the transcript shows between

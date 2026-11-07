@@ -75,6 +75,11 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
       }
     case 'session_lost':
       return { label: 'The session was lost', testId: 'agent-session-lost-divider' }
+    case 'from_record':
+      return {
+        label: 'The session was lost; continued from Crowbar’s record',
+        testId: 'agent-from-record-divider',
+      }
     case 'runner_exited':
       return {
         label: EXIT_TEXT[item.reason ?? ''] ?? 'The agent stopped',
