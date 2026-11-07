@@ -26,6 +26,7 @@ type launch struct {
 	Token    string   `json:"token"`
 	Argv     []string `json:"argv"`
 	PID      int      `json:"pid"`
+	Cwd      string   `json:"cwd"`
 }
 
 func main() {
@@ -40,11 +41,16 @@ func main() {
 	if dir == "" {
 		os.Exit(2) // an unset capture dir would write into the working directory
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		os.Exit(2)
+	}
 	rec := launch{
 		RunnerID: os.Getenv("FAKECLI_SEG"),
 		Token:    os.Getenv("FAKECLI_TOKEN"),
 		Argv:     os.Args[1:],
 		PID:      os.Getpid(),
+		Cwd:      cwd,
 	}
 	if err := record(dir, rec); err != nil {
 		os.Exit(2)

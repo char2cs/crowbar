@@ -248,6 +248,7 @@ type Launch struct {
 	Token    string   `json:"token"`
 	Argv     []string `json:"argv"`
 	PID      int      `json:"pid"`
+	Cwd      string   `json:"cwd"` // the working directory the CLI was started in
 }
 
 // AwaitLaunch blocks until the fake CLI for runnerID has written its capture.
