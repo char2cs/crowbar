@@ -93,6 +93,9 @@ type FakeSpec struct {
 	ID         string                   // installed id; defaults to Base
 	EventsYAML string                   // replaces the events: block when non-empty (stub providers)
 	Patch      func(doc map[string]any) // test-specific edit of the decoded document
+	// Turn names the recorded frames an api-transport fake's turn replays between
+	// its start and completion, in place of the default reply.
+	Turn []string
 }
 
 // InstallFakeProvider writes the descriptor and points the daemon's provider
@@ -173,7 +176,11 @@ func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any 
 	// An api-transport base serves from the fake too, replaying its recorded app-server turn.
 	if api, ok := block(tb, doc, "runtime")["api"].(map[string]any); ok {
 		fixtures := filepath.Join(apiDir(), recordedServeTurns, spec.Base)
-		api["serve"] = []any{cli, "app-server", dir, "{segid}", fixtures}
+		serve := []any{cli, "app-server", dir, "{segid}", fixtures}
+		for _, name := range spec.Turn {
+			serve = append(serve, name)
+		}
+		api["serve"] = serve
 		if attach, ok := api["attach"].([]any); ok && len(attach) > 0 {
 			attach[0] = cli
 		}

@@ -20,6 +20,12 @@ describe('requestView', () => {
     expect(view.note).toBeUndefined()
   })
 
+  it('says why the agent asks when it shows no input of the call', () => {
+    const why = 'Allow the exact curl command to access example.com outside the sandbox?'
+    const view = requestView({ toolName: 'commandExecution', toolTarget: 'curl example.com', why })
+    expect(view).toEqual({ head: 'curl example.com', code: [], note: why })
+  })
+
   it('heads a file change with the path its call is named by, not the raw input path', () => {
     const view = requestView({
       toolName: 'Edit',

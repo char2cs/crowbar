@@ -2,6 +2,7 @@ package inbound
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
@@ -30,6 +31,18 @@ func declaresChoice(fields spec.FieldMap) bool {
 		}
 	}
 	return false
+}
+
+// markReasons flags the options whose declared reply carries the person's reason, so a
+// card offers a reason only where the agent will receive it.
+func markReasons(options []models.ChoiceOption, d *spec.Descriptor, canonical string) {
+	answer, ok := d.AnswerFor(canonical)
+	if !ok {
+		return
+	}
+	for i := range options {
+		options[i].Reason = strings.Contains(answer.Responses[options[i].ID], "{reason_json}")
+	}
 }
 
 func permissionChoice(

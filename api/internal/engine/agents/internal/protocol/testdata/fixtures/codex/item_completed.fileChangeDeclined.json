@@ -1,0 +1,23 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "fileChange",
+      "id": "exec-8475ca83-bf45-4142-9fcd-9fe588963cf3",
+      "changes": [
+        {
+          "path": "/outside2-cx.txt",
+          "kind": {
+            "type": "add"
+          },
+          "diff": "hi\n"
+        }
+      ],
+      "status": "declined"
+    },
+    "threadId": "019fb000-0000-7000-8000-000000000001",
+    "turnId": "019fb000-0000-7000-8000-000000000002",
+    "completedAtMs": 1794165775157
+  },
+  "emittedAtMs": 1794165775164
+}

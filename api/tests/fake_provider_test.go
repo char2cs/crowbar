@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -370,4 +371,35 @@ func TestFakeProvider_AnAppServerChatLaunchesOnItsFirstPrompt(t *testing.T) {
 
 	assert.Equal(t, "app-server", l.Argv[0], "the launch is the app-server, not a TUI")
 	requireOneLaunch(t, fake, l)
+}
+
+// codex says an added or deleted file's whole text, unprefixed; a recorded turn
+// that adds one file and deletes another reaches the chat as whole-file diffs.
+func TestFakeProvider_ACodexAddedAndDeletedFileRecordWholeFileDiffs(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "codex", Turn: []string{
+		"item_started.fileChange.json", "item_completed.fileChange.json", "item_completed.fileChange.delete.json",
+	}})
+	chatID := createChat(t, h, imported, fake.ID)
+
+	promptLaunch(t, h, imported, fake, chatID, "edit", "")
+	diffs := map[string]string{}
+	require.Eventually(t, func() bool {
+		for _, row := range ledgerRows(t, h, chatID) {
+			if row.Kind != ledger.KindToolCall {
+				continue
+			}
+			var call ledger.ToolCall
+			if json.Unmarshal(row.Body, &call) == nil && call.Phase == ledger.ToolPost {
+				diffs[call.ToolID] = call.Diff
+			}
+		}
+		return len(diffs) == 2
+	}, 10*time.Second, 5*time.Millisecond, "the replayed edits never finished")
+
+	added := diffs["exec-6288131f-d9af-4773-b45e-e158ea113823"]
+	assert.Contains(t, added, "--- /dev/null\n+++ b/outside-cx.txt\n@@ -0,0 +1 @@\n+hi\n")
+	deleted := diffs["exec-e1bfbc8c-8514-4da8-afa9-b4e8c35f3937"]
+	assert.Contains(t, deleted, "--- a/ws/src/util.go\n+++ /dev/null\n@@ -1,5 +0,0 @@\n-package src\n")
 }

@@ -366,6 +366,7 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
                 toolInput: ask.toolInput,
                 truncated: ask.toolInputTruncated,
                 mcpServer: ask.mcpServer,
+                why: ask.detail,
               }}
             />
           ))}

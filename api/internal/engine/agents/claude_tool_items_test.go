@@ -72,4 +72,5 @@ func TestClaudePermissionNamesItsCallAndMCPServer(t *testing.T) {
 	assert.Equal(t, "mcp__echo__shout", ev.Choice.ToolName)
 	assert.Equal(t, "echo", ev.Choice.MCPServer)
 	assert.JSONEq(t, `{"text":"hi"}`, string(ev.Choice.ToolInput))
+	assert.True(t, denyOption(t, ev.Choice.Options).Reason, "claude's deny reply carries the person's reason")
 }

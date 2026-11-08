@@ -115,6 +115,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 	ev := build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded)
 	if ev.Choice != nil && ev.Choice.Kind == models.ChoiceToolPermission {
 		ev.Choice.Options = append(ev.Choice.Options, suggestionOptions(fields, d.EventSuggestions(canonical, decoded))...)
+		markReasons(ev.Choice.Options, d, canonical)
 	}
 	if canonical == spec.HookUserPrompt {
 		ev = handedBack(d, ev)
@@ -380,7 +381,15 @@ func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
 		if out.Len() > 0 {
 			out.WriteByte('\n')
 		}
-		if !strings.HasPrefix(diff, "diff --git ") && !strings.HasPrefix(diff, "--- ") {
+		whole := ""
+		if files.Kind != "" {
+			whole = files.Whole[mapping.String(row, mapping.Paths(files.Kind))]
+		}
+		switch {
+		case whole != "":
+			writeWholeFile(&out, path, diff, whole == spec.DiffAdded)
+			continue
+		case !strings.HasPrefix(diff, "diff --git ") && !strings.HasPrefix(diff, "--- "):
 			fmt.Fprintf(&out, "--- a/%s\n+++ b/%s\n", path, path)
 		}
 		out.WriteString(diff)
@@ -389,6 +398,28 @@ func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
 		}
 	}
 	return out.String()
+}
+
+// writeWholeFile writes content as the one hunk that creates (added) or removes path.
+func writeWholeFile(out *strings.Builder, path, content string, added bool) {
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	if added {
+		fmt.Fprintf(out, "--- /dev/null\n+++ b/%s\n@@ -0,0 +1%s @@\n", path, hunkCount(len(lines)))
+	} else {
+		fmt.Fprintf(out, "--- a/%s\n+++ /dev/null\n@@ -1%s +0,0 @@\n", path, hunkCount(len(lines)))
+	}
+	sign := map[bool]string{true: "+", false: "-"}[added]
+	for _, line := range lines {
+		out.WriteString(sign + line + "\n")
+	}
+}
+
+// hunkCount is a hunk range's ",count" suffix, which unified diff omits for one line.
+func hunkCount(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return fmt.Sprintf(",%d", n)
 }
 
 func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHunk {

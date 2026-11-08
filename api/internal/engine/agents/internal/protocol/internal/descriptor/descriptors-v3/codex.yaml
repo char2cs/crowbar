@@ -188,7 +188,7 @@ events:
       fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
       collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     locations: { items: item.changes, path: path }
-    diff_files: { items: item.changes, path: path, diff: diff }
+    diff_files: { items: item.changes, path: path, diff: diff, kind: kind.type, whole: { add: added, delete: deleted } }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/started
@@ -207,7 +207,7 @@ events:
       fixtures:
         - item_started.commandExecution.json
         - item_started.collabAgentToolCall.json
-        - item_started.fileChange-schema.json
+        - item_started.fileChange.json
         - item_started.mcpToolCall.json
         - item_started.mcpToolCall-schema.json
         - item_started.webSearch-schema.json
@@ -242,7 +242,7 @@ events:
       collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     status_map: { completed: ok, failed: error, declined: declined }
     locations: { items: item.changes, path: path }
-    diff_files: { items: item.changes, path: path, diff: diff }
+    diff_files: { items: item.changes, path: path, diff: diff, kind: kind.type, whole: { add: added, delete: deleted } }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
@@ -268,7 +268,9 @@ events:
         - item_completed.commandExecution.read.json
         - item_completed.collabAgentToolCall.json
         - item_completed.collabAgentToolCall.wait.json
-        - item_completed.fileChange-schema.json
+        - item_completed.fileChange.json
+        - item_completed.fileChange.delete.json
+        - item_completed.fileChange.move.json
         - item_completed.mcpToolCall.json
         - item_completed.mcpToolCall-schema.json
         - item_completed.webSearch-schema.json
@@ -305,7 +307,7 @@ events:
       collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     status_map: { failed: error, declined: declined }
     locations: { items: item.changes, path: path }
-    diff_files: { items: item.changes, path: path, diff: diff }
+    diff_files: { items: item.changes, path: path, diff: diff, kind: kind.type, whole: { add: added, delete: deleted } }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
@@ -336,6 +338,7 @@ events:
       fixtures:
         - item_completed.commandExecutionFailed.json
         - item_completed.commandExecutionFailed-schema.json
+        - item_completed.fileChangeDeclined.json
         - item_completed.mcpToolCallFailed-schema.json
 
   # No index: this delta stream is already arrival-ordered.

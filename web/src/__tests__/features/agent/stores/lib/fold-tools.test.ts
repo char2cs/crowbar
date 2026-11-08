@@ -53,4 +53,25 @@ describe('applyAsk', () => {
     ])
     expect((feed.items.get('a:q1') as AskItem).toolTarget).toBe('src/a.go')
   })
+
+  // codex says why its sandbox asks ("Allow the exact curl command to access example.com…").
+  it('keeps the agent’s own sentence on why it asks', () => {
+    const l = ledger()
+    const why = 'Allow Git to update its read-only metadata so I can commit?'
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      l.row(
+        'ask',
+        {
+          askId: 'q1',
+          event: 'permission',
+          toolName: 'commandExecution',
+          detail: why,
+          answerable: true,
+        },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    expect((feed.items.get('a:q1') as AskItem).detail).toBe(why)
+  })
 })

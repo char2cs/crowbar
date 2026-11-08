@@ -1,0 +1,23 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "fileChange",
+      "id": "exec-e1bfbc8c-8514-4da8-afa9-b4e8c35f3937",
+      "changes": [
+        {
+          "path": "/ws/src/util.go",
+          "kind": {
+            "type": "delete"
+          },
+          "diff": "package src\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
+        }
+      ],
+      "status": "completed"
+    },
+    "threadId": "019fb000-0000-7000-8000-000000000001",
+    "turnId": "019fb000-0000-7000-8000-000000000002",
+    "completedAtMs": 1794165756047
+  },
+  "emittedAtMs": 1794165756051
+}

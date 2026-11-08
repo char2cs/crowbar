@@ -30,7 +30,9 @@ key events.*.ask spec.WireRef
 key events.*.diff_files *spec.DiffFilesSpec
 key events.*.diff_files.diff string
 key events.*.diff_files.items string
+key events.*.diff_files.kind string
 key events.*.diff_files.path string
+key events.*.diff_files.whole map[string]string
 key events.*.fixtures []string
 key events.*.fresh []spec.CallStep
 key events.*.fresh[].call string

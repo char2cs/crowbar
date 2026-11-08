@@ -93,6 +93,8 @@ export interface AskItem extends ItemBase {
   mcpServer?: string
   /** The gated call's family, when its row came first: what kind of call is asked about. */
   family?: ToolFamily
+  /** The agent's own sentence on why it asks. */
+  detail?: string
 }
 
 export type MarkerName =
