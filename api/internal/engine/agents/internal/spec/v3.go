@@ -171,7 +171,17 @@ type DiffFilesSpec struct {
 	Items string `yaml:"items"`
 	Path  string `yaml:"path"`
 	Diff  string `yaml:"diff"`
+	// Kind is the path within a change to its kind word; Whole maps the kind words
+	// whose diff is the whole file rather than a hunk to DiffAdded or DiffDeleted.
+	Kind  string            `yaml:"kind"`
+	Whole map[string]string `yaml:"whole"`
 }
+
+// Whole-file kinds a DiffFilesSpec.Whole maps a provider's kind word onto.
+const (
+	DiffAdded   = "added"
+	DiffDeleted = "deleted"
+)
 
 // PatchSpec maps a provider's hunk array onto Crowbar's unified-diff vocabulary.
 // Items is the path to the array; the rest are paths WITHIN one hunk, where

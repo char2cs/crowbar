@@ -1,0 +1,24 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "fileChange",
+      "id": "exec-e6b2bce7-2951-4682-9694-50661690d0f3",
+      "changes": [
+        {
+          "path": "/ws/notes.txt",
+          "kind": {
+            "type": "update",
+            "move_path": "/ws/notes.md"
+          },
+          "diff": "\n\nMoved to: /ws/notes.md"
+        }
+      ],
+      "status": "completed"
+    },
+    "threadId": "019fb000-0000-7000-8000-000000000001",
+    "turnId": "019fb000-0000-7000-8000-000000000002",
+    "completedAtMs": 1794165759461
+  },
+  "emittedAtMs": 1794165759463
+}
