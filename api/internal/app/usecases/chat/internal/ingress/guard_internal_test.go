@@ -10,6 +10,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
+const testWorktree = "/ws/repo"
+
 func movedOutOf(t *testing.T, from, to string) ledger.State {
 	t.Helper()
 	r, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{
@@ -44,4 +46,23 @@ func TestLeftFolderWrite_ACommandNamingTheFolderIsRefused(t *testing.T) {
 
 func TestLeftFolderWrite_AChatThatNeverMovedIsNotGuarded(t *testing.T) {
 	assert.Empty(t, leftFolderWrite(ledger.State{}, toolPre("edit", "/anywhere/x", "")))
+}
+
+// codex's file change names no directory: the folder its process runs in is the
+// one its paths are named from, as a payload's own cwd is.
+func TestRecorder_ACallWhosePayloadNamesNoDirectoryIsNamedFromTheRunners(t *testing.T) {
+	f := newRecorderFixture(t, "codex")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, toolPre("edit", testWorktree+"/src/a.go", ""))
+	require.NoError(t, err)
+
+	var targets []string
+	for _, r := range f.rows(t) {
+		if call, err := ledger.DecodeBody[ledger.ToolCall](r); r.Kind == ledger.KindToolCall && err == nil {
+			targets = append(targets, call.Target)
+		}
+	}
+	assert.Equal(t, []string{"src/a.go"}, targets)
 }

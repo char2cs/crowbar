@@ -140,6 +140,7 @@ func (r *Recorder) Dispatch(
 	if err != nil {
 		return nil, "", err
 	}
+	ev = r.withRunnerDir(ctx, runner, ev)
 	if denial, ok := guardLeftFolder(st, agent, ev, channel); ok {
 		return denial, "", nil
 	}
@@ -175,6 +176,24 @@ func (r *Recorder) Dispatch(
 		})
 	}
 	return fx.Reply, fx.HoldAsk, nil
+}
+
+// withRunnerDir names a call whose payload names no directory from the folder runner's
+// process runs in, as a payload's own cwd would.
+func (r *Recorder) withRunnerDir(
+	ctx context.Context, runner engineagents.Runner, ev engineagents.CanonicalEvent,
+) engineagents.CanonicalEvent {
+	if ev.Tool == nil || ev.Tool.Cwd != "" {
+		return ev
+	}
+	_, _, _, worktree, err := r.ws.WorktreeDir(ctx, runner.WorkspaceID)
+	if err != nil || worktree == "" {
+		return ev
+	}
+	tool := *ev.Tool
+	tool.Cwd = worktree
+	ev.Tool = &tool
+	return ev
 }
 
 // chatState is runner's chat and its ledger as it stands.

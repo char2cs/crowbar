@@ -87,12 +87,12 @@ func (f fakeChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
 
 type fakeWorkspace struct {
 	seam.WorkspaceReader
-	home string
-	err  error
+	home, worktree string
+	err            error
 }
 
 func (w fakeWorkspace) WorktreeDir(context.Context, string) (string, string, string, string, error) {
-	return w.home, "", "", "", w.err
+	return w.home, "", "", w.worktree, w.err
 }
 
 func (w fakeWorkspace) AgentChatsDir(context.Context, string) (string, error) {
@@ -188,7 +188,7 @@ func newRecorderFixture(t *testing.T, provider string) *recorderFixture {
 		runner: engineagents.Runner{ID: "run-1", ProviderID: provider, WorkspaceID: "ws-1", CurrentChatID: testChat},
 	}
 	f.r = NewRecorder(RecorderDeps{
-		Chats: fakeChats{}, Agents: agents, Workspace: fakeWorkspace{home: home},
+		Chats: fakeChats{}, Agents: agents, Workspace: fakeWorkspace{home: home, worktree: testWorktree},
 		Home: func() (string, error) { return home, nil }, Ledger: store, Blobs: blobs,
 		Telemetry: telemetry.NewDurable(context.Background(), nil), Answers: f.answers, Titles: f.titles, Frames: f.feed,
 	})
