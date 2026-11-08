@@ -141,6 +141,7 @@ key permission_levels *spec.PermissionSpec
 key permission_levels.levels map[string]spec.PermissionLevelSpec
 key permission_levels.levels.*.apply spec.InjectSteps
 key permission_levels.levels.*.vars map[string]string
+key permission_levels.levels.*.vars_after_leave map[string]string
 key permission_levels.strategy string
 key presentation spec.PresentationSpec
 key presentation.prompt_submit *spec.PromptSubmitSpec

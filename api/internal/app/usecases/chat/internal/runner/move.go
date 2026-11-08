@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // ErrChatMoving refuses a prompt while the chat's move is about to run: it would
@@ -203,4 +205,16 @@ func requireNoReadyMove(st ledger.State) error {
 		return ErrChatMoving
 	}
 	return nil
+}
+
+// noteLevelNarrowed tells a chat that just moved when its level now runs
+// narrower than it reads, so a refused write is not taken for a fault.
+func (rs *Runners) noteLevelNarrowed(
+	ctx context.Context, chatID string, agent engineagents.Agent, level string, vars map[string]string,
+) {
+	if maps.Equal(agent.PermissionVars(level, false), vars) {
+		return
+	}
+	rs.divide(ctx, chatID, ledger.MarkerWarning,
+		"This chat now writes only inside its new folder: its permission level cannot otherwise keep it out of the one it left.")
 }

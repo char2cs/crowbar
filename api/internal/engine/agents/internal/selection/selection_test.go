@@ -172,3 +172,19 @@ func TestSelection_EmptyReportsAnUnchosenPair(t *testing.T) {
 	assert.False(t, models.Selection{Model: "opus"}.Empty())
 	assert.False(t, models.Selection{Effort: "high"}.Empty())
 }
+
+func TestPermissionVars_AfterLeaveValuesReplaceOnlyTheirOwnKeys(t *testing.T) {
+	d := &spec.Descriptor{PermissionLevels: &spec.PermissionSpec{Levels: map[string]spec.PermissionLevelSpec{
+		"full-auto": {
+			Vars:           map[string]string{"sandbox": "open", "approval": "never"},
+			VarsAfterLeave: map[string]string{"sandbox": "kept"},
+		},
+		"trusted": {Vars: map[string]string{"sandbox": "kept"}},
+	}}}
+
+	assert.Equal(t, map[string]string{"sandbox": "open", "approval": "never"}, selection.PermissionVars(d, "full-auto", false))
+	assert.Equal(t, map[string]string{"sandbox": "kept", "approval": "never"}, selection.PermissionVars(d, "full-auto", true))
+	assert.Equal(t, map[string]string{"sandbox": "kept"}, selection.PermissionVars(d, "trusted", true),
+		"a level with nothing to narrow is the same after a move")
+	assert.Equal(t, "open", d.PermissionLevels.Levels["full-auto"].Vars["sandbox"], "the descriptor is not written")
+}

@@ -69,7 +69,7 @@ func TestUpgrade_EachRetiredShapeBecomesItsReplacement(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			up := upgrade(t, "id: x\n"+tc.in)
-			assert.Equal(t, "id: x\nschema_version: 3\n"+tc.want, string(up.Raw))
+			assert.Equal(t, "id: x\nschema_version: 4\n"+tc.want, string(up.Raw))
 			require.Len(t, up.Changes, 1)
 			assert.Equal(t, tc.kind, up.Changes[0].Kind)
 			assert.Equal(t, tc.path, up.Changes[0].Path)
@@ -93,7 +93,7 @@ func TestUpgrade_TheRelayHookBecomesCurlWithItsConfig(t *testing.T) {
 	relay := "{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"
 	up := upgrade(t, "id: x\nhooks_injection:\n  - pass_arg: { value: \"S="+relay+"\" }\n"+
 		"  - pass_arg: { value: \"T={crowbar_hook} hook user_prompt --segment {segid}\" }\n")
-	assert.Equal(t, "id: x\nschema_version: 3\nhooks_injection:\n"+
+	assert.Equal(t, "id: x\nschema_version: 4\nhooks_injection:\n"+
 		"  - write_file:\n      path: \"{tmp}/hook.curl\"\n      content: |\n"+
 		"        header = \"X-Crowbar-Runner-Token: {runner_token}\"\n"+
 		"        header = \"Content-Type: application/json\"\n"+

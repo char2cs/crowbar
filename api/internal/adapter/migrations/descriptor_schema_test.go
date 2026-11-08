@@ -30,7 +30,7 @@ func TestDescriptorSchema_RewritesAnOldOverrideKeepingTheOriginal(t *testing.T) 
 	now := readHome(t, root, "descriptors/acme.yaml")
 	assert.Contains(t, now, "# my notes")
 	assert.Contains(t, now, "# keep")
-	assert.Contains(t, now, "schema_version: 3")
+	assert.Contains(t, now, "schema_version: 4")
 	assert.Contains(t, now, "persists: turn_start")
 	assert.NotContains(t, now, "locate")
 	up, err := descriptorcheck.Upgrade([]byte(now))
@@ -90,7 +90,7 @@ func TestDescriptorSchema_PutsBackAnOverrideSetAside(t *testing.T) {
 
 	root := h.Root()
 	assert.NoFileExists(t, filepath.Join(root, "descriptors/acme.yaml.refused"))
-	assert.Contains(t, readHome(t, root, "descriptors/acme.yaml"), "schema_version: 3")
+	assert.Contains(t, readHome(t, root, "descriptors/acme.yaml"), "schema_version: 4")
 	assert.Equal(t, oldOverride, readHome(t, root, "descriptors/acme.yaml.schema1.bak"))
 	assert.Equal(t, "id: kept\nschema_version: 3\n", readHome(t, root, "descriptors/kept.yaml"),
 		"a file the user has beside the copy wins")

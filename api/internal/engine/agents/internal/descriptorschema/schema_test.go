@@ -1,6 +1,7 @@
 package descriptorschema_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -46,7 +47,7 @@ func TestUpgrade_ATodayShapedDocumentIsLeftByteForByte(t *testing.T) {
 		assert.Equal(t, descriptorschema.Current, up.From, "%s states the current schema", f)
 		assert.Empty(t, up.Changes, f)
 
-		unstamped := strings.Replace(string(raw), "\nschema_version: 3\n", "\n", 1)
+		unstamped := strings.Replace(string(raw), fmt.Sprintf("\n%s: %d\n", descriptorschema.VersionKey, descriptorschema.Current), "\n", 1)
 		require.NotEqual(t, string(raw), unstamped, "%s is stamped", f)
 		up = upgrade(t, unstamped)
 		assert.Empty(t, up.Changes, f)
@@ -58,12 +59,12 @@ func TestUpgrade_ADocumentFromANewerSchemaIsRefusedWithBoth(t *testing.T) {
 	_, err := descriptorschema.Upgrade([]byte("id: x\nschema_version: 9\n"))
 	require.ErrorIs(t, err, descriptorschema.ErrNewer)
 	assert.Contains(t, err.Error(), "9")
-	assert.Contains(t, err.Error(), "3")
+	assert.Contains(t, err.Error(), "4")
 }
 
 func TestUpgrade_StampsTheCurrentSchemaAfterTheID(t *testing.T) {
 	up := upgrade(t, "# mine\nid: x\nsession:\n  locate: { root: \"~/x\" }\n")
-	assert.Equal(t, "# mine\nid: x\nschema_version: 3\nsession: {}\n", string(up.Raw))
+	assert.Equal(t, "# mine\nid: x\nschema_version: 4\nsession: {}\n", string(up.Raw))
 	again := upgrade(t, string(up.Raw))
 	assert.Empty(t, again.Changes, "a second upgrade finds nothing")
 }

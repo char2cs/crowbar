@@ -11,7 +11,11 @@ type PermissionSpec struct {
 // PermissionLevelSpec is how one level is reached: Apply as spawn args, or Vars
 // ({permission.<key>}, names the descriptor picks) for transports that send the
 // values as request data rather than flags.
+//
+// VarsAfterLeave replaces Vars' values once the chat has left a folder: a level
+// whose sandbox spans that folder keeps the chat out of it only by narrowing.
 type PermissionLevelSpec struct {
-	Apply InjectSteps       `yaml:"apply"`
-	Vars  map[string]string `yaml:"vars"`
+	Apply          InjectSteps       `yaml:"apply"`
+	Vars           map[string]string `yaml:"vars"`
+	VarsAfterLeave map[string]string `yaml:"vars_after_leave"`
 }

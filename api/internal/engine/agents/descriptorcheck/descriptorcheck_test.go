@@ -159,7 +159,7 @@ func TestValidate_ADescriptorFromANewerSchemaNamesTheVersion(t *testing.T) {
 	f := findingFor(t, rep, "schema.version")
 	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 	assert.Equal(t, "x", rep.ID)
-	assert.Contains(t, f.Hint, "up to 3")
+	assert.Contains(t, f.Hint, "up to 4")
 }
 
 func reportFor(t *testing.T, home, id string) descriptorcheck.Report {

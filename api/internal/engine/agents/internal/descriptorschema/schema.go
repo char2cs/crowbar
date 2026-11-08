@@ -14,7 +14,7 @@ import (
 
 // Current is the schema this build reads. A schema change bumps it and adds
 // the transitions that carry an older document over.
-const Current = 3
+const Current = 4
 
 // oldest is what an unstamped document is taken to be: every transition is
 // considered, and each one acts only on the shape it retires.
@@ -69,6 +69,7 @@ var (
 )
 
 var transitions = []transition{
+	// 4 only adds permission_levels.levels.*.vars_after_leave: nothing to carry over.
 	// 3: the `crowbar hook` relay is gone; hooks post to the daemon. First, so
 	// the step below sees the hook commands it wrote.
 	{3, []string{""}, relayHooks},

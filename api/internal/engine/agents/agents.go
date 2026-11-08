@@ -80,8 +80,8 @@ type Agent interface {
 	PermissionLevels() []string
 
 	// PermissionVars is level's named values for a transport that takes them as request data rather
-	// than an argv flag; empty for an undeclared level.
-	PermissionVars(level string) map[string]string
+	// than an argv flag, narrowed for a chat that left a folder; empty for an undeclared level.
+	PermissionVars(level string, left bool) map[string]string
 
 	SelectionSteps(sel Selection) []InjectStep
 
@@ -268,8 +268,8 @@ func (a *agent) PermissionLevels() []string {
 	return selection.PermissionLevels(a.spec)
 }
 
-func (a *agent) PermissionVars(level string) map[string]string {
-	return selection.PermissionVars(a.spec, level)
+func (a *agent) PermissionVars(level string, left bool) map[string]string {
+	return selection.PermissionVars(a.spec, level, left)
 }
 
 func (a *agent) SelectionSteps(sel Selection) []InjectStep {

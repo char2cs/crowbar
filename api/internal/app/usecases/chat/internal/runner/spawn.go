@@ -143,7 +143,7 @@ func (rs *Runners) spawnRunner(
 		gapTurns:        in.gapTurns,
 		resuming:        in.resuming,
 		selection:       sel,
-		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel),
+		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel, pre.left),
 	})
 
 	// Register an ACTUALLY injected document before the CLI runs, so its echo through
@@ -154,6 +154,7 @@ func (rs *Runners) spawnRunner(
 	}
 	if in.moveNote != "" {
 		rs.agents.RecordInjection(runnerID, strings.TrimSpace(in.moveNote))
+		rs.noteLevelNarrowed(ctx, chatID, descriptor, sel.PermissionLevel, tctx.PermissionVars)
 	}
 
 	// The chat's one entry, claimed before any process exists: a second
@@ -305,6 +306,8 @@ type spawnPreflight struct {
 	staged    *domain.ChatSelection // committed as resolved, so the chat names what runs; nil: none
 	// surface is the chat's own stored landing VIEW.
 	surface string
+	// left: the chat has left a folder its sandbox may still reach.
+	left bool
 }
 
 func (rs *Runners) spawnPreflight(
@@ -346,7 +349,14 @@ func (rs *Runners) spawnPreflight(
 	if staged != nil {
 		sel.Model, sel.Effort = staged.Model, staged.Effort
 	}
-	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, staged: staged, surface: chat.Surface}, nil
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return spawnPreflight{}, fmt.Errorf("agent: spawn runner: chat state: %w", err)
+	}
+	return spawnPreflight{
+		mcpOn: mcpOn, threads: threads, selection: sel, staged: staged, surface: chat.Surface,
+		left: len(st.LeftDirs()) > 0,
+	}, nil
 }
 
 type forkRequest struct {

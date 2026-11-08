@@ -1,6 +1,6 @@
 # Write Guard Without a Pre-Call Hook — Plan
 
-**Status:** Draft (design) · **Date:** 2026-11-08
+**Status:** Option 1 implemented (descriptor schema 4) · **Date:** 2026-11-08
 
 ## 1. The gap
 
@@ -44,6 +44,14 @@ on 0.164.0: `touch <left folder>/guard-full.txt` succeeded.
 3. **Accept and say so.** The move dialog, and the level picker on a moved chat
    at full-auto, state that the old folder is not protected at this level.
 
-Recommendation: do 3 now, and 2 once upstream allows it. Take 1 only if users
-want full-auto to mean "anything but the folder I left", because 1 breaks the
-"anything" part.
+Decision: option 1, declared per level as `vars_after_leave` (descriptor
+schema 4). A chat that has left a folder launches with those values over the
+level's `vars`; codex's full-auto narrows to `sandbox: workspace-write`, so the
+new worktree (and /tmp) stays writable and the folder it left does not. The
+first launch after the move says so in the chat. Verified live on 0.164.0: in
+a moved chat at full-auto, `touch <left folder>/guard-full2.txt` failed with
+"Read-only file system" and `touch inside-ok.txt` in the worktree succeeded.
+
+Option 2 stays the better end state, since it keeps full-auto's reach
+everywhere except the left folder. Take it once app-server accepts a
+session-scoped hook trust.

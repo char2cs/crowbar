@@ -3,7 +3,13 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -131,3 +137,53 @@ func TestRequestBranchOut_ARepeatIsTheSameAskAndAnOwnerIsRefused(t *testing.T) {
 	_, pending := st.PendingMove()
 	assert.False(t, pending)
 }
+
+// A level whose sandbox the chat's old folder is inside cannot keep the chat out
+// of it: once the chat has left a folder, it launches as its narrower values.
+func TestSpawnRunner_AChatThatLeftAFolderLaunchesItsLevelsValuesAfterLeave(t *testing.T) {
+	for name, tc := range map[string]struct {
+		moved  bool
+		want   string
+		notice bool
+	}{
+		"never moved": {want: "thread/resume open"},
+		"moved":       {moved: true, want: "thread/resume kept", notice: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := helperServeSpawn(t, "answer", false)
+			installDescriptor(t, h.home, strings.Replace(
+				strings.Replace(fmt.Sprintf(helperServeDescriptor, os.Args[0]), `send: { threadId: "{session_id}" }`,
+					`send: { threadId: "{session_id}", text: "{permission.sandbox}" }`, 1),
+				"runtime:\n", leavePermissionLevels+"runtime:\n", 1))
+			h.rs.conversations = selectionConversations{sel: engineagents.Selection{PermissionLevel: "full-auto"}}
+			asked := filepath.Join(t.TempDir(), "asked")
+			t.Setenv(helperServeAsked, asked)
+			if tc.moved {
+				_, err := h.rs.RequestMove(t.Context(), h.chatID, ledger.Move{RequestID: "m1", To: "ws-b"})
+				require.NoError(t, err)
+				_, _, err = h.rs.ExecuteMove(t.Context(), h.chatID, doneTo("/ws/branch"))
+				require.NoError(t, err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+
+			_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
+				spawnInput{runnerID: "runner-1", promptMessage: "hi", moveNote: "moved\n\n"})
+			require.NoError(t, err)
+
+			assert.Contains(t, askedCalls(t, asked), tc.want)
+			warned := slices.ContainsFunc(dividers(t, h.rs.ledger, h.chatID), func(d string) bool {
+				return strings.Contains(d, "writes only inside its new folder")
+			})
+			assert.Equal(t, tc.notice, warned, "the chat is told its level runs narrower")
+		})
+	}
+}
+
+const leavePermissionLevels = `permission_levels:
+  strategy: restart_tui
+  levels:
+    full-auto:
+      vars: { sandbox: open }
+      vars_after_leave: { sandbox: kept }
+`

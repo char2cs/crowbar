@@ -1,6 +1,8 @@
 package selection
 
 import (
+	"maps"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -47,16 +49,26 @@ func PermissionLevels(
 }
 
 // PermissionVars is level's own named values (see PermissionLevelSpec's own
-// doc comment) — nil for a level the provider doesn't declare, same as an
-// absent block.
+// doc comment), with its after-leave values over them when left — nil for a
+// level the provider doesn't declare, same as an absent block.
 func PermissionVars(
 	d *spec.Descriptor,
 	level string,
+	left bool,
 ) map[string]string {
 	if d == nil || d.PermissionLevels == nil {
 		return nil
 	}
-	return d.PermissionLevels.Levels[level].Vars
+	l := d.PermissionLevels.Levels[level]
+	if !left || len(l.VarsAfterLeave) == 0 {
+		return l.Vars
+	}
+	out := maps.Clone(l.Vars)
+	if out == nil {
+		out = map[string]string{}
+	}
+	maps.Copy(out, l.VarsAfterLeave)
+	return out
 }
 
 // Steps is sel on the argv of a process the spawn FORKS.
