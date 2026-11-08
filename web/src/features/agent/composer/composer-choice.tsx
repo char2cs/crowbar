@@ -218,7 +218,7 @@ export function ComposerChoice({
       {view && (
         <ChoiceRequest view={view} expanded={expanded} onExpand={() => setExpandedId(choice.id)} />
       )}
-      {flat && controls.some((option) => option.kind === 'deny') && (
+      {flat && controls.some((option) => option.kind === 'deny' && option.reason) && (
         <Input
           size="sm"
           aria-label="Reason, sent with Deny"

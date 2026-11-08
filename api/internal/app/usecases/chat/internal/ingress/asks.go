@@ -169,7 +169,9 @@ func choiceOptions(in []engineagents.ChoiceOption) []domain.ActivityChoiceOption
 	}
 	out := make([]domain.ActivityChoiceOption, 0, len(in))
 	for _, o := range in {
-		out = append(out, domain.ActivityChoiceOption{ID: o.ID, Kind: o.Kind, Label: o.Label, Description: o.Description})
+		out = append(out, domain.ActivityChoiceOption{
+			ID: o.ID, Kind: o.Kind, Label: o.Label, Description: o.Description, Reason: o.Reason,
+		})
 	}
 	return out
 }

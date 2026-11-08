@@ -216,6 +216,8 @@ type ChoiceOption struct {
 	Kind        string
 	Label       string
 	Description string
+	// Reason: the reply to this option carries the person's reason to the agent.
+	Reason bool
 }
 
 // PlanStep is one entry of an agent's running plan. Status is Crowbar's word: the

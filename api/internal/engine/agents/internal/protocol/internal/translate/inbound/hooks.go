@@ -115,6 +115,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 	ev := build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded)
 	if ev.Choice != nil && ev.Choice.Kind == models.ChoiceToolPermission {
 		ev.Choice.Options = append(ev.Choice.Options, suggestionOptions(fields, d.EventSuggestions(canonical, decoded))...)
+		markReasons(ev.Choice.Options, d, canonical)
 	}
 	if canonical == spec.HookUserPrompt {
 		ev = handedBack(d, ev)

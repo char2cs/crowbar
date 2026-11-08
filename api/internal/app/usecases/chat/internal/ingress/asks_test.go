@@ -27,6 +27,19 @@ func TestMap_AnAskBindsToTheOpenToolOfItsScope(t *testing.T) {
 	assert.Equal(t, "t1", bodyOf[ledger.Ask](t, rows[0]).ToolID)
 }
 
+// The card offers a reason box only on an option whose reply carries the reason.
+func TestMap_AnAskSaysWhichOptionCarriesAReason(t *testing.T) {
+	c := liveChatRows(t)
+	c.typed("go")
+
+	rows, _ := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash",
+		Options: []engineagents.ChoiceOption{{ID: "allow", Kind: "allow"}, {ID: "deny", Kind: "deny", Reason: true}},
+	}), hooksSource())
+
+	assert.JSONEq(t, `[{"id":"allow","kind":"allow"},{"id":"deny","kind":"deny","reason":true}]`,
+		string(bodyOf[ledger.Ask](t, rows[0]).Options))
+}
+
 func TestMap_AHeldAskIsAnswerable(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")

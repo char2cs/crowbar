@@ -125,6 +125,36 @@ func TestRegression_CodexAddedAndDeletedFilesDiffAsWholeFiles(t *testing.T) {
 	}
 }
 
+// codex's approval reply has no field for a reason, so a Deny cannot say why; a card
+// offering a reason box for it dropped what the person typed (live, 0.164.0).
+func TestRegression_CodexDenyCarriesNoReason(t *testing.T) {
+	for _, file := range []string{"item_fileChange_requestApproval.json", "item_commandExecution_requestApproval.json"} {
+		var params map[string]any
+		require.NoError(t, json.Unmarshal(codexParams(t, file), &params))
+		params["tool"] = "fileChange" // by_wire names the tool from the wire method
+		raw, err := json.Marshal(params)
+		require.NoError(t, err)
+
+		ev, err := get(t, "codex").ParseHook(agents.HookPermission, raw, agents.ChannelAPI)
+
+		require.NoError(t, err, file)
+		require.NotNil(t, ev.Choice, file)
+		assert.False(t, denyOption(t, ev.Choice.Options).Reason, file)
+	}
+}
+
+// denyOption is the Deny among a permission's options.
+func denyOption(t *testing.T, options []agents.ChoiceOption) agents.ChoiceOption {
+	t.Helper()
+	for _, o := range options {
+		if o.Kind == agents.ChoiceOptionDeny {
+			return o
+		}
+	}
+	require.Fail(t, "no deny option", "%+v", options)
+	return agents.ChoiceOption{}
+}
+
 func TestRegression_CodexReportsTheLatestTurnDiff(t *testing.T) {
 	raw := []byte(`{"threadId":"thread-1","turnId":"turn-1","diff":"diff --git a/a b/a\n"}`)
 

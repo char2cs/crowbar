@@ -46,7 +46,7 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
     toolName: 'Bash',
     options: [
       { id: 'allow', kind: 'allow', label: 'Allow' },
-      { id: 'deny', kind: 'deny', label: 'Deny' },
+      { id: 'deny', kind: 'deny', label: 'Deny', reason: true },
     ],
     pending: true,
     answerable: true,
@@ -110,6 +110,19 @@ describe('ComposerChoice that can be answered', () => {
     const sent = { optionIds: ['deny'], reason: 'name it b.txt' }
     expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', sent)
     expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
+  })
+
+  // codex's approval reply has no field for a reason: a box there would drop what is typed.
+  it('offers no reason box when the Deny cannot carry one', () => {
+    draw({
+      options: [
+        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'deny', kind: 'deny', label: 'Deny' },
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Reason, sent with Deny' })).toBeNull()
   })
 
   it('sends EVERY ticked option of a multi-select question in one answer', async () => {

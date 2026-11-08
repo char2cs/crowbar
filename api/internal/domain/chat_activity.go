@@ -82,6 +82,8 @@ type ActivityChoiceOption struct {
 	Kind        string `json:"kind"`
 	Label       string `json:"label,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Reason: answering with this option sends the person's reason to the agent.
+	Reason bool `json:"reason,omitempty"`
 }
 
 type ChoiceAnswer struct {
