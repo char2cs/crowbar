@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,8 +33,8 @@ func newTableAt(t *testing.T, home string, installed func(engineagents.Agent) bo
 	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
 
-	return provider.New(provider.Deps{
-		Agents:    engineagents.New(),
+	return provider.New(provider.Deps{ // wired as the daemon wires it: a refused override falls back
+		Agents:    engineagents.New(engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Home:      func() (string, error) { return home, nil },
 		Installed: installed,
 		Prefs:     prefs,
@@ -67,15 +68,9 @@ func TestResolveProviders_ListsTheShippedDescriptors(t *testing.T) {
 
 func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
 	home := t.TempDir()
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-		Installed: func(engineagents.Agent) bool { return false },
-	})
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
+	table := newTableAt(t, home, func(engineagents.Agent) bool { return false })
+	shipped := shippedClaude(t)
 	raw := []byte(strings.Replace(string(shipped), "id: claude", "id: customagent", 1))
 	report, err := table.InstallDescriptor(t.Context(), raw)
 	require.NoError(t, err)
@@ -97,15 +92,9 @@ func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T
 // without the icon: the webview injects icons as HTML.
 func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
 	home := t.TempDir()
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-		Installed: func(engineagents.Agent) bool { return false },
-	})
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
+	table := newTableAt(t, home, func(engineagents.Agent) bool { return false })
+	shipped := shippedClaude(t)
 	raw := strings.Replace(string(shipped), "id: claude", "id: customagent", 1)
 	raw = regexp.MustCompile(`(?m)^icon: .*$`).ReplaceAllString(raw,
 		`icon: '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><img src="x" onerror="alert(1)"/></foreignObject></svg>'`)
@@ -132,15 +121,10 @@ func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
 // dropping the provider it replaces.
 func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"), []byte("id: codex\n"), 0o600))
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-		Installed: func(engineagents.Agent) bool { return false },
-	})
+	table := newTableAt(t, home, func(engineagents.Agent) bool { return false })
 
 	reports, err := table.DescriptorReports(t.Context())
 	require.NoError(t, err)
@@ -152,7 +136,8 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 
 	providers, err := table.ResolveProviders(t.Context())
 	require.NoError(t, err)
-	assert.NotContains(t, ids(providers), "codex", "a blocked descriptor is never enabled")
+	assert.Contains(t, ids(providers), "codex", "the shipped codex runs in its place")
+	require.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"))
 }
 
 // A descriptor that loads but fails a static rule (here: a shell as its
@@ -161,21 +146,9 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 // this is a provider with no shipped default to fall back to.)
 func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
-	home := t.TempDir()
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
-		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
-	shell := strings.Replace(string(shipped), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
-	shell = strings.Replace(shell, "\nid: claude\n", "\nid: acme\n", 1)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "acme.yaml"), []byte(shell), 0o600))
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-	})
+	table := newTableAt(t, blockedHome(t, "acme"), nil)
 
-	err = table.RequireProviderEnabled(t.Context(), "acme")
+	err := table.RequireProviderEnabled(t.Context(), "acme")
 
 	require.ErrorIs(t, err, descriptorcheck.ErrBlocked)
 	require.ErrorIs(t, err, problem.ErrUnprocessable)
@@ -185,42 +158,42 @@ func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 
 // A descriptor the gate refuses is not offered to start a chat on, nor made the
 // default: every new chat on it would fail. It stays in DescriptorReports with
-// its file, line and fix; a broken override of a shipped provider runs the shipped one.
+// its file, line and fix.
 func TestResolveProviders_OffersNoProviderTheGateRefuses(t *testing.T) {
 	t.Parallel()
-	home := t.TempDir()
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
-		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
-	shell := strings.Replace(string(shipped), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
-	shell = strings.Replace(shell, "\nid: claude\n", "\nid: aaa\n", 1)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "aaa.yaml"), []byte(shell), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"), []byte("id: codex\n"), 0o600))
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
-	table := provider.New(provider.Deps{ // wired as the daemon wires it: a refused override falls back
-		Agents:    engineagents.New(engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
-		Home:      func() (string, error) { return home, nil },
-		Installed: func(engineagents.Agent) bool { return true },
-		Prefs:     prefs,
-	})
+	table := newTableAt(t, blockedHome(t, "aaa"), func(engineagents.Agent) bool { return true })
 
 	got, err := table.ResolveProviders(t.Context())
 	require.NoError(t, err)
 	assert.NotContains(t, ids(got), "aaa")
-	assert.Contains(t, ids(got), "codex", "a refused override runs the shipped descriptor")
 	def, err := table.DefaultProviderID(t.Context())
 	require.NoError(t, err)
 	assert.NotEqual(t, "aaa", def)
 
 	reports, err := table.DescriptorReports(t.Context())
 	require.NoError(t, err)
-	var reported bool
-	for _, r := range reports {
-		reported = reported || (r.ID == "aaa" && !r.OK())
-	}
-	assert.True(t, reported, "the refused descriptor is still reported, with what to fix")
+	assert.True(t, slices.ContainsFunc(reports, func(r descriptorcheck.Report) bool { return r.ID == "aaa" && !r.OK() }),
+		"the refused descriptor is still reported, with what to fix")
+}
+
+// blockedHome is a home holding descriptor id: the shipped claude one run as a
+// shell, which the gate refuses and no shipped descriptor stands in for.
+func blockedHome(t *testing.T, id string) string {
+	t.Helper()
+	home := t.TempDir()
+	shell := strings.Replace(string(shippedClaude(t)), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
+	shell = strings.Replace(shell, "\nid: claude\n", "\nid: "+id+"\n", 1)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", id+".yaml"), []byte(shell), 0o600))
+	return home
+}
+
+func shippedClaude(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
+		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	return raw
 }
 
 func TestDescriptorReports_SurfacesAHomeFailure(t *testing.T) {

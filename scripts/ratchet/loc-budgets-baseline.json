@@ -1,6 +1,6 @@
 {
   "go.app-misc": 2895,
-  "go.chat": 28586,
+  "go.chat": 28591,
   "go.cmd": 2889,
   "go.core": 12096,
   "go.domain": 5171,
@@ -13,8 +13,8 @@
   "go.store": 10779,
   "go.stream": 2802,
   "go.test-support": 4118,
-  "go.tests": 224906,
-  "go.total": 126562,
+  "go.tests": 224919,
+  "go.total": 126567,
   "go.wiring": 2190,
   "web.app-shell": 1894,
   "web.browser": 1018,
