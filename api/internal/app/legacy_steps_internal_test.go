@@ -59,16 +59,15 @@ func TestImplemented_NamesEveryStepTheBootRuns(t *testing.T) {
 	report, err := migrate.Inspect(t.Context(), testutil.FixtureHome(t), cat, Implemented, migrate.Options{})
 
 	require.NoError(t, err)
-	assert.Len(t, report.Steps, 13, "a fresh home has every step pending")
+	assert.Len(t, report.Steps, 12, "a fresh home has every step pending")
 	assert.True(t, Implemented(migrations.StepChatLedger))
 	assert.True(t, Implemented(migrations.StepChatAttachments))
 	assert.True(t, Implemented(migrations.StepLedgerLayout))
 	assert.True(t, Implemented(migrations.StepRetireLegacy))
 	assert.True(t, Implemented(migrations.StepOwnerOnly))
 	assert.True(t, Implemented(migrations.StepWorktreeReach))
-	assert.True(t, Implemented(migrations.StepDescriptorSchema))
-	assert.False(t, Implemented(12), "the retired step that set refused overrides aside")
-	assert.False(t, Implemented(migrations.StepDescriptorSchema+1), "no step past the catalog")
+	assert.False(t, Implemented(12), "a retired descriptor step")
+	assert.False(t, Implemented(migrations.StepWorktreeReach+1), "no step past the catalog")
 }
 
 // Only a live project with no live home gets one, each checkpointed as it

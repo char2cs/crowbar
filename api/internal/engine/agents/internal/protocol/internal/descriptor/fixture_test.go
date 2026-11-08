@@ -38,7 +38,7 @@ func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
@@ -341,7 +341,7 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
@@ -401,7 +401,7 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 // through outbound.Resolve/AnswerFor's own ok=false.
 //
 // This is a TEST-level check against the real shipped descriptors, not a
-// rules.Apply/ParseV3-time gate: unlike required:/fixtures: (below), a small
+// rules.Apply/ParseV0-time gate: unlike required:/fixtures: (below), a small
 // hand-built probe descriptor used to test one unrelated rule has no reason
 // to declare the other ~20 canonical events it will never use, and gating
 // every such descriptor on total vocabulary coverage would make ordinary rule
@@ -421,7 +421,7 @@ func TestV3Descriptors_EveryInboundEventIsMappedOrNotEmitted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}

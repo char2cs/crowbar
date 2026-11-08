@@ -20,7 +20,7 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
 	raw, err := os.ReadFile("internal/descriptor/descriptors-v3/codex.yaml")
 	require.NoError(t, err)
-	d, err := descriptor.ParseV3(raw)
+	d, err := descriptor.ParseV0(raw)
 	require.NoError(t, err)
 	return d
 }

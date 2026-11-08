@@ -190,6 +190,8 @@ func startChat(t *testing.T, h *harness, base, chatID string) string {
 	return started.ID
 }
 
+// The override of a built-in in the home (the shipped claude descriptor over the
+// fake CLI) is what runs the turn.
 func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -197,7 +199,57 @@ func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
 
 	require.NotEmpty(t, l.Token, "the runner token is what authenticates every hook")
 	assert.NotContains(t, l.Argv, "--resume", "a fresh chat launches without a resume")
+	runHookTurn(t, h, l, hookBase, "claude")
+	assertTurnRecorded(t, h, imported, chatID)
+}
 
+// A provider Crowbar has no code for is a descriptor file in the home: it is
+// listed and reported clean in Settings > Agents, and a chat on it runs a turn.
+func TestFakeProvider_ACustomDescriptorInTheHomeRunsATurn(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude", ID: "acme", Patch: func(doc map[string]any) {
+		doc["display_name"] = "Acme"
+	}})
+
+	var listed []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+		Enabled     bool   `json:"enabled"`
+	}
+	h.get("/v0/settings/chat/providers", &listed)
+	names := map[string]string{}
+	for _, p := range listed {
+		if p.Enabled {
+			names[p.ID] = p.DisplayName
+		}
+	}
+	assert.Equal(t, "Acme", names["acme"], "Settings > Agents lists it, enabled")
+	var reports []struct {
+		ID       string `json:"id"`
+		Findings []struct {
+			Severity string `json:"severity"`
+			Message  string `json:"message"`
+		} `json:"findings"`
+	}
+	h.get("/v0/settings/chat/descriptors", &reports)
+	for _, r := range reports {
+		if r.ID != "acme" {
+			continue
+		}
+		for _, f := range r.Findings {
+			assert.NotEqual(t, "error", f.Severity, f.Message)
+		}
+	}
+
+	chatID, l := createFakeChat(t, h, imported, fake)
+	runHookTurn(t, h, l, h.url+repoBase(imported), "acme")
+	assertTurnRecorded(t, h, imported, chatID)
+}
+
+// runHookTurn posts one prompt-and-reply turn the way a hooks CLI does.
+func runHookTurn(t *testing.T, h *harness, l kit.Launch, hookBase, provider string) {
+	t.Helper()
 	for _, step := range []struct{ event, payload string }{
 		{"session_start", `{"session_id":"s-1","source":"startup"}`},
 		{"user_prompt", `{"session_id":"s-1","prompt":"hello"}`},
@@ -205,14 +257,16 @@ func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
 		{"message_delta", `{"session_id":"s-1","turn_id":"t-1","message_id":"m-1","index":0,"final":true,"delta":"HI"}`},
 		{"turn_stop", `{"session_id":"s-1","last_assistant_message":"HI"}`},
 	} {
-		resp := l.PostHook(t, hookBase, "claude", step.event, []byte(step.payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+		resp := l.PostHook(t, hookBase, provider, step.event, []byte(step.payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 		require.Equal(t, http.StatusOK, resp.StatusCode, step.event)
 	}
 	h.Quiesce()
+}
 
-	messages := readRecordedMessages(t, h, imported, chatID)
+func assertTurnRecorded(t *testing.T, h *harness, imported importedRepo, chatID string) {
+	t.Helper()
 	roles, texts := []string{}, []string{}
-	for _, m := range messages {
+	for _, m := range readRecordedMessages(t, h, imported, chatID) {
 		roles = append(roles, m.Role)
 		texts = append(texts, m.Text)
 	}

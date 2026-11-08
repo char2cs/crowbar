@@ -32,7 +32,7 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
 	raw, err := os.ReadFile("../descriptor/descriptors-v3/codex.yaml")
 	require.NoError(t, err)
-	d, err := descriptor.ParseV3(raw)
+	d, err := descriptor.ParseV0(raw)
 	require.NoError(t, err)
 	return d
 }
@@ -448,7 +448,7 @@ func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t
 // The handshake is the descriptor's: its call, its params and the notification
 // that follows the answer, none of them named in Go.
 func TestStart_SpeaksTheHandshakeItsDescriptorDeclares(t *testing.T) {
-	d, err := descriptor.ParseV3([]byte(`
+	d, err := descriptor.ParseV0([]byte(`
 id: declared
 runtime:
   transport: api
@@ -508,7 +508,7 @@ events:
     in: thread/started
     map: { session_id: thread.id }
 `)
-	d, err := descriptor.ParseV3(raw)
+	d, err := descriptor.ParseV0(raw)
 	require.NoError(t, err)
 
 	in, out, _ := testutil.StdioPipe(t)

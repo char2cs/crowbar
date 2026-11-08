@@ -74,7 +74,7 @@ func TestSurfaceGatedEvents_AreReportedLoudly(t *testing.T) {
 	for _, path := range matches {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		require.NoError(t, err)
 
 		names := make([]string, 0, len(d.Events))

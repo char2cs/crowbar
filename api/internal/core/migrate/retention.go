@@ -35,10 +35,8 @@ their history.
 
 A restore puts back only what is listed above: files a migration moved
 elsewhere in the home without changing them (chat attachments) stay where it
-moved them; move them back by hand if an older Crowbar needs them. A descriptor
-override rewritten for a newer schema keeps its original beside it as
-<name>.schema<N>.bak: copy that over <name> for an older Crowbar.
-migrate/ledger.jsonl and the daemon log name what was moved or rewritten.
+moved them; move them back by hand if an older Crowbar needs them.
+migrate/ledger.jsonl and the daemon log name what was moved.
 
 Turns an older Crowbar adds after the migration are imported by the next start
 of a newer one, except in a chat the newer one has written to since: those stay

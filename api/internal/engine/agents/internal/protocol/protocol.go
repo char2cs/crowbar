@@ -60,6 +60,16 @@ func CheckDescriptor(raw []byte) (*spec.Descriptor, []DescriptorRuleFailure) {
 	return descriptor.Check(raw)
 }
 
+// CheckDescriptorVersion refuses a document whose schema_version selects no reader.
+func CheckDescriptorVersion(raw []byte) error {
+	return descriptor.CheckVersion(raw)
+}
+
+// UnknownDescriptorKeys are the keys raw's own schema version does not define.
+func UnknownDescriptorKeys(raw []byte) []string {
+	return descriptor.UnknownKeys(raw)
+}
+
 // DescriptorSourceFor is the document Crowbar would load for id.
 func DescriptorSourceFor(homeDir, id string) (DescriptorSource, bool) {
 	return descriptor.SourceFor(homeDir, id)

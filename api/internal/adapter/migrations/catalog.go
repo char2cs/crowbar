@@ -87,7 +87,8 @@ func legacySteps() []migrate.Step {
 		{Number: StepRetireLegacy, Name: "retire-legacy", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planRetire, Recurs: true},
 		{Number: StepOwnerOnly, Name: "owner-only", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planOwnerOnly},
 		{Number: StepWorktreeReach, Name: "worktree-reach", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planWorktreeReach},
-		{Number: StepDescriptorSchema, Name: "descriptor-schema", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planDescriptorSchema, Recurs: true},
+		// 12 and 14 rewrote descriptor overrides and were retired unreleased: their
+		// numbers stay unused, and the files they left (*.refused, *.schema<N>.bak) stay put.
 	}
 }
 

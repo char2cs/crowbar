@@ -18,7 +18,7 @@ func TestValidate_AResumeWithoutARecognisedRefusalIsAWarning(t *testing.T) {
 // Over an api connection a refused resume is an error reply on the turn it
 // was asked for; unrecognised, the chat keeps a session the server lost.
 func TestValidate_AnAPIProvidersResumeWithoutARecognisedRefusalIsAnError(t *testing.T) {
-	api := "schema_version: 3\nid: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
 		"  api: { protocol: jsonrpc2, serve: [api, serve] }\n"
 	f := findingFor(t, descriptorcheck.Validate([]byte(api+"session:\n  resume: { arg: \"--resume {id}\" }\n")),
 		"session.refusal_unrecognised")
@@ -49,7 +49,7 @@ func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 }
 
 func TestValidate_AnAPIProvidersRefusalNamesItsRPCCode(t *testing.T) {
-	api := "schema_version: 3\nid: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
 		"  api: { protocol: jsonrpc2, delivery: stdio, format: ndjson, serve: [api, serve] }\n"
 	f := findingFor(t, descriptorcheck.Validate([]byte(api+refused("1", `["gone"]`))), "session.refused_rpc")
 	assert.Equal(t, "session.refused", f.Path)
@@ -110,7 +110,7 @@ func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {
 }
 
 func TestValidate_AnAPIProviderDeclaresItsHandshake(t *testing.T) {
-	api := "schema_version: 3\nid: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n  api:\n" +
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n  api:\n" +
 		"    protocol: jsonrpc2\n    serve: [api, serve]\n"
 	f := findingFor(t, descriptorcheck.Validate([]byte(api)), "runtime.api_handshake")
 	assert.Equal(t, "runtime.api", f.Path)

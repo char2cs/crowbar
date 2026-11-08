@@ -19,7 +19,7 @@ type RuleFailure struct {
 // Check is Load that reports every failing rule instead of stopping at the
 // first, for a validator that shows the whole picture at once.
 func Check(raw []byte) (*spec.Descriptor, []RuleFailure) {
-	d, err := ParseV3(raw)
+	d, err := Parse(raw)
 	if err != nil {
 		return nil, []RuleFailure{{Rule: "parse", Err: err}}
 	}

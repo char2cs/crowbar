@@ -1,21 +1,11 @@
 package schema_test
 
 import (
-	"flag"
-	"fmt"
-	"os"
-	"path/filepath"
-	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptorschema"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/schema"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
-
-var updateSchema = flag.Bool("update-schema", false, "record the descriptor schema as testdata/schema-v<Current>.txt")
 
 func load(t *testing.T) schema.Vocabulary {
 	t.Helper()
@@ -177,77 +167,4 @@ func TestRepliesFor_NamesTheDecisionsAnAskEventAccepts(t *testing.T) {
 			t.Errorf("unexpected reply %q", r)
 		}
 	}
-}
-
-// The descriptor schema a document is read against is pinned to its number:
-// every key a descriptor may write, and every canonical field an event maps.
-// Changing either without a new schema_version is how old documents broke.
-func TestSchema_EveryKeyAndFieldIsPinnedToTheSchemaVersion(t *testing.T) {
-	got := strings.Join(append(keyTree(), vocabularyTree(t)...), "\n") + "\n"
-	path := filepath.Join("testdata", fmt.Sprintf("schema-v%d.txt", descriptorschema.Current))
-	if *updateSchema {
-		if err := os.WriteFile(path, []byte(got), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(path)
-	if err != nil || string(want) != got {
-		t.Fatalf("the descriptor schema is not the one %s records. A change here breaks every document "+
-			"written before it: bump descriptorschema.Current, add the transitions that carry an older "+
-			"document over (descriptorcheck/testdata/history must keep loading), then record the new "+
-			"schema with -update-schema. (%v)", path, err)
-	}
-}
-
-func keyTree() []string {
-	var out []string
-	var walk func(prefix string, ty reflect.Type, seen map[reflect.Type]bool)
-	walk = func(prefix string, ty reflect.Type, seen map[reflect.Type]bool) {
-		for ty.Kind() == reflect.Pointer {
-			ty = ty.Elem()
-		}
-		switch {
-		case ty.Kind() == reflect.Map && ty.Name() == "":
-			walk(prefix+".*", ty.Elem(), seen)
-			return
-		case ty.Kind() == reflect.Slice && ty.Name() == "":
-			walk(prefix+"[]", ty.Elem(), seen)
-			return
-		case ty.Kind() != reflect.Struct || seen[ty]:
-			return
-		}
-		seen[ty] = true
-		defer delete(seen, ty)
-		for i := range ty.NumField() {
-			f := ty.Field(i)
-			tag := strings.Split(f.Tag.Get("yaml"), ",")[0]
-			if tag == "" || tag == "-" {
-				continue
-			}
-			key := strings.TrimPrefix(prefix+"."+tag, ".")
-			out = append(out, "key "+key+" "+f.Type.String())
-			walk(key, f.Type, seen)
-		}
-	}
-	walk("", reflect.TypeOf(spec.Descriptor{}), map[reflect.Type]bool{})
-	walk("events.*", reflect.TypeOf(spec.EventSpec{}), map[reflect.Type]bool{})
-	sort.Strings(out)
-	return out
-}
-
-func vocabularyTree(t *testing.T) []string {
-	t.Helper()
-	var out []string
-	for name, rule := range load(t).Events {
-		out = append(out, fmt.Sprintf("event %s %s", name, rule.Direction))
-		for kind, fields := range map[string][]string{
-			"required": rule.Required, "optional": rule.Optional, "extra": rule.Extras, "reply": rule.Replies,
-		} {
-			for _, f := range fields {
-				out = append(out, fmt.Sprintf("event %s %s %s", name, kind, f))
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
 }

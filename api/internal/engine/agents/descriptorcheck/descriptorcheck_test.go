@@ -43,23 +43,6 @@ func TestValidateAll_AnOverrideShadowsTheShippedDescriptor(t *testing.T) {
 	}
 }
 
-// historyDir holds every distinct descriptor document develop ever shipped, as
-// it shipped: users copied them as overrides and as the start of their own.
-const historyDir = "testdata/history"
-
-// unmigratable names, per historic document, the errors no upgrade can fix
-// because the fact was never in the file: an api model choice carried only on
-// argv (refused since 2026-09-23) needs the provider's own api call.
-var unmigratable = map[string][]string{
-	"2026-09-03-5fee7690-codex.yaml": {"load.selection_api_carrier"},
-	"2026-09-08-9b98c585-codex.yaml": {"load.selection_api_carrier"},
-	"2026-09-09-1362209c-codex.yaml": {"load.selection_api_carrier"},
-	"2026-09-10-25dda19c-codex.yaml": {"load.selection_api_carrier"},
-	"2026-09-12-d9c2b3d5-codex.yaml": {"load.selection_api_carrier"},
-	"2026-09-15-49399113-codex.yaml": {"load.selection_api_carrier"},
-	"2026-09-21-6287d739-codex.yaml": {"load.selection_api_carrier"},
-}
-
 func errorRules(rep descriptorcheck.Report) []string {
 	var out []string
 	for _, f := range rep.Findings {
@@ -70,96 +53,78 @@ func errorRules(rep descriptorcheck.Report) []string {
 	return out
 }
 
-// Every shape a descriptor ever had keeps working: as a provider of its own and
-// as an override of a shipped one, it loads, runs as written and says what the
-// upgrade changed. A schema change that breaks one without a transition fails here.
-func TestValidateAll_EveryHistoricDescriptorShapeStillRuns(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join(historyDir, "*.yaml"))
+// shippedAs is the shipped claude descriptor as a user's file: renamed so a test
+// can tell which document runs, under id, then edited.
+func shippedAs(t *testing.T, id string, edit func(string) string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
 	require.NoError(t, err)
-	require.NotEmpty(t, files)
-	for _, f := range files {
-		name := filepath.Base(f)
-		t.Run(name, func(t *testing.T) {
-			raw, err := os.ReadFile(f)
-			require.NoError(t, err)
-			id := descriptorcheck.Validate(raw).ID
-			// Renamed so the test can tell which document actually runs.
-			mine := []byte(strings.Replace(string(raw), "display_name: ", "display_name: My ", 1))
-			custom := []byte(strings.Replace(string(mine), "id: "+id+"\n", "id: mine\n", 1))
-			require.NotEqual(t, string(mine), string(custom), "the id line is renamed")
-
-			for as, doc := range map[string][]byte{id: mine, "mine": custom} {
-				home := t.TempDir()
-				override := filepath.Join(home, "descriptors", as+".yaml")
-				require.NoError(t, os.MkdirAll(filepath.Dir(override), 0o750))
-				require.NoError(t, os.WriteFile(override, doc, 0o600))
-
-				rep := reportFor(t, home, as)
-				assert.Equal(t, override, rep.Source)
-				assert.Equal(t, unmigratable[name], errorRules(rep), "%s as %s", name, as)
-				assert.NotEmpty(t, schemaFindings(rep), "the upgrade says what it changed")
-				if len(unmigratable[name]) > 0 {
-					continue
-				}
-				assert.False(t, rep.FellBack, "the user's document runs")
-				require.NoError(t, descriptorcheck.NewGate().Require(home, as))
-				a, err := agents.New(agents.WithOverrideCheck(descriptorcheck.AcceptOverride)).
-					Get(context.Background(), home, as)
-				require.NoError(t, err)
-				assert.Contains(t, a.Display().Name, "My ", "the user's document is the one that runs")
-
-				up, err := descriptorcheck.Upgrade(doc)
-				require.NoError(t, err)
-				again, err := descriptorcheck.Upgrade(up.Raw)
-				require.NoError(t, err)
-				assert.Empty(t, again.Changes, "an upgraded document needs no second upgrade")
-				rewritten := descriptorcheck.Validate(up.Raw)
-				assert.Empty(t, schemaFindings(rewritten), "nothing is left to report once rewritten")
-				assert.Empty(t, errorRules(rewritten), "the rewritten file runs at every later start")
-			}
-		})
-	}
+	doc := strings.Replace(string(raw), "display_name: ", "display_name: My ", 1)
+	doc = strings.Replace(doc, "\nid: claude\n", "\nid: "+id+"\n", 1)
+	edited := edit(doc)
+	require.NotEqual(t, doc, edited, "the edit applies")
+	return []byte(edited)
 }
 
-// What no upgrade can fix stays an error the user can act on: the file, the key
-// and line, and what to write. An override of a shipped provider falls back to it.
-func TestValidateAll_AnUnmigratableOldOverrideIsReportedAndTheShippedOneRuns(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(historyDir, "2026-09-21-6287d739-codex.yaml"))
-	require.NoError(t, err)
+func writeDescriptor(t *testing.T, home, id string, raw []byte) string {
+	t.Helper()
+	path := filepath.Join(home, "descriptors", id+".yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+	return path
+}
+
+// The schema is pre-release and nothing is carried over: an override written for
+// another schema is refused, says so, and the shipped descriptor runs. The file
+// stays exactly as the user wrote it.
+func TestValidateAll_AnOverrideForAnotherSchemaFallsBackUntouched(t *testing.T) {
 	home := t.TempDir()
-	override := filepath.Join(home, "descriptors", "codex.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(override), 0o750))
-	require.NoError(t, os.WriteFile(override, raw, 0o600))
+	doc := shippedAs(t, "claude", func(s string) string {
+		return strings.Replace(s, "\nid: claude\n", "\nid: claude\nschema_version: 3\n", 1)
+	})
+	override := writeDescriptor(t, home, "claude", doc)
 
-	rep := reportFor(t, home, "codex")
+	rep := reportFor(t, home, "claude")
 	assert.True(t, rep.FellBack)
-	f := findingFor(t, rep, "load.selection_api_carrier")
-	assert.Equal(t, "model", f.Path)
-	assert.Positive(t, f.Line)
-	assert.Contains(t, f.Hint, "api_apply")
-	require.NoError(t, descriptorcheck.NewGate().Require(home, "codex"), "the shipped descriptor runs")
-	assert.FileExists(t, override, "the user's file is never moved")
-}
-
-// A requirement newer than the document is a warning: the provider runs without
-// what it enables. The same gap in a document of today's schema blocks.
-func TestValidate_ARequirementNewerThanTheDocumentIsAWarning(t *testing.T) {
-	notice := "terminal_notices:\n  - kind: usage_limit\n    needle: \"limit reached\"\n"
-	old := []byte(strings.Replace(string(minimal(notice)), "schema_version: 3\n", "", 1))
-	f := findingFor(t, descriptorcheck.Validate(old), "terminal_notices.anchor_missing")
-	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
-	assert.Contains(t, f.Message, "runs without it")
-
-	f = findingFor(t, descriptorcheck.Validate(minimal(notice)), "terminal_notices.anchor_missing")
-	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
-}
-
-func TestValidate_ADescriptorFromANewerSchemaNamesTheVersion(t *testing.T) {
-	rep := descriptorcheck.Validate([]byte("id: x\nschema_version: 9\n"))
 	f := findingFor(t, rep, "schema.version")
 	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.Positive(t, f.Line)
+	assert.Contains(t, f.Message, "written for schema 3")
+	assert.Contains(t, f.Hint, "pre-release")
+	require.NoError(t, descriptorcheck.NewGate().Require(home, "claude"), "the shipped descriptor runs")
+	a, err := agents.New(agents.WithOverrideCheck(descriptorcheck.AcceptOverride)).Get(context.Background(), home, "claude")
+	require.NoError(t, err)
+	assert.NotContains(t, a.Display().Name, "My ")
+	got, err := os.ReadFile(override)
+	require.NoError(t, err)
+	assert.Equal(t, doc, got, "the user's file is never rewritten")
+}
+
+// A custom descriptor in an older shape is blocked, never dropped: it is
+// reported at the retired key with what to do, and the gate refuses it.
+func TestValidateAll_ACustomDescriptorOfAnOlderShapeIsBlockedWithItsFix(t *testing.T) {
+	home := t.TempDir()
+	doc := shippedAs(t, "mine", func(s string) string {
+		return strings.Replace(s, "\nsession:\n", "\nsession:\n  locate: { root: \"~/x\" }\n", 1)
+	})
+	writeDescriptor(t, home, "mine", doc)
+
+	rep := reportFor(t, home, "mine")
+	assert.False(t, rep.FellBack, "there is no shipped descriptor to run instead")
+	assert.Equal(t, []string{"yaml.unknown_field"}, errorRules(rep))
+	f := findingFor(t, rep, "yaml.unknown_field")
+	assert.Equal(t, "session.locate", f.Path)
+	assert.Positive(t, f.Line)
+	assert.NotEmpty(t, f.Hint)
+	require.ErrorIs(t, descriptorcheck.NewGate().Require(home, "mine"), descriptorcheck.ErrBlocked)
+}
+
+func TestValidate_ADescriptorFromAnotherSchemaNamesBoth(t *testing.T) {
+	rep := descriptorcheck.Validate([]byte("id: x\nschema_version: 9\n"))
+	f := findingFor(t, rep, "schema.version")
 	assert.Equal(t, "x", rep.ID)
-	assert.Contains(t, f.Hint, "up to 4")
+	assert.Equal(t, 2, f.Line)
+	assert.Contains(t, f.Message, "written for schema 9 (line 2), this build reads 0")
 }
 
 func reportFor(t *testing.T, home, id string) descriptorcheck.Report {
@@ -173,16 +138,6 @@ func reportFor(t *testing.T, home, id string) descriptorcheck.Report {
 	}
 	t.Fatalf("no report for %s in %+v", id, reports)
 	return descriptorcheck.Report{}
-}
-
-func schemaFindings(rep descriptorcheck.Report) []descriptorcheck.Finding {
-	var out []descriptorcheck.Finding
-	for _, f := range rep.Findings {
-		if strings.HasPrefix(f.Rule, "schema.") {
-			out = append(out, f)
-		}
-	}
-	return out
 }
 
 // The real migration case: an override in today's vocabulary whose hooks still
@@ -259,7 +214,7 @@ func TestValidate_FindingsAreOrderedByLine(t *testing.T) {
 
 // minimal is the smallest descriptor every load rule accepts, plus extra.
 func minimal(extra string) []byte {
-	return []byte("schema_version: 3\nid: mini\nspawn:\n  cmd: mini\n  interactive_required: true\nruntime:\n  transport: hooks\n  hooks: { format: json, delivery: http }\n" + extra)
+	return []byte("id: mini\nspawn:\n  cmd: mini\n  interactive_required: true\nruntime:\n  transport: hooks\n  hooks: { format: json, delivery: http }\n" + extra)
 }
 
 // complete is minimal plus a wired lifecycle, so only extra can fail it.

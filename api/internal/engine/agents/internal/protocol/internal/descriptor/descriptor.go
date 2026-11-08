@@ -40,7 +40,7 @@ var ErrInvalid = rules.ErrInvalidDescriptor
 // vocabulary, which is what makes a typo a startup failure rather than a field that
 // silently maps to nothing.
 func Load(data []byte) (*spec.Descriptor, error) {
-	d, err := ParseV3(data)
+	d, err := Parse(data)
 	if err != nil {
 		return nil, err
 	}

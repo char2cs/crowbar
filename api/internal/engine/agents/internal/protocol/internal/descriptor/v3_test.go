@@ -17,7 +17,6 @@ import (
 
 const minimalV3 = `
 id: acme
-schema_version: 3
 display_name: Acme
 protocol_version: { min: "1.0", max: "1.9" }
 runtime:
@@ -50,14 +49,14 @@ events:
 
 func mustParse(t *testing.T, y string) *spec.Descriptor {
 	t.Helper()
-	d, err := descriptor.ParseV3([]byte(y))
+	d, err := descriptor.ParseV0([]byte(y))
 	if err != nil {
-		t.Fatalf("ParseV3: %v", err)
+		t.Fatalf("ParseV0: %v", err)
 	}
 	return d
 }
 
-func TestParseV3_LoadsEachDirection(t *testing.T) {
+func TestParseV0_LoadsEachDirection(t *testing.T) {
 	d := mustParse(t, minimalV3)
 	if got := d.Events["session_start"].In.Name(); got != "thread/started" {
 		t.Errorf("session_start.in = %q", got)
@@ -82,16 +81,16 @@ func TestParseV3_LoadsEachDirection(t *testing.T) {
 	}
 }
 
-func TestParseV3_RejectsAnEventOutsideTheVocabulary(t *testing.T) {
+func TestParseV0_RejectsAnEventOutsideTheVocabulary(t *testing.T) {
 	bad := strings.Replace(minimalV3, "  session_start:", "  not_an_event:", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("the vocabulary is closed; an unknown event must be rejected at load")
 	}
 }
 
-func TestParseV3_RejectsAMissingRequiredField(t *testing.T) {
+func TestParseV0_RejectsAMissingRequiredField(t *testing.T) {
 	bad := strings.Replace(minimalV3, "map: { message: turn.lastAgentMessage }", "map: {}", 1)
-	_, err := descriptor.ParseV3([]byte(bad))
+	_, err := descriptor.ParseV0([]byte(bad))
 	if err == nil {
 		t.Fatal("turn_stop must map message")
 	}
@@ -100,29 +99,29 @@ func TestParseV3_RejectsAMissingRequiredField(t *testing.T) {
 	}
 }
 
-func TestParseV3_RejectsAReplyTheEventDoesNotDeclare(t *testing.T) {
+func TestParseV0_RejectsAReplyTheEventDoesNotDeclare(t *testing.T) {
 	bad := strings.Replace(minimalV3,
 		`reply: { allow: '{"decision":"approved"}', deny: '{"decision":"denied"}' }`,
 		`reply: { allow: '{"decision":"approved"}', shrug: '{}' }`, 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("a reply key outside the event's declared decisions must be rejected")
 	}
 }
 
-func TestParseV3_RejectsADirectionMismatch(t *testing.T) {
+func TestParseV0_RejectsADirectionMismatch(t *testing.T) {
 	// compact_start is an `out` event; declaring it with `in:` is a descriptor bug.
 	bad := strings.Replace(minimalV3, "    out: thread/compact/start", "    in: thread/compact/start", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("an out-event declared with in: must be rejected")
 	}
 }
 
 // The glyph error names the descriptor by re-reading its id; when that read
 // fails too, the failure travels with the glyph rather than vanishing.
-func TestParseV3_AnUnreadableIDIsReportedBesideTheGlyphError(t *testing.T) {
+func TestParseV0_AnUnreadableIDIsReportedBesideTheGlyphError(t *testing.T) {
 	bad := strings.Replace(minimalV3, "id: acme", "id: [acme]", 1)
 	bad = strings.Replace(bad, "map: { session_id: thread.id }", "map: { session_id: thread.id || thread.sid }", 1)
-	_, err := descriptor.ParseV3([]byte(bad))
+	_, err := descriptor.ParseV0([]byte(bad))
 	var glyph *spec.AlternationGlyphError
 	if !errors.As(err, &glyph) {
 		t.Fatalf("want the alternation glyph error, got: %v", err)
@@ -133,15 +132,15 @@ func TestParseV3_AnUnreadableIDIsReportedBesideTheGlyphError(t *testing.T) {
 	}
 }
 
-func TestParseV3_RejectsAnEventDeclaringNoWireName(t *testing.T) {
+func TestParseV0_RejectsAnEventDeclaringNoWireName(t *testing.T) {
 	bad := strings.Replace(minimalV3, "    in: thread/started\n", "", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("an event with no in:/out:/ask: names nothing and must be rejected")
 	}
 }
 
 // Per-event transport is what makes a MIXED provider possible with no new concept.
-func TestParseV3_PerEventTransportOverridesTheRuntimeDefault(t *testing.T) {
+func TestParseV0_PerEventTransportOverridesTheRuntimeDefault(t *testing.T) {
 	mixed := strings.Replace(minimalV3,
 		"  compact_start:\n    out: thread/compact/start",
 		"  compact_start:\n    transport: hooks\n    out: thread/compact/start", 1)
@@ -182,7 +181,7 @@ func withChannelSplitEvent(base string) string {
 	return strings.Replace(base, legacyToolPre, channelSplitTooPre, 1)
 }
 
-func TestParseV3_ChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
+func TestParseV0_ChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 	d := mustParse(t, withChannelSplitEvent(minimalV3))
 
 	ev := d.Events["tool_pre"]
@@ -207,29 +206,29 @@ func TestParseV3_ChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 
 // vocab.Validate must see the UNION of both channel blocks' mapped fields, or
 // a bad field name in either block would silently escape validation.
-func TestParseV3_RejectsAnUnknownFieldInAChannelBlock(t *testing.T) {
+func TestParseV0_RejectsAnUnknownFieldInAChannelBlock(t *testing.T) {
 	bad := strings.Replace(withChannelSplitEvent(minimalV3),
 		"map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name }",
 		"map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name, no_such_field: x }", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("an unknown field in a channel block's map: must be rejected, same as a legacy event's")
 	}
 }
 
-func TestParseV3_RejectsAnEventMixingFlatAndChannelForms(t *testing.T) {
+func TestParseV0_RejectsAnEventMixingFlatAndChannelForms(t *testing.T) {
 	bad := strings.Replace(withChannelSplitEvent(minimalV3),
 		"  tool_pre:\n    required:",
 		"  tool_pre:\n    in: item/started\n    required:", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("an event declaring both a flat in: and channel blocks is ambiguous and must be rejected")
 	}
 }
 
-func TestParseV3_RejectsAnEventMixingFlatMapAndChannelForms(t *testing.T) {
+func TestParseV0_RejectsAnEventMixingFlatMapAndChannelForms(t *testing.T) {
 	bad := strings.Replace(withChannelSplitEvent(minimalV3),
 		"  tool_pre:\n    required: [session_id, tool_id, tool_name]",
 		"  tool_pre:\n    required: [session_id, tool_id, tool_name]\n    map: { tool_id: x }", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("an event declaring both a flat map: and channel blocks is ambiguous and must be rejected")
 	}
 }
@@ -237,11 +236,11 @@ func TestParseV3_RejectsAnEventMixingFlatMapAndChannelForms(t *testing.T) {
 // A channel-scoped event whose blocks name no wire method at all is exactly
 // as broken as a legacy event with no in:/out:/ask: — checkEvent's "names
 // nothing" rule must reach through channel blocks too.
-func TestParseV3_RejectsAChannelBlockEventDeclaringNoWireName(t *testing.T) {
+func TestParseV0_RejectsAChannelBlockEventDeclaringNoWireName(t *testing.T) {
 	bad := strings.Replace(withChannelSplitEvent(minimalV3),
 		"    api:\n      in: item/started\n", "    api:\n", 1)
 	bad = strings.Replace(bad, "    hooks:\n      in: PreToolUse\n", "    hooks:\n", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("channel blocks naming no in: on either channel must be rejected")
 	}
 }
@@ -272,7 +271,7 @@ func withChannelSplitAskEvent(base string) string {
 	return strings.Replace(base, legacyPermission, channelSplitPermission, 1)
 }
 
-func TestParseV3_AskChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
+func TestParseV0_AskChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 	d := mustParse(t, withChannelSplitAskEvent(minimalV3))
 
 	ev := d.Events["permission"]
@@ -296,7 +295,7 @@ func TestParseV3_AskChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 }
 
 // AnswerFor resolves the reply from the channel-scoped shape as it does from the flat one.
-func TestParseV3_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
+func TestParseV0_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
 	d := mustParse(t, withChannelSplitAskEvent(minimalV3))
 
 	got, ok := d.AnswerFor("permission")
@@ -310,11 +309,11 @@ func TestParseV3_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
 
 // A block naming BOTH in: and ask: is ambiguous — mirrors the flat-vs-channel
 // mixing rejections above, one level down.
-func TestParseV3_RejectsAChannelBlockDeclaringBothInAndAsk(t *testing.T) {
+func TestParseV0_RejectsAChannelBlockDeclaringBothInAndAsk(t *testing.T) {
 	bad := strings.Replace(withChannelSplitAskEvent(minimalV3),
 		"    api:\n      ask: approval/request\n",
 		"    api:\n      ask: approval/request\n      in: approval/request\n", 1)
-	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("a channel block declaring both in: and ask: is ambiguous and must be rejected")
 	}
 }
