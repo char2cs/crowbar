@@ -117,9 +117,26 @@ type Upgraded = descriptorschema.Result
 
 // Upgrade brings raw up to the current descriptor schema, for a caller that
 // rewrites an override on disk; Validate and the loader apply it themselves.
+// The result states the newest schema its content meets, so a file still short
+// of a later requirement keeps running as the older document it is.
 func Upgrade(raw []byte) (Upgraded, error) {
 	up, err := descriptorschema.Upgrade(raw)
 	if err != nil {
+		return up, fmt.Errorf("descriptorcheck: %w", err)
+	}
+	if len(up.Changes) == 0 {
+		return up, nil
+	}
+	meets := descriptorschema.Current
+	for _, f := range Validate(up.Raw).Findings {
+		if since, ok := laterRequirements[f.Rule]; ok && f.Severity == SeverityError && since > up.From {
+			meets = min(meets, since-1)
+		}
+	}
+	if meets == descriptorschema.Current {
+		return up, nil
+	}
+	if up.Raw, err = descriptorschema.Stamp(up.Raw, meets); err != nil {
 		return up, fmt.Errorf("descriptorcheck: %w", err)
 	}
 	return up, nil
@@ -166,8 +183,8 @@ func fallsBack(src Source, rep Report) bool {
 // changeFindings warns of each thing the schema upgrade did, at the line of the
 // user's own file: a retired key is ignored, a rewritten one runs as its new shape.
 func changeFindings(up descriptorschema.Result) []Finding {
-	hint := fmt.Sprintf("Crowbar rewrites the file to schema %d at its next start and keeps the original beside it; "+
-		"or make the change yourself and set %s: %d", descriptorschema.Current, descriptorschema.VersionKey, descriptorschema.Current)
+	hint := fmt.Sprintf("Crowbar rewrites the file this way at its next start and keeps the original beside it; "+
+		"or make the change yourself and set %s: %d", descriptorschema.VersionKey, descriptorschema.Current)
 	out := make([]Finding, 0, len(up.Changes))
 	for _, c := range up.Changes {
 		rule := "schema.migrated"
@@ -201,6 +218,7 @@ func graceOlderSchema(findings []Finding, from int) {
 		}
 		findings[i].Severity = SeverityWarning
 		findings[i].Message += fmt.Sprintf(" (schema %d asks for this; the file predates it, so the provider runs without it)", since)
+		findings[i].Hint += fmt.Sprintf("; then set %s: %d", descriptorschema.VersionKey, since)
 	}
 }
 

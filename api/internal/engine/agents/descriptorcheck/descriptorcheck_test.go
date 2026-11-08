@@ -113,7 +113,9 @@ func TestValidateAll_EveryHistoricDescriptorShapeStillRuns(t *testing.T) {
 				again, err := descriptorcheck.Upgrade(up.Raw)
 				require.NoError(t, err)
 				assert.Empty(t, again.Changes, "an upgraded document needs no second upgrade")
-				assert.Empty(t, schemaFindings(descriptorcheck.Validate(up.Raw)), "nothing is left to report once rewritten")
+				rewritten := descriptorcheck.Validate(up.Raw)
+				assert.Empty(t, schemaFindings(rewritten), "nothing is left to report once rewritten")
+				assert.Empty(t, errorRules(rewritten), "the rewritten file runs at every later start")
 			}
 		})
 	}

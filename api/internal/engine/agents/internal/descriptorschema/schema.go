@@ -125,7 +125,7 @@ func Upgrade(raw []byte) (Result, error) {
 	if len(changes) == 0 {
 		return Result{Raw: raw, From: from}, nil
 	}
-	setStamp(doc)
+	setStamp(doc, Current)
 	out, err := encode(&root)
 	if err != nil {
 		return Result{Raw: raw, From: from}, err
@@ -149,17 +149,28 @@ func stamp(doc *yaml.Node) (int, error) {
 	return v, nil
 }
 
-// setStamp states Current, right after id: when the document names one.
-func setStamp(doc *yaml.Node) {
-	if n := value(doc, VersionKey); n != nil {
-		n.Value, n.Tag, n.Style = strconv.Itoa(Current), "!!int", 0
+// Stamp states schema n in an upgraded document: the newest schema whose
+// requirements it meets, which may be short of Current.
+func Stamp(raw []byte, n int) ([]byte, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(raw, &root); err != nil || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("descriptor: stamp schema %d: not a mapping document: %w", n, err)
+	}
+	setStamp(root.Content[0], n)
+	return encode(&root)
+}
+
+// setStamp states schema n, right after id: when the document names one.
+func setStamp(doc *yaml.Node, n int) {
+	if v := value(doc, VersionKey); v != nil {
+		v.Value, v.Tag, v.Style = strconv.Itoa(n), "!!int", 0
 		return
 	}
 	at := 0
 	if i := keyIndex(doc, "id"); i >= 0 {
 		at = i + 2
 	}
-	key, val := scalar(VersionKey), scalar(strconv.Itoa(Current))
+	key, val := scalar(VersionKey), scalar(strconv.Itoa(n))
 	val.Tag = "!!int"
 	doc.Content = append(doc.Content[:at], append([]*yaml.Node{key, val}, doc.Content[at:]...)...)
 }

@@ -47,6 +47,37 @@ func TestDescriptorSchema_RewritesAnOldOverrideKeepingTheOriginal(t *testing.T) 
 	assert.NoFileExists(t, filepath.Join(root, "descriptors/acme.yaml.schema1.bak.2"))
 }
 
+// A file the upgrade cannot complete, short of a fact a later schema requires,
+// is stamped with the schema it meets: at every later start it still runs.
+func TestDescriptorSchema_StampsTheSchemaTheFileMeets(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "descriptors/acme.yaml", oldOverride+
+		"terminal_notices:\n  - kind: usage_limit\n    needle: \"limit reached\"\n")
+
+	finish(t, boot(t, h))
+
+	now := readHome(t, h.Root(), "descriptors/acme.yaml")
+	assert.Contains(t, now, "schema_version: 2")
+	assert.NotContains(t, now, "locate")
+	f := findingFor(t, descriptorcheck.Validate([]byte(now)), "terminal_notices.anchor_missing")
+	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
+	assert.Contains(t, f.Hint, "schema_version: 3")
+
+	finish(t, boot(t, h))
+	assert.Len(t, migratetest.Applied(t, h)[StepDescriptorSchema], 1, "nothing left to do at the next boot")
+}
+
+func findingFor(t *testing.T, rep descriptorcheck.Report, rule string) descriptorcheck.Finding {
+	t.Helper()
+	for _, f := range rep.Findings {
+		if f.Rule == rule {
+			return f
+		}
+	}
+	t.Fatalf("no %s finding in %+v", rule, rep.Findings)
+	return descriptorcheck.Finding{}
+}
+
 // An earlier build set refused overrides aside as <name>.refused; this step puts
 // each back where the loader reads it, and brings it up to date.
 func TestDescriptorSchema_PutsBackAnOverrideSetAside(t *testing.T) {
