@@ -88,3 +88,14 @@ waits with a `collabAgentToolCall` wait whose `receiverThreadIds` is empty.
 `item_started.subAgentActivity.interacted.json` is the same kind of capture, verbatim,
 from a turn asked to send its agent a follow-up: codex reports it as
 `kind: "interacted"` (no collab tool call), then runs a second turn on the child's thread.
+
+## File-change captures (codex-cli 0.164.0, 2026-11-08)
+
+`item_started.fileChange.json`, `item_completed.fileChange.json` (one patch adding two
+files and updating one), `item_completed.fileChange.delete.json`,
+`item_completed.fileChange.move.json` (a rename: its `diff` is codex's own "Moved to:"
+line) and `item_completed.fileChangeDeclined.json` (an add the person denied) are live
+app-server captures off Crowbar's own connection, paths mapped to `/ws` (a file outside
+the workspace to `/`), thread and turn ids replaced by placeholders. They replace the
+`-schema` fileChange twins, which claimed an added file's `diff` is null: live, it is the
+file's whole content, and a deleted file's is its old content.
