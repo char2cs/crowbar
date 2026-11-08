@@ -268,6 +268,38 @@ var relayRE = regexp.MustCompile(`\{crowbar_hook\} hook ([a-z_]+)` +
 	`((?: --(?:segment|provider|project|repo|workspace|home)[ =](?:\{[a-z_]+\}|[A-Za-z0-9_./-]+)| \{scope_flags\})*)` +
 	`($|["'\\;&|])`)
 
+// hookCurlConfig is what {hook_curl} reads: the runner's token and the hook
+// payload on stdin, which the relay used to carry itself.
+const hookCurlConfig = `header = "X-Crowbar-Runner-Token: {runner_token}"
+header = "Content-Type: application/json"
+data-binary = "@-"
+connect-timeout = 5
+`
+
+// relayHooks rewrites every relay command and, unless the document writes
+// {tmp}/hook.curl itself, writes it first in hooks_injection.
+func relayHooks(at match) []Change {
+	changes := everyScalar(relayHook)(at)
+	if len(changes) == 0 || mentions(at.node, "{tmp}/hook.curl") {
+		return changes
+	}
+	step := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	file := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	insert(file, -1, "path", scalar("{tmp}/hook.curl"))
+	insert(file, -1, "content", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Style: yaml.LiteralStyle, Value: hookCurlConfig})
+	insert(step, -1, "write_file", file)
+	list := value(at.node, "hooks_injection")
+	if list == nil || list.Kind != yaml.SequenceNode {
+		list = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		setValue(at.node, "hooks_injection", list)
+	}
+	list.Content = append([]*yaml.Node{step}, list.Content...)
+	return append(changes, Change{
+		Kind: Rewritten, Path: "hooks_injection", Line: list.Line,
+		Note: "a write_file of {tmp}/hook.curl added: {hook_curl} reads the runner token and the payload from it",
+	})
+}
+
 func relayHook(path string, v *yaml.Node) []Change {
 	if !relayRE.MatchString(v.Value) {
 		return nil

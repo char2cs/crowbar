@@ -71,7 +71,7 @@ var (
 var transitions = []transition{
 	// 3: the `crowbar hook` relay is gone; hooks post to the daemon. First, so
 	// the step below sees the hook commands it wrote.
-	{3, []string{""}, everyScalar(relayHook)},
+	{3, []string{""}, relayHooks},
 	// 2: hook wiring moved out of config_injection, which also reaches serve.
 	{2, []string{""}, moveSteps("config_injection", "hooks_injection", "{hook_curl} ")},
 	// 2: the one `||` glyph became one spelling per job, in the same order.
