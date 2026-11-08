@@ -531,6 +531,11 @@ events:
         # call instead.
         message:   reason
         tool_name: tool
+        # The decisions this request takes, each a bare word or a one-key object; only a
+        # broader one than Allow and Deny is labelled, so only it is offered.
+        suggestions: availableDecisions
+        suggestion_label.acceptForSession: "Allow for the rest of this session"
+        suggestion_label.acceptWithExecpolicyAmendment: "Always allow commands that start like this"
       fixtures:
         - item_commandExecution_requestApproval.json
         - item_fileChange_requestApproval.json
@@ -551,6 +556,8 @@ events:
     reply:
       allow: '{"decision":"accept"}'
       deny:  '{"decision":"decline"}'
+      # The broader decision picked, sent back as codex offered it.
+      suggestion: '{"decision":{suggestion_json}}'
 
   elicitation:
     # No recorded mcpServer/elicitation/request payload exists in this repo —

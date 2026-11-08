@@ -145,6 +145,34 @@ func TestRegression_CodexDenyCarriesNoReason(t *testing.T) {
 	}
 }
 
+// codex lists the decisions a request takes: a broader one it offers is a button of
+// its own, answered with that decision as offered; the plain accept and cancel are not.
+func TestRegression_CodexOffersTheBroaderDecisionsItLists(t *testing.T) {
+	var params map[string]any
+	require.NoError(t, json.Unmarshal(codexParams(t, "item_commandExecution_requestApproval.json"), &params))
+	params["tool"] = "commandExecution"
+	raw, err := json.Marshal(params)
+	require.NoError(t, err)
+	codex := get(t, "codex")
+
+	ev, err := codex.ParseHook(agents.HookPermission, raw, agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Choice)
+	var offered []agents.ChoiceOption
+	for _, o := range ev.Choice.Options {
+		if o.Kind == agents.ChoiceOptionSuggestion {
+			offered = append(offered, o)
+		}
+	}
+	require.Len(t, offered, 1, "%+v", ev.Choice.Options)
+	assert.Equal(t, "Always allow commands that start like this", offered[0].Label)
+	reply, err := codex.RenderAnswer(agents.HookPermission, raw,
+		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion, Picked: []string{offered[0].ID}})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"decision":{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["curl"]}}}`, string(reply))
+}
+
 // denyOption is the Deny among a permission's options.
 func denyOption(t *testing.T, options []agents.ChoiceOption) agents.ChoiceOption {
 	t.Helper()

@@ -265,6 +265,16 @@ func JSON(doc map[string]any, paths Expr) []byte {
 	return data
 }
 
+// List reads an array as it is, whatever its elements.
+func List(doc map[string]any, paths Expr) []any {
+	v, ok := resolve(doc, paths)
+	if !ok {
+		return nil
+	}
+	arr, _ := v.([]any)
+	return arr
+}
+
 func Objects(doc map[string]any, paths Expr) []map[string]any {
 	v, ok := resolve(doc, paths)
 	if !ok {

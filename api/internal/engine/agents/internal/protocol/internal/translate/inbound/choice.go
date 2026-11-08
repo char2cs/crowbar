@@ -131,13 +131,14 @@ func choiceQuestion(
 	return out
 }
 
-func suggestionOptions(fields spec.FieldMap, suggestions []map[string]any) []models.ChoiceOption {
+func suggestionOptions(fields spec.FieldMap, suggestions []any) []models.ChoiceOption {
 	out := make([]models.ChoiceOption, 0, len(suggestions))
 	for i, suggestion := range suggestions {
 		if len(out) >= maxChoiceOptions {
 			break
 		}
-		description := mapping.String(suggestion, fields["suggestion_description"])
+		object, _ := suggestion.(map[string]any)
+		description := mapping.String(object, fields["suggestion_description"])
 		label, exact := suggestionLabel(fields, suggestion, description)
 		if label == "" {
 			continue
@@ -158,9 +159,14 @@ func suggestionOptions(fields spec.FieldMap, suggestions []map[string]any) []mod
 // suggestionLabel reads a LITERAL display string out of the descriptor, not a
 // payload path: suggestion_label.* maps a provider's machine name for a broader
 // grant to the English text the field map carries verbatim. exact when a label
-// names the grant's description too (suggestion_label.<type>.<description>).
-func suggestionLabel(fields spec.FieldMap, suggestion map[string]any, description string) (string, bool) {
-	kind := mapping.String(suggestion, fields["suggestion_type"])
+// names the grant's description too (suggestion_label.<type>.<description>). An event
+// that declares no suggestion_type names each offer by itself (spec.OfferName).
+func suggestionLabel(fields spec.FieldMap, suggestion any, description string) (string, bool) {
+	kind := spec.OfferName(suggestion)
+	if typed := fields["suggestion_type"]; len(typed) > 0 {
+		object, _ := suggestion.(map[string]any)
+		kind = mapping.String(object, typed)
+	}
 	if kind == "" {
 		return literal(fields, suggestionLabelDefault), false
 	}
