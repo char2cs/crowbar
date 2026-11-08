@@ -41,6 +41,21 @@ func TestConvertChat_AToolNoTurnHoldsIsSkipped(t *testing.T) {
 	assert.Len(t, rowsOf(res, ledger.KindToolCall), 2)
 }
 
+func TestConvertChat_ASubagentUnderTheIDItsReplyOpenedWithIsInThatTurn(t *testing.T) {
+	in := chatA()
+	in.Subagents[0].TurnID = "turn-chat-a-5"
+	gone := chatA()
+	gone.Subagents[0].TurnID = "turn-chat-a-99"
+	gone.Subagents = gone.Subagents[:1]
+
+	res := convert(t, in, nobody)
+
+	assert.Empty(t, res.Skipped)
+	assert.Equal(t, convert(t, chatA(), nobody).Rows, res.Rows, "the turn running at its seq, as msg-2 is")
+	assert.Equal(t, turnID("chat-a", "h-1"), rowsOf(convert(t, gone, nobody), ledger.KindSubagent)[0].TurnID,
+		"past every record's seq: the turn the last one is in")
+}
+
 func TestConvertChat_AnUnendedSubagentIsInterrupted(t *testing.T) {
 	res := convert(t, chatA(), nobody)
 
