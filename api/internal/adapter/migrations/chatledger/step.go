@@ -151,12 +151,14 @@ func unlessCommittedBefore(ctx context.Context, store ledgerStore, chatID string
 }
 
 // landedAsWritten checks, right after the import, that the chat holds the rows
-// it wrote and is at rest but for the runners the boot reconcile ends.
+// it wrote and is at rest but for the runners the boot reconcile ends. It folds
+// the rows itself: the store would keep every chat's State for the whole step.
 func landedAsWritten(ctx context.Context, store ledgerStore, chat LegacyChat, rows int64) error {
-	st, err := store.State(ctx, chat.ChatID)
+	held, err := store.Read(ctx, chat.ChatID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("chatledger: chat %s: %w", chat.ChatID, err)
 	}
+	st := ledger.Fold(chat.ChatID, held)
 	if st.Head() != rows {
 		return fmt.Errorf("%w: chat %s: it holds %d rows, the import wrote %d", errNotAsConverted, chat.ChatID, st.Head(), rows)
 	}
