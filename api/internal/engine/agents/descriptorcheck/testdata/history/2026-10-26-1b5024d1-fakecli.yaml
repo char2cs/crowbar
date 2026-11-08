@@ -1,0 +1,41 @@
+# The scripted fake CLI's descriptor. BIN is replaced by the test binary,
+# which re-executes as the fake (fakecli_test.go) and follows the transcript
+# FAKECLI_SCRIPT names.
+id: fakecli
+display_name: Fake CLI
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+    delivery: http
+spawn:
+  cmd: BIN
+  interactive_required: true
+  args: ["--fake-tui"]
+session:
+  resume: { arg: "--resume {id}" }
+  locate:
+    root_env: FAKECLI_HOME
+    root: "~/.fakecli"
+    glob: ["sessions/{id}.jsonl"]
+hooks_injection:
+  - pass_arg: { arg: "--hook", value: "session_start={crowbar_hook} hook session_start --segment {segid}" }
+  - pass_arg: { arg: "--hook", value: "user_prompt={crowbar_hook} hook user_prompt --segment {segid}" }
+  - pass_arg: { arg: "--hook", value: "turn_stop={crowbar_hook} hook turn_stop --segment {segid}" }
+terminal_prompts:
+  - kind: workspace_trust
+    needle: "Trust this folder?"
+events:
+  session_start:
+    required: [session_id]
+    in: session_start
+    map: { session_id: session_id }
+  user_prompt:
+    required: [session_id, message]
+    in: user_prompt
+    map: { session_id: session_id, message: prompt }
+  turn_stop:
+    required: [session_id]
+    in: turn_stop
+    map: { session_id: session_id, message: last_assistant_message }

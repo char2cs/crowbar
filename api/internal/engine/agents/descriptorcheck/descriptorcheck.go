@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptorschema"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -57,15 +58,27 @@ func (r Report) OK() bool {
 	return true
 }
 
-// Validate runs every static rule over one descriptor document.
+// Validate runs every static rule over one descriptor document, brought up to
+// the current schema first; what that upgrade changed is reported as warnings.
 func Validate(raw []byte) Report {
 	var root yaml.Node
 	if err := yaml.Unmarshal(raw, &root); err != nil {
 		return Report{Findings: []Finding{syntaxFinding(err)}}
 	}
+	up, err := descriptorschema.Upgrade(raw)
+	if err != nil {
+		return Report{ID: probeID(&root), Findings: []Finding{schemaFinding(err)}}
+	}
+	if len(up.Changes) > 0 {
+		raw, root = up.Raw, yaml.Node{}
+		if err := yaml.Unmarshal(raw, &root); err != nil {
+			return Report{Findings: []Finding{syntaxFinding(err)}}
+		}
+	}
 	doc := document{root: &root}
 	d, failures := protocol.CheckDescriptor(raw)
 	rep := Report{ID: probeID(&root)}
+	rep.Findings = append(rep.Findings, changeFindings(up)...)
 	rep.Findings = append(rep.Findings, unknownFields(raw, doc)...)
 	for _, f := range failures {
 		rep.Findings = append(rep.Findings, loadFinding(doc, f))
@@ -78,6 +91,7 @@ func Validate(raw []byte) Report {
 		rep.Findings = append(rep.Findings, lifecycleRules(doc, d)...)
 		rep.Findings = append(rep.Findings, noticeRules(doc, d)...)
 	}
+	graceOlderSchema(rep.Findings, up.From)
 	sort.SliceStable(rep.Findings, func(i, j int) bool {
 		return rep.Findings[i].Line < rep.Findings[j].Line
 	})
@@ -96,6 +110,19 @@ func Sources(homeDir string) ([]Source, error) {
 		return nil, fmt.Errorf("descriptorcheck: %w", err)
 	}
 	return sources, nil
+}
+
+// Upgraded is a descriptor document brought up to the current schema.
+type Upgraded = descriptorschema.Result
+
+// Upgrade brings raw up to the current descriptor schema, for a caller that
+// rewrites an override on disk; Validate and the loader apply it themselves.
+func Upgrade(raw []byte) (Upgraded, error) {
+	up, err := descriptorschema.Upgrade(raw)
+	if err != nil {
+		return up, fmt.Errorf("descriptorcheck: %w", err)
+	}
+	return up, nil
 }
 
 // ValidateAll validates every descriptor Crowbar would load from homeDir. An
@@ -134,6 +161,55 @@ func fallsBack(src Source, rep Report) bool {
 	}
 	_, ok := protocol.EmbeddedDescriptorSource(src.ID)
 	return ok
+}
+
+// changeFindings warns of each thing the schema upgrade did, at the line of the
+// user's own file: a retired key is ignored, a rewritten one runs as its new shape.
+func changeFindings(up descriptorschema.Result) []Finding {
+	hint := fmt.Sprintf("Crowbar rewrites the file to schema %d at its next start and keeps the original beside it; "+
+		"or make the change yourself and set %s: %d", descriptorschema.Current, descriptorschema.VersionKey, descriptorschema.Current)
+	out := make([]Finding, 0, len(up.Changes))
+	for _, c := range up.Changes {
+		rule := "schema.migrated"
+		if c.Kind == descriptorschema.Retired {
+			rule = "schema.retired_key"
+		}
+		out = append(out, Finding{
+			Rule: rule, Severity: SeverityWarning, Path: c.Path, Line: c.Line,
+			Message: fmt.Sprintf("brought up to schema %d: %s", descriptorschema.Current, c.Note), Hint: hint,
+		})
+	}
+	return out
+}
+
+// laterRequirements are the facts a schema began to require, by that schema:
+// without them the provider runs, short of what each one enables, so a document
+// written before they existed is warned of them, not blocked.
+var laterRequirements = map[string]int{
+	"session.refusal_unrecognised":    3,
+	"session.refused_rpc":             3,
+	"session.refused_exit":            3,
+	"session.refused_needles":         3,
+	"terminal_notices.anchor_missing": 3,
+}
+
+func graceOlderSchema(findings []Finding, from int) {
+	for i, f := range findings {
+		since, ok := laterRequirements[f.Rule]
+		if !ok || f.Severity != SeverityError || from >= since {
+			continue
+		}
+		findings[i].Severity = SeverityWarning
+		findings[i].Message += fmt.Sprintf(" (schema %d asks for this; the file predates it, so the provider runs without it)", since)
+	}
+}
+
+func schemaFinding(err error) Finding {
+	return Finding{
+		Rule: "schema.version", Severity: SeverityError, Path: descriptorschema.VersionKey, Message: err.Error(),
+		Hint: fmt.Sprintf("this build reads descriptor schemas up to %d: update Crowbar or use a descriptor written for it",
+			descriptorschema.Current),
+	}
 }
 
 func syntaxFinding(err error) Finding {
