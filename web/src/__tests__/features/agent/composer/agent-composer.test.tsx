@@ -489,4 +489,12 @@ describe('AgentComposer drag-and-drop', () => {
     await waitFor(() => expect(markdown()).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)'))
     expect(upload).toHaveBeenCalledTimes(1)
   })
+
+  // A CLI parked on its own prompt holds the prompt sent to it: the bar must still stop it.
+  it('lets a prompt held behind a terminal wait be stopped from the signpost', () => {
+    const onStop = vi.fn()
+    draw({ terminalWait: { kind: 'workspace_trust' }, sending: true, canStop: true, onStop })
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    expect(onStop).toHaveBeenCalled()
+  })
 })

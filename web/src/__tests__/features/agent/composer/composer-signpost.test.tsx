@@ -74,4 +74,23 @@ describe('ComposerSignpost', () => {
     expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
     expect(screen.queryByRole('button')).toBeNull()
   })
+
+  it('offers Stop only when there is something to stop', () => {
+    const onStop = vi.fn()
+    const { rerender } = render(
+      <ComposerSignpost reason="terminal_wait" message="Waiting" onOpenTerminal={vi.fn()} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Stop this turn' })).toBeNull()
+
+    rerender(
+      <ComposerSignpost
+        reason="terminal_wait"
+        message="Waiting"
+        onOpenTerminal={vi.fn()}
+        onStop={onStop}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    expect(onStop).toHaveBeenCalled()
+  })
 })

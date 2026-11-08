@@ -240,6 +240,7 @@ export function AgentComposer(props: AgentComposerProps) {
           permissionLevels={props.permissionLevels}
           terminalWait={props.terminalWait}
           onOpenTerminal={props.onOpenTerminal}
+          onStop={(props.working || props.sending) && props.canStop ? props.onStop : undefined}
         />
       )}
       <div
@@ -328,6 +329,7 @@ interface ComposerOccupantProps {
   permissionLevels?: PermissionLevel[]
   terminalWait?: AgentTerminalWait
   onOpenTerminal: () => void
+  onStop?: () => void
 }
 
 /** What holds the bar when it is not an input: the question, or why not. */
@@ -342,6 +344,7 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
           onOpenTerminal={props.onOpenTerminal}
           answers={props.terminalWait?.answers}
           onAnswer={answerTerminalWait}
+          onStop={props.onStop}
         />
       )
     case 'choices':
