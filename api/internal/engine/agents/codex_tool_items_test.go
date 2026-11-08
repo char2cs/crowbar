@@ -113,8 +113,10 @@ func TestRegression_CodexAddedAndDeletedFilesDiffAsWholeFiles(t *testing.T) {
 		{agents.HookToolPre, "item_started.fileChange.json", "--- /dev/null\n+++ b/outside-cx.txt\n@@ -0,0 +1 @@\n+hi\n\n" +
 			"--- a/ws/notes.txt\n+++ b/ws/notes.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n\n" +
 			"--- /dev/null\n+++ b/ws/src/util.go\n@@ -0,0 +1,5 @@\n+package src\n+\n+func Add(a, b int) int {\n+\treturn a + b\n+}\n"},
-		{agents.HookToolPost, "item_completed.fileChange.delete.json",
-			"--- a/ws/src/util.go\n+++ /dev/null\n@@ -1,5 +0,0 @@\n-package src\n-\n-func Add(a, b int) int {\n-\treturn a + b\n-}\n"},
+		{
+			agents.HookToolPost, "item_completed.fileChange.delete.json",
+			"--- a/ws/src/util.go\n+++ /dev/null\n@@ -1,5 +0,0 @@\n-package src\n-\n-func Add(a, b int) int {\n-\treturn a + b\n-}\n",
+		},
 		{agents.HookToolFail, "item_completed.fileChangeDeclined.json", "--- /dev/null\n+++ b/outside2-cx.txt\n@@ -0,0 +1 @@\n+hi\n"},
 	} {
 		ev, err := get(t, "codex").ParseHook(tc.hook, codexParams(t, tc.file), agents.ChannelAPI)

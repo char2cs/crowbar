@@ -32,7 +32,8 @@ func TestMap_AnAskSaysWhichOptionCarriesAReason(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
 
-	rows, _ := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash",
+	rows, _ := c.mapped(permission(engineagents.ChoicePrompt{
+		Kind: "tool_permission", ToolName: "Bash",
 		Options: []engineagents.ChoiceOption{{ID: "allow", Kind: "allow"}, {ID: "deny", Kind: "deny", Reason: true}},
 	}), hooksSource())
 
