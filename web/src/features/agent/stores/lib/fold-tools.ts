@@ -95,6 +95,7 @@ export const applyAsk: Apply<'ask'> = (fold, row) => {
     toolInputTruncated: body.toolInputTruncated,
     mcpServer: body.mcpServer || tool?.body.mcpServer,
     family: tool?.family,
+    detail: body.detail,
   })
   if (!fold.facts.openAsks.includes(id)) fold.set('openAsks', [...fold.facts.openAsks, id])
   // An ask on a call is said on the call's row; only a toolless one has a row.

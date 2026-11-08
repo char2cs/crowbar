@@ -6,6 +6,8 @@ export interface AskRequest {
   toolInput?: unknown
   truncated?: boolean
   mcpServer?: string
+  /** The agent's own sentence on why it asks, said when no input of the call is shown. */
+  why?: string
 }
 
 export interface CodeLine {
@@ -88,7 +90,7 @@ export function requestView(req: AskRequest): RequestView {
     fileView(input, req.toolTarget ?? '') ?? {
       head: req.toolTarget || undefined,
       code: [],
-      note: 'Input not shown',
+      note: req.why || 'Input not shown',
     }
   )
 }
