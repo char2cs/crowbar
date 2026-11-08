@@ -16,20 +16,24 @@ func moveFirst(key, dest, destKey string) func(match) []Change {
 			return nil
 		}
 		line, list := at.node.Content[i].Line, at.node.Content[i+1]
-		remove(at.node, i)
+		notes := remove(at.node, i)
 		path := join(at.path, key)
 		if list.Kind != yaml.SequenceNode || len(list.Content) == 0 {
+			keepComments(at.node, i, notes)
 			return []Change{{Kind: Retired, Path: path, Line: line, Note: key + " was empty and was removed"}}
 		}
 		target := ensure(at.root, dest)
-		if keyIndex(target, destKey) >= 0 {
+		if j := keyIndex(target, destKey); j >= 0 {
+			keepComments(target, j, notes)
 			return []Change{{
 				Kind: Retired, Path: path, Line: line,
 				Note: fmt.Sprintf("%s was removed: %s.%s already says it", key, dest, destKey),
 			}}
 		}
 		first := deepCopy(list.Content[0])
+		first.HeadComment, first.LineComment, first.FootComment = "", "", ""
 		insert(target, -1, destKey, first)
+		keepComments(target, len(target.Content)-2, notes)
 		note := fmt.Sprintf("%s moved to %s.%s: %s", key, dest, destKey, first.Value)
 		if len(list.Content) > 1 {
 			note += fmt.Sprintf("; %s names one code, so the other %d were dropped", dest, len(list.Content)-1)

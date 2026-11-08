@@ -107,3 +107,14 @@ func TestUpgrade_TheRelayHookBecomesCurlWithItsConfig(t *testing.T) {
 		"  - pass_arg: { value: \"S="+relay+"\" }\n")
 	assert.Len(t, written.Changes, 1, "a config the document writes is its own")
 }
+
+// A key the upgrade removes takes no comment with it: a retired key's notes
+// stay above what follows it, a moved key's notes travel to where it went.
+func TestUpgrade_ARemovedKeyKeepsItsComments(t *testing.T) {
+	up := upgrade(t, "id: x\nsession:\n  # why locate\n  locate: { root: \"~/x\" } # inline\n"+
+		"  persists: turn_start\nruntime:\n  transport: api\n  api:\n    # why codes\n    session_lost_codes: [-32600]\n"+
+		"    delivery: stdio\n")
+	got := string(up.Raw)
+	assert.Contains(t, got, "  # why locate\n  # inline\n  persists: turn_start\n")
+	assert.Contains(t, got, "  refused:\n    # why codes\n    rpc_code: -32600\n")
+}

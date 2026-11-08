@@ -81,8 +81,43 @@ func insert(m *yaml.Node, at int, key string, val *yaml.Node) {
 	m.Content = append(m.Content[:at], append([]*yaml.Node{scalar(key), val}, m.Content[at:]...)...)
 }
 
-func remove(m *yaml.Node, i int) {
+// remove deletes m's i-th key and returns every comment it carried, so the
+// caller can keep them where the key's meaning went.
+func remove(m *yaml.Node, i int) string {
+	notes := comments(m.Content[i], m.Content[i+1])
 	m.Content = append(m.Content[:i], m.Content[i+2:]...)
+	return notes
+}
+
+func comments(nodes ...*yaml.Node) string {
+	var out []string
+	for _, n := range nodes {
+		for _, c := range []string{n.HeadComment, n.LineComment} {
+			if c != "" {
+				out = append(out, c)
+			}
+		}
+		if inner := comments(n.Content...); inner != "" {
+			out = append(out, inner)
+		}
+		if n.FootComment != "" {
+			out = append(out, n.FootComment)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// keepComments sets notes above the key now at i of m, or under m when no key
+// follows.
+func keepComments(m *yaml.Node, i int, notes string) {
+	if notes == "" {
+		return
+	}
+	if i < len(m.Content) {
+		m.Content[i].HeadComment = strings.TrimSuffix(notes+"\n"+m.Content[i].HeadComment, "\n")
+		return
+	}
+	m.FootComment = strings.TrimPrefix(m.FootComment+"\n"+notes, "\n")
 }
 
 // eachValue applies f to every value of the matched mapping.
@@ -182,8 +217,9 @@ func renameKey(from string, to ...string) func(match) []Change {
 			added = append([]string{to[n]}, added...)
 			insert(at.node, i+2, to[n], deepCopy(val))
 		}
-		remove(at.node, i)
+		notes := remove(at.node, i)
 		if len(added) == 0 {
+			keepComments(at.node, i, notes)
 			return []Change{{
 				Kind: Retired, Path: join(at.path, from), Line: key.Line,
 				Note: fmt.Sprintf("%s was removed: %s already says it", from, strings.Join(to, " and ")),
@@ -205,7 +241,7 @@ func retireKey(key, why string) func(match) []Change {
 			return nil
 		}
 		line := at.node.Content[i].Line
-		remove(at.node, i)
+		keepComments(at.node, i, remove(at.node, i))
 		return []Change{{
 			Kind: Retired, Path: join(at.path, key), Line: line,
 			Note: fmt.Sprintf("%s is ignored and was removed: %s", key, why),

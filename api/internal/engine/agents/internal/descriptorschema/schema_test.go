@@ -96,6 +96,31 @@ func TestUpgrade_EveryHistoricFieldMapKeepsItsBranches(t *testing.T) {
 	}
 }
 
+// The user's comments are theirs: every one in every historic document is
+// still in it once upgraded.
+func TestUpgrade_EveryCommentSurvives(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(historyDir, "*.yaml"))
+	require.NoError(t, err)
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		require.NoError(t, err)
+		after := commentLines(string(upgrade(t, string(raw)).Raw))
+		for line := range commentLines(string(raw)) {
+			assert.True(t, after[line], "%s lost %q", filepath.Base(f), line)
+		}
+	}
+}
+
+func commentLines(doc string) map[string]bool {
+	out := map[string]bool{}
+	for _, line := range strings.Split(doc, "\n") {
+		if _, c, ok := strings.Cut(line, "#"); ok && strings.HasPrefix(strings.TrimSpace(line), "#") {
+			out[strings.TrimSpace(c)] = true
+		}
+	}
+	return out
+}
+
 // fieldBranches is, per event map and field, the source paths it tries in order.
 func fieldBranches(doc map[string]any) map[[2]string][]string {
 	out := map[[2]string][]string{}
