@@ -183,6 +183,46 @@ func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"), "the shipped codex is untouched")
 }
 
+// A descriptor the gate refuses is not offered to start a chat on, nor made the
+// default: every new chat on it would fail. It stays in DescriptorReports with
+// its file, line and fix; a broken override of a shipped provider runs the shipped one.
+func TestResolveProviders_OffersNoProviderTheGateRefuses(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
+		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	shell := strings.Replace(string(shipped), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
+	shell = strings.Replace(shell, "\nid: claude\n", "\nid: aaa\n", 1)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "aaa.yaml"), []byte(shell), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"), []byte("id: codex\n"), 0o600))
+	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
+	require.NoError(t, err)
+	table := provider.New(provider.Deps{ // wired as the daemon wires it: a refused override falls back
+		Agents:    engineagents.New(engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
+		Home:      func() (string, error) { return home, nil },
+		Installed: func(engineagents.Agent) bool { return true },
+		Prefs:     prefs,
+	})
+
+	got, err := table.ResolveProviders(t.Context())
+	require.NoError(t, err)
+	assert.NotContains(t, ids(got), "aaa")
+	assert.Contains(t, ids(got), "codex", "a refused override runs the shipped descriptor")
+	def, err := table.DefaultProviderID(t.Context())
+	require.NoError(t, err)
+	assert.NotEqual(t, "aaa", def)
+
+	reports, err := table.DescriptorReports(t.Context())
+	require.NoError(t, err)
+	var reported bool
+	for _, r := range reports {
+		reported = reported || (r.ID == "aaa" && !r.OK())
+	}
+	assert.True(t, reported, "the refused descriptor is still reported, with what to fix")
+}
+
 func TestDescriptorReports_SurfacesAHomeFailure(t *testing.T) {
 	t.Parallel()
 	table := provider.New(provider.Deps{

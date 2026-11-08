@@ -32,6 +32,10 @@ events:
     in: session_start
     map:
       session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
   turn_stop:
     in: turn_stop
     map:
@@ -40,6 +44,8 @@ runtime:
   transport: hooks
   hooks:
     format: json
+hooks_injection:
+  - pass_arg: { arg: "--hook", value: "{hook_curl} {hook_url}/session_start" }
 `
 
 func writeGeminiDescriptor(
