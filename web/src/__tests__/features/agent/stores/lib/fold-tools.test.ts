@@ -62,7 +62,13 @@ describe('applyAsk', () => {
       l.start('turn-1'),
       l.row(
         'ask',
-        { askId: 'q1', event: 'permission', toolName: 'commandExecution', detail: why, answerable: true },
+        {
+          askId: 'q1',
+          event: 'permission',
+          toolName: 'commandExecution',
+          detail: why,
+          answerable: true,
+        },
         { turnId: 'turn-1' },
       ),
     ])
