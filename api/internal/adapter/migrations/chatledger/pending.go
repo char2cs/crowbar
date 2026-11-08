@@ -195,7 +195,9 @@ func census(ctx context.Context, h home.Home) (map[string]int64, error) {
 		{ActivityDB, "agent_interruptions"},
 		{ActivityDB, "agent_choices"},
 	} {
-		query := "SELECT chat_id, count(*) FROM " + q.table + " WHERE chat_id != '' GROUP BY chat_id"
+		query := func(map[string]bool) string {
+			return "SELECT chat_id, count(*) FROM " + q.table + " WHERE chat_id != '' GROUP BY chat_id"
+		}
 		if err := queryLegacy(ctx, filepath.Join(h.Store(), q.db), q.table, count, query); err != nil {
 			return nil, err
 		}

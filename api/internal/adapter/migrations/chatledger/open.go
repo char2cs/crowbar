@@ -28,25 +28,42 @@ func openLegacy(path string) (*sql.DB, bool, error) {
 	return db, true, nil
 }
 
-// queryLegacy runs query over table in the database at path, handing each row
-// to scan. A missing database or table is no rows.
+// tableColumns is the columns table has; none when the database holds no such table.
+func tableColumns(ctx context.Context, db *sql.DB, table string) (_ map[string]bool, err error) {
+	rows, err := db.QueryContext(ctx, "SELECT name FROM pragma_table_info(?)", table)
+	if err != nil {
+		return nil, fmt.Errorf("chatledger: %s: %w", table, err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	has := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("chatledger: %s: %w", table, err)
+		}
+		has[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("chatledger: %s: %w", table, err)
+	}
+	return has, nil
+}
+
+// queryLegacy runs the query built for the columns table has over it in the
+// database at path, handing each row to scan. A missing database or table is no rows.
 func queryLegacy(
-	ctx context.Context, path, table string, scan func(*sql.Rows) error, query string, args ...any,
+	ctx context.Context, path, table string, scan func(*sql.Rows) error, query func(has map[string]bool) string, args ...any,
 ) (err error) {
 	db, ok, err := openLegacy(path)
 	if err != nil || !ok {
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
-	var n int
-	if err := db.QueryRowContext(ctx,
-		"SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&n); err != nil {
-		return fmt.Errorf("chatledger: %s: %w", table, err)
+	has, err := tableColumns(ctx, db, table)
+	if err != nil || len(has) == 0 {
+		return err
 	}
-	if n == 0 {
-		return nil
-	}
-	rows, err := db.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query(has), args...)
 	if err != nil {
 		return fmt.Errorf("chatledger: %s: %w", table, err)
 	}
