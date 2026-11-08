@@ -50,8 +50,8 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // Nothing here is exercised; SetTurns only has to be able to bind it.
 type stubTurns struct{}
 
-func (stubTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
-	return "", nil
+func (stubTurns) Hook(context.Context, string, string, string, []byte) ([]byte, string, error) {
+	return nil, "", nil
 }
 
 func (stubTurns) ForgetChat(string) {}

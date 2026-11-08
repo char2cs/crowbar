@@ -1,6 +1,9 @@
 package ingress
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -65,4 +68,48 @@ func TestRecorder_ACallWhosePayloadNamesNoDirectoryIsNamedFromTheRunners(t *test
 		}
 	}
 	assert.Equal(t, []string{"src/a.go"}, targets)
+}
+
+// codexApproval is a recorded codex approval request as its api driver hands it on: its
+// params, named by the wire method's tool.
+func codexApproval(t *testing.T, f *recorderFixture, name, tool string) (engineagents.CanonicalEvent, []byte) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol",
+		"testdata", "fixtures", "codex", name))
+	require.NoError(t, err)
+	var frame struct{ Params map[string]any }
+	require.NoError(t, json.Unmarshal(data, &frame))
+	frame.Params["tool"] = tool
+	raw, err := json.Marshal(frame.Params)
+	require.NoError(t, err)
+	ev, err := f.agent.ParseHook(engineagents.HookPermission, raw, engineagents.ChannelAPI)
+	require.NoError(t, err)
+	return ev, raw
+}
+
+// An agent whose sandbox asks before writing into the folder its chat left is refused
+// there and then: no card asks a person to allow what Crowbar would refuse.
+func TestRecorder_AnAskToWriteIntoAFolderTheChatLeftIsRefusedUnasked(t *testing.T) {
+	f := newRecorderFixture(t, "codex")
+	moved, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{
+		Phase: ledger.MoveDone, RequestID: "m1", To: "ws-b", FromDir: "/old", ToDir: testWorktree,
+	})
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), testChat, moved)
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	_, _, err = f.r.Dispatch(t.Context(), f.runner, f.agent, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre,
+		Tool: &engineagents.ToolEvent{ID: "c1", Name: "fileChange", Kind: "edit", Target: "/old/notes.txt"},
+	}, nil, engineagents.ChannelAPI)
+	require.NoError(t, err)
+	ev, raw := codexApproval(t, f, "item_fileChange_requestApproval.json", "fileChange")
+
+	reply, ask, err := f.r.Dispatch(t.Context(), f.runner, f.agent, ev, raw, engineagents.ChannelAPI)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"decision":"decline"}`, string(reply))
+	assert.Empty(t, ask)
+	assert.Empty(t, f.state(t).PendingAsks(), "no card is raised")
 }

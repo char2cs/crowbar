@@ -65,6 +65,7 @@ type ToolLocation struct {
 // toolKeys is what a retried phase of one tool call is recognised by.
 type toolKeys struct {
 	turnID, name, input string
+	kind, target        string // what the call does and to what, as first said
 	phases              []string
 	seq                 int64 // its first row's seq
 }
@@ -95,6 +96,12 @@ func (s State) ToolTurn(scope, toolID string) (string, bool) {
 // HasToolPhase reports whether phase of the tool call is already recorded.
 func (s State) HasToolPhase(scope, toolID, phase string) bool {
 	return slices.Contains(s.keys.tools[ref(scope, toolID)].phases, phase)
+}
+
+// ToolAim is what the tool call toolID of scope does and to what: its kind and target.
+func (s State) ToolAim(scope, toolID string) (kind, target string) {
+	t := s.keys.tools[ref(scope, toolID)]
+	return t.kind, t.target
 }
 
 // HasToolInput reports whether the tool call toolID of scope is keyed by an input.
@@ -152,6 +159,7 @@ func (s *State) applyToolCall(r Row) {
 		t = toolKeys{turnID: r.TurnID, seq: r.Seq}
 	}
 	t.name, t.input = cmp.Or(t.name, body.Name), cmp.Or(t.input, body.InputKey)
+	t.kind, t.target = cmp.Or(t.kind, body.Kind), cmp.Or(t.target, body.Target)
 	if !slices.Contains(t.phases, body.Phase) {
 		t.phases = append(slices.Clip(t.phases), body.Phase)
 	}

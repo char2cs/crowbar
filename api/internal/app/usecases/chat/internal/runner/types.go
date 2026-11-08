@@ -69,8 +69,9 @@ type AncestorCwd interface {
 // classifiers. Only Hook takes the chat's lock, never called under it.
 type Turns interface {
 	// Hook places one event an api connection resolved, as the hook ingress
-	// places every hook, and returns the ask its answer is held on.
-	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (ask string, err error)
+	// places every hook, and returns the reply the ingress gave an ask at once
+	// or else the ask its answer is held on.
+	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (reply []byte, ask string, err error)
 	// ForgetChat drops every piece of in-memory turn state held for chatID.
 	ForgetChat(chatID string)
 	// ForgetTelemetry drops chatID's usage report, its outgoing provider's.

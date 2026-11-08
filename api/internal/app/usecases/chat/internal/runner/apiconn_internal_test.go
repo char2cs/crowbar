@@ -26,8 +26,8 @@ import (
 // noopTurns is the Turns port doing nothing; spyTurns overrides its Hook.
 type noopTurns struct{}
 
-func (noopTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
-	return "", nil
+func (noopTurns) Hook(context.Context, string, string, string, []byte) ([]byte, string, error) {
+	return nil, "", nil
 }
 
 func (noopTurns) ForgetChat(string) {}
@@ -258,6 +258,7 @@ type spyTurns struct {
 	answers   *answerdesk.Desk
 	wait      time.Duration
 	failFirst bool
+	reply     []byte // the ingress's own answer to every ask
 
 	mu    sync.Mutex
 	calls []spyCall
@@ -270,7 +271,7 @@ type spyCall struct {
 
 func (s *spyTurns) Hook(
 	_ context.Context, runnerID, provider, canonical string, raw []byte,
-) (string, error) {
+) ([]byte, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	call := spyCall{runnerID: runnerID, provider: provider, canonical: canonical, raw: raw}
@@ -282,9 +283,9 @@ func (s *spyTurns) Hook(
 	}
 	s.calls = append(s.calls, call)
 	if s.failFirst && len(s.calls) == 1 {
-		return "", errors.New("unrecorded")
+		return nil, "", errors.New("unrecorded")
 	}
-	return call.ask, nil
+	return s.reply, call.ask, nil
 }
 
 // snapshot returns a race-free copy of the calls recorded so far.
@@ -390,6 +391,10 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 	}{
 		"held by nobody":         {turns: &spyTurns{}, reason: "No answer from Crowbar in time."},
 		"refused by the ingress": {turns: &spyTurns{failFirst: true}, reason: "Crowbar could not record this request."},
+		"answered by the ingress": {
+			turns:  &spyTurns{reply: []byte(`{"decision":"denied","message":"moved"}`)},
+			reason: "moved",
+		},
 		"held past its budget":   {turns: &spyTurns{wait: time.Millisecond}, reason: "No answer from Crowbar in time.", closedAs: "refused"},
 	} {
 		t.Run(name, func(t *testing.T) {

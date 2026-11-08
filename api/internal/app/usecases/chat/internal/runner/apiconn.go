@@ -270,12 +270,19 @@ func (rs *Runners) pumpAPIConn(
 	go func() {
 		defer rs.onAPIConnLost(ctx, conn, runnerID)
 		for ev := range conn.driver.Events() {
-			ask, err := rs.turns.Hook(ctx, runnerID, providerID, ev.Canonical, ev.Raw)
+			reply, ask, err := rs.turns.Hook(ctx, runnerID, providerID, ev.Canonical, ev.Raw)
 			if err != nil {
 				slog.WarnContext(ctx, "agent: api transport: place event", "err", err,
 					"runner_id", runnerID, "event", ev.Canonical)
 				if ev.AskID != nil {
 					rs.refuseAsk(ctx, runnerID, agent, ev, conn, "Crowbar could not record this request.")
+				}
+				continue
+			}
+			if ev.AskID != nil && len(reply) > 0 {
+				// Answered by Crowbar itself, before any person is asked.
+				if err := conn.driver.Reply(ev.AskID, reply); err != nil {
+					slog.WarnContext(ctx, "agent: api transport: write reply", "err", err, "runner_id", runnerID)
 				}
 				continue
 			}

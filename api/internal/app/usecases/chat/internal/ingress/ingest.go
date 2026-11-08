@@ -141,7 +141,7 @@ func (r *Recorder) Dispatch(
 		return nil, "", err
 	}
 	ev = r.withRunnerDir(ctx, runner, ev)
-	if denial, ok := guardLeftFolder(st, agent, ev, channel); ok {
+	if denial, ok := guardLeftFolder(st, agent, ev, raw, channel); ok {
 		return denial, "", nil
 	}
 	src := Source{

@@ -263,11 +263,11 @@ type runnerTurns struct {
 	ingress *ingress.Ingress
 }
 
-// Hook places one event an api connection resolved, and returns the ask its
-// answer is held on.
-func (t runnerTurns) Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (string, error) {
+// Hook places one event an api connection resolved, and returns the reply the
+// ingress gave it at once, else the ask its answer is held on.
+func (t runnerTurns) Hook(ctx context.Context, runnerID, provider, event string, raw []byte) ([]byte, string, error) {
 	reply, err := t.ingress.Hook(ctx, runnerID, provider, event, raw, engineagents.ChannelAPI)
-	return reply.Ask, err
+	return reply.Body, reply.Ask, err
 }
 
 // movedTurn is whether a row of the batch started or stopped the chat's newest
