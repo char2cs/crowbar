@@ -21,9 +21,10 @@ var serveReplies = map[string][]string{
 	},
 }
 
-// serveApp is `app-server <capture dir> <runner id> <fixtures dir>`: it records
-// its launch, answers each request with the ids the recording carries, and
-// follows it with that request's recorded notifications, until stdin closes.
+// serveApp is `app-server <capture dir> <runner id> <fixtures dir> [turn frame...]`: it
+// records its launch, answers each request with the ids the recording carries, and
+// follows it with that request's recorded notifications, until stdin closes. Named
+// turn frames replace the default turn's items.
 func serveApp(args []string) int {
 	if len(args) < 3 || record(args[0], launch{RunnerID: args[1], Argv: os.Args[1:], PID: os.Getpid()}) != nil {
 		return 2
@@ -40,6 +41,11 @@ func serveApp(args []string) int {
 		return 2
 	}
 	ids := map[string]any{"thread": map[string]any{"id": started.Params.ThreadID}, "turn": started.Params.Turn}
+	replies := serveReplies
+	if len(args) > 3 {
+		turn := append(append([]string{"turn_started.json"}, args[3:]...), "turn_completed.json")
+		replies = map[string][]string{"thread/start": serveReplies["thread/start"], "thread/resume": serveReplies["thread/resume"], "turn/start": turn}
+	}
 	out := json.NewEncoder(os.Stdout)
 	lines := bufio.NewScanner(os.Stdin)
 	lines.Buffer(make([]byte, 0, 1<<16), 1<<24) // a turn/start carries the whole injected context
@@ -54,13 +60,37 @@ func serveApp(args []string) int {
 		if out.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": ids}) != nil {
 			return 0
 		}
-		for _, name := range serveReplies[req.Method] {
-			if _, err := os.Stdout.Write(frame(args[2], name)); err != nil {
+		for _, name := range replies[req.Method] {
+			if _, err := os.Stdout.Write(respoken(frame(args[2], name), started.Params.ThreadID, started.Params.Turn.ID)); err != nil {
 				return 0
 			}
 		}
 	}
 	return 0
+}
+
+// respoken is a frame recorded in another session, said on this one's thread and
+// turn, so a turn can be assembled from several live recordings.
+func respoken(line []byte, thread, turn string) []byte {
+	var msg map[string]any
+	if json.Unmarshal(line, &msg) != nil {
+		return line
+	}
+	params, ok := msg["params"].(map[string]any)
+	if !ok {
+		return line
+	}
+	if _, ok := params["threadId"]; ok {
+		params["threadId"] = thread
+	}
+	if _, ok := params["turnId"]; ok {
+		params["turnId"] = turn
+	}
+	out, err := json.Marshal(msg)
+	if err != nil {
+		return line
+	}
+	return append(out, '\n')
 }
 
 // frame is one recorded frame as a single ndjson line, nil when unreadable.
