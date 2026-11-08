@@ -395,7 +395,7 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 			turns:  &spyTurns{reply: []byte(`{"decision":"denied","message":"moved"}`)},
 			reason: "moved",
 		},
-		"held past its budget":   {turns: &spyTurns{wait: time.Millisecond}, reason: "No answer from Crowbar in time.", closedAs: "refused"},
+		"held past its budget": {turns: &spyTurns{wait: time.Millisecond}, reason: "No answer from Crowbar in time.", closedAs: "refused"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			replySeen := make(chan string, 1)
