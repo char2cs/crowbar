@@ -1,0 +1,353 @@
+# Claude — v3, event-centric. `in:` names the CLAUDE hook; per-event transport
+# lets a provider mix hooks and api with no new concept.
+id: claude
+display_name: Claude
+icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>'
+
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+    delivery: http
+  spawn:
+    cmd: claude
+
+events:
+  session_start:
+    in: SessionStart
+    map: { session_id: session_id, model: model }
+
+  user_prompt:
+    in: UserPromptSubmit
+    map: { message: prompt }
+
+  turn_stop:
+    in: Stop
+    map:
+      session_id: session_id
+      message:    last_assistant_message
+      async_work: background_tasks
+      effort:     effort.level
+
+  turn_failed:
+    in: StopFailure
+    map:
+      session_id: session_id
+      reason:     error
+      detail:     error_details
+      message:    last_assistant_message
+
+  message_delta:
+    in: MessageDisplay
+    map:
+      session_id: session_id
+      turn_id:    turn_id
+      message_id: message_id
+      index:      index
+      final:      final
+      text:       delta
+
+  # `||` alternation: one Crowbar concept, different payload paths per tool.
+  tool_pre:
+    in: PreToolUse
+    map:
+      session_id:  session_id
+      tool_id:     tool_use_id
+      tool_name:   tool_name
+      tool_target: tool_input.file_path || tool_input.command || tool_input.url || tool_input.pattern
+      tool_input:  tool_input
+
+  tool_post:
+    in: PostToolUse
+    map:
+      session_id:  session_id
+      tool_id:     tool_use_id
+      tool_name:   tool_name
+      tool_target: tool_input.file_path || tool_input.command || tool_input.url || tool_input.pattern
+      tool_input:  tool_input
+      tool_result: tool_response
+      duration_ms: duration_ms
+
+  # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
+  # leaves a failed tool open until the turn-close sweep abandons it.
+  tool_fail:
+    in: PostToolUseFailure
+    map:
+      session_id:  session_id
+      tool_id:     tool_use_id
+      tool_name:   tool_name
+      tool_target: tool_input.file_path || tool_input.command || tool_input.url || tool_input.pattern
+      tool_input:  tool_input
+      tool_result: tool_response || error
+      tool_error:  error
+      duration_ms: duration_ms
+
+  subagent_pre:
+    in: SubagentStart
+    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+
+  subagent_post:
+    in: SubagentStop
+    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+
+  notification:
+    in: Notification
+    map: { session_id: session_id, message: message }
+
+  compact_pre:
+    in: PreCompact
+    map: { session_id: session_id, trigger: trigger }
+
+  compact_post:
+    in: PostCompact
+    map: { session_id: session_id, trigger: trigger }
+
+  session_end:
+    in: SessionEnd
+    map: { session_id: session_id, reason: reason }
+
+  # AskUserQuestion is a TOOL, not an event — mapping it on tool_pre too
+  # would open the same prompt twice.
+  permission:
+    ask: PermissionRequest
+    timeout_seconds: 270
+    answers_into: answers
+    map:
+      session_id:             session_id
+      message:                tool_name
+      prompt_id:              prompt_id
+      tool_name:              tool_name
+      tool_target:            tool_input.file_path || tool_input.command || tool_input.url || tool_input.pattern
+      tool_input:              tool_input
+      suggestions:            permission_suggestions
+      # claude's own machine name for a broader grant, never shown as itself.
+      suggestion_type:        type
+      suggestion_description: mode || destination
+      # Labels only — claude declares no reply template for a suggestion.
+      suggestion_label.addRules:       "Add a permanent rule for this"
+      suggestion_label.addDirectories: "Allow this directory from now on"
+      suggestion_label.setMode:        "Switch to a more permissive mode"
+      suggestion_label.default:        "A broader permission than this one"
+      questions:              tool_input.questions
+      question_title:         header
+      question_text:          question
+      question_options:       options
+      question_multi:         multiSelect
+      option_label:           label
+      option_description:     description
+    reply:
+      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+      deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
+      answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
+
+  elicitation:
+    ask: Elicitation
+    timeout_seconds: 270
+    map:
+      session_id: session_id
+      message:    message
+      mcp_server: mcp_server_name
+      mode:       mode
+      schema:     requested_schema
+    reply:
+      accept:  '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"accept","content":{content_json}}}'
+      decline: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"decline"}}'
+      cancel:  '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"cancel"}}'
+
+  # No API to trigger compaction — the trigger is a slash command over prompt.
+  compact_start:
+    out: prompt
+    send: { text: "/compact" }
+
+# restart_tui is a no-op in practice: prompt_submit.strategy is already
+# restart_tui, so every message already restarts the CLI. NOT
+# bypassPermissions, which skips every check including what auto still makes.
+permission_levels:
+  strategy: restart_tui
+  levels:
+    guarded:
+      apply:
+        - pass_arg: { arg: "--permission-mode", value: "manual" }
+    trusted:
+      apply:
+        - pass_arg: { arg: "--permission-mode", value: "acceptEdits" }
+    full-auto:
+      apply:
+        - pass_arg: { arg: "--permission-mode", value: "auto" }
+
+# --- carried across from v2 unchanged -------------------------------------
+# Validated against claude 2.1.236. An older claude degrades safely: a Stop
+# payload without background_tasks yields 0 and Working folds from the turn.
+spawn:
+  cmd: claude
+  interactive_required: true
+  # -p/--print would make the wrapped TUI headless.
+  forbid_flags: ["-p", "--print"]
+  env:
+    clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
+session:
+  resume: { arg: "--resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      # `--` first, so a message starting with a dash is text, not a flag.
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+  # Plugin metadata is readable without a model turn; project/user skills
+  # are not, hence plugin_only rather than complete.
+  slash_catalog:
+    completeness: plugin_only
+    timeout_ms: 10000
+    max_stdout_bytes: 4194304
+    max_stderr_bytes: 262144
+    max_items: 200
+    pipeline:
+      adapter: json_inventory_text_detail
+      command: ["plugin", "list", "--json"]
+      rows_path: "[]"
+      enabled_field: "enabled"
+      id_field: "id"
+      source_pattern: '^(?P<source>[^@]+)'
+      detail_command: ["plugin", "details", "{id}"]
+      # `\s+` crosses the newline — a plugin printing `Skills (0)` captured
+      # the NEXT inventory line as its skills.
+      detail_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(\d+\):?[^\S\r\n]+(?P<items>[^\r\n]+?)[^\S\r\n]*$'
+      detail_empty_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(0\)[^\S\r\n]*:?[^\S\r\n]*$'
+      detail_items_group: "items"
+      detail_separator: ","
+      detail_concurrency: 4
+      item:
+        label: "{source}:{name}"
+        description: ""
+        insert_text: "/{source}:{name} "
+        source: "{source}"
+# DECLARED, NOT ENUMERATED — claude exposes no machine-readable model list,
+# so this goes stale silently. restart_tui: a running claude can't change model.
+model:
+  available: [sonnet, opus, haiku]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+effort:
+  # "*" because levels don't vary by model here; the map shape exists for
+  # providers whose do.
+  available:
+    "*": [low, medium, high, xhigh, max]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--effort", value: "{effort}" }
+config_injection:
+  # PermissionRequest/Elicitation carry an explicit timeout: they're the two
+  # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
+  # rather than abandoned.
+  #
+  # permissions.allow is claude's own pre-hook gate: Crowbar's own injected
+  # mcp__crowbar__* calls run in a pane with nobody to answer a modal, so
+  # they must never reach PermissionRequest at all, on any level.
+  - write_file:
+      path: "{tmp}/settings.json"
+      content: |
+        {"hooks":{
+          "SessionStart":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "UserPromptSubmit":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "Stop":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "StopFailure":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook turn_failed --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "MessageDisplay":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook message_delta --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PreToolUse":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PostToolUse":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook tool_post --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PostToolUseFailure":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook tool_fail --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "SubagentStart":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook subagent_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "SubagentStop":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook subagent_post --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "Notification":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook notification --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PermissionRequest":[{"hooks":[{"type":"command","timeout":300,
+            "command":"{crowbar_hook} hook permission --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "Elicitation":[{"hooks":[{"type":"command","timeout":300,
+            "command":"{crowbar_hook} hook elicitation --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PreCompact":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook compact_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PostCompact":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook compact_post --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "SessionEnd":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook session_end --segment {segid} --provider {provider} {scope_flags}"}]}]
+        },
+        "statusLine":{"type":"command",
+          "command":"{crowbar_hook} hook telemetry --segment {segid} --provider {provider} {scope_flags}"},
+        "permissions":{"allow":["mcp__crowbar__*"]}}
+  - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
+# --mcp-config is VARIADIC — it eats tokens until a dash-prefixed one, so a
+# bare positional must NEVER follow it. Pinned by
+# TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
+mcp_injection:
+  - pass_arg:
+      arg: "--mcp-config"
+      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]}}}'
+context_inject:
+  - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
+# NOT --append-system-prompt on resume: confirmed live, a resumed session's
+# native history crowds it out and the gap goes unrecalled. Rides the
+# positional channel instead — a real user turn the model must attend to.
+#
+# {context}, not a pointer: confirmed live claude routinely never called
+# get_chat_log for a handed-in pointer, losing the gap silently.
+#
+# <system-reminder> wrapping is required: an unwrapped pointer read to
+# claude's own safety training as an injection attempt and got refused.
+resume_context_inject:
+  - pass_arg: { positional: "<system-reminder>{context}</system-reminder>" }
+telemetry:
+  callback:
+    format: json
+    fields:
+      context.capacity_tokens:   context_window.context_window_size
+      context.used_tokens:       context_window.total_input_tokens
+      context.used_percent:      context_window.used_percentage
+      context.remaining_percent: context_window.remaining_percentage
+      cost.total_usd:            cost.total_cost_usd
+      cost.api_duration_ms:      cost.total_api_duration_ms
+      model.id:                  model.id
+      model.display_name:        model.display_name
+    rate_limits:
+      - id: five_hour
+        label: "5-hour"
+        used_percent: rate_limits.five_hour.used_percentage
+        resets_at: rate_limits.five_hour.resets_at
+      - id: seven_day
+        label: "7-day"
+        used_percent: rate_limits.seven_day.used_percentage
+        resets_at: rate_limits.seven_day.resets_at
+# TEXT MATCH, not a discriminator: UserPromptSubmit carries an identical key
+# set for Crowbar, a human, and claude's own harness, with no `source` field.
+# Delete this the day claude sends one. Prefix match, case-sensitive, on the
+# raw prompt — a miss degrades to "recorded as the user", a false hit
+# silences a human.
+injected_prompts:
+  - kind: task_notification
+    needle: "<task-notification>"
+# claude paints its trust dialog BEFORE any hook fires, so a chat behind it
+# is an empty pane over a blocked process with no channel to answer it.
+# Matching ignores spacing/punctuation (see the termprompt package).
+terminal_prompts:
+  - kind: workspace_trust
+    needle: "I trust this folder"
+  # Footer every claude selection modal paints. Unkinded: a match only
+  # justifies "something is blocking".
+  - needle: "Enter to confirm"
+# NO terminal_notices, no idle needle — both measured: Stop is reliable and
+# no notice-shaped message has been captured; the footer hint is
+# mode/model-dependent while generating, so there's nothing to read as idle.

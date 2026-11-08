@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptorschema"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/schema"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -18,13 +19,17 @@ import (
 // canonical vocabulary at LOAD, so a bad descriptor fails at startup instead of
 // silently mapping a field to nothing mid-conversation.
 func ParseV3(raw []byte) (*spec.Descriptor, error) {
+	up, err := descriptorschema.Upgrade(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
 	var d spec.Descriptor
-	if err := yaml.Unmarshal(raw, &d); err != nil {
+	if err := yaml.Unmarshal(up.Raw, &d); err != nil {
 		var glyph *spec.AlternationGlyphError
 		if errors.As(err, &glyph) {
 			// Decode order is no guarantee that id: was read before the glyph
 			// failed it, so a bare re-read of the id names the descriptor.
-			id, idErr := probeID(raw)
+			id, idErr := probeID(up.Raw)
 			return nil, errors.Join(fmt.Errorf("descriptor %q: %w", id, glyph), idErr)
 		}
 		return nil, fmt.Errorf("descriptor: parse: %w", err)

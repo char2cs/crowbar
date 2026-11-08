@@ -185,6 +185,11 @@ func (p *Providers) ResolveProviders(
 
 	out := make([]domain.AgentProvider, 0, len(descs))
 	for _, d := range descs {
+		// A descriptor the gate refuses can start no chat, so it is not offered;
+		// DescriptorReports still lists it with the file, line and fix.
+		if p.gate.Require(home, d.ID()) != nil {
+			continue
+		}
 		pref := byID[d.ID()]
 		display := d.Display()
 		caps := d.Capabilities()

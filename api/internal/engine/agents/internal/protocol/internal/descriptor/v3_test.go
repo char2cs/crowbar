@@ -17,6 +17,7 @@ import (
 
 const minimalV3 = `
 id: acme
+schema_version: 3
 display_name: Acme
 protocol_version: { min: "1.0", max: "1.9" }
 runtime:

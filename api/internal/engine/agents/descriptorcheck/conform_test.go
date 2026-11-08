@@ -83,6 +83,17 @@ func TestConform_AHealthyCLIPassesEveryStep(t *testing.T) {
 	assert.Contains(t, step(t, rep, "version").Detail, "1.4.2")
 }
 
+// The develop-era descriptor of the same CLI, relay hooks and all, still drives
+// it: its hooks reach the daemon through the curl its upgrade wires.
+func TestConform_ADescriptorWrittenForTheRelayStillDeliversItsHooks(t *testing.T) {
+	rep := conform(t, run{descriptor: "../history/2026-10-26-1b5024d1-fakecli.yaml", transcript: "healthy", turn: true})
+
+	got := statuses(rep)
+	assert.Equal(t, descriptorcheck.Status("pass"), got["hooks"], "%+v", rep.Steps)
+	assert.Equal(t, descriptorcheck.Status("pass"), got["turn"], "%+v", rep.Steps)
+	assert.Contains(t, step(t, rep, "hooks").Detail, "session_start, user_prompt, turn_stop")
+}
+
 func TestConform_ACLIThatDiesAtBootFails(t *testing.T) {
 	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "crash_at_boot", turn: true})
 

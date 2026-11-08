@@ -86,8 +86,8 @@ func legacySteps() []migrate.Step {
 		{Number: StepLedgerLayout, Name: "ledger-layout", Phase: migrate.PreOpen, From: 0, To: 1, Plan: planLedgerLayout},
 		{Number: StepRetireLegacy, Name: "retire-legacy", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planRetire, Recurs: true},
 		{Number: StepOwnerOnly, Name: "owner-only", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planOwnerOnly},
-		{Number: StepRefusedDescriptors, Name: "refused-descriptors", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planRefusedDescriptors},
 		{Number: StepWorktreeReach, Name: "worktree-reach", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planWorktreeReach},
+		{Number: StepDescriptorSchema, Name: "descriptor-schema", Phase: migrate.PreOpen, From: 1, To: 1, Plan: planDescriptorSchema, Recurs: true},
 	}
 }
 

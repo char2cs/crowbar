@@ -2,6 +2,9 @@ package spec
 
 type Descriptor struct {
 	ID string `yaml:"id"`
+	// SchemaVersion is the descriptor schema the document was written for; an
+	// older one is brought up to date before it is read (descriptorschema).
+	SchemaVersion int `yaml:"schema_version"`
 
 	// --- v3: the event is the unit ------------------------------------------
 	ProtocolVersion *VersionRange       `yaml:"protocol_version"`

@@ -17,10 +17,8 @@ import (
 	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
 )
 
-// geminiDescriptor is a minimal-valid on-disk descriptor override, written into a
-// fixture home so ResolveProviders sees a THIRD provider (beyond the embedded
-// claude/codex) with no stored preference — the "appended by id, enabled by
-// default" case.
+// geminiDescriptor is a minimal valid custom descriptor: a third provider with
+// no stored preference, the "appended by id, enabled by default" case.
 const geminiDescriptor = `id: gemini
 display_name: Gemini
 icon: '<svg/>'
@@ -32,6 +30,7 @@ events:
     in: session_start
     map:
       session_id: session_id
+  user_prompt: { in: user_prompt, map: { message: prompt } }
   turn_stop:
     in: turn_stop
     map:
@@ -40,6 +39,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
+hooks_injection: [{ pass_arg: { arg: "--hook", value: "{hook_curl} {hook_url}/session_start" } }]
 `
 
 func writeGeminiDescriptor(
