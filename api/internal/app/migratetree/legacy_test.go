@@ -169,6 +169,18 @@ func TestReadLegacy_ReadsEveryRetiredRecordAsWritten(t *testing.T) {
 	assert.Equal(t, []tree.Folder{{ID: "f-1", Name: "Ideas", HomeID: "h-1"}}, got.Folders)
 }
 
+// A build before home folders kept only repo folders, in a table with no home_id.
+func TestReadLegacy_ReadsTheFoldersTableABuildBeforeHomeFoldersWrote(t *testing.T) {
+	l := newLegacy(t)
+	require.NoError(t, l.view.Exec("CREATE TABLE folders (id text PRIMARY KEY, repo_id text, project_id text, parent_id text, name text, `order` integer)").Error)
+	require.NoError(t, l.view.Exec("INSERT INTO folders VALUES ('f-1', 'r-1', 'p-1', '', 'Ideas', 0)").Error)
+
+	got, err := ReadLegacy(context.Background(), l.sources())
+
+	require.NoError(t, err)
+	assert.Equal(t, []tree.Folder{{ID: "f-1", Name: "Ideas", RepoID: "r-1"}}, got.Folders)
+}
+
 // The retire-legacy step deletes the node log only while it still matches the
 // backup, so reading it must not add the tables the live opener creates.
 func TestReadLegacy_LeavesTheNodeLogAsTheRetiredBuildWroteIt(t *testing.T) {
