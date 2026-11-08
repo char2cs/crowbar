@@ -432,6 +432,10 @@ events:
   # status_map is where codex's words become Crowbar's. Go never learns
   # "inProgress"; a provider that spells it differently changes this map and
   # nothing else.
+  #
+  # thread/goal/* is not a plan: a goal is an objective a client sets
+  # (thread/goal/set), which Crowbar never does; live (0.164.0) every turn
+  # brings only thread/goal/cleared, which says nothing. Left unmapped.
   plan_update:
     in: turn/plan/updated
     # No `message:` — turn/plan/updated carries an `explanation`, but it was null
