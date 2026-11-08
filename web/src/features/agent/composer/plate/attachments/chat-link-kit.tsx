@@ -6,11 +6,19 @@ import { LinkPlugin } from '@platejs/link/react'
 import { LinkFloatingToolbar } from '@/components/ui/link-toolbar'
 import { ChatLinkElement, ChatLinkElementStatic } from './chat-attachment-file-card'
 
+type RuleContext = Parameters<NonNullable<Parameters<typeof LinkRules.autolink>[0]['enabled']>>[0]
+
+/** A code span holds no link: none is made in a code mark, nor after a backtick the
+ *  line has not closed yet, which a typed code span is until its closing backtick. */
+const outsideCode = (context: RuleContext) =>
+  !context.editor.api.marks()?.code &&
+  (context.getBlockTextBeforeSelection().split('`').length - 1) % 2 === 0
+
 const inputRules = [
   LinkRules.markdown(),
-  LinkRules.autolink({ variant: 'paste' }),
-  LinkRules.autolink({ variant: 'space' }),
-  LinkRules.autolink({ variant: 'break' }),
+  LinkRules.autolink({ variant: 'paste', enabled: outsideCode }),
+  LinkRules.autolink({ variant: 'space', enabled: outsideCode }),
+  LinkRules.autolink({ variant: 'break', enabled: outsideCode }),
 ]
 
 /** GFM ends an address before its trailing punctuation; a word that ends in
