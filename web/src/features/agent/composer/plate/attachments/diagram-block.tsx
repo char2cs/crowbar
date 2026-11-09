@@ -47,7 +47,7 @@ export function DiagramBlock({
     // jsdom and some older webviews have no Web Animations API.
     if (typeof el.animate !== 'function') return
     const to = el.getBoundingClientRect().height
-    // react-doctor-disable-next-line no-layout-property-animation -- one block, once per diagram: the reserved box must grow to its content's real height (S2 R26); a transform would distort the diagram instead
+    // react-doctor-disable-next-line no-layout-property-animation -- one block, once per diagram: the reserved box must grow to its content's real height; a transform would distort the diagram instead
     el.animate([{ height: `${DIAGRAM_SKELETON_PX}px` }, { height: `${to}px` }], {
       duration: GROW_MS,
       easing: 'ease-out',

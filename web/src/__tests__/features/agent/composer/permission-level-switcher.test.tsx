@@ -29,8 +29,7 @@ vi.mock('@/features/agent/api/agent-providers-api', () => ({
 // jsdom has no PointerEvent constructor; base-ui's Select opens/commits via it.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
-  // @ts-expect-error install the shim onto the jsdom window
-  window.PointerEvent = PointerEventShim
+  Object.assign(window, { PointerEvent: PointerEventShim })
 }
 
 beforeEach(() => {
