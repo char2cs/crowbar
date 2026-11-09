@@ -1,5 +1,8 @@
 # Skipped legacy chats: making them visible
 
+Status: open. A skipped chat that holds rows of its own is marked (`legacy_unreadable`);
+the plan below, for a skipped empty chat, is not built.
+
 ## Problem
 
 Step 6 (`chat-ledger`) can skip a legacy chat for good. That happens when:

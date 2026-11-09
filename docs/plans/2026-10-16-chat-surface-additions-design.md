@@ -1,10 +1,11 @@
 # Chat surface additions: showing what the agent is actually doing
 
-_2026-10-17. Built on real hook captures from `claude` 2.1.302 and `codex` 0.158.0 (scratchpad
-`design-surface.md`, `design-hooks/logs/`). It uses only hooks and YAML descriptors; nothing reads
-provider internals. Reference UIs: T3 Code and Hermes desktop, both MIT, so they can be reused with
-attribution. Claude Code's own TUI is the bar. This is the rendering half of
-`2026-10-16-chat-surface-report.md`._
+Status: element specs shipped with the ledger rows (tool, MCP, subagent, todo, approval, error and
+interrupt rows); section 7 lists the points still open.
+
+_2026-10-17. Built on real hook captures from `claude` 2.1.302 and `codex` 0.158.0. It uses only hooks
+and YAML descriptors; nothing reads provider internals. Reference UIs: T3 Code and Hermes desktop,
+both MIT, so they can be reused with attribution. Claude Code's own TUI is the bar._
 
 ## TL;DR
 
@@ -110,8 +111,7 @@ The descriptor grammar needs four generic extensions, none of them provider-spec
 3. **A `json:` transform**, for Codex's JSON-encoded `spawn_agent` result.
 4. **A composite `kind_map` key**, so Codex `collabAgentToolCall/spawnAgent` ≠ `…/wait`.
 
-The full YAML sketches for `claude.yaml` and `codex.yaml` (both channels) are in the scratchpad
-`design-surface.md` §5.1. Also delete the dead `features.collab_agents=true` line from `codex.yaml`,
+Also delete the dead `features.collab_agents=true` line from `codex.yaml`,
 since Codex 0.158 ignores it.
 
 ### 3.2 Rows and entities the client renders

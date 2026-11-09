@@ -1,10 +1,12 @@
 # /resume moves the conversation (#233)
 
+Status: done.
+
 **Goal:** A `/resume` typed in a chat's CLI that picks a session another chat
 owns never leaves the CLI running unrecorded. Exactly one chat holds a
 provider session at any time.
 
-## What is broken on the branch
+## Problem
 
 A chat whose conversation was lost is relaunched on a fresh, unturned
 session. The user types `/resume` there and picks a session chat A owns.

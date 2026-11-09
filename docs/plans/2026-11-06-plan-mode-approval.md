@@ -1,5 +1,7 @@
 # Plan mode: answering a plan approval from the chat
 
+Status: steps 1–3 and 5 done; step 4 (entering plan mode) is open.
+
 ## Measured (claude 2.1.319, `--permission-mode plan`, a `--settings` PermissionRequest hook)
 
 - ExitPlanMode reaches the PermissionRequest hook with `tool_input.plan` and
@@ -35,9 +37,6 @@
    the PermissionRequest `permission_mode` field is the CLI's own report, and the label
    should follow it (this is also the fix for the "Allow edits for the rest of this
    session" label).
-5. A TUI dialog while busy. termwait returns nothing while a turn runs, so a dialog the
-   hook does not cover (the plan dialog before this fix) shows no banner. That needs a
-   decision on whether a matched kinded prompt can override busy.
 
 ### Step 4, measured and decided (2026-11-07)
 

@@ -1,5 +1,7 @@
 # A pane follows its chat when the chat moves
 
+Status: open.
+
 ## Problem
 
 `PaneGroup.workspaceId` records where a pane's chat ran when the pane opened it. It

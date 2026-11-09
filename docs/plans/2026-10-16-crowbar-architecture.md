@@ -1,6 +1,9 @@
 # Crowbar architecture — the same product, half the code
 
-_2026-10-16. Evidence (every count, every path:line) lives in the review scratchpad; this document cites headline numbers only. The chat-surface audits (backend, frontend, rendering) are folded in at module-boundary level._
+Status: S0–S6 of the staged migration (section 11) are shipped, and S8's migration engine
+with them; the rest of S7–S9 is open and not yet planned.
+
+_2026-10-16. This document cites headline numbers only. The chat-surface audits (backend, frontend, rendering) are folded in at module-boundary level._
 
 ## TL;DR
 

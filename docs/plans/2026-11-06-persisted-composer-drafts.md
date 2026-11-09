@@ -1,5 +1,7 @@
 # Persisted composer drafts
 
+Status: done.
+
 ## Problem
 
 A chat's unsent draft lives only in its editor. A chat switch keeps it (the view

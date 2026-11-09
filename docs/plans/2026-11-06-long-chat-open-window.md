@@ -1,5 +1,7 @@
 # Long chats: what is left after the windowed open
 
+Status: open. The windowed open shipped; the items under Remaining are not built.
+
 ## Where it stands
 
 A chat opens on a window of its ledger: the scope's `since` is negative, the

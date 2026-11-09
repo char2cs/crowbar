@@ -1,5 +1,7 @@
 # Frame-batched chat commits
 
+Status: done.
+
 ## Problem
 
 A streaming chat writes the chat store once per live ledger row. `useSyncExternalStore`

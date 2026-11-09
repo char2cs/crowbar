@@ -1,5 +1,7 @@
 # A turn's footer names the model it really ran on
 
+Status: open (proposal, not built).
+
 ## Problem
 
 The turn footer reads the model from the ledger: `runner_started.launchModel`
