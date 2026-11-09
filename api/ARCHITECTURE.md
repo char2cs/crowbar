@@ -189,7 +189,8 @@ Verify halts. Step 6 `chat-ledger` (pre-open, in-layout) restates the legacy
 chat records (`agent_runner.db`, `agent_activity.db`, `<home>/chats/*/prompt-requests`)
 as ledger rows, checkpointed per chat: a chat whose ledger already has rows is
 counted `skipped_chats`, and a CLI the old daemon never saw exit is left live for
-the boot reconcile to end.
+the boot reconcile to end. Step 7 `placement-tree` (post-open) copies every sidebar
+placement into the per-project Trees and deletes nothing.
 
 Step 9 `ledger-layout` bumps `LAYOUT` to 1, the first layout that may lose the
 legacy files: a build that knows only layout 0 halts on it (`layout_newer`) instead
@@ -202,7 +203,10 @@ owes no chat, and each file is byte-identical to its copy in the newest backup; 
 that is not is kept and noted. Step 8 `chat-attachments` moves each chat's
 attachments to `<home>/chats/<chat-id>/attachments`, their one home. Step 11
 `owner-only` narrows, once, what an older build left with the umask to 0600 files
-and 0700 directories, outside users' checkouts. See `docs/plans/2026-11-06-home-tidy.md`.
+and 0700 directories, outside users' checkouts. Step 13 `worktree-reach` gives back,
+once, the traverse bit on the way to each checkout that an earlier `owner-only` took, so
+another uid reaches a worktree through the home. Numbers 12 and 14 rewrote descriptor
+overrides and were retired unreleased; they stay unused. See `docs/plans/2026-11-06-home-tidy.md`.
 
 **Backup.** When a pending plan sets `RewritesState` and `state/` holds files,
 the run first writes `<home>/migrate/backups/<run-id>.tar.gz` (built as a
