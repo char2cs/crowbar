@@ -226,13 +226,19 @@ function trackModifier(element: HTMLElement | undefined) {
   }
 }
 
-// Registers the terminal's one link provider. It is owned by the terminal
-// instance and is disposed with it.
+// Registers the terminal's one link provider, and the handler for OSC 8 hyperlinks (which xterm
+// detects itself and always decorates). Both activate only with the primary modifier held.
 export function registerTerminalLinks(
-  terminal: Pick<Terminal, 'buffer' | 'registerLinkProvider' | 'element'>,
+  terminal: Pick<Terminal, 'buffer' | 'registerLinkProvider' | 'element' | 'options'>,
   options: TerminalLinksOptions,
 ): IDisposable {
   const modifier = trackModifier(terminal.element)
+  // Without a handler xterm activates OSC 8 links on a plain click.
+  terminal.options.linkHandler = {
+    activate: (event, url) => {
+      if (isPrimaryModifier(event)) options.onUrl(url, { x: event.clientX, y: event.clientY })
+    },
+  }
   const provider = terminal.registerLinkProvider({
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
       const line = readLogicalLine(terminal.buffer.active, bufferLineNumber - 1)
@@ -261,6 +267,7 @@ export function registerTerminalLinks(
     dispose() {
       provider.dispose()
       modifier.dispose()
+      terminal.options.linkHandler = null
     },
   }
 }

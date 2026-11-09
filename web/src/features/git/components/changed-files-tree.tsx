@@ -261,7 +261,7 @@ export function ChangedFilesTree({
           const additions = diff.additions ?? 0
           const deletions = diff.deletions ?? 0
           const decoration = getFileTreeGitStatusDecoration(row.entry)
-          const hasTrailing = diff.uncommitted || additions > 0 || deletions > 0 || threads > 0
+          const hasTrailing = additions > 0 || deletions > 0 || threads > 0
 
           return (
             <SidebarFileRow
@@ -292,11 +292,6 @@ export function ChangedFilesTree({
               trailing={
                 hasTrailing && (
                   <>
-                    {diff.uncommitted && (
-                      <Badge variant="warning" size="sm">
-                        uncommitted
-                      </Badge>
-                    )}
                     <SidebarFileRowCounts
                       additions={additions}
                       deletions={deletions}

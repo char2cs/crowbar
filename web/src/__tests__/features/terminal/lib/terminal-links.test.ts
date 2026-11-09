@@ -49,11 +49,9 @@ async function terminalWith(data: string, cols = 80, rows = 6): Promise<Terminal
 function register(terminal: Terminal, options: TerminalLinksOptions): ILinkProvider {
   let provider: ILinkProvider | undefined
   const registerLinkProvider = (p: ILinkProvider) => ((provider = p), { dispose: () => {} })
+  const { buffer, element, options: own } = terminal
   registrations.push(
-    registerTerminalLinks(
-      { buffer: terminal.buffer, element: terminal.element, registerLinkProvider },
-      options,
-    ),
+    registerTerminalLinks({ buffer, element, options: own, registerLinkProvider }, options),
   )
   if (!provider) throw new Error('no link provider registered')
   return provider
@@ -316,6 +314,17 @@ describe('link activation', () => {
     link.activate(new MouseEvent('mouseup', OTHER), link.text)
     expect(options.onUrl).not.toHaveBeenCalled()
   })
+
+  it('holds an OSC 8 link, which xterm finds itself, to the same gate until disposed', async () => {
+    const { terminal, options } = await openedTerminal('')
+    const range = { start: { x: 1, y: 1 }, end: { x: 5, y: 1 } }
+    const osc8 = (e: MouseEvent) => terminal.options.linkHandler?.activate(e, 'https://a.b', range)
+    osc8(new MouseEvent('mouseup'))
+    osc8(primaryClick())
+    expect(options.onUrl).toHaveBeenCalledExactlyOnceWith('https://a.b', { x: 40, y: 50 })
+    registrations.splice(0).forEach((r) => r.dispose())
+    expect(terminal.options.linkHandler).toBeFalsy()
+  })
 })
 
 describe('link affordance', () => {
@@ -326,14 +335,11 @@ describe('link affordance', () => {
     const { terminal, links } = await openedTerminal('https://a.test/x')
     const [link] = await links()
     expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
-
     link.hover?.(new MouseEvent('mousemove'), link.text)
     press(terminal, 'keydown', true)
     expect(link.decorations).toEqual({ underline: true, pointerCursor: true })
-
     press(terminal, 'keyup', false)
     expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
-
     press(terminal, 'keydown', true)
     window.dispatchEvent(new Event('blur'))
     expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
@@ -455,7 +461,6 @@ describe('terminalLinksFor', () => {
 
   it("resolves a relative link against its own terminal's workspace, not the active one", async () => {
     await clickIn('error in src/a.ts:10', 'ws-b')
-
     expect(revealInEditor).toHaveBeenCalledExactlyOnceWith({
       doc: { authority: 'workspace', workspaceId: 'ws-b', path: 'src/a.ts' },
       position: { line: 9, character: 0 },
@@ -464,20 +469,17 @@ describe('terminalLinksFor', () => {
 
   it("opens a local terminal's path outside its worktree as a file of this machine", async () => {
     await clickIn('see /etc/hosts', 'ws-b')
-
     expect(revealInEditor.mock.calls).toEqual([[{ doc: { absolutePath: '/etc/hosts' } }]])
   })
 
   it('a terminal of no workspace opens absolute links only', async () => {
     await clickIn('error in src/a.ts:10', undefined)
     await clickIn('see /etc/hosts', undefined)
-
     expect(revealInEditor.mock.calls).toEqual([[{ doc: { absolutePath: '/etc/hosts' } }]])
   })
 
   it("offers a URL's menu in the terminal's own view", async () => {
     await clickIn('docs at https://x.dev/guide', 'ws-b')
-
     expect(showTerminalUrlMenu).toHaveBeenCalledExactlyOnceWith(
       'https://x.dev/guide',
       { x: 40, y: 50 },
@@ -489,7 +491,6 @@ describe('terminalLinksFor', () => {
   it('reports a path it cannot resolve', async () => {
     const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
     await clickIn('see ~/notes.md', 'ws-b')
-
     expect(toastError).toHaveBeenCalledExactlyOnceWith(
       'Cannot open file',
       'Could not resolve ~/notes.md to a path.',

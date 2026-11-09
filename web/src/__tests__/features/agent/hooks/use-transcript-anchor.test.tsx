@@ -108,12 +108,10 @@ describe('useTranscriptAnchor', () => {
 
   it('follows new rows with the eased follow while stuck to the bottom', () => {
     const { scroller, grow } = mount()
-
     grow(1300)
     frames(50)
     expect(scroller.scrollTop).toBeGreaterThan(600)
     expect(scroller.scrollTop).toBeLessThan(900)
-
     frames(1500)
     expect(scroller.scrollTop).toBe(900)
   })
@@ -124,7 +122,6 @@ describe('useTranscriptAnchor', () => {
     frames(50)
     fireEvent.scroll(scroller)
     grow(1350)
-
     frames(1500)
     expect(scroller.scrollTop).toBe(950)
   })
@@ -134,11 +131,9 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(50)
     readerScrollsTo(scroller, 200)
-
     grow(1600)
     frames(1500)
     expect(scroller.scrollTop).toBe(200)
-
     readerScrollsTo(scroller, 1200)
     grow(1800)
     frames(50)
@@ -150,7 +145,6 @@ describe('useTranscriptAnchor', () => {
   it('a scroll within a row of the bottom keeps following', () => {
     const { scroller, grow } = mount()
     readerScrollsTo(scroller, 600 - 96)
-
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(900)
@@ -159,7 +153,6 @@ describe('useTranscriptAnchor', () => {
   it('a scroll just past a row from the bottom stops following', () => {
     const { scroller, grow } = mount()
     readerScrollsTo(scroller, 600 - 97)
-
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(503)
@@ -170,7 +163,6 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(50)
     const at = scroller.scrollTop
-
     fireEvent.wheel(scroller, { deltaY: -100 })
     grow(1400)
     frames(1500)
@@ -181,7 +173,6 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount()
     fireEvent.wheel(scroller, { deltaY: -100 })
     readerScrollsTo(scroller, 600 - 30)
-
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(570)
@@ -255,14 +246,12 @@ describe('useTranscriptAnchor', () => {
   it('keeps the reader position when a row above the viewport grows', () => {
     const { scroller, grow } = mount()
     readerScrollsTo(scroller, 200)
-
     // The virtualizer moves the view by the row's growth and announces it.
     scrollHeight = 1060
     scroller.scrollTop = 260
     act(() => anchor.noteScrollWrite())
     fireEvent.scroll(scroller)
     grow(1060)
-
     frames(1500)
     expect(scroller.scrollTop).toBe(260)
   })
@@ -271,12 +260,10 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount()
     grow(1300)
     frames(30)
-
     scroller.scrollTop = 500
     act(() => anchor.noteScrollWrite())
     fireEvent.scroll(scroller)
     grow(1350)
-
     frames(1500)
     expect(scroller.scrollTop).toBe(950)
   })
@@ -344,7 +331,6 @@ describe('useTranscriptAnchor', () => {
     readerScrollsTo(scroller, 500)
     boxed = false
     act(() => anchor.notifyReflow())
-
     // The pane grew while away: the held distance asks past the new ceiling.
     clientHeight = 600
     boxed = true
@@ -360,7 +346,6 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount({ loadingHistory: true })
     grow(1100)
     expect(scroller.scrollTop).toBe(700)
-
     grow(1200, { loadingHistory: false })
     frames(16)
     expect(scroller.scrollTop).toBeGreaterThan(700)
@@ -371,7 +356,6 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount({ arriving: false })
     grow(1100)
     expect(scroller.scrollTop).toBe(700)
-
     grow(1200, { arriving: true })
     expect(scroller.scrollTop).toBe(700)
     frames(1500)
@@ -382,7 +366,6 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount({ measuring: true })
     grow(1150, { measuring: false })
     expect(scroller.scrollTop).toBe(750)
-
     grow(1250)
     frames(16)
     expect(scroller.scrollTop).toBeGreaterThan(750)
@@ -394,7 +377,6 @@ describe('useTranscriptAnchor', () => {
     grow(1200, { measuring: true })
     frames(16)
     grow(1250, { measuring: false })
-
     expect(scroller.scrollTop).toBeLessThan(850)
     frames(1500)
     expect(scroller.scrollTop).toBe(850)
@@ -403,7 +385,6 @@ describe('useTranscriptAnchor', () => {
   it('rejoins the live end when the reader sends a prompt', () => {
     const { scroller, grow } = mount()
     readerScrollsTo(scroller, 100)
-
     act(() => anchor.stick())
     grow(1300)
     frames(1500)
@@ -416,13 +397,38 @@ describe('useTranscriptAnchor', () => {
     readerScrollsTo(first.scroller, 250)
     first.unmount()
     expect(saved).toEqual([{ stuck: false, distanceFromBottom: 750 }])
-
     scrollHeight = 1500
     const second = mount({ initialPosition: saved[0] })
     expect(second.scroller.scrollTop).toBe(750)
     second.grow(1700)
     frames(1500)
     expect(second.scroller.scrollTop).toBe(750)
+  })
+
+  // Rows at their estimates are too short for the distance: the clamp to 0 is not the reader's.
+  it('holds a saved position until its rows measure into it', () => {
+    const saved: TranscriptScrollPosition[] = []
+    const held = { stuck: false, distanceFromBottom: 5000 }
+    scrollHeight = 300
+    mount({
+      initialPosition: held,
+      measuring: true,
+      onPositionChange: saved.push.bind(saved),
+    }).unmount()
+    expect(saved).toEqual([held])
+    const second = mount({ initialPosition: held, measuring: true })
+    second.grow(8000, { measuring: false })
+    expect(second.scroller.scrollTop).toBe(3000)
+  })
+
+  it('lands on the newest end, and follows, when the chat no longer holds the distance', () => {
+    const held = { stuck: false, distanceFromBottom: 5000 }
+    const { scroller, grow } = mount({ initialPosition: held, measuring: true })
+    grow(3000, { measuring: false })
+    expect(scroller.scrollTop).toBe(2600)
+    grow(3400)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(3000)
   })
 
   it('a saved stuck position lands at the bottom', () => {
@@ -436,7 +442,6 @@ describe('useTranscriptAnchor', () => {
     boxed = false
     grow(1300)
     act(() => anchor.notifyReflow())
-
     boxed = true
     act(() => anchor.notifyReflow())
     expect(scroller.scrollTop).toBe(900)
@@ -446,7 +451,6 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount()
     boxed = false
     act(() => anchor.notifyReflow())
-
     boxed = true
     grow(1300)
     expect(scroller.scrollTop).toBe(900)
@@ -457,7 +461,6 @@ describe('useTranscriptAnchor', () => {
     readerScrollsTo(scroller, 300)
     boxed = false
     act(() => anchor.notifyReflow())
-
     boxed = true
     scroller.scrollTop = 0
     act(() => anchor.notifyReflow())
@@ -470,7 +473,6 @@ describe('useTranscriptAnchor', () => {
     readerScrollsTo(scroller, 300)
     boxed = false
     act(() => anchor.notifyReflow())
-
     unmount()
     expect(saved).toEqual([{ stuck: false, distanceFromBottom: 700 }])
   })
@@ -478,7 +480,6 @@ describe('useTranscriptAnchor', () => {
   it('lands instead of easing when a background tab comes to the front', () => {
     const { scroller, commit } = mount({ visible: false })
     scrollHeight = 1300
-
     commit({ visible: true })
     expect(scroller.scrollTop).toBe(900)
   })
@@ -491,7 +492,6 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(600)
-
     vi.stubGlobal('requestAnimationFrame', realRaf)
     act(() => void window.dispatchEvent(new Event('focus')))
     frames(1500)

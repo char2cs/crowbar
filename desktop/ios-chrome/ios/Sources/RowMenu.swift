@@ -9,7 +9,8 @@ final class RowMenu: NSObject {
   struct Action {
     let id: String
     let title: String
-    let symbol: String?
+    /// The web's name for a Phosphor icon.
+    let icon: String?
     let destructive: Bool
     let confirm: (title: String, message: String)?
   }
@@ -79,7 +80,7 @@ final class RowMenu: NSObject {
       (title: $0["title"] as? String ?? title, message: $0["message"] as? String ?? "")
     }
     return Action(
-      id: id, title: title, symbol: raw["symbol"] as? String,
+      id: id, title: title, icon: raw["icon"] as? String,
       destructive: raw["destructive"] as? Bool ?? false, confirm: confirm)
   }
 
@@ -102,7 +103,7 @@ final class RowMenu: NSObject {
   private func menu(_ actions: [Action], row: String) -> UIMenu {
     let item = { [weak self] (action: Action) in
       UIAction(
-        title: action.title, image: action.symbol.flatMap { UIImage(systemName: $0) },
+        title: action.title, image: action.icon.flatMap(CrowbarIcon.init(named:))?.image(size: 20),
         attributes: action.destructive ? .destructive : []
       ) { [weak self] _ in self?.pick(action, row: row) }
     }

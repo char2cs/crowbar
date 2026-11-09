@@ -46,6 +46,13 @@ export function viewIntegrityViolations(state: ViewState): string[] {
   for (const id of Object.keys(state.views))
     if (!order.has(id)) out.push(`view ${id} missing from viewOrder`)
 
+  const firstUnpinned = state.viewOrder.findIndex((id) => !state.views[id]?.pinned)
+  if (
+    firstUnpinned >= 0 &&
+    state.viewOrder.slice(firstUnpinned).some((id) => state.views[id]?.pinned)
+  )
+    out.push('a pinned view follows an unpinned one in viewOrder')
+
   if (state.activeViewId !== null && !state.views[state.activeViewId]) {
     out.push(`activeViewId ${state.activeViewId} names no view`)
   }

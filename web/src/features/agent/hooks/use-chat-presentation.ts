@@ -73,14 +73,13 @@ export function presetChatLandingPresentation(
   lastChosenByChatId.set(chatId, presentation)
 }
 
-/** What shows: the daemon's view when it holds only one, else the user's pick. The phone has
- *  no TUI surface, and a split whose switch went away falls back to the chat. */
+/** What shows: the daemon's view when it holds only one, else the user's pick. A split whose
+ *  switch went away falls back to the chat. */
 function shownPresentation(
   chosen: ChatPresentation,
   held: LandingChatPresentation | null,
   splitEnabled: boolean,
 ): ChatPresentation {
-  if (IS_MOBILE) return 'chat'
   if (held === 'terminal') return 'terminal'
   const wanted = held === 'chat' && chosen === 'terminal' ? 'chat' : chosen
   return wanted === 'split' && !splitEnabled ? 'chat' : wanted
@@ -97,8 +96,10 @@ export function useChatPresentation(
   held: LandingChatPresentation | null = null,
   recorded: LandingChatPresentation | null = null,
 ) {
+  // The phone opens on the chat: its TUI is a deliberate detour, never a recorded or default one.
   const seed = (chatId: string) =>
-    lastChosenByChatId.get(chatId) ?? recorded ?? getDefaultChatPresentation()
+    lastChosenByChatId.get(chatId) ??
+    (IS_MOBILE ? 'chat' : (recorded ?? getDefaultChatPresentation()))
   const [chosen, setChosenRaw] = useState<ChatPresentation>(() => seed(shownChatId))
   // Explicit picks are remembered per chat; the re-seed below restores through
   // `setChosenRaw` so a restore never rewrites the entry it reads.
@@ -122,9 +123,10 @@ export function useChatPresentation(
   if (recordedBefore !== recorded) {
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: the pattern above; an effect would paint the preference for a frame first.
     setRecordedBefore(recorded)
-    if (recorded && !lastChosenByChatId.has(shownChatId)) setChosenRaw(recorded)
+    if (recorded && !IS_MOBILE && !lastChosenByChatId.has(shownChatId)) setChosenRaw(recorded)
   }
-  const splitEnabled = useSplitPresentationEnabled()
+  // Two live halves do not fit a phone.
+  const splitEnabled = useSplitPresentationEnabled() && !IS_MOBILE
   // Derived, not corrected: a reload, a disabled split or the daemon moving the chat can
   // never leave the pane on a surface that is not there.
   const presentation = shownPresentation(chosen, held, splitEnabled)

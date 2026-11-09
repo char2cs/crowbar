@@ -13,13 +13,10 @@ beforeEach(() => {
 })
 
 describe('idb schema v5', () => {
-  it('creates the six new local-first stores', async () => {
+  it('creates the surviving local-first stores', async () => {
     const db = await getDB()
     const names = Array.from(db.objectStoreNames)
     expect(names).toContain('workspaces-data')
-    expect(names).toContain('git-data')
-    expect(names).toContain('file-tree-data')
-    expect(names).toContain('branch-review-data')
     expect(names).toContain('chat-history')
     expect(names).toContain('projects-data')
   })
@@ -29,16 +26,24 @@ describe('idb schema v5', () => {
     expect(Array.from(db.objectStoreNames)).not.toContain('query-cache')
   })
 
-  it('round-trips a record through git-data', async () => {
+  it('round-trips a record through workspaces-data', async () => {
     const db = await getDB()
-    await db.put('git-data', { key: '/repo', data: { n: 1 }, fetchedAt: 42 })
-    const rec = await db.get('git-data', '/repo')
+    await db.put('workspaces-data', { key: '/repo', data: { n: 1 }, fetchedAt: 42 })
+    const rec = await db.get('workspaces-data', '/repo')
     expect(rec?.fetchedAt).toBe(42)
   })
 })
 
 describe('idb schema v10', () => {
-  const RETIRED = ['ui-preferences', 'workspace-hierarchy']
+  const RETIRED = [
+    'ui-preferences',
+    'workspace-hierarchy',
+    'git-data',
+    'file-tree-data',
+    'branch-review-data',
+    'chats-data',
+    'crowbar_threads',
+  ]
 
   it('never leaves the retired stores in a fresh database', async () => {
     const db = await getDB()
@@ -117,7 +122,7 @@ describe('idb schema v10', () => {
   })
 })
 
-describe('idb schema v11', () => {
+describe('idb schema v14', () => {
   it('keeps unsaved editor text as drafts keyed by document uri', async () => {
     const db = await getDB()
     const draft = { uri: 'crowbar://w/ws1/a.ts', text: 'mine', savedText: 'disk', updatedAt: 1 }
@@ -125,6 +130,58 @@ describe('idb schema v11', () => {
 
     expect(await db.get('editor-drafts', draft.uri)).toEqual(draft)
     expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
+  })
+
+  // v11-v13 meant other things on another line of builds: a database one left has no drafts store.
+  it('gives a database a v13 build left the drafts store, and drops its editor-state', async () => {
+    const v13 = await openDB('crowbar', 13, {
+      upgrade(db) {
+        db.createObjectStore('editor-state', { keyPath: ['workspaceId', 'bufferId'] })
+        db.createObjectStore('projects-data', { keyPath: 'key' })
+      },
+    })
+    await v13.put('projects-data', { key: 'k', data: 2, fetchedAt: 1 })
+    v13.close()
+    const db = await getDB()
+    expect(db.version).toBe(14)
+    expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
+    await db.put('editor-drafts', { uri: 'u', text: 't', savedText: 's', updatedAt: 1 })
+    expect((await db.get('projects-data', 'k'))?.data).toBe(2)
+  })
+})
+
+describe('idb schema v12', () => {
+  const RETIRED = [
+    'git-data',
+    'file-tree-data',
+    'branch-review-data',
+    'chats-data',
+    'crowbar_threads',
+  ]
+
+  it('never creates the retired stores in a fresh database', async () => {
+    const db = await getDB()
+    for (const name of RETIRED) expect(Array.from(db.objectStoreNames)).not.toContain(name)
+  })
+
+  it('drops them from an existing v11 database and keeps the stores still in use', async () => {
+    const v11 = await openDB('crowbar', 11, {
+      upgrade(db) {
+        for (const name of [...RETIRED, 'projects-data', 'chat-history', 'crowbar_chats']) {
+          db.createObjectStore(name, { keyPath: name.startsWith('crowbar_') ? 'id' : 'key' })
+        }
+      },
+    })
+    await v11.put('git-data', { key: 'k', data: 1, fetchedAt: 1 })
+    await v11.put('projects-data', { key: 'k', data: 2, fetchedAt: 1 })
+    await v11.put('crowbar_chats', { id: 'c1' })
+    v11.close()
+
+    const db = await getDB()
+
+    for (const name of RETIRED) expect(Array.from(db.objectStoreNames)).not.toContain(name)
+    expect((await db.get('projects-data', 'k'))?.data).toBe(2)
+    expect(await db.get('crowbar_chats', 'c1')).toEqual({ id: 'c1' })
   })
 })
 
@@ -153,13 +210,12 @@ function keyOf(value: unknown, params: IDBObjectStoreParameters | undefined): ID
 }
 
 describe('idb schema v7 entity stores', () => {
-  it('creates the four entity stores keyed by id', async () => {
+  it('creates the entity stores keyed by id', async () => {
     const db = await getDB()
     const names = Array.from(db.objectStoreNames)
     expect(names).toContain('crowbar_projects')
     expect(names).toContain('crowbar_repos')
     expect(names).toContain('crowbar_workspaces')
-    expect(names).toContain('crowbar_threads')
   })
 
   it('creates the v8 folder store keyed by id', async () => {
@@ -185,6 +241,5 @@ describe('idb schema v7 entity stores', () => {
     const db = await getDB()
     const names = Array.from(db.objectStoreNames)
     expect(names).toContain('projects-data')
-    expect(names).toContain('chats-data')
   })
 })

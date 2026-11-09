@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
+import { useHasViewStrip } from '@/features/panes/hooks/use-tab-view-ids'
 
 // The top pane's row sits at its 8px gutter plus the pane border (10px with a 2px border), so
 // 20 leaves headroom. Shared with useMacTrafficLightSync, which must agree on the corner test.

@@ -5,11 +5,17 @@ import type { ComposerRevival } from '@/features/agent/composer/lib/composer-sta
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { useChatStore } from '@/features/agent/stores/chat-store'
+import { readSelect, selectAgentChat } from '@/core/entities/select'
+import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
+import { hostStatusOf } from '@/features/hosts/lib/host-status'
+import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import type { TerminalAttachment } from '@/features/agent/terminal/agent-terminal-surface'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 interface PaneAttachmentInputs {
   wsId: string
+  /** The host the chat runs on; its reachability decides `offline`. */
+  hostId: string
   chatId: string
   providerName: string
   presentation: ChatPresentation
@@ -64,11 +70,13 @@ function attachmentOf(
  *  a send revives a dormant chat server-side, and startSession is the one intent. */
 export function usePaneAttachment({
   wsId,
+  hostId,
   chatId,
   providerName,
   presentation,
   promptReplacing,
 }: PaneAttachmentInputs) {
+  const offline = hostIsUnreachable(useHostDotState(hostId))
   const known = useChatField(chatId, (c) => c !== undefined)
   const liveRunnerId = useChatField(chatId, (c) => c?.liveRunnerId ?? '')
   // Not a second liveness signal: an api-transport runner is live with no PTY.
@@ -98,11 +106,17 @@ export function usePaneAttachment({
       ? `Connecting to ${providerName}…`
       : undefined
 
+  // Reads the chat and its host as they are when called: every way onto the terminal may call
+  // it, and only a known, dormant chat on a host that answers is started.
   const startSession = useCallback(() => {
+    if (hostIsUnreachable(hostStatusOf(hostId))) return
+    const chat = readSelect((s) => selectAgentChat(s, chatId))
+    if (!chat || chat.liveRunnerId || chat.phase === 'starting' || chat.phase === 'switching')
+      return
     void resumeChat(wsId, chatId).catch((err: unknown) => {
       toastSpawnFailure(err, providerName, 'resume')
     })
-  }, [wsId, chatId, providerName])
+  }, [hostId, wsId, chatId, providerName])
 
   return {
     known,
@@ -111,8 +125,10 @@ export function usePaneAttachment({
     revival,
     sessionNote,
     connecting,
-    // A prompt queues on any chat that exists, a spawning one included.
-    canSend: attachment.state !== 'pending',
+    // A prompt queues on any chat that exists, a spawning one included, while its host answers.
+    canSend: !offline && attachment.state !== 'pending',
+    /** The chat's host does not answer: the pane shows what it last held, read-only. */
+    offline,
     startSession,
   }
 }

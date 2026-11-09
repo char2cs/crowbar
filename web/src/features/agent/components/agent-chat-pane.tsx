@@ -160,9 +160,11 @@ export function AgentChatPaneBody({
     sessionNote,
     connecting,
     canSend,
+    offline,
     startSession,
   } = usePaneAttachment({
     wsId,
+    hostId,
     chatId: shownChatId,
     providerName,
     presentation,
@@ -230,6 +232,7 @@ export function AgentChatPaneBody({
     setReturnOffered,
     terminalApiRef,
     dormant: attachment.state === 'idle',
+    offline,
     startSession,
   })
 
@@ -361,6 +364,7 @@ export function AgentChatPaneBody({
                 switchDisabled={switchBlocked}
                 live={attachment.state === 'attached' || deliveryPending}
                 canSend={canSend}
+                offline={offline}
                 sessionNote={sessionNote}
                 connecting={revivingBannerShown ? undefined : connecting}
                 // In split the chat is in front of the user, so it is active.
@@ -426,6 +430,7 @@ export function AgentChatPaneBody({
             onDeadSpaceMouseDown={focusTerminalFromSplitEmptySpace}
             terminalRef={terminalApiRef}
             onStartSession={startSession}
+            offline={offline}
           />
         </div>
 

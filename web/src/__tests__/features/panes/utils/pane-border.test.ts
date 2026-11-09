@@ -16,8 +16,8 @@ vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBO
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }
 
-const INACTIVE = '1px solid var(--border)'
-const ACTIVE = '1px solid var(--secondary)'
+const INACTIVE = '1px solid var(--pane-border)'
+const ACTIVE = 'var(--pane-accent-width) solid var(--pane-accent)'
 
 describe('isWindowEdge', () => {
   it('top is never a window edge', () => {

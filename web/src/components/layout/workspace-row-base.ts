@@ -8,17 +8,14 @@ export const ROW_SHAPE =
 
 export const ROW_BASE = `${ROW_SHAPE} h-9 mx-1.5 my-0.5`
 
-// The selected row wears the OTHER theme's surface (`--background-inverse`) so it breaks the theme
-// it sits in and pops. `outline`, not `border`: it paints the same 1px edge without adding to an
-// auto-height caller's box. Keep every selected-row treatment here, never inline.
-export const ROW_ACTIVE =
-  'outline outline-1 outline-background-inverse bg-background-inverse text-foreground-inverse shadow-xs shadow-black/10 ' +
-  'not-disabled:inset-shadow-[0_1px_var(--row-active-highlight)] ' +
-  'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-
 // Flat, with no top-highlight: that gloss is reserved for the showing surface. Hover uses the same
 // wash an open row rests on, so "something is here" reads as one signal.
 export const ROW_INACTIVE = 'border-transparent text-foreground hover:bg-sidebar-element-idle'
+
+// A view tab at rest: no fill, a hover wash. The raised TAB_ACTIVE surface replaces it.
+export const TAB_IDLE =
+  'border-transparent hover:bg-sidebar-element-hover hover:shadow-xs hover:shadow-black/10 ' +
+  'hover:inset-shadow-[0_1px_var(--elevated-highlight)]'
 
 // A row that has a view somewhere but is not on screen: a resting fill rather than muted text,
 // because the row is open, not disabled.
@@ -64,8 +61,8 @@ export const ROW_SUB_ACTION_HOVER =
   'hover:bg-sidebar-element-hover hover:text-foreground ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
-// ROW_SUB_ACTION_HOVER's colours re-keyed for the inverted ROW_ACTIVE ground, where ambient tokens
-// lose contrast. Append after it (never instead) so tailwind-merge swaps only the colour utilities.
+// ROW_SUB_ACTION_HOVER's colours re-keyed for an inverted ground (`activeGround`), where ambient
+// tokens lose contrast. Append after it (never instead) so tailwind-merge swaps only the colours.
 export const ROW_SUB_ACTION_INVERTED =
   'text-foreground-inverse/70 hover:bg-foreground-inverse/10 hover:text-foreground-inverse'
 

@@ -1,6 +1,7 @@
 import { act, useRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { recentsRowOf, registerRecentsRow } from '@/components/sidebar/lib/recents-row-registry'
 import { RecentsViewRow } from '@/components/sidebar/view-row'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
@@ -60,10 +61,17 @@ interface BandProps {
   viewIds: readonly string[]
   onFocus: (viewId: string) => void
   onClose: (viewId: string) => void
+  registerRow?: (row: SidebarRowType) => () => void
 }
 
-function Band({ viewIds, onFocus, onClose }: BandProps) {
+function Band({ viewIds, onFocus, onClose, registerRow }: BandProps) {
   const rows = useRef(new Map<string, SidebarRowType>())
+  const track = (row: SidebarRowType) => {
+    rows.current.set(row.id, row)
+    return () => {
+      rows.current.delete(row.id)
+    }
+  }
   const drag = useSidebarDrag({
     ...DRAG_PROPS,
     subjectsFor: (rowId) => {
@@ -80,7 +88,7 @@ function Band({ viewIds, onFocus, onClose }: BandProps) {
           onFocus={onFocus}
           onClose={onClose}
           drag={drag}
-          registerRow={(row) => rows.current.set(row.id, row)}
+          registerRow={registerRow ?? track}
         />
       ))}
     </div>
@@ -105,12 +113,44 @@ function groupAndSolo() {
 }
 
 describe('RecentsViewRow', () => {
+  it('forgets the row of a chat whose tab closed', () => {
+    groupAndSolo()
+    renderBand({ registerRow: registerRecentsRow })
+    expect(recentsRowOf('chat-3')?.id).toBe('chat-3')
+
+    cleanup()
+
+    expect(recentsRowOf('chat-3')).toBeUndefined()
+  })
+
   it('one row per view: a group draws as one shell around its members', () => {
     groupAndSolo()
     renderBand()
     const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     expect(within(shell).getAllByTestId(/^recents-row-/)).toHaveLength(2)
     expect(screen.getAllByTestId(/^recents-row-/)).toHaveLength(3)
+  })
+
+  it('a pinned row keeps its title and shows a pin where the × was; the pin unpins', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().setViewPinned(viewOf('chat-1'), true)
+    renderBand()
+    expect(screen.getByTestId('recents-row-chat-1')).toHaveTextContent('Chat One')
+    expect(screen.queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+    screen.getByRole('button', { name: 'Unpin tab' }).click()
+    expect(windowPaneStore.getState().views[viewOf('chat-1')].pinned).toBeUndefined()
+  })
+
+  it('a pinned group keeps every member and its titles, with one pin and no ×', () => {
+    groupAndSolo()
+    actions().setViewPinned(viewOf('chat-1'), true)
+    renderBand()
+    const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
+    expect(within(shell).getAllByTestId(/^recents-row-/)).toHaveLength(2)
+    expect(within(shell).queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+    expect(within(shell).getAllByRole('button', { name: 'Unpin tab' })).toHaveLength(1)
+    expect(shell).toHaveTextContent('Chat One')
+    expect(shell).toHaveTextContent('Chat Two')
   })
 
   it('rows render flat, no indent', () => {
@@ -150,6 +190,15 @@ describe('RecentsViewRow', () => {
     renderBand()
     expect(screen.getByRole('button', { name: 'Close view' })).toBeInTheDocument()
     expect(document.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
+  })
+
+  it('only the showing view is lit; an off-screen group is not', () => {
+    groupAndSolo()
+    renderBand()
+    const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
+    expect(group.getAttribute('data-view-showing')).toBeNull()
+    const solo = screen.getByTestId('recents-row-chat-3').parentElement!
+    expect(solo.getAttribute('data-view-showing')).toBe('true')
   })
 
   it('switching views moves the lit row without any other state change', () => {

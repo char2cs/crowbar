@@ -92,7 +92,7 @@ describe('SidebarRow', () => {
     )
   })
 
-  // The glossy top-highlight is reserved for ROW_ACTIVE and a Recents set's hover;
+  // The glossy top-highlight is reserved for TAB_ACTIVE and a Recents set's hover;
   // the tree's hover and has-view-idle states never get it.
   it('an ordinary row never carries the CossUI top-highlight, hovered or not', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
@@ -678,7 +678,7 @@ describe('SidebarRow', () => {
       expect(document.querySelector('[data-control="close"]')).toBeInTheDocument()
     })
 
-    // On the inverted ROW_ACTIVE ground the trailing buttons need the same
+    // On the inverted TAB_ACTIVE ground the trailing buttons need the same
     // contrast treatment as the label, or they are unreadable.
     it('re-keys its color onto the inverted pair when painted on an activeGround', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} activeGround />)

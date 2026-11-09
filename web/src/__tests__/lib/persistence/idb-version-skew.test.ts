@@ -20,7 +20,6 @@ const ENTITY_STORES = [
   'crowbar_projects',
   'crowbar_repos',
   'crowbar_workspaces',
-  'crowbar_threads',
   'crowbar_folders',
   'crowbar_chats',
 ] as const
@@ -76,8 +75,8 @@ describe('a database newer than this build', () => {
   })
 })
 
-describe('a database an earlier build left at v11', () => {
-  it('an S4 build opens a v11 database without changing its version or its stores', async () => {
+describe('a database already at this build’s version', () => {
+  it('boots on it without changing its version or its stores', async () => {
     const earlier = await getDB()
     await earlier.put('crowbar_chats', { id: 'c1', title: 'kept' } as never)
     const stores = Array.from(earlier.objectStoreNames).sort()
@@ -88,7 +87,7 @@ describe('a database an earlier build left at v11', () => {
     resetDB()
 
     const after = await openDB('crowbar')
-    expect(after.version).toBe(11)
+    expect(after.version).toBe(14)
     expect(Array.from(after.objectStoreNames).sort()).toEqual(stores)
     expect(await after.get('crowbar_chats', 'c1')).toEqual({ id: 'c1', title: 'kept' })
     after.close()
@@ -112,6 +111,6 @@ describe('concurrent callers', () => {
     const [a, b, c] = await Promise.all([getDB(), getDB(), getDB()])
     expect(a).toBe(b)
     expect(b).toBe(c)
-    expect(a.version).toBe(11)
+    expect(a.version).toBe(14)
   })
 })

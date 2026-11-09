@@ -147,4 +147,15 @@ describe('settings normalization', () => {
       expect(normalizeSettingValue('sidebarFollowsFocus', true)).toBe(true)
     })
   })
+
+  describe('tab list scope', () => {
+    it('is the current project by default and for an unknown value', () => {
+      expect(getDefaultSettingsSnapshot().tabListScope).toBe('project')
+      expect(normalizeSettingValue('tabListScope', 'everything' as never)).toBe('project')
+    })
+
+    it('keeps all', () => {
+      expect(normalizeSettingValue('tabListScope', 'all')).toBe('all')
+    })
+  })
 })

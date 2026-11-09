@@ -37,6 +37,12 @@ describe('sidebar-ui persistence', () => {
     expect(result?.activeTab).toBe('git')
   })
 
+  it('saves and loads the host filter round-trip', async () => {
+    await saveSidebarUI({ collapsedChatRows: [], hostFilter: 'h1' })
+    const result = await loadSidebarUI()
+    expect(result?.hostFilter).toBe('h1')
+  })
+
   it('overwrites previous record on second save', async () => {
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     await saveSidebarUI({ collapsedRepos: ['quiver-core'], collapsedWorkspaces: ['ws1'] })

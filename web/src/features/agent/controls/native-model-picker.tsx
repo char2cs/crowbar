@@ -78,7 +78,7 @@ export function NativeModelPicker({
         id: p.id,
         name: p.displayName,
         icon: icons[p.id] ?? null,
-        symbol: 'sparkles',
+        fallbackIcon: 'Robot',
         models: (p.models ?? []).map((m) => ({ id: m, name: m, detail: null })),
       })),
       selected: provider && model ? { providerId: provider.id, modelId: model } : null,

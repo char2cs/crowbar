@@ -1,6 +1,8 @@
 import { DragOverlay } from '@dnd-kit/core'
 import { createPortal } from 'react-dom'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { LIFTED } from '@/components/layout/drag-ghost'
+import { cn } from '@/lib/utils'
 
 /** The lifted tab under the pointer while a tab is dragged. */
 export function TabDragPreview({ buffer }: { buffer: PaneContent | null }) {
@@ -9,7 +11,13 @@ export function TabDragPreview({ buffer }: { buffer: PaneContent | null }) {
   return createPortal(
     <DragOverlay dropAnimation={null}>
       {buffer ? (
-        <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
+        <div
+          data-drag-overlay=""
+          className={cn(
+            LIFTED,
+            'tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg px-2 py-1 ui-text-xs',
+          )}
+        >
           <span className="max-w-[200px] truncate text-foreground">
             {buffer.name}
             {buffer.type === 'editor' && buffer.isDirty && (

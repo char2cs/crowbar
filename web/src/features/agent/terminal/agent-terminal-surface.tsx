@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import type { CSSProperties, MouseEvent, Ref } from 'react'
+import type { CSSProperties, MouseEvent, Ref, RefObject } from 'react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
@@ -7,11 +7,11 @@ import { ProviderSwitchDropdown } from '@/features/agent/components/provider-swi
 import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import {
-  LazyXtermTerminal,
-  type XtermTerminalProps,
-} from '@/features/terminal/components/lazy-terminal'
+import { LazyXtermTerminal } from '@/features/terminal/components/lazy-terminal'
+import type { TerminalFocusHandle } from '@/features/terminal/components/terminal'
+import { TerminalKeyBar } from '@/features/terminal/components/terminal-key-bar'
 import { cn } from '@/lib/utils'
+import { IS_MOBILE } from '@/utils/platform'
 
 /** `pending` is not idle: offering Resume there would spawn a second CLI. A null
  *  sessionId is a live runner with no terminal (codex), not dormancy. */
@@ -49,9 +49,12 @@ export interface AgentTerminalSurfaceProps {
   onTakeFocus: () => void
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
-  terminalRef: XtermTerminalProps['ref']
+  /** The terminal's focus handle, for moving the keyboard onto the grid. */
+  terminalRef: RefObject<TerminalFocusHandle | null>
   /** Bring the chat's provider back without sending anything. */
   onStartSession: () => void
+  /** The chat's host does not answer: a session cannot be started now. */
+  offline: boolean
   ref?: Ref<HTMLDivElement>
 }
 
@@ -80,6 +83,7 @@ export function AgentTerminalSurface({
   onDeadSpaceMouseDown,
   terminalRef,
   onStartSession,
+  offline,
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
@@ -142,6 +146,14 @@ export function AgentTerminalSurface({
         />
       )}
 
+      {/* The keys a phone keyboard lacks, under the grid. */}
+      {IS_MOBILE &&
+        presentation === 'terminal' &&
+        attachment.state === 'attached' &&
+        attachment.sessionId && (
+          <TerminalKeyBar onSend={(bytes) => terminalRef?.current?.send(bytes)} />
+        )}
+
       {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
         // A live runner with nothing attached (codex): no Resume, nothing to restart.
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
@@ -160,12 +172,15 @@ export function AgentTerminalSurface({
 
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-          <p className="max-w-sm text-center text-muted-foreground text-sm">{attachment.message}</p>
+          <p className="max-w-sm text-center text-muted-foreground text-sm">
+            {offline ? 'Offline — a session can start once the host is back.' : attachment.message}
+          </p>
           <Button
             type="button"
             variant="secondary"
             size="sm"
             data-testid="pane-resume"
+            disabled={offline}
             onClick={onStartSession}
           >
             Start session
@@ -180,7 +195,8 @@ export function AgentTerminalSurface({
           createPortal(controls, headerSlot)
         ) : (
           <div
-            className="flex items-center justify-end gap-3 py-2"
+            // The phone keeps the switcher above the grid, clear of the keyboard and key bar.
+            className={cn('flex items-center justify-end gap-3 py-2', IS_MOBILE && 'order-first')}
             style={{ paddingRight: gridSlack }}
           >
             {controls}

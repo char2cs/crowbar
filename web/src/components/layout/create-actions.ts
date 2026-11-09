@@ -1,3 +1,4 @@
+import { IS_MOBILE } from '@/utils/platform'
 import { readSelect, selectRepos } from '@/core/entities/select'
 import { createChatWithOwnWorktree } from '@/features/agent/api/agent-chat-creates'
 import { createSurfaceFor } from '@/features/agent/api/agent-providers-api'
@@ -116,8 +117,9 @@ export async function handleCreate(
     return
   }
   // A plain new thread on a workspace is a draft: no chat exists until its first send. A draft
-  // is a Chat composer, so with Terminal the default it starts on the terminal like a fork.
-  const landsOnTerminal = createSurfaceFor(startingProvider(projectId)) === 'terminal'
+  // is a Chat composer, so with Terminal the default it starts on the terminal like a fork; the
+  // phone lands every new thread on the chat, so it always drafts.
+  const landsOnTerminal = !IS_MOBILE && createSurfaceFor(startingProvider(projectId)) === 'terminal'
   if (!chatRow && subject.kind === 'workspace' && presentation === undefined && !landsOnTerminal) {
     const draftId = newDraftChatId()
     if (!openChatInOwnView(draftId, wsId)) {

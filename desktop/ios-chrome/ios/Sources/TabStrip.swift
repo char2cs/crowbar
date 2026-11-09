@@ -13,7 +13,8 @@ struct TabsState: Decodable, Equatable {
   struct NewTabAction: Decodable, Identifiable, Equatable {
     let id: String
     let title: String
-    let symbol: String
+    /// The web's name for a Phosphor icon.
+    let icon: String
   }
   let tabs: [Tab]
   let newTabActions: [NewTabAction]
@@ -29,13 +30,17 @@ final class TabsModel: ObservableObject {
 @available(iOS 26.0, *)
 struct TabStrip: View {
   @ObservedObject var model: TabsModel
+  @ObservedObject var chrome: ChromeModel
+
+  private var ink: Color { chrome.palette?.text ?? .primary }
+  private var muted: Color { chrome.palette?.secondaryText ?? .secondary }
 
   var body: some View {
     ScrollViewReader { scroller in
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 2) {
           ForEach(model.state.tabs) { tab in
-            TabPill(tab: tab, send: model.send).id(tab.id)
+            TabPill(tab: tab, ink: ink, muted: muted, send: model.send).id(tab.id)
           }
           newTab
         }
@@ -59,12 +64,16 @@ struct TabStrip: View {
           Haptics.tap()
           model.send(.of("newTab", ["actionId": action.id]))
         } label: {
-          Label(action.title, systemImage: action.symbol)
+          Label {
+            Text(action.title)
+          } icon: {
+            CrowbarIcon(named: action.icon).map { Image(uiImage: $0.image(size: 20)) }
+          }
         }
       }
     } label: {
-      Image(systemName: "plus")
-        .font(.footnote.weight(.semibold))
+      PhosphorIcon(.plus, size: 16, emphasis: 0.5)
+        .foregroundStyle(ink)
         .frame(width: 32, height: 44)
         .contentShape(.rect)
     }
@@ -76,6 +85,9 @@ struct TabStrip: View {
 @available(iOS 26.0, *)
 private struct TabPill: View {
   let tab: TabsState.Tab
+  /// The theme's foreground, and its muted tone for an inactive tab's icon.
+  let ink: Color
+  let muted: Color
   let send: (ChromeIntent) -> Void
 
   var body: some View {
@@ -85,9 +97,8 @@ private struct TabPill: View {
         send(.of("selectTab", ["id": tab.id]))
       } label: {
         HStack(spacing: 5) {
-          Image(systemName: TabSymbol.of(kind: tab.kind, path: tab.path))
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          PhosphorIcon(TabIcon.of(kind: tab.kind, path: tab.path), size: 14, emphasis: 0.4)
+            .foregroundStyle(tab.active ? ink : muted)
           Text(tab.title)
             .font(.footnote.weight(tab.active ? .semibold : .regular))
             .lineLimit(1)
@@ -113,9 +124,8 @@ private struct TabPill: View {
       Haptics.tap()
       send(.of("closeTab", ["id": tab.id]))
     } label: {
-      Image(systemName: tab.dirty ? "circle.fill" : "xmark")
-        .font(.system(size: tab.dirty ? 6 : 9, weight: .bold))
-        .foregroundStyle(.secondary)
+      PhosphorIcon(tab.dirty ? .circle : .x, size: tab.dirty ? 7 : 11, emphasis: tab.dirty ? 0 : 0.5)
+        .foregroundStyle(ink)
         .frame(width: 24, height: 44)
         .contentShape(.rect)
     }
@@ -124,30 +134,28 @@ private struct TabPill: View {
   }
 }
 
-/// SF Symbols standing in for the desktop's tab icons.
-enum TabSymbol {
-  static func of(kind: String, path: String?) -> String {
+/// The desktop's tab icons (`TabBufferIcon`, `FileExplorerIcon`'s generic file icons).
+enum TabIcon {
+  static func of(kind: String, path: String?) -> CrowbarIcon {
     switch kind {
-    case "terminal": "apple.terminal"
-    case "review": "arrow.triangle.pull"
-    case "diff": "arrow.triangle.branch"
-    case "browser": "globe"
-    case "preview": "eye"
-    case "newTab": "plus.square.dashed"
+    case "terminal": .terminalWindow
+    case "review": .gitPullRequest
+    case "diff": .gitBranch
+    case "browser": .globe
+    case "preview": .eye
+    case "newTab": .plus
     default: file(path)
     }
   }
 
-  private static func file(_ path: String?) -> String {
+  private static func file(_ path: String?) -> CrowbarIcon {
     switch path.map({ ($0 as NSString).pathExtension.lowercased() }) {
-    case "swift": "swift"
-    case "md", "mdx", "txt": "doc.plaintext"
-    case "json", "yaml", "yml", "toml": "curlybraces"
-    case "png", "jpg", "jpeg", "gif", "svg", "webp": "photo"
-    case "ts", "tsx", "js", "jsx", "go", "rs", "py", "rb", "c", "h", "cpp", "java", "kt", "css",
-      "html", "sh":
-      "chevron.left.forwardslash.chevron.right"
-    default: "doc.text"
+    case "md", "mdx", "txt": .fileText
+    case "png", "jpg", "jpeg", "gif", "svg", "webp": .fileImage
+    case "swift", "json", "yaml", "yml", "toml", "ts", "tsx", "js", "jsx", "go", "rs", "py", "rb",
+      "c", "h", "cpp", "java", "kt", "css", "html", "sh":
+      .fileCode
+    default: .file
     }
   }
 }

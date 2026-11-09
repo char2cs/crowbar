@@ -52,6 +52,8 @@ interface AgentComposerProps {
   permissionLevels?: PermissionLevel[]
 
   live: boolean
+  /** The chat's host does not answer: the bar is a read-only signpost. */
+  offline?: boolean
   working: boolean
   compacting: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
@@ -186,6 +188,7 @@ export function AgentComposer(props: AgentComposerProps) {
 
   const state = resolveComposerState({
     live: props.live,
+    offline: props.offline,
     submitUnavailable: props.submitUnavailable,
     terminalWait: props.terminalWait,
     compacting: props.compacting,

@@ -10,9 +10,9 @@ struct PickerModel: Decodable, Identifiable, Equatable {
 struct PickerProvider: Decodable, Identifiable, Equatable {
   let id: String
   let name: String
-  /// A PNG data URL; `symbol` stands in without one.
+  /// A PNG data URL; `fallbackIcon` (a Phosphor name) stands in without one.
   let icon: String?
-  let symbol: String
+  let fallbackIcon: String
   let models: [PickerModel]
 }
 
@@ -89,7 +89,8 @@ struct ModelPickerSheet: View {
       .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button(role: .close) { model.send(.of("closeModelPicker")) }
+          Button { model.send(.of("closeModelPicker")) } label: { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }
+            .accessibilityLabel("Close")
         }
       }
     }
@@ -106,7 +107,7 @@ struct ModelPickerSheet: View {
       return models.isEmpty
         ? nil
         : PickerProvider(
-          id: provider.id, name: provider.name, icon: provider.icon, symbol: provider.symbol,
+          id: provider.id, name: provider.name, icon: provider.icon, fallbackIcon: provider.fallbackIcon,
           models: models)
     }
   }
@@ -140,7 +141,7 @@ struct ModelPickerSheet: View {
           }
         }
         Spacer()
-        if selected { Image(systemName: "checkmark").fontWeight(.semibold) }
+        if selected { PhosphorIcon(.check, size: 18) }
       }
       .contentShape(.rect)
     }
@@ -154,7 +155,7 @@ struct ModelPickerSheet: View {
       Image(uiImage: image).renderingMode(.template).resizable().scaledToFit()
         .frame(width: 18, height: 18).foregroundStyle(text)
     } else {
-      Image(systemName: provider.symbol).foregroundStyle(text)
+      CrowbarIcon(named: provider.fallbackIcon).map { PhosphorIcon($0, size: 18).foregroundStyle(text) }
     }
   }
 }

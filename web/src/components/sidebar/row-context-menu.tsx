@@ -17,6 +17,9 @@ import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-men
 import { moveTargets } from '@/components/sidebar/lib/move-targets'
 import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { readSelect, selectAgentChat } from '@/core/entities/select'
+import { useViewTabMenuItems } from '@/components/sidebar/hooks/use-view-tab-menu-items'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
@@ -37,6 +40,8 @@ interface MenuData {
   movePending: boolean
   /** A repo thread owning no worktree, not already moving: it can become a branch. */
   canBranch: boolean
+  /** The view whose tab was clicked; null for a row in the sidebar tree. */
+  viewId: string | null
 }
 
 // The sidebar's right-click menu. A sibling of the tree listening for native `contextmenu`, so
@@ -54,23 +59,26 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   )
 
   const killItems = useKillAgentMenuItems(menu.data?.row.id)
+  const tabItems = useViewTabMenuItems(menu.data?.viewId ?? null)
 
   useEffect(() => {
     const tree = treeRef.current
     if (!tree) return
-    const resolveMenuData = (rowId: string): MenuData | null => {
+    const resolveMenuData = (rowId: string, inStrip = false): MenuData | null => {
       const row = rows.find((r) => r.id === rowId)
       if (!row) return null
       const locked = rowIsLocked(rowId)
       const movePending = !!readSelect((s) => selectAgentChat(s, rowId))?.pendingMove
-      return { row, locked, movePending, canBranch: canBranchOut(row, movePending) }
+      const { panes } = windowPaneStore.getState()
+      const viewId = inStrip ? (panes[chatPaneIndex(panes).get(rowId) ?? '']?.viewId ?? null) : null
+      return { row, locked, movePending, canBranch: canBranchOut(row, movePending), viewId }
     }
     const onContextMenu = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return
+      if (!(e.target instanceof Element)) return
       const el = e.target.closest<HTMLElement>('[role="treeitem"]')
       const rowId = el?.getAttribute('data-sidebar-row-id')
       if (!rowId) return
-      const data = resolveMenuData(rowId)
+      const data = resolveMenuData(rowId, !!e.target.closest('[data-view-tab-strip]'))
       if (!data) return
       e.preventDefault()
       openAt({ x: e.clientX, y: e.clientY }, data)
@@ -79,7 +87,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     // phase, not bubble: the row's trailing buttons stop propagation on the way up, and capture
     // runs before the row ever sees the click.
     const onRepoMenuClick = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return
+      if (!(e.target instanceof Element)) return
       const trigger = e.target.closest<HTMLElement>('[data-control="repo-menu"]')
       if (!trigger) return
       const el = trigger.closest<HTMLElement>('[role="treeitem"]')
@@ -141,6 +149,8 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     ...(movePending ? [cancelMoveItem(row)] : []),
     ...killItems,
   )
+  // A tab's own verbs lead, ahead of the row's.
+  items.unshift(...tabItems)
 
   return (
     <ContextMenu isOpen={menu.isOpen} items={items} position={menu.position} onClose={menu.close} />

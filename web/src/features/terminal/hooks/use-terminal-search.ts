@@ -1,12 +1,14 @@
 import type { ISearchOptions } from '@xterm/addon-search'
 import type { Terminal } from '@xterm/xterm'
 import { useCallback, useEffect, useState } from 'react'
+import { resolveCssVar } from '@/features/editor/theme/resolve-css-color'
 import type { TerminalSearchOptions } from '../components/terminal-search'
 import type { TerminalAddons } from './use-terminal-addons'
 
 function searchOptions(options: TerminalSearchOptions): ISearchOptions {
   const rootStyles = getComputedStyle(document.documentElement)
-  const selected = rootStyles.getPropertyValue('--color-selected').trim() || '#3b82f6'
+  // xterm only accepts #rrggbb, so the token is resolved through the browser to hex.
+  const selected = resolveCssVar('--primary') ?? '#3b82f6'
   const accent = rootStyles.getPropertyValue('--color-accent').trim() || '#60a5fa'
   const border = rootStyles.getPropertyValue('--color-border').trim() || '#4b5563'
   return {

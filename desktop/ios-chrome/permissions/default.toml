@@ -1,3 +1,3 @@
 [default]
-description = "Lets the webview describe the native chrome, chat list, settings, model picker and dialogs and listen for its intents."
-permissions = ["allow-set-chrome", "allow-set-sidebar", "allow-set-agents-settings", "allow-set-hosts-settings", "allow-set-files", "allow-set-tabs", "allow-set-context", "allow-set-model-picker", "allow-confirm", "allow-prompt", "allow-register-listener", "allow-remove-listener"]
+description = "Lets the webview describe the native chrome, chat list, settings, host picker, model picker and dialogs and listen for its intents."
+permissions = ["allow-set-chrome", "allow-set-sidebar", "allow-set-agents-settings", "allow-set-hosts-settings", "allow-set-host-picker", "allow-set-files", "allow-set-tabs", "allow-set-context", "allow-set-model-picker", "allow-confirm", "allow-prompt", "allow-register-listener", "allow-remove-listener"]

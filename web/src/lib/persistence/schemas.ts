@@ -1,7 +1,7 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
+import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, FolderDTO } from '@/lib/types'
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 
 export interface BranchReviewPersistedState {
@@ -44,6 +44,11 @@ export interface SidebarUI {
   /** The sidebar's last mode. Untyped on disk: an older build wrote modes that
    *  no longer exist, so hydrate parses it (`parseSidebarTab`). */
   activeTab?: string
+  /** The host whose projects the switcher lists. Absent on an older record; 'all' on one written
+   *  before the switcher showed one host at a time, which matches no host. */
+  hostFilter?: string
+  /** Host id → the project last open on it. Absent on a record written before it existed. */
+  lastProjectByHost?: Record<string, string>
   updatedAt: number
 }
 
@@ -69,18 +74,13 @@ export interface CrowbarDB extends DBSchema {
     value: BranchReviewPersistedState
   }
   'workspaces-data': { key: string; value: CachedRecord<unknown> }
-  'git-data': { key: string; value: CachedRecord<unknown> }
-  'file-tree-data': { key: string; value: CachedRecord<unknown> }
-  'branch-review-data': { key: string; value: CachedRecord<unknown> }
   'chat-history': { key: string; value: CachedRecord<unknown> }
   'projects-data': { key: string; value: CachedRecord<unknown> }
-  'chats-data': { key: string; value: CachedRecord<unknown> }
   // §6 entity cache (v7) — complete DTOs keyed by their own id. WS frames
   // upsert these by id; status:'deleted' tombstones remove them.
   crowbar_projects: { key: string; value: ProjectDTO }
   crowbar_repos: { key: string; value: RepoDTO }
   crowbar_workspaces: { key: string; value: WorkspaceDTO }
-  crowbar_threads: { key: string; value: ThreadDTO }
   // Sidebar grouping folders (v8): a new store needs a version bump to exist (see idb.ts).
   crowbar_folders: { key: string; value: FolderDTO }
   // Sidebar chat rows (v9): its own version bump too; a store whose upgrade never ran is not a

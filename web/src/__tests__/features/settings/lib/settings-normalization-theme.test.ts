@@ -7,7 +7,7 @@ import {
 
 /**
  * `Theme` is a bare `string`, so a persisted id can outlive the theme it names —
- * 'terra' was renamed to 'zen' and its stylesheet deleted. Nothing coerced the
+ * 'zen' was removed and its stylesheet deleted. Nothing coerced the
  * dead id, so every consumer had to guess: the Color Theme picker showed a value
  * absent from its own menu, and the appearance effect force-added `.dark`.
  * Coerce at READ time (graceful fallback), never with a migration pass.
@@ -19,8 +19,16 @@ describe('normalizeSettings theme coercion', () => {
     expect(normalized.theme).toBe('crowbar')
   })
 
+  it('coerces the removed zen theme to the default theme', () => {
+    expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'zen' }).theme).toBe(
+      'crowbar',
+    )
+  })
+
   it('keeps a registered theme id untouched', () => {
-    expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'zen' }).theme).toBe('zen')
+    expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'frosted' }).theme).toBe(
+      'frosted',
+    )
     expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'crowbar' }).theme).toBe(
       'crowbar',
     )
@@ -37,6 +45,7 @@ describe('normalizeSettings theme coercion', () => {
 
   it('coerces an unknown theme on write too', () => {
     expect(normalizeSettingValue('theme', 'terra')).toBe('crowbar')
-    expect(normalizeSettingValue('theme', 'zen')).toBe('zen')
+    expect(normalizeSettingValue('theme', 'zen')).toBe('crowbar')
+    expect(normalizeSettingValue('theme', 'frosted')).toBe('frosted')
   })
 })

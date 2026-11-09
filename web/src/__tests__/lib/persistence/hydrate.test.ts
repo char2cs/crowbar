@@ -85,6 +85,13 @@ describe('hydrateWindowPaneLayout', () => {
     resetWindowPaneStoreForTests()
   })
 
+  it('restores the host filter and each host’s last open project', async () => {
+    const host = { hostFilter: 'h1', lastProjectByHost: { h1: 'p9' } }
+    await saveSidebarUI({ collapsedChatRows: [], ...host })
+    await hydrateSidebar()
+    expect(treeUiStore.getState()).toMatchObject(host)
+  })
+
   it('does nothing when IDB is empty', async () => {
     const before = windowPaneStore.getState()
     await hydrateWindowPaneLayout()
@@ -122,9 +129,7 @@ describe('hydrateWindowPaneLayout', () => {
     restoreDocumentsMock.mockImplementationOnce(async () => {
       tabsAtRestore = windowPaneStore.getState().buffers.map((b) => b.id)
     })
-
     await hydrateWindowPaneLayout()
-
     expect(tabsAtRestore).toEqual(['buf-1'])
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-b', 'view-a'])
@@ -193,9 +198,7 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [buffer('buf-1')],
       updatedAt: Date.now(),
     } as unknown as WorkspaceLayout)
-
     await hydrateWindowPaneLayout()
-
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual([])
     expect(state.views).toEqual({})
@@ -220,9 +223,7 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [],
       updatedAt: Date.now(),
     })
-
     await hydrateWindowPaneLayout()
-
     expect(windowPaneStore.getState().viewOrder).toEqual([])
     expect(windowPaneStore.getState().activeViewId).toBeNull()
   })
@@ -254,9 +255,7 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [],
       updatedAt: Date.now(),
     })
-
     await hydrateWindowPaneLayout()
-
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-b', 'view-a'])
     expect(Object.keys(state.views).sort()).toEqual(['view-a', 'view-b'])

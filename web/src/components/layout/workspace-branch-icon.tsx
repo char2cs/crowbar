@@ -15,7 +15,7 @@ interface WorkspaceBranchIconProps {
   reason?: string
   /** Glyph box size, matching `RowGlyph` (`size-4`; `size-5` for the project-home row). */
   size?: string
-  /** The row sits on the inverted ROW_ACTIVE ground (`activeGround`), so the `locked`/`new` glyphs
+  /** The row sits on the inverted TAB_ACTIVE ground (`activeGround`), so the `locked`/`new` glyphs
    *  invert their foreground; the fixed status colours read on either ground. */
   invertedGround?: boolean
 }

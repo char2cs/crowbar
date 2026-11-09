@@ -35,9 +35,11 @@ export function buildPaneContentStyle(
   sidebarOpen: boolean = true,
 ): CSSProperties {
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide, sidebarOpen)
-  // Constant width so toggling never shifts layout; neutral --border at rest,
-  // --secondary only for the active-pane accent.
-  const BORDER = showActiveBorder ? '1px solid var(--secondary)' : '1px solid var(--border)'
+  // Constant width so toggling never shifts layout; neutral --pane-border at rest,
+  // --pane-accent only for the active-pane accent.
+  const BORDER = showActiveBorder
+    ? 'var(--pane-accent-width) solid var(--pane-accent)'
+    : '1px solid var(--pane-border)'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'

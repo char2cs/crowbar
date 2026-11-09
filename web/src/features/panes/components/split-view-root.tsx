@@ -14,7 +14,7 @@ import { PaneBoundary } from './pane-boundary'
 import { ROOT_PANE_POSITION } from '../types/pane'
 import { getFirstLeafId } from '../utils/pane-layout'
 import { useMountedViews } from '../hooks/use-mounted-views'
-import { useHasViewStrip } from '../hooks/use-project-view-ids'
+import { useHasViewStrip } from '../hooks/use-tab-view-ids'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 /** Module-level so the object identities are stable across renders — inline

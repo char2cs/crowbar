@@ -86,7 +86,7 @@ function makeDiff(file_path: string, overrides: Partial<GitDiff> = {}): GitDiff 
 const THREE_FILE_DIFFS: GitDiff[] = [
   makeDiff('src/api/client.ts', { additions: 5, deletions: 2 }),
   makeDiff('src/utils/helpers.ts', { additions: 1, deletions: 0 }),
-  makeDiff('src/api/server.ts', { uncommitted: true, additions: 3, deletions: 1 }),
+  makeDiff('src/api/server.ts', { additions: 3, deletions: 1 }),
 ]
 
 const NAV = { viewed: {}, onSetViewed: vi.fn(), openThreadCounts: new Map<string, number>() }
@@ -117,13 +117,6 @@ describe('ChangedFilesTree', () => {
     expect(screen.getByTitle('src/api/server.ts')).toBeInTheDocument()
   })
 
-  it('renders exactly one amber "uncommitted" pill', () => {
-    render(<ChangedFilesTree files={THREE_FILE_DIFFS} onFileOpen={vi.fn()} {...NAV} />)
-
-    const pills = screen.getAllByText('uncommitted')
-    expect(pills).toHaveLength(1)
-  })
-
   it('calls onFileOpen with the correct file_path when a leaf is clicked', async () => {
     const user = userEvent.setup()
     const onFileOpen = vi.fn()
@@ -146,13 +139,6 @@ describe('ChangedFilesTree', () => {
     await user.click(serverRow)
 
     expect(onFileOpen).toHaveBeenCalledWith('src/api/server.ts')
-  })
-
-  it('renders no uncommitted pill when no files have uncommitted:true', () => {
-    const committedDiffs = THREE_FILE_DIFFS.map((d) => ({ ...d, uncommitted: false }))
-    render(<ChangedFilesTree files={committedDiffs} onFileOpen={vi.fn()} {...NAV} />)
-
-    expect(screen.queryByText('uncommitted')).not.toBeInTheDocument()
   })
 
   it('collapses a folder when its row is clicked', async () => {

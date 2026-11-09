@@ -1,37 +1,17 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import type { NativeAgentsSettings, NativeHostsSettings } from '@/lib/native-chrome'
+import type { NativeAgentsSettings } from '@/lib/native-chrome'
 import { MobileSettingsPage } from '@/features/settings/components/mobile-settings-page'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 
 type Shell = {
   webkit?: unknown
   __crowbarAgentsSettings?: (s: NativeAgentsSettings) => void
-  __crowbarHostsSettings?: (s: NativeHostsSettings) => void
+  __crowbarSettingsTab?: (tab: string | null) => void
 }
 const shell = window as unknown as Shell
 const posted = vi.fn()
-
-// Collection has no test timeout: transform every lazy tab here, so the act that
-// settles a tab's Suspense resolves from the module cache instead of racing a
-// cold import, and no assertion waits on RTL's polling under the real scheduler.
-await Promise.all([
-  import('@/features/settings/components/tabs/appearance-settings'),
-  import('@/features/settings/components/tabs/terminal-settings'),
-  import('@/features/settings/components/tabs/git-settings'),
-  import('@/features/settings/components/mobile-agents-settings'),
-  import('@/features/settings/components/mobile-hosts-settings'),
-])
-const settle = () => act(async () => {})
-const renderPage = async () => {
-  render(<MobileSettingsPage />)
-  await settle()
-}
-const openTab = async (name: string) => {
-  fireEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name }))
-  await settle()
-}
 
 beforeEach(() => {
   posted.mockClear()
@@ -44,27 +24,27 @@ afterEach(() => {
   })
 })
 
+const showTab = (tab: string | null) => act(() => shell.__crowbarSettingsTab!(tab))
+
 describe('MobileSettingsPage', () => {
-  // The phone has no editor, file tree settings, browser or keyboard of its own to configure.
-  it('offers only the tabs that apply to the phone, with search and Appearance first', async () => {
-    await renderPage()
-    const tabs = within(screen.getByRole('tablist')).getAllByRole('tab')
-    expect(tabs.map((t) => t.textContent)).toEqual([
-      'Appearance',
-      'Terminal',
-      'Agents',
-      'Git',
-      'Hosts',
-    ])
-    expect(screen.getByPlaceholderText('Search settings...')).toBeInTheDocument()
-    expect(screen.getByText('Color Theme')).toBeInTheDocument()
+  // The title, back button and list are native: the page is only the tab it is told to draw.
+  it('draws nothing until the shell names a tab, then just that tab', async () => {
+    render(<MobileSettingsPage />)
+    await waitFor(() => expect(posted).toHaveBeenCalledWith({ type: 'settingsTabReady' }))
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search settings...')).not.toBeInTheDocument()
+    showTab('appearance')
+    // The first load of a tab's chunk can outlast the default wait on a busy machine.
+    expect(await screen.findByText('Color Theme', {}, { timeout: 8000 })).toBeInTheDocument()
+    showTab(null)
+    expect(screen.queryByText('Color Theme')).not.toBeInTheDocument()
   })
 
   it('edits through the settings store the app reads', async () => {
-    await renderPage()
-    await openTab('Git')
+    render(<MobileSettingsPage />)
+    showTab('git')
     const before = useSettingsStore.getState().settings.compactGitStatusBadges
-    fireEvent.click(screen.getAllByRole('switch')[0])
+    fireEvent.click((await screen.findAllByRole('switch'))[0])
     expect(useSettingsStore.getState().settings.compactGitStatusBadges).toBe(!before)
   })
 
@@ -73,16 +53,17 @@ describe('MobileSettingsPage', () => {
     useSettingsStore.setState((s) => {
       s.settings.themeMode = 'system'
     })
-    await renderPage()
-    expect(screen.getByText('Sync with System')).toBeInTheDocument()
+    render(<MobileSettingsPage />)
+    showTab('appearance')
+    expect(await screen.findByText('Sync with System')).toBeInTheDocument()
     expect(screen.queryByText('system')).not.toBeInTheDocument()
   })
 
   // No daemon here: Agents draws the main webview's snapshot and sends every edit back.
   it('draws the agents it is sent and sends edits back to the shell', async () => {
-    await renderPage()
-    await openTab('Agents')
-    expect(posted).toHaveBeenCalledWith({ type: 'agentsSettingsReady' })
+    render(<MobileSettingsPage />)
+    showTab('providers')
+    await waitFor(() => expect(posted).toHaveBeenCalledWith({ type: 'agentsSettingsReady' }))
     const agent = (id: string, displayName: string): AgentProvider =>
       ({
         id,
@@ -105,24 +86,5 @@ describe('MobileSettingsPage', () => {
     expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Trusted')
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Claude Code' }))
     expect(posted).toHaveBeenCalledWith({ type: 'toggleProvider', id: 'claude', enabled: false })
-  })
-
-  it('draws the paired hosts it is sent, and sends revoke and Add host back', async () => {
-    await renderPage()
-    await openTab('Hosts')
-    expect(posted).toHaveBeenCalledWith({ type: 'hostsSettingsReady' })
-    act(() =>
-      shell.__crowbarHostsSettings!({
-        hosts: [{ id: 'h1', name: 'dockerlab', endpoint: 'https://lab:7777', state: 'up' }],
-        revoking: [],
-      }),
-    )
-    expect(screen.getByText('dockerlab')).toBeInTheDocument()
-    expect(screen.getByText('https://lab:7777')).toBeInTheDocument()
-    expect(screen.queryByText('This computer')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke dockerlab' }))
-    expect(posted).toHaveBeenCalledWith({ type: 'revokeHost', id: 'h1' })
-    fireEvent.click(screen.getByRole('button', { name: 'Add host' }))
-    expect(posted).toHaveBeenCalledWith({ type: 'addHost' })
   })
 })

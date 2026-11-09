@@ -33,6 +33,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { planRemoval } from '@/components/layout/removal-plan'
 import {
   loadPinFixture,
@@ -222,13 +223,14 @@ describe('SidebarTreeSurface', () => {
 describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpacePanel', () => {
   // The panel is a lazy chunk, transformed at collection above: settle its
   // Suspense in act rather than polling for it on the real scheduler's throttle.
-  const renderCreating = async (onCancelCreateSpace = vi.fn()) => {
+  const renderCreating = async (onCancelCreateSpace = vi.fn(), newSpaceHostId?: string) => {
     render(
       <SidebarTreeSurface
         projects={[projectA]}
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         creatingSpace
+        newSpaceHostId={newSpaceHostId}
         onCreateSpace={vi.fn()}
         onCancelCreateSpace={onCancelCreateSpace}
       />,
@@ -259,6 +261,14 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
     await renderCreating(onCancelCreateSpace)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancelCreateSpace).toHaveBeenCalledOnce()
+  })
+
+  it('opens the create form on the host it is told', async () => {
+    const h1 = { id: 'h1', name: 'homelab-prox', endpoint: '', pairedFingerprint: '', clientId: '' }
+    useHostConfigStore.setState({ hosts: [h1] })
+    await renderCreating(vi.fn(), 'h1')
+    expect(screen.getByRole('combobox', { name: /daemon/i })).toHaveTextContent('homelab-prox')
+    useHostConfigStore.setState({ hosts: [] })
   })
 })
 

@@ -12,12 +12,23 @@ struct SheetPlan {
   // A present or dismiss still animating: the web can flip open and closed faster than that
   // (React's dev double-mount does), so the next step waits for this one's completion.
   private(set) var moving = false
+  // A present that found no view controller to go over: tried again on the next push.
+  private var waitingForRoot = false
 
-  /// The web's current `open`; acts only when it changed.
+  /// The web's current `open`; acts only when it changed, or when a present is waiting for a root.
   mutating func update(open: Bool) -> Step {
-    guard open != wantOpen else { return .none }
+    if open == wantOpen { return waitingForRoot ? next() : .none }
     wantOpen = open
+    waitingForRoot = false
     return next()
+  }
+
+  /// A `.present` had nothing to present over; it stays wanted without being shown.
+  mutating func noRoot() -> Step {
+    moving = false
+    presented = false
+    waitingForRoot = true
+    return .none
   }
 
   mutating func finished() -> Step {
@@ -29,6 +40,7 @@ struct SheetPlan {
   mutating func dismissedByUser() { presented = false }
 
   private mutating func next() -> Step {
+    waitingForRoot = false
     guard !moving, wantOpen != presented else { return .none }
     moving = true
     presented = wantOpen
@@ -72,10 +84,7 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     case .none:
       break
     case .present:
-      guard let root else {
-        plan.dismissedByUser()
-        return run(plan.finished())
-      }
+      guard let root else { return run(plan.noRoot()) }
       present(over: Dialogs.topmost(root))
     case .dismiss:
       guard let open = sheet else { return finish() }

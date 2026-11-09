@@ -4,8 +4,8 @@ import type { GitDiff, GitFile } from '../types/git-types'
 const EMPTY: GitDiff[] = []
 
 /** The working-tree status as the sidebar tree's GitDiff[], shown until the files summary loads.
- *  Status has no line counts, and every row is uncommitted, so neither is set. A path listed
- *  staged and unstaged appears once (first wins), as in the branch diff. */
+ *  Status has no line counts, so none are set. A path listed staged and unstaged appears once
+ *  (first wins), as in the branch diff. */
 export function gitStatusToChangedFiles(files: GitFile[] | undefined | null): GitDiff[] {
   if (!files || files.length === 0) return EMPTY
 

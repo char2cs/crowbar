@@ -1,14 +1,9 @@
 import { useLayoutEffect, type RefObject } from 'react'
 import { report } from '@/lib/errors/report'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { browserApi, type BrowserRect } from '@/lib/browser-bridge'
-import { useSettingsStore } from '@/features/settings/store'
 import { observeRect } from '@/features/browser/lib/observe-rect'
-import {
-  registerWebview,
-  setWebviewVisible,
-  webviewCreated,
-} from '@/features/browser/lib/webview-registry'
+import { ensureWebview } from '@/features/browser/lib/ensure-webview'
+import { webviewCreated } from '@/features/browser/lib/webview-registry'
 
 function rectOf(node: HTMLElement): BrowserRect {
   const { x, y, width, height } = node.getBoundingClientRect()
@@ -23,42 +18,35 @@ interface Options {
   placeholderRef: RefObject<HTMLElement | null>
 }
 
-/** Keeps a native webview laid over `placeholderRef`. A tab switch or pane move unmounts this,
- *  which only hides the webview; the buffer's release closes it (see disposeBuffers). */
+/** Keeps a native webview laid over `placeholderRef` while `visible`, parked off screen
+ *  otherwise. A tab switch or pane move unmounts this, which only parks the webview; the
+ *  buffer's release closes it (see disposeBuffers). */
 export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }: Options) {
-  // The webview is made the first time the tab is shown, never at restore: the
-  // registry is the one record of whether Rust has it.
+  // The webview is made the first time the tab is shown unless the agent got
+  // there first: the registry is the one record of whether Rust has it.
   useLayoutEffect(() => {
     const node = placeholderRef.current
     if (!hasUrl || !node) return
-    let created = webviewCreated(bufferId)
-    if (!created) {
-      if (!visible) return
-      const buffer = windowPaneStore.getState().bufferActions.getBufferById(bufferId)
-      if (buffer?.type !== 'browser') return
-      const zoom = useSettingsStore.getState().settings.browserZoom / 100
-      created = browserApi.open(bufferId, buffer.url, rectOf(node), zoom)
-      registerWebview(bufferId, created)
-      void created.catch((err: unknown) => report(err, { action: 'Open the page' }))
+    const existing = webviewCreated(bufferId)
+    if (!visible) {
+      void existing
+        ?.then(() => browserApi.park(bufferId))
+        .catch((err: unknown) => report(err, { action: 'Hide the page' }))
+      return
     }
-    const ready = created
+    const ready = existing ?? ensureWebview(bufferId, rectOf(node), false)
+    if (!ready) return
+    if (existing) {
+      void existing
+        .then(() => browserApi.unpark(bufferId, rectOf(node)))
+        .catch((err: unknown) => report(err, { action: 'Show the page' }))
+    }
     return observeRect(node, () =>
       ready
         .then(() => browserApi.setBounds(bufferId, rectOf(node)))
         .catch((err: unknown) => report(err, { action: 'Resize the page' })),
     )
   }, [bufferId, hasUrl, visible, placeholderRef])
-
-  // Layout effects run in the commit, before paint: the hide for an overlay that
-  // mounts in this commit is issued before the frame that would show it.
-  useLayoutEffect(() => {
-    const created = webviewCreated(bufferId)
-    if (!hasUrl || !created) return
-    void created
-      .then(() => browserApi.setVisible(bufferId, visible))
-      .then(() => setWebviewVisible(bufferId, visible))
-      .catch((err: unknown) => report(err, { action: visible ? 'Show the page' : 'Hide the page' }))
-  }, [bufferId, hasUrl, visible])
 
   // A native view outlives its pane's DOM; whoever unmounts must take it off screen.
   useLayoutEffect(() => {
@@ -67,8 +55,7 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
       const created = webviewCreated(bufferId)
       if (!created) return
       void created
-        .then(() => browserApi.setVisible(bufferId, false))
-        .then(() => setWebviewVisible(bufferId, false))
+        .then(() => browserApi.park(bufferId))
         .catch((err: unknown) => report(err, { action: 'Hide the page' }))
     }
   }, [bufferId, hasUrl])

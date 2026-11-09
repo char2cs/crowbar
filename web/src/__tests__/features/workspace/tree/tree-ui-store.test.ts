@@ -129,6 +129,8 @@ describe('collapsed rows', () => {
     expect(Object.keys(record ?? {}).sort()).toEqual([
       'activeTab',
       'collapsedChatRows',
+      'hostFilter',
+      'lastProjectByHost',
       'updatedAt',
     ])
   })
@@ -331,6 +333,54 @@ describe('the sidebar mode', () => {
     expect(parseSidebarTab('git')).toBe('git')
     expect(parseSidebarTab('workspaces')).toBe('chats')
     expect(parseSidebarTab(undefined)).toBe('chats')
+  })
+})
+
+// The host filter shares the record with the folds and the mode, so every write carries all.
+describe('the host filter', () => {
+  it('defaults to no host chosen and nothing remembered', () => {
+    expect(state().hostFilter).toBe('')
+    expect(state().lastProjectByHost).toEqual({})
+  })
+
+  it('persists the choice alongside the folds and the mode, and reads it back', async () => {
+    state().setActiveTab('git')
+    state().toggleChatRow('f1')
+    state().setHostFilter('h1')
+    await vi.waitFor(async () => expect((await loadSidebarUI())?.hostFilter).toBe('h1'))
+    expect((await loadSidebarUI())?.collapsedChatRows).toEqual(['f1'])
+    expect((await loadSidebarUI())?.activeTab).toBe('git')
+
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
+    await hydrateSidebar()
+    expect(state().hostFilter).toBe('h1')
+  })
+
+  it('a fold or a mode change keeps the saved choice', async () => {
+    state().setHostFilter('h1')
+    state().setActiveTab('files')
+    await vi.waitFor(async () => expect((await loadSidebarUI())?.activeTab).toBe('files'))
+    expect((await loadSidebarUI())?.hostFilter).toBe('h1')
+  })
+
+  it('remembers each host’s open project across a reload', async () => {
+    state().rememberHostProject('h1', 'p1')
+    state().rememberHostProject('h2', 'p9')
+    await vi.waitFor(async () =>
+      expect((await loadSidebarUI())?.lastProjectByHost).toEqual({ h1: 'p1', h2: 'p9' }),
+    )
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
+    await hydrateSidebar()
+    expect(state().lastProjectByHost).toEqual({ h1: 'p1', h2: 'p9' })
+  })
+
+  it('choosing the host already chosen, or remembering the same project, changes nothing', () => {
+    state().setHostFilter('h1')
+    state().rememberHostProject('h1', 'p1')
+    const before = state()
+    state().setHostFilter('h1')
+    state().rememberHostProject('h1', 'p1')
+    expect(state()).toBe(before)
   })
 })
 

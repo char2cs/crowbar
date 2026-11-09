@@ -41,7 +41,6 @@ describe('useSidebarChangedFiles', () => {
   it('returns empty when wsId is null', () => {
     const { result } = renderHook(() => useSidebarChangedFiles(null))
     expect(result.current.files).toEqual([])
-    expect(result.current.uncommittedCount).toBe(0)
   })
 
   it('paints the status projection until the workspace’s summary has loaded, then upgrades to it', () => {
@@ -58,13 +57,12 @@ describe('useSidebarChangedFiles', () => {
 
     setState('ws-closed', {
       reviewFiles: [
-        summaryDiff('src/a.ts', { additions: 3, deletions: 1, uncommitted: true }),
-        summaryDiff('src/b.ts', { additions: 5, uncommitted: true }),
+        summaryDiff('src/a.ts', { additions: 3, deletions: 1 }),
+        summaryDiff('src/b.ts', { additions: 5 }),
       ],
     })
     expect(result.current.files[0].additions).toBe(3)
     expect(result.current.files[0].deletions).toBe(1)
-    expect(result.current.uncommittedCount).toBe(2)
   })
 
   it('shows committed-only files that the status projection lacks', () => {
@@ -73,14 +71,13 @@ describe('useSidebarChangedFiles', () => {
       gitStatus: makeStatus([sf('src/wip.ts', 'modified')]),
       reviewFiles: [
         summaryDiff('src/committed.ts', { additions: 10 }),
-        summaryDiff('src/wip.ts', { additions: 2, uncommitted: true }),
+        summaryDiff('src/wip.ts', { additions: 2 }),
       ],
     })
 
     const { result } = renderHook(() => useSidebarChangedFiles('ws-committed'))
 
     expect(result.current.files.map((f) => f.file_path)).toEqual(['src/committed.ts', 'src/wip.ts'])
-    expect(result.current.uncommittedCount).toBe(1)
   })
 
   // Switching the focused workspace selects another slice: no empty frame and

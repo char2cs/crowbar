@@ -70,6 +70,8 @@ export interface AgentChatViewProps {
   live: boolean
   /** The chat exists, so a prompt can be queued: live, dormant or spawning. */
   canSend: boolean
+  /** The chat's host does not answer: the composer is read-only. */
+  offline?: boolean
   /** How the conversation continues (why it is dormant, or from what). */
   sessionNote?: string
   /** The CLI the chat is moving onto is still connecting. */
@@ -115,6 +117,7 @@ export function AgentChatView({
   switchDisabled,
   live,
   canSend,
+  offline = false,
   sessionNote,
   connecting,
   active,
@@ -316,6 +319,7 @@ export function AgentChatView({
   const composerState = () =>
     resolveComposerState({
       live: canSend,
+      offline,
       submitUnavailable: prompts.unsupported,
       terminalWait,
       compacting,
@@ -431,6 +435,7 @@ export function AgentChatView({
                 providerLabel={providerLabel}
                 permissionLevels={provider?.permissionLevels}
                 live={canSend}
+                offline={offline}
                 working={working}
                 compacting={compacting}
                 sending={prompts.sending}

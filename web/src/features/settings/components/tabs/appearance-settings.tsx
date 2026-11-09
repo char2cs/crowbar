@@ -15,12 +15,17 @@ import { SettingSelect } from '@/features/settings/components/setting-select'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import { cn } from '@/utils/cn'
 import { FontSelector } from '../font-selector'
-import type { Theme, ThemeMode } from '@/features/settings/types/settings'
+import type { TabListScope, Theme, ThemeMode } from '@/features/settings/types/settings'
 
 const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'Sync with System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
+]
+
+const TAB_LIST_SCOPE_OPTIONS: { value: TabListScope; label: string }[] = [
+  { value: 'project', label: 'Current project' },
+  { value: 'all', label: 'Everything on this client' },
 ]
 
 const SIDEBAR_POSITION_OPTIONS: { value: 'left' | 'right'; label: string }[] = [
@@ -132,6 +137,7 @@ export const AppearanceSettings = () => {
       <Section title="Typography">
         <SettingRow
           label="UI Font Family"
+          layout="stacked"
           description="Font family for UI elements (file tree, markdown, etc.)"
           onReset={() => updateSetting('uiFontFamily', getDefaultSetting('uiFontFamily'))}
           canReset={settings.uiFontFamily !== getDefaultSetting('uiFontFamily')}
@@ -146,6 +152,7 @@ export const AppearanceSettings = () => {
 
         <SettingRow
           label="Heading Font Family"
+          layout="stacked"
           description="Font for headings — Markdown titles, dialog titles, settings section titles"
           onReset={() => updateSetting('headingFontFamily', getDefaultSetting('headingFontFamily'))}
           canReset={settings.headingFontFamily !== getDefaultSetting('headingFontFamily')}
@@ -190,6 +197,21 @@ export const AppearanceSettings = () => {
             width="compact"
             onValueChange={(value) => {
               if (value) updateSetting('sidebarPosition', value as 'left' | 'right')
+            }}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Tab list"
+          description="Which tabs the strip lists: those of the current project, or every tab open on this client across all projects and hosts"
+          onReset={() => updateSetting('tabListScope', getDefaultSetting('tabListScope'))}
+          canReset={settings.tabListScope !== getDefaultSetting('tabListScope')}
+        >
+          <SettingSelect
+            options={TAB_LIST_SCOPE_OPTIONS}
+            value={settings.tabListScope}
+            width="compact"
+            onValueChange={(value) => {
+              if (value) updateSetting('tabListScope', value as TabListScope)
             }}
           />
         </SettingRow>

@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { releaseClosedChat } from '@/features/panes/lib/release-closed-chat'
+import { settlePinnedOrder, setViewPinned } from '@/features/panes/lib/view-pins'
 import {
   fillPane,
   insertPane,
@@ -32,6 +33,7 @@ type ViewActions = Pick<
   | 'closePane'
   | 'closeView'
   | 'reorderView'
+  | 'setViewPinned'
   | 'activateView'
   | 'setActiveProject'
   | 'closeViewsForProject'
@@ -127,6 +129,13 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
         const order = state.viewOrder.filter((id) => id !== viewId)
         order.splice(order.indexOf(targetId) + (mode === 'after' ? 1 : 0), 0, viewId)
         state.viewOrder = order
+        settlePinnedOrder(state)
+      })
+    },
+
+    setViewPinned(viewId, pinned) {
+      set((state) => {
+        setViewPinned(state, viewId, pinned)
       })
     },
 

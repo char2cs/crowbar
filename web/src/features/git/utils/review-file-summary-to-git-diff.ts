@@ -5,9 +5,8 @@ import type { GitDiff } from '@/features/git/types/git-types'
 // to a referentially stable result across renders (mirrors git-status-to-changed-files).
 const EMPTY: GitDiff[] = []
 
-/** The files summary as GitDiff[]: with ± counts and an honest `uncommitted` (false for
- *  committed-only files). `lines` stays empty — the summary has no content; binaries' -1 counts
- *  are hidden by SidebarFileRowCounts. */
+/** The files summary as GitDiff[], with ± counts. `lines` stays empty — the summary has no
+ *  content; binaries' -1 counts are hidden by SidebarFileRowCounts. */
 export function reviewFilesSummaryToChangedFiles(
   files: ReviewFileSummary[] | undefined | null,
 ): GitDiff[] {
@@ -26,7 +25,6 @@ function reviewFileSummaryToGitDiff(file: ReviewFileSummary): GitDiff {
     is_renamed: file.status === 'renamed',
     additions: file.additions,
     deletions: file.deletions,
-    uncommitted: file.uncommitted,
     lines: [],
   }
 }

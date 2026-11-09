@@ -86,6 +86,13 @@ interface TreeUiState {
   draft: CreateDraft | null
   /** The mode the user chose; what shows also depends on availability (sidebar-panel-tabs.ts). */
   activeTab: SidebarTab
+  /**
+   * The host whose projects the switcher lists; '' until one is chosen. A preference only: what
+   * shows is `shownHostOf` (host-filter.ts), where the active project's host wins.
+   */
+  hostFilter: string
+  /** Each host's project the window last had open, so choosing the host returns there. */
+  lastProjectByHost: Readonly<Record<string, string>>
 }
 
 interface TreeUiActions {
@@ -113,6 +120,8 @@ interface TreeUiActions {
   startDraft: (draft: CreateDraft) => void
   cancelDraft: () => void
   setActiveTab: (tab: SidebarTab) => void
+  setHostFilter: (hostId: string) => void
+  rememberHostProject: (hostId: string, projectId: string) => void
 }
 
 type TreeUi = TreeUiState & TreeUiActions
@@ -128,9 +137,16 @@ function renamingRoleFor(rowId: string): 'tree' | 'recents' {
   return tree ? 'tree' : 'recents'
 }
 
-// Folds and mode share one record, so every write carries both.
-function persist(collapsed: ReadonlySet<string>, activeTab: SidebarTab): void {
-  void saveSidebarUI({ collapsedChatRows: [...collapsed], activeTab })
+type Persisted = Pick<TreeUiState, 'collapsed' | 'activeTab' | 'hostFilter' | 'lastProjectByHost'>
+
+// Folds, mode, host filter and per-host projects share one record, so every write carries all.
+function persist(s: Persisted): void {
+  void saveSidebarUI({
+    collapsedChatRows: [...s.collapsed],
+    activeTab: s.activeTab,
+    hostFilter: s.hostFilter,
+    lastProjectByHost: { ...s.lastProjectByHost },
+  })
 }
 
 function withIds(set: ReadonlySet<string>, ids: readonly string[]): Set<string> {
@@ -148,6 +164,8 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
   hiddenIds: NO_IDS,
   draft: null,
   activeTab: 'chats',
+  hostFilter: '',
+  lastProjectByHost: {},
 
   startRenaming: (rowId, role) =>
     set({ renaming: rowId, renamingRole: role ?? renamingRoleFor(rowId) }),
@@ -159,7 +177,7 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
     set((s) => {
       const next = new Set(s.collapsed)
       if (!next.delete(rowId)) next.add(rowId)
-      persist(next, s.activeTab)
+      persist({ ...s, collapsed: next })
       return { collapsed: next }
     }),
 
@@ -221,15 +239,28 @@ export const treeUiStore = createStore<TreeUi>()((set) => ({
       if (!s.collapsed.has(draft.parentId)) return { draft }
       const collapsed = new Set(s.collapsed)
       collapsed.delete(draft.parentId)
-      persist(collapsed, s.activeTab)
+      persist({ ...s, collapsed })
       return { draft, collapsed }
     }),
   cancelDraft: () => set({ draft: null }),
   setActiveTab: (activeTab) =>
     set((s) => {
       if (s.activeTab === activeTab) return s
-      persist(s.collapsed, activeTab)
+      persist({ ...s, activeTab })
       return { activeTab }
+    }),
+  setHostFilter: (hostFilter) =>
+    set((s) => {
+      if (s.hostFilter === hostFilter) return s
+      persist({ ...s, hostFilter })
+      return { hostFilter }
+    }),
+  rememberHostProject: (hostId, projectId) =>
+    set((s) => {
+      if (s.lastProjectByHost[hostId] === projectId) return s
+      const lastProjectByHost = { ...s.lastProjectByHost, [hostId]: projectId }
+      persist({ ...s, lastProjectByHost })
+      return { lastProjectByHost }
     }),
 }))
 

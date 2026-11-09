@@ -144,8 +144,8 @@ function RemoteProjectMark({
   )
 }
 
-// The active project's icon and name (host under it when remote), the other projects' icons, and
-// a trailing `+`; the name truncates first. The mark edits the icon, double-clicking the name
+// The active project's icon and name (host under it when remote), a leading `+`, then the other
+// projects' icons; the name truncates first. The mark edits the icon, double-clicking the name
 // renames. Memoized: every prop is a primitive or a stable callback.
 export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   projects,
@@ -166,13 +166,16 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
     <div
       data-testid="sidebar-project-switcher"
       style={scale?.bar}
-      className={cn('flex shrink-0 items-center gap-2 overflow-hidden px-3', !scale && 'h-11')}
+      className={cn(
+        'group/switcher flex shrink-0 items-center gap-2 overflow-hidden px-3',
+        !scale && 'h-11',
+      )}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         {active && (
           <>
-            <span className={TILE} style={scale?.tile}>
-              <EditableProjectIcon project={active} size="lg" />
+            <span className={cn(TILE, '-ml-1')} style={scale?.tile}>
+              <EditableProjectIcon project={active} size={scale ? 'xl' : 'lg'} />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
               {renamingId === active.id ? (
@@ -202,6 +205,30 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           </>
         )}
       </div>
+      {onAddProject && (
+        <Button
+          onClick={onAddProject}
+          variant="ghost"
+          size="icon-sm"
+          // With several projects the `+` is zero-width (and cancels the row's gap) until the
+          // row is hovered or holds focus; the row, not the `+`, owns the hover so it can't flicker.
+          data-reveal={projects.length > 1 ? 'hover' : undefined}
+          className={cn(
+            TILE,
+            'p-0 text-muted-foreground hover:bg-sidebar-element-hover',
+            'transition-[width,margin,opacity] duration-150 motion-reduce:transition-none',
+            'data-[reveal=hover]:-ml-2 data-[reveal=hover]:border-0 data-[reveal=hover]:w-0 data-[reveal=hover]:overflow-hidden data-[reveal=hover]:opacity-0',
+            'data-[reveal=hover]:group-hover/switcher:ml-0 data-[reveal=hover]:group-hover/switcher:border data-[reveal=hover]:group-hover/switcher:w-7 data-[reveal=hover]:group-hover/switcher:opacity-100',
+            'data-[reveal=hover]:group-focus-within/switcher:ml-0 data-[reveal=hover]:group-focus-within/switcher:border data-[reveal=hover]:group-focus-within/switcher:w-7 data-[reveal=hover]:group-focus-within/switcher:opacity-100',
+            'data-[reveal=hover]:pointer-coarse:ml-0 data-[reveal=hover]:pointer-coarse:border data-[reveal=hover]:pointer-coarse:w-7 data-[reveal=hover]:pointer-coarse:opacity-100',
+          )}
+          tooltip="Add space"
+          tooltipSide="bottom"
+          aria-label="Add space"
+        >
+          <PlusIcon size={16} />
+        </Button>
+      )}
       {others.map((project) =>
         project.hostId === LOCAL_HOST.id ? (
           <ProjectMark
@@ -214,19 +241,6 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
         ) : (
           <RemoteProjectMark key={project.id} project={project} onSelect={onSelectProject} />
         ),
-      )}
-      {onAddProject && (
-        <Button
-          onClick={onAddProject}
-          variant="ghost"
-          size="icon-sm"
-          className={cn(TILE, 'p-0 text-muted-foreground hover:bg-sidebar-element-hover')}
-          tooltip="Add space"
-          tooltipSide="bottom"
-          aria-label="Add space"
-        >
-          <PlusIcon size={16} />
-        </Button>
       )}
     </div>
   )

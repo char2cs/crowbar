@@ -23,7 +23,12 @@ import {
   type RowDragExtra,
   type SidebarPaneHit,
 } from '@/components/sidebar/lib/sidebar-drag-hover'
-import { dispatchDrop, type DropHandlers } from '@/components/sidebar/lib/sidebar-drop-dispatch'
+import {
+  commitRowDrop,
+  dispatchDrop,
+  type DropHandlers,
+} from '@/components/sidebar/lib/sidebar-drop-dispatch'
+import { createStripDrag, type StripDrag } from '@/components/sidebar/lib/tab-strip-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 // One drag arm for SidebarTree and the Recents tabs. This owns the pointer (press, threshold,
@@ -74,6 +79,8 @@ function tryCapturePointer(target: Element, pointerId: number): boolean {
 export interface UseSidebarDragOptions extends DropHandlers {
   /** The tree/band's own scroll container — what an edge-held drag scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>
+  /** The strip of view tabs this drag may reorder within, when the pointer is in its band. */
+  strip?: () => HTMLElement | null
 }
 
 export interface SidebarDrag {
@@ -118,6 +125,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   const scrollerXRef = useRef<{ left: number; right: number } | null>(null)
   // The scroller the wheel-lock was attached to, so endDrag removes it from the same element.
   const wheelLockScrollerRef = useRef<HTMLElement | null>(null)
+  const stripRef = useRef<StripDrag | null>(null)
   const grabRef = useRef<GrabOffset>({ dx: 0, dy: 0 })
   const draggingRef = useRef<ActiveDrag | null>(null)
   const pendingRef = useRef<{
@@ -205,12 +213,15 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         pending.startY,
       )
 
-      const rows = cloneGhostRows(
-        elements.length > 0 ? elements : [pending.target],
-        subjects.length,
-      )
+      const stripEl = optionsRef.current.strip?.()
+      stripRef.current = stripEl ? createStripDrag(stripEl, pending.target, grabRef.current) : null
+      if (stripRef.current) grabRef.current = stripRef.current.grab
+      const rows =
+        stripRef.current?.ghostRows() ??
+        cloneGhostRows(elements.length > 0 ? elements : [pending.target], subjects.length)
 
-      if (scroller && scrollerBox) {
+      // The strip scrolls itself sideways and takes the wheel; the vertical scroller is for the tree.
+      if (scroller && scrollerBox && !stripRef.current) {
         scrollerXRef.current = { left: scrollerBox.left, right: scrollerBox.right }
         edgeScrollerRef.current = createEdgeScroller(
           scroller,
@@ -231,7 +242,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       }
 
       draggingRef.current = drag
-      ghostOriginRef.current = {
+      ghostOriginRef.current = stripRef.current?.position(e.clientX, e.clientY) ?? {
         x: e.clientX - grabRef.current.dx,
         y: e.clientY - grabRef.current.dy,
       }
@@ -269,7 +280,10 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
 
       // READS before WRITES. The hit test forces layout; writing the ghost's
       // position first would make every move a read-after-write reflow.
-      const hit = hitTest(e.clientX, e.clientY, drag.subjects)
+      const strip = stripRef.current
+      const hit = strip?.inBand(e.clientX, e.clientY)
+        ? null
+        : hitTest(e.clientX, e.clientY, drag.subjects)
 
       // Edge scroll only while the pointer is over the tree/band's own column: the band depends
       // on Y alone, so a row carried sideways onto a pane would keep the list scrolling.
@@ -278,7 +292,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         edgeScrollerRef.current?.update(e.clientY)
       } else edgeScrollerRef.current?.stop()
 
-      if (ghostRef.current) {
+      if (strip) strip.move(e.clientX, e.clientY, ghostRef.current)
+      else if (ghostRef.current) {
         // One composited transform, not two layout-triggering offsets.
         ghostRef.current.style.transform = ghostTransform(
           e.clientX - grabRef.current.dx,
@@ -290,6 +305,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     }
 
     function endDrag(): void {
+      stripRef.current?.dispose()
+      stripRef.current = null
       edgeScrollerRef.current?.stop()
       edgeScrollerRef.current = null
       scrollerXRef.current = null
@@ -323,6 +340,17 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       if (!drag) return
 
       suppressNextClick()
+      const strip = stripRef.current
+      if (strip?.inBand(e.clientX, e.clientY)) {
+        // The strip already decided where the tab goes; the pointer's own row is not the answer.
+        const beside = strip.drop(e.clientX)
+        const row =
+          beside && rowDom.read(beside.el.querySelector('[data-sidebar-recents-row]') ?? beside.el)
+        if (row) commitRowDrop(drag.subjects, row.id, beside.mode, true, optionsRef.current)
+        strip.settle(e.clientX)
+        endDrag()
+        return
+      }
       dispatchDrop(drag.subjects, e.clientX, e.clientY, optionsRef.current)
       endDrag()
     }
@@ -344,6 +372,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     window.addEventListener('blur', onWindowBlur)
     return () => {
       edgeScrollerRef.current?.stop()
+      stripRef.current?.dispose()
+      stripRef.current = null
       // A teardown mid-drag would otherwise leave the document marked and the
       // selection blocked, with no drag left to end and clear them.
       document.documentElement.removeAttribute('data-row-dragging')

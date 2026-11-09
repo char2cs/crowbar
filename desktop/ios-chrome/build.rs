@@ -3,6 +3,7 @@ const COMMANDS: &[&str] = &[
     "set_sidebar",
     "set_agents_settings",
     "set_hosts_settings",
+    "set_host_picker",
     "set_files",
     "set_tabs",
     "set_context",

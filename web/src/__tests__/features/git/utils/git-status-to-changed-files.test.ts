@@ -43,11 +43,10 @@ describe('gitStatusToChangedFiles', () => {
     ])
   })
 
-  it('carries no per-file line counts or uncommitted flag (unavailable from status)', () => {
+  it('carries no per-file line counts (unavailable from status)', () => {
     const [entry] = gitStatusToChangedFiles([file('a.ts', 'modified')])
     expect(entry.additions).toBeUndefined()
     expect(entry.deletions).toBeUndefined()
-    expect(entry.uncommitted).toBeUndefined()
   })
 
   it('dedupes a path listed twice (staged + unstaged) into a single entry', () => {

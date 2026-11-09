@@ -32,6 +32,8 @@ interface SidebarTreeSurfaceProps {
   /** The create-space panel replaces SpaceScroller while true (not a panel in its snap track), so
    *  a swipe between spaces can never land on it. */
   creatingSpace?: boolean
+  /** The host the create form starts on: the one the switcher is showing. */
+  newSpaceHostId?: string
   onCreateSpace?: (project: Project) => void
   onCancelCreateSpace?: () => void
 }
@@ -43,6 +45,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   activeProjectId,
   onActiveProjectChange,
   creatingSpace = false,
+  newSpaceHostId,
   onCreateSpace = () => {},
   onCancelCreateSpace = () => {},
 }: SidebarTreeSurfaceProps) {
@@ -103,7 +106,11 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
       <ErrorBoundary>
         {creatingSpace ? (
           <Suspense fallback={null}>
-            <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
+            <CreateSpacePanel
+              defaultHostId={newSpaceHostId}
+              onCreate={onCreateSpace}
+              onCancel={onCancelCreateSpace}
+            />
           </Suspense>
         ) : (
           <SpaceScroller

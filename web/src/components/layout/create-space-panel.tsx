@@ -29,6 +29,8 @@ function remoteCreateHint(
 }
 
 interface CreateSpacePanelProps {
+  /** The daemon the form starts on; Local when absent. */
+  defaultHostId?: string
   onCreate: (project: Project) => void
   onCancel: () => void
 }
@@ -67,12 +69,16 @@ async function applyStagedIcon(
 /** The "Create a Space" sheet, reached from the switcher's `+`, replacing SpaceScroller so a
  *  swipe never lands on it. Its icon pick is staged (no project id yet) and applied once the
  *  create settles, before `onCreate`: the new space arrives with its icon already set. */
-export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) {
+export function CreateSpacePanel({
+  defaultHostId = LOCAL_HOST.id,
+  onCreate,
+  onCancel,
+}: CreateSpacePanelProps) {
   const [name, setName] = useState('')
   const [folder, setFolder] = useState<{ hostId: string; path: string } | null>(null)
   const [stagedIcon, setStagedIcon] = useState<StagedIcon | null>(null)
   const [loading, setLoading] = useState(false)
-  const [hostId, setHostId] = useState('local')
+  const [hostId, setHostId] = useState(defaultHostId)
 
   const stagedEmoji = stagedIcon?.kind === 'emoji' ? stagedIcon.emoji : undefined
   const stagedIconUrl =

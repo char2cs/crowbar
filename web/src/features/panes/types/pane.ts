@@ -37,6 +37,8 @@ export interface ViewRecord {
   id: string
   projectId: string
   layout: LayoutNode
+  /** Kept at the band's front, compact, without a ×. Absent on layouts saved before pinning. */
+  pinned?: boolean
 }
 
 export interface LayoutLeaf {

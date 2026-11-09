@@ -122,7 +122,7 @@ describe('pairingFailureText', () => {
     ],
     [
       'keychain is locked',
-      `Couldn’t pair with ${at}. Try again, or run crowbar pair on the host for a new code.`,
+      `Couldn’t pair with homelab. Try again, or run crowbar pair on the host for a new code.`,
     ],
     [
       'the keychain could not keep the token for 1.2.3.4:3737 (keychain is locked); the host revoked it',
@@ -133,7 +133,7 @@ describe('pairingFailureText', () => {
       KEYCHAIN_DANGLING,
     ],
   ])('%s', (raw, text) => {
-    expect(pairingFailureText(raw, at)).toBe(text)
-    expect(pairingFailureText(new Error(raw), at)).toBe(text)
+    expect(pairingFailureText(raw, at, 'homelab')).toBe(text)
+    expect(pairingFailureText(new Error(raw), at, 'homelab')).toBe(text)
   })
 })

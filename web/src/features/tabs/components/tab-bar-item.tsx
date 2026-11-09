@@ -109,7 +109,7 @@ const TabBarItem = memo(function TabBarItem({
               'h-8 max-w-full',
               'gap-1.5 pl-2.5 pr-8',
               // Unsaved+active signals with the border only; the fill stays the ghost
-              // variant's muted active one. Shadows: ROW_ACTIVE's (workspace-row-base.ts).
+              // variant's muted active one. Shadows: TAB_ACTIVE's (view-row.tsx).
               isActive &&
                 isDirtyEditor &&
                 'rounded-sm border-primary shadow-xs shadow-black/10 ' +

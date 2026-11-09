@@ -29,10 +29,9 @@ describe('reviewFilesSummaryToChangedFiles', () => {
     expect(added.is_new).toBe(true)
     expect(added.additions).toBe(5)
     expect(untracked.is_new).toBe(true)
-    expect(untracked.uncommitted).toBe(true)
   })
 
-  it('maps deleted and modified with their counts and uncommitted flag', () => {
+  it('maps deleted and modified with their counts', () => {
     const [deleted, modified] = reviewFilesSummaryToChangedFiles([
       summaryFile('gone.ts', 'deleted', { deletions: 9 }),
       summaryFile('keep.ts', 'modified', { additions: 3, deletions: 1, uncommitted: true }),
@@ -43,7 +42,6 @@ describe('reviewFilesSummaryToChangedFiles', () => {
     expect(modified.is_deleted).toBe(false)
     expect(modified.is_renamed).toBe(false)
     expect(modified.additions).toBe(3)
-    expect(modified.uncommitted).toBe(true)
   })
 
   it('maps renamed carrying the old path', () => {
@@ -61,13 +59,5 @@ describe('reviewFilesSummaryToChangedFiles', () => {
     ])
     expect(bin.additions).toBe(-1)
     expect(bin.deletions).toBe(-1)
-  })
-
-  it('committed-only files carry uncommitted=false (no badge)', () => {
-    const [committed] = reviewFilesSummaryToChangedFiles([
-      summaryFile('src/x.ts', 'modified', { additions: 4, uncommitted: false }),
-    ])
-    expect(committed.uncommitted).toBe(false)
-    expect(committed.additions).toBe(4)
   })
 })

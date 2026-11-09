@@ -1,4 +1,5 @@
 import { cn } from '@/utils/cn'
+import { IS_MOBILE } from '@/utils/platform'
 
 // The one column box header labels and row controls share, so they align by construction: the
 // switch width varies by breakpoint (~30-38px), and 56px also fits "Installed" as the UI scales.
@@ -18,7 +19,7 @@ export function ProviderColumnHeader() {
     <div
       aria-hidden="true"
       data-testid="provider-columns-header"
-      className="flex items-center gap-2 px-1 pb-1"
+      className={cn('flex items-center gap-2 pb-1', IS_MOBILE ? 'px-4' : 'px-1')}
     >
       <div className="min-w-0 flex-1" />
       <span className={PROVIDER_COLUMN_LABEL}>Installed</span>

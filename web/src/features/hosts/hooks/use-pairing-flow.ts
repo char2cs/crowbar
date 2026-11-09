@@ -103,7 +103,7 @@ export function usePairingFlow({
       setFingerprint(fp)
       setStage('fingerprint')
     } catch (err) {
-      setError(pairingFailureText(err, target))
+      setError(pairingFailureText(err, target, trimmedName))
     } finally {
       setPending(null)
     }
@@ -134,6 +134,8 @@ export function usePairingFlow({
 
   async function submitCode(entered = code): Promise<CodeOutcome> {
     if (pending) return 'busy'
+    // A code with no confirmed fingerprint has no host to pair: nothing is dialed.
+    if (stage !== 'code') return 'invalid'
     if (entered !== code) setCode(entered)
     if (!/^\d{6}$/.test(entered)) {
       setTurnedAway(true)
@@ -146,7 +148,7 @@ export function usePairingFlow({
       onPaired(hostId.current)
       return 'paired'
     } catch (err) {
-      setError(pairingFailureText(err, dialed.current))
+      setError(pairingFailureText(err, dialed.current, name.trim()))
       return 'failed'
     } finally {
       setPending(null)

@@ -99,6 +99,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // Where the current catch-up began, so a staircase of corrections is one gap.
   const easeFrom = useRef<number | null>(null)
   const landNext = useRef(true)
+  // A landing waits for rows still at their estimated heights: `fromBottom` is held, not read.
+  const holding = useRef(false)
   // The reader let go on purpose: their own climb back within STICK_SLACK
   // (a smooth wheel scroll's first steps) is reading, not rejoining.
   const reading = useRef(false)
@@ -141,12 +143,21 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       if (el.clientHeight === 0) return
       const land = landNext.current
       landNext.current = false
+      holding.current = false
       if (!stuck.current) {
-        if (land && fromBottom.current !== null) {
-          write(el, Math.max(0, el.scrollHeight - fromBottom.current))
+        const keep = land ? fromBottom.current : null
+        if (keep === null || keep <= el.scrollHeight) {
+          if (keep !== null) write(el, Math.max(0, el.scrollHeight - keep))
+          fromBottom.current = el.scrollHeight - el.scrollTop
+          return
         }
-        fromBottom.current = el.scrollHeight - el.scrollTop
-        return
+        // Too short for the distance: rows still at their estimates may grow into it, so hold.
+        if (wasMeasuring.current) {
+          landNext.current = holding.current = true
+          return
+        }
+        // Measured and still short: the reader's place is not loaded, so the newest end is honest.
+        setStuck(true)
       }
       // The ceiling, not scrollHeight: an unreachable target overshoots on the first frame.
       const target = el.scrollHeight - el.clientHeight
@@ -171,7 +182,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       }
       fromBottom.current = el.scrollHeight - el.scrollTop
     },
-    [write],
+    [write, setStuck],
   )
 
   useLayoutEffect(() => {
@@ -194,7 +205,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       optionsRef.current.onPositionChange?.({
         stuck: stuck.current,
         distanceFromBottom:
-          el.clientHeight > 0
+          el.clientHeight > 0 && !holding.current
             ? el.scrollHeight - el.scrollTop
             : (fromBottom.current ?? el.scrollHeight - el.scrollTop),
       })

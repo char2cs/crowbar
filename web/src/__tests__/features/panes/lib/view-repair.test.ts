@@ -109,4 +109,18 @@ describe('repairViewState', () => {
     repairViewState(state)
     expect(JSON.stringify(state)).toBe(snapshot)
   })
+
+  it('keeps a pinned flag and gathers the pinned views at the front', () => {
+    const state = band()
+    state.views.v3 = { ...state.views.v3, pinned: true }
+    const repaired = repairViewState(state)
+    expect(repaired.viewOrder).toEqual(['v3', 'v1', 'v2'])
+    expect(repaired.views.v3.pinned).toBe(true)
+    expect(viewIntegrityViolations(repaired)).toEqual([])
+  })
+
+  it('an unpinned layout saved before pinning existed loads with nothing pinned', () => {
+    const repaired = repairViewState(band())
+    expect(Object.values(repaired.views).some((v) => v.pinned)).toBe(false)
+  })
 })

@@ -41,6 +41,16 @@ describe('resolveComposerState', () => {
     expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })
   })
 
+  // Nothing typed or answered here can reach an unreachable host, so the bar says so
+  // over a feed failure and a pending question as much as over an input.
+  it('is a read-only signpost while the host is unreachable, over everything else', () => {
+    const state = resolveComposerState(
+      inputs({ offline: true, feedError: 'did not line up', asks: [askItem()] }),
+    )
+    expect(state).toEqual({ kind: 'signpost', reason: 'offline', message: 'Offline — read-only' })
+    expect(acceptsTyping(state)).toBe(false)
+  })
+
   it('is a signpost for a provider that cannot take a typed prompt', () => {
     expect(resolveComposerState(inputs({ submitUnavailable: true }))).toMatchObject({
       kind: 'signpost',

@@ -9,10 +9,11 @@ import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actio
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
-import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { recentsRowOf, registerRecentsRow } from '@/components/sidebar/lib/recents-row-registry'
 import { BuildReadout } from '@/components/layout/build-readout'
-import { useProjectViewIds } from '@/features/panes/hooks/use-project-view-ids'
-import { viewMembers } from '@/features/panes/lib/view-state'
+import { useTabViewIds } from '@/features/panes/hooks/use-tab-view-ids'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { viewChatIds, viewMembers } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { readSelect, selectRepos } from '@/core/entities/select'
@@ -20,34 +21,32 @@ import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
 import { PaneTopRow } from './pane-top-row'
 import TabNavigationButtons from './tab-navigation-buttons'
 
-// Every tab is this wide, a split included.
-const ROW_WIDTH_PX = 176
+// Tabs share the strip equally between these bounds, a split included; the
+// strip scrolls only once every tab is at the minimum.
+const TAB_MAX_WIDTH_PX = 240
+const TAB_MIN_WIDTH_PX = 112
 
 /** The sidebar's Recents rows across the top, one per view of the active project, behaving as in
  *  the sidebar; draws nothing until a view exists. While mounted it owns the sidebar-reopen
  *  toggle, because the panes below it are not at the window's top edge. */
 export const ViewTabsRow = memo(function ViewTabsRow() {
   const navigate = useNavigate()
-  const viewIds = useProjectViewIds()
+  const viewIds = useTabViewIds()
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const rowsRef = useRef(new Map<string, { row: SidebarRowType; viewId: string }>())
-  const registerRow = (row: SidebarRowType, viewId: string) => {
-    rowsRef.current.set(row.id, { row, viewId })
-  }
   const drag = useSidebarDrag({
     scrollRef,
+    strip: () => scrollRef.current,
     // A tab moves as a whole: grabbing any chat of a split carries them all.
+    // Membership is read from the pane store at grab time, so a chat closed
+    // out of the split is not carried back; the registry only supplies row data.
     subjectsFor: (rowId) => {
-      const viewId = rowsRef.current.get(rowId)?.viewId
+      const { panes, views } = windowPaneStore.getState()
+      const viewId = panes[chatPaneIndex(panes).get(rowId) ?? '']?.viewId
       if (!viewId) return []
-      const rows: SidebarRowType[] = []
-      for (const entry of rowsRef.current.values()) {
-        if (entry.viewId === viewId) rows.push(entry.row)
-      }
-      return rows
+      return viewChatIds({ panes, views }, viewId).flatMap((id) => recentsRowOf(id) ?? [])
     },
     onDrop: performSidebarDrop,
     onPaneDrop: performSidebarPaneDrop,
@@ -71,17 +70,19 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
       isBottomPane={false}
       isAtLeftEdge={isAtLeftEdge}
       isAtTopEdge={isAtTopEdge}
-      className="bg-transparent py-0 pr-2"
+      className="chrome-surface bg-transparent py-0 pr-2"
     >
       {!sidebarOpen && sidebarPosition === 'left' && isAtLeftEdge && toggle}
       <div
         ref={scrollRef}
         data-testid="view-tabs"
+        data-view-tab-strip
         role="tablist"
         aria-label="Open views"
         data-drop-axis="x"
         data-tauri-drag-region
-        className="tab-scrollbar flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"
+        // py-1 / -my-1: room for the lifted tab's outline and shadow inside the clip, with no layout change.
+        className="tab-scrollbar -my-1 flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden py-1"
       >
         {viewIds.map((viewId) => (
           <ViewTabSlot key={viewId} viewId={viewId}>
@@ -90,7 +91,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
               onFocus={(id) => focusRecent(id, readSelect(selectRepos), navigate)}
               onClose={closeRecent}
               drag={drag}
-              registerRow={registerRow}
+              registerRow={registerRecentsRow}
             />
           </ViewTabSlot>
         ))}
@@ -114,9 +115,17 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
 
 function ViewTabSlot({ viewId, children }: { viewId: string; children: React.ReactNode }) {
   const hasMembers = useStore(windowPaneStore, (s) => viewMembers(s, viewId).length > 0)
+  const pinned = useStore(windowPaneStore, (s) => !!s.views[viewId]?.pinned)
   if (!hasMembers) return null
   return (
-    <div className="shrink-0" style={{ width: ROW_WIDTH_PX }}>
+    <div
+      data-pinned={pinned || undefined}
+      style={{
+        flex: `1 1 ${TAB_MAX_WIDTH_PX}px`,
+        minWidth: TAB_MIN_WIDTH_PX,
+        maxWidth: TAB_MAX_WIDTH_PX,
+      }}
+    >
       {children}
     </div>
   )

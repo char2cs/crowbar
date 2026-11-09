@@ -102,6 +102,49 @@ describe('AddHostScreen', () => {
     expect(sheet()).toMatchObject({ stage: 'address', busy: false })
   })
 
+  it('names the host in the sheet when the code could not be redeemed', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    vi.mocked(redeemPairingCode).mockRejectedValueOnce(new Error('keychain is locked'))
+    render(<AddHostScreen onPaired={vi.fn()} />)
+    await send({ type: 'start' })
+    await send({ type: 'submitAddress', name: 'srv-b-again', address: '1.2.3.4:3737' })
+    await waitFor(() => expect(sheet().stage).toBe('fingerprint'))
+    await send({ type: 'confirmFingerprint' })
+    await send({ type: 'submitCode', code: '123456' })
+
+    await waitFor(() => expect(sheet().error).toMatch(/^Couldn’t pair with srv-b-again\./))
+  })
+
+  it('dials nothing for a code sent before any fingerprint was confirmed', async () => {
+    render(<AddHostScreen onPaired={vi.fn()} />)
+    await send({ type: 'start' })
+    await send({ type: 'submitCode', code: '123456' })
+
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+    expect(sheet().error).toBeNull()
+  })
+
+  it('says a host paired under another name is already paired, naming it', async () => {
+    useHostConfigStore.setState({
+      hosts: [
+        {
+          id: 'srv-b',
+          name: 'crowbar-srv-b',
+          endpoint: '10.0.0.9:3737',
+          pairedFingerprint: 'SHA256:aaaa',
+          clientId: 'c1',
+        },
+      ],
+    })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    render(<AddHostScreen onPaired={vi.fn()} />)
+    await send({ type: 'start' })
+    await send({ type: 'submitAddress', name: 'srv-b-again', address: 'srv-b.lan:3737' })
+
+    await waitFor(() => expect(sheet().error).toMatch(/already paired as crowbar-srv-b/))
+    expect(sheet().stage).toBe('address')
+  })
+
   it('turns away a code that is not six digits without dialing the host', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     render(<AddHostScreen onPaired={vi.fn()} />)

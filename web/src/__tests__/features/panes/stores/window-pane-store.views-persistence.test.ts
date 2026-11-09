@@ -62,6 +62,22 @@ describe('the band survives a reload', () => {
     expect(lastSavedLayout().viewOrder).toEqual([second, first])
   })
 
+  it('pinning ALONE arms the timer, and the pin rides on the saved record', () => {
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.openChat('chat-a')
+    paneActions.openChat('chat-b')
+    vi.advanceTimersByTime(300)
+    mockSave.mockClear()
+    const [first, second] = windowPaneStore.getState().viewOrder
+
+    paneActions.setViewPinned(second, true)
+    vi.advanceTimersByTime(300)
+
+    expect(mockSave).toHaveBeenCalledTimes(1)
+    expect(lastSavedLayout().viewOrder).toEqual([second, first])
+    expect(lastSavedLayout().views?.[second].pinned).toBe(true)
+  })
+
   it('activeProjectId is deliberately NOT persisted — the route says where now is', () => {
     windowPaneStore.getState().paneActions.setActiveProject('project-a')
     windowPaneStore.getState().paneActions.openChat('chat-a')

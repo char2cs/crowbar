@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
-import { ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
+import { ROW_HAS_VIEW_IDLE, ROW_INACTIVE, ROW_NEST_TARGET, TAB_IDLE } from './workspace-row-base'
 
 /** Where the pointer sits inside the grabbed row; subtracted from the pointer so the ghost
  *  stays under the spot you took hold of rather than snapping its corner to the cursor. */
@@ -105,12 +105,27 @@ export function DragGhostRows({ rows }: { rows: GhostRows }) {
   )
 }
 
-// A carried clone wears ROW_ACTIVE whatever it wore in the list: ROW_INACTIVE has no fill and
-// vanishes over the editor. Says nothing about which workspace is open; the source row is
-// unchanged.
+// The raised white control surface, pinned in every mode: --background goes charcoal in dark,
+// which vanishes over the dark chrome the ghost is dragged across.
+export const LIFTED =
+  'control-surface outline outline-1 outline-border! shadow-md shadow-black/15 ' +
+  'inset-shadow-[0_1px_var(--elevated-highlight)]'
+
+const AMBIENT = `${ROW_INACTIVE} ${ROW_HAS_VIEW_IDLE} ${ROW_NEST_TARGET} ${TAB_IDLE}`.split(/\s+/)
+
+// A clone drops what it wore at rest, open or as a drop target (keyed to the sidebar's surface,
+// near invisible over the editor) and takes the lifted surface. The source row is unchanged.
 function liftClone(clone: HTMLElement): void {
-  for (const cls of ROW_INACTIVE.split(/\s+/)) clone.classList.remove(cls)
-  for (const cls of ROW_ACTIVE.split(/\s+/)) clone.classList.add(cls)
+  for (const cls of AMBIENT) clone.classList.remove(cls)
+  for (const el of [
+    clone,
+    ...clone.querySelectorAll<HTMLElement>('[class*="foreground-inverse"]'),
+  ]) {
+    for (const cls of [...el.classList]) {
+      if (cls.includes('foreground-inverse')) el.classList.remove(cls)
+    }
+  }
+  for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
 }
 
 // Clones the live rows into the detached nodes {@link DragGhostRows} mounts. Every rect is read
@@ -135,4 +150,26 @@ export function cloneGhostRows(elements: readonly HTMLElement[], count: number):
   })
 
   return { nodes, width: rects[0]?.width ?? 0, height: rects[0]?.height ?? 0, count }
+}
+
+/**
+ * A whole view tab, cloned: every member of a group, its separators and its close
+ * button, not a stack of member rows. Only the lifted surface is added, so what is
+ * carried is exactly what was grabbed, in or out of the strip.
+ */
+export function cloneGhostTab(shell: HTMLElement): GhostRows {
+  const rect = shell.getBoundingClientRect()
+  const clone = shell.cloneNode(true) as HTMLElement
+  clone.removeAttribute('id')
+  // The clone sits in the document beside the real tab: a duplicate test id would shadow it.
+  for (const el of [clone, ...clone.querySelectorAll<HTMLElement>('[data-testid]')]) {
+    el.removeAttribute('data-testid')
+  }
+  liftClone(clone)
+  clone.style.position = 'absolute'
+  clone.style.left = '0'
+  clone.style.top = '0'
+  clone.style.margin = '0'
+  clone.style.width = `${rect.width}px`
+  return { nodes: [clone], width: rect.width, height: rect.height, count: 1 }
 }

@@ -30,15 +30,23 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
   }
 }
 
+const RETIRED_V12 = [
+  'git-data',
+  'file-tree-data',
+  'branch-review-data',
+  'chats-data',
+  'crowbar_threads',
+]
+
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 11, {
+  return openDB<CrowbarDB>('crowbar', 14, {
     upgrade(db, oldVersion) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
       const raw = db as unknown as IDBDatabase
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
-        // editor-state (dropped in v11), ui-preferences (dropped in v10) and
+        // editor-state (dropped in v14), ui-preferences (dropped in v10) and
         // query-cache (dropped in v5) are created only to keep the chain whole.
         raw
           .createObjectStore('editor-state', { keyPath: ['workspaceId', 'bufferId'] })
@@ -66,12 +74,12 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           'branch-review-data',
           'chat-history',
           'projects-data',
-        ] as const) {
-          db.createObjectStore(name, { keyPath: 'key' })
+        ]) {
+          raw.createObjectStore(name, { keyPath: 'key' })
         }
       }
       if (oldVersion < 6) {
-        db.createObjectStore('chats-data', { keyPath: 'key' })
+        raw.createObjectStore('chats-data', { keyPath: 'key' })
       }
       if (oldVersion < 7) {
         // §6 entity cache: complete DTOs keyed by their own id (additive).
@@ -80,8 +88,8 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           'crowbar_repos',
           'crowbar_workspaces',
           'crowbar_threads',
-        ] as const) {
-          db.createObjectStore(name, { keyPath: 'id' })
+        ]) {
+          raw.createObjectStore(name, { keyPath: 'id' })
         }
       }
       if (oldVersion < 8) {
@@ -101,10 +109,19 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
         }
       }
-      if (oldVersion < 11) {
-        // Documents keep their unsaved text as drafts; nothing used the cursor state.
+      if (oldVersion < 12) {
+        // Retired: declared but never read or written by anything.
+        for (const name of RETIRED_V12) {
+          if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
+        }
+      }
+      if (oldVersion < 14) {
+        // Documents keep their unsaved text as drafts. A database a v11-v13 build upgraded may
+        // lack the store (those versions meant other things there), so it is created if missing.
         if (raw.objectStoreNames.contains('editor-state')) raw.deleteObjectStore('editor-state')
-        db.createObjectStore('editor-drafts', { keyPath: 'uri' })
+        if (!raw.objectStoreNames.contains('editor-drafts')) {
+          db.createObjectStore('editor-drafts', { keyPath: 'uri' })
+        }
       }
     },
   })

@@ -138,5 +138,7 @@ export async function hydrateSidebar(): Promise<void> {
     // Absent on older records: replays as "nothing folded", the product default.
     collapsed: new Set(sidebarUI.collapsedChatRows ?? []),
     activeTab: parseSidebarTab(sidebarUI.activeTab),
+    hostFilter: sidebarUI.hostFilter ?? '',
+    lastProjectByHost: sidebarUI.lastProjectByHost ?? {},
   })
 }

@@ -22,6 +22,8 @@ export type SignpostReason =
   | 'reviving'
   /** The pane stopped following the chat's ledger, so an answer would never show. */
   | 'unfollowed'
+  /** The chat's host does not answer: what is shown is the last it said. */
+  | 'offline'
 
 /** The daemon placing a CLI this pane did not ask for — richer than the
  *  collapsed `live` boolean. A dormant chat is NOT one: sending revives it. */
@@ -29,6 +31,8 @@ export type ComposerRevival = { state: 'reviving'; message: string }
 
 export interface ComposerInputs {
   live: boolean
+  /** The chat's host is unreachable: nothing can be sent or answered. */
+  offline?: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
   compacting: boolean
@@ -46,11 +50,13 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
 }
 
 /** Resolves the bar in precedence order, the one thing a person can act on
- *  first: unfollowed, dormant, unsupported, terminal wait, ask, compacting, input.
+ *  first: offline, unfollowed, dormant, unsupported, terminal wait, ask, compacting, input.
  *  A failed turn is not here: its row says why, and the next prompt is the way on. */
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   const { live, submitUnavailable, terminalWait, compacting, asks } = inputs
 
+  // The host does not answer: read-only, whatever else is true.
+  if (inputs.offline) return { kind: 'signpost', reason: 'offline', message: 'Offline — read-only' }
   if (inputs.feedError) return { kind: 'signpost', reason: 'unfollowed', message: inputs.feedError }
   if (!live) return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
   if (submitUnavailable) {

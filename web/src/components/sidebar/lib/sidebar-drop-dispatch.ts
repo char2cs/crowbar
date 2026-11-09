@@ -39,13 +39,23 @@ export function dispatchDrop(
     return
   }
   if (hit?.kind === 'row') {
-    // The hit's row is what the DOM published, not a SidebarRow: the caller gets the live
-    // one, and none when it left the tree since the hit test.
-    const target = handlers.subjectsFor(hit.row.id).find((r) => r.id === hit.row.id)
-    if (target) handlers.onDrop([...subjects], target, hit.row.mode, Boolean(hit.row.inRecents))
+    commitRowDrop(subjects, hit.row.id, hit.row.mode, Boolean(hit.row.inRecents), handlers)
     return
   }
   toastRefusal(subjects, x, y)
+}
+
+/** Commits a drop onto row `targetId`. The id is what the DOM published, not a SidebarRow: the
+ *  caller gets the live one, and nothing when it left the tree since the hit test. */
+export function commitRowDrop(
+  subjects: readonly SidebarRow[],
+  targetId: string,
+  mode: DropMode,
+  inRecents: boolean,
+  handlers: DropHandlers,
+): void {
+  const target = handlers.subjectsFor(targetId).find((r) => r.id === targetId)
+  if (target) handlers.onDrop([...subjects], target, mode, inRecents)
 }
 
 // A null hit is also a row whose policy refused every mode, which would otherwise look

@@ -54,6 +54,7 @@ function renderPane(initial: Props) {
         setReturnOffered: view.setReturnOffered,
         terminalApiRef: { current: null },
         dormant,
+        offline: false,
         startSession,
       })
       return { ...view, ...escort }

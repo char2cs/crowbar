@@ -43,9 +43,9 @@ const NOT_CROWBAR = /^TLS handshake with |presented no certificate/
 const KEYCHAIN = /^the keychain could not keep the token/
 const STILL_LISTED = /revoking it on the host failed/
 
-/** What a failed probe or pairing of `address` means for the user, in plain words: the desktop
- *  shell's own text names transport and OS errors, which are never shown. */
-export function pairingFailureText(err: unknown, address: string): string {
+/** What a failed probe or pairing of the host `name` at `address` means for the user, in plain
+ *  words: the desktop shell's own text names transport and OS errors, which are never shown. */
+export function pairingFailureText(err: unknown, address: string, name: string): string {
   const text = err instanceof Error ? err.message : String(err)
   if (KEYCHAIN.test(text)) return keychainFailureText(text, address)
   const refused = REFUSED.exec(text)
@@ -70,7 +70,7 @@ export function pairingFailureText(err: unknown, address: string): string {
   if (NOT_CROWBAR.test(text)) {
     return `${address} answered, but not as a Crowbar host. Check the address and port.`
   }
-  return `Couldn’t pair with ${address}. Try again, or run crowbar pair on the host for a new code.`
+  return `Couldn’t pair with ${name}. Try again, or run crowbar pair on the host for a new code.`
 }
 
 /** The code was spent and the key never saved: the keychain, not the code, is what to fix. */

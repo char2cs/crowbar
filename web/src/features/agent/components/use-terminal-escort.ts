@@ -27,6 +27,8 @@ interface EscortOptions {
   terminalApiRef: RefObject<{ focus: () => void } | null>
   /** No CLI runs on the chat, and startSession starts one. */
   dormant: boolean
+  /** The chat's host does not answer, so asking it to fork a terminal view can only fail. */
+  offline: boolean
   startSession: () => void
 }
 
@@ -80,6 +82,7 @@ export function useTerminalEscort(options: EscortOptions) {
       setPresentation('terminal')
       return true
     }
+    if (options.offline) return false
     try {
       await switchToTerminal(wsId, chatId)
       setPresentation('terminal')

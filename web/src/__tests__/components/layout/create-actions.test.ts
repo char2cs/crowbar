@@ -28,8 +28,14 @@ import * as providersApi from '@/features/agent/api/agent-providers-api'
 const listGlobalProviders = vi
   .spyOn(providersApi, 'listGlobalProviders')
   .mockImplementation(() => new Promise(() => {}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
+import { toast } from '@/features/window/stores/toast-store'
+vi.spyOn(toast, 'error').mockImplementation(toastError)
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
 }))
 
 import {
@@ -37,7 +43,7 @@ import {
   confirmCreateDraft,
   cancelCreateDraft,
 } from '@/components/layout/create-actions'
-import { createThread } from '@/__tests__/__fixtures__/draft-thread'
+import { createThread, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
 import { handleTrash } from '@/components/layout/trash-actions'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
@@ -402,6 +408,16 @@ describe('creating a workspace off a REGULAR fork row', () => {
     await createThread('ws-a', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
+  })
+
+  // The phone lands a new thread on the chat, so it opens the draft whatever the default.
+  it('opens its thread "+" as a draft on the phone, even with Terminal preferred', async () => {
+    preferTerminalOnCodex()
+    seedRepos([forkRepo()])
+    platform.mobile = true
+    await handleCreate('ws-a', 'thread', vi.fn()).finally(() => (platform.mobile = false))
+    expect(createChat).not.toHaveBeenCalled()
+    expect(draftPaneId()).toBeDefined()
   })
 
   it('says why instead of silently doing nothing when no provider is enabled', async () => {

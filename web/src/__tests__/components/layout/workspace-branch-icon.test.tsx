@@ -32,7 +32,7 @@ describe('WorkspaceBranchIcon placeholder', () => {
   })
 })
 
-// On the inverted ROW_ACTIVE ground, `invertedGround` swaps the ambient `text-foreground` so the
+// On the inverted TAB_ACTIVE ground, `invertedGround` swaps the ambient `text-foreground` so the
 // icon stays visible; the fixed status colours read on either ground and are untouched.
 describe('WorkspaceBranchIcon invertedGround', () => {
   it('swaps text-foreground for text-foreground-inverse on a "new" branch icon', () => {

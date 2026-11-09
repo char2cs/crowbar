@@ -1,20 +1,28 @@
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 import { usePaneAttachment } from '@/features/agent/components/use-pane-attachment'
 import { resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 
 function attachmentOn(
   chatId: string,
   {
     providerName = 'Claude',
     presentation = 'terminal',
-  }: { providerName?: string; presentation?: 'chat' | 'terminal' } = {},
+    hostId = 'local',
+  }: { providerName?: string; presentation?: 'chat' | 'terminal'; hostId?: string } = {},
 ) {
   return renderHook(() =>
     usePaneAttachment({
       wsId: 'w1',
+      hostId,
       chatId,
       providerName,
       presentation,
@@ -97,5 +105,51 @@ describe('usePaneAttachment', () => {
     seedFeed('c1')
 
     expect(attachmentOn('c1', { presentation: 'chat' }).current.connecting).toBeUndefined()
+  })
+
+  describe('when the chat’s host does not answer', () => {
+    const downHost = () => {
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+      seedChats([{ id: 'c1' }])
+      seedFeed('c1')
+    }
+    afterEach(() => {
+      resetHostWorld()
+      destroyHostRuntime('h1')
+      useConnectionStore.setState({ status: 'connected' })
+    })
+
+    it('cannot send, and is offline, until the host is back up', () => {
+      downHost()
+      const result = attachmentOn('c1', { hostId: 'h1' })
+      expect([result.current.offline, result.current.canSend]).toEqual([true, false])
+      act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
+      expect([result.current.offline, result.current.canSend]).toEqual([false, true])
+    })
+
+    it('is offline when the local daemon’s socket is down', () => {
+      useConnectionStore.setState({ status: 'disconnected' })
+      seedChats([{ id: 'c1' }])
+      expect(attachmentOn('c1').current.offline).toBe(true)
+    })
+
+    it('starts no session on it', () => {
+      const resume = vi.spyOn(commandsApi, 'resumeChat').mockResolvedValue('r1')
+      downHost()
+      attachmentOn('c1', { hostId: 'h1' }).current.startSession()
+      expect(resume).not.toHaveBeenCalled()
+    })
+  })
+
+  // Every way onto the terminal may call it: only a known chat that is dormant now is started.
+  it('starts a session from the chat as it is when called, never a live or unknown one', () => {
+    const resume = vi.spyOn(commandsApi, 'resumeChat').mockResolvedValue('r1')
+    seedChats([{ id: 'c1' }])
+    const stale = attachmentOn('c1').current.startSession
+    act(() => seedChats([{ id: 'c1', liveRunnerId: 'r1' }]))
+    stale()
+    attachmentOn('c9').current.startSession()
+    expect(resume).not.toHaveBeenCalled()
   })
 })

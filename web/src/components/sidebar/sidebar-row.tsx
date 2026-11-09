@@ -63,9 +63,9 @@ interface SidebarRowProps {
   inlineRenameDisabled?: boolean
   /** Tree render path only: a row with `hasView` gets the idle ground instead of a muted label,
    *  since an open row should read as present. Recents leaves it unset — a ground there would
-   *  outrank the ROW_ACTIVE entry beside it; the tree never draws ROW_ACTIVE. */
+   *  outrank the TAB_ACTIVE entry beside it; the tree never draws TAB_ACTIVE. */
   hasViewIdle?: boolean
-  /** The row sits on an inverted ROW_ACTIVE ground (a showing Recents row or set member). The
+  /** The row sits on an inverted TAB_ACTIVE ground (a showing Recents row or set member). The
    *  default text tokens track the ambient theme and would be illegible there, so label and
    *  sublabel swap to `text-foreground-inverse`. Never set by the tree. */
   activeGround?: boolean
@@ -138,7 +138,7 @@ export function SidebarRow({
     !row.locked &&
     !!row.branchName &&
     row.label !== row.branchName
-  // An inverted ROW_ACTIVE ground re-keys the trailing buttons too (see ROW_SUB_ACTION_INVERTED).
+  // An inverted TAB_ACTIVE ground re-keys the trailing buttons too (see ROW_SUB_ACTION_INVERTED).
   const subActionClass = cn(ROW_SUB_ACTION_HOVER, activeGround && ROW_SUB_ACTION_INVERTED)
   // A header drawn where its icon can't be edited (the phone's list).
   const isReadOnlyHeader = !isProjectHome && row.kind === 'branch' && !!row.repoIcon
@@ -158,7 +158,7 @@ export function SidebarRow({
         className={cn(
           ROW_BASE,
           isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
-          // Only ROW_INACTIVE's text color: the fill is the ancestor's ROW_ACTIVE ground.
+          // Only ROW_INACTIVE's text color: the fill is the ancestor's TAB_ACTIVE ground.
           !isNestTarget && activeGround && 'text-foreground-inverse',
           !isNestTarget && hasViewIdle && row.hasView && ROW_HAS_VIEW_IDLE,
           isDragging && 'opacity-40',

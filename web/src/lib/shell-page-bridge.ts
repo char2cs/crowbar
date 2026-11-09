@@ -16,8 +16,6 @@ type PageIntent = Extract<
       | 'toggleProviderTools'
       | 'reorderProviders'
       | 'setDefaultPermission'
-      | 'addHost'
-      | 'revokeHost'
       | 'toggleDir'
       | 'openFile'
       | 'dragRow'
@@ -37,7 +35,7 @@ type PageMessage =
   | { type: 'sidebarReady' }
   | RowDrag
   | { type: 'agentsSettingsReady' }
-  | { type: 'hostsSettingsReady' }
+  | { type: 'settingsTabReady' }
   | { type: 'filesReady' }
   | RowMenu
   | PageIntent
@@ -50,7 +48,7 @@ const CHANNELS = {
     receiver: '__crowbarAgentsSettings',
     ready: 'agentsSettingsReady',
   },
-  hosts: { handler: 'settings', receiver: '__crowbarHostsSettings', ready: 'hostsSettingsReady' },
+  tab: { handler: 'settings', receiver: '__crowbarSettingsTab', ready: 'settingsTabReady' },
   files: { handler: 'files', receiver: '__crowbarFiles', ready: 'filesReady' },
 } as const
 type Channel = keyof typeof CHANNELS
