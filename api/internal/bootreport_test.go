@@ -66,23 +66,23 @@ func TestReport_NamesTheStepThatIsRunning(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
-	require.Len(t, healths, 13)
+	require.Len(t, healths, 12)
 	for _, health := range healths {
 		assert.Equal(t, http.StatusOK, health.status)
 		assert.Equal(t, "migrating", health.Data.Status, health.raw)
 	}
-	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 2, Name: "workspace-paths-table"}, Index: 1, Total: 13},
+	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 2, Name: "workspace-paths-table"}, Index: 1, Total: 12},
 		detail[progress](t, healths[0]))
-	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 6, Name: "chat-ledger"}, Index: 4, Total: 13},
+	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 6, Name: "chat-ledger"}, Index: 4, Total: 12},
 		detail[progress](t, healths[3]))
-	assert.Equal(t, progress{Phase: "post-open", Step: migrate.ID{Number: 1, Name: "project-homes"}, Index: 9, Total: 13},
-		detail[progress](t, healths[8]))
+	assert.Equal(t, progress{Phase: "post-open", Step: migrate.ID{Number: 1, Name: "project-homes"}, Index: 8, Total: 12},
+		detail[progress](t, healths[7]))
 	assert.Equal(t, http.StatusServiceUnavailable, refusals[0].status)
 	assert.Equal(t, "daemon_migrating", refusals[0].Code)
-	assert.Equal(t, "Crowbar is upgrading its data (step 1 of 13: workspace-paths-table)", refusals[0].Error)
-	assert.Equal(t, "Crowbar is upgrading its data (step 4 of 13: chat-ledger)", refusals[3].Error)
-	assert.Equal(t, "Crowbar is upgrading its data (step 12 of 13: hook-deliveries)", refusals[11].Error)
-	assert.Equal(t, "Crowbar is upgrading its data (step 13 of 13: placement-tree)", refusals[12].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 1 of 12: workspace-paths-table)", refusals[0].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 4 of 12: chat-ledger)", refusals[3].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 11 of 12: hook-deliveries)", refusals[10].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 12 of 12: placement-tree)", refusals[11].Error)
 }
 
 // The gate spells its refusal codes itself, to stay free of dependencies; they
