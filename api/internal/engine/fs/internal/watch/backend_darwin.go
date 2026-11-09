@@ -115,9 +115,11 @@ func newBackend(
 }
 
 // resolveRoots records every root's real path and returns the outermost ones:
-// a stream is recursive, so a main worktree's .git needs no root of its own.
+// a stream is recursive, so a main worktree's .git needs no root of its own. An
+// anchor is a root because a stream reports a rename of its root, not of an ancestor.
 func (b *fseventsBackend) resolveRoots() []string {
-	for _, p := range append([]string{b.spec.tree}, b.spec.gitDirs...) {
+	paths := append(append([]string{b.spec.tree}, b.spec.gitDirs...), b.spec.anchors...)
+	for _, p := range paths {
 		real, err := filepath.EvalSymlinks(p)
 		if err != nil {
 			if p != b.spec.tree {
@@ -235,12 +237,12 @@ func (b *fseventsBackend) spelled(
 }
 
 // wanted reports whether a per-directory watch over spec would see path: anything in a
-// ref tree, a git dir's direct entries, and working-tree entries whose every ancestor
-// survives spec.skip. A stream rooted at one file reports that file alone, in any case.
+// ref tree, a git dir's direct entries, an anchor itself, and working-tree entries whose
+// every ancestor survives spec.skip. A stream rooted at one file reports that file alone.
 func (b *fseventsBackend) wanted(
 	path string,
 ) bool {
-	if b.spec.file {
+	if b.spec.file || containsString(b.spec.anchors, path) {
 		return true
 	}
 	for _, root := range b.spec.refTrees {

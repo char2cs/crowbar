@@ -11,8 +11,9 @@ type watchSpec struct {
 	skip     func(dir string) bool
 	gitDirs  []string
 	refTrees []string
-	// anchors are directories whose own move or removal must be seen: each is
-	// watched through its parent, whose other entries the watcher drops.
+	// anchors are directories whose own move or removal must be seen: inotify
+	// watches each through its parent, whose other entries the watcher drops;
+	// FSEvents makes each a stream root, which reports the root's own rename.
 	anchors []string
 }
 
