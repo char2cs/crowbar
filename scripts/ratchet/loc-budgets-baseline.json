@@ -1,7 +1,7 @@
 {
   "go.app-misc": 2901,
-  "go.chat": 28675,
-  "go.cmd": 2889,
+  "go.chat": 28673,
+  "go.cmd": 2888,
   "go.core": 12094,
   "go.domain": 5179,
   "go.dto": 1459,
@@ -13,8 +13,8 @@
   "go.store": 10700,
   "go.stream": 2802,
   "go.test-support": 4118,
-  "go.tests": 224719,
-  "go.total": 125967,
+  "go.tests": 224668,
+  "go.total": 125964,
   "go.wiring": 2190,
   "web.app-shell": 1900,
   "web.browser": 972,
@@ -29,7 +29,7 @@
   "web.settings": 6056,
   "web.sidebar": 13993,
   "web.terminal": 3927,
-  "web.tests": 122762,
+  "web.tests": 122761,
   "web.total": 100282,
   "web.workspace-panes": 13075
 }
