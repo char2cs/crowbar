@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useBuffersByIds } from '@/features/workspace/stores/hooks/use-buffer-store'
 import type {
   BrowserContent,
@@ -11,7 +11,11 @@ import { NewTabView } from './new-tab-view'
 import { renderPaneContent } from './pane-content-registry'
 import { sidebarSurfaceOf, sidebarSurfaceRoot } from '../lib/sidebar-surface'
 import { TerminalPane } from './terminal-pane'
-import { BrowserPane } from '@/features/browser/components/browser-pane'
+
+// Lazy: the page and pointer agents it injects load with the first browser tab, not at boot.
+const BrowserPane = lazy(() =>
+  import('@/features/browser/components/browser-pane').then((m) => ({ default: m.BrowserPane })),
+)
 
 type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type'>
 type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
@@ -141,11 +145,13 @@ export function PaneEditorViewContent({
               className="absolute inset-0 outline-none"
               style={isActive ? undefined : { visibility: 'hidden' }}
             >
-              <BrowserPane
-                paneId={paneId}
-                bufferId={b.id}
-                visible={isActive && showing && !dropTargeted}
-              />
+              <Suspense fallback={null}>
+                <BrowserPane
+                  paneId={paneId}
+                  bufferId={b.id}
+                  visible={isActive && showing && !dropTargeted}
+                />
+              </Suspense>
             </div>
           )
         })}

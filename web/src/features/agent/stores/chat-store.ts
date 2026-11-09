@@ -1,4 +1,5 @@
 import { createStore, useStore } from 'zustand'
+import { forgetWithChat } from '@/features/agent/stores/chat-lifecycle'
 import type { FeedFrame } from '@/features/agent/api/chat-rows'
 import { applyReady } from '@/features/agent/stores/lib/fold-live'
 import { applyLive, applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
@@ -56,6 +57,7 @@ export function dropFeed(chatId: string) {
   const { [chatId]: _dropped, ...rest } = feeds
   chatStore.setState({ feeds: rest })
 }
+forgetWithChat(dropFeed)
 
 /** A frame the live feed folds as it comes: a row past the replay, or a delta. */
 export type LiveFrame = Extract<FeedFrame, { type: 'row' | 'delta' }>

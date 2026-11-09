@@ -30,7 +30,7 @@ export async function hydrateCriticalStores(): Promise<void> {
   // waits for it, so the restored chat mounts in the first commit.
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
   // The shown chats' rows replay while that chunk loads and evaluates.
-  holdShownChatFeeds()
+  void holdShownChatFeeds()
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
   if (remoteHosts) await remoteHosts

@@ -418,10 +418,10 @@ describe('SpaceScroller', () => {
       expect(onTrashProject).not.toHaveBeenCalled()
     })
 
-    it("More…'s Import a repo opens the add-repository dialog", () => {
+    it("More…'s Import a repo opens the add-repository dialog", async () => {
       const panel = renderScroller()
       fireEvent.click(openMore(panel)[0])
-      expect(screen.getByRole('dialog', { name: 'Add repository' })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Add repository' })).toBeInTheDocument()
     })
 
     it("More…'s Create a new folder starts a folder on the project's home workspace", () => {

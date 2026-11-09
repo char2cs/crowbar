@@ -21,7 +21,6 @@ import {
 } from './open-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { newDraftChatId } from '@/features/agent/lib/draft-chat'
-import { draftLanding, finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startHomeRowThread } from './home-actions'
 import {
   createInFlight,
@@ -206,21 +205,4 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
 /** Closes the naming input; nothing was sent, so nothing rolls back. */
 export function cancelCreateDraft(): void {
   treeUiStore.getState().cancelDraft()
-}
-
-/** Creates the chat a repo-workspace draft was waiting to become, with its first prompt. */
-export function promoteRepoDraft(
-  draft: DraftSpec,
-  prompt: DraftPrompt,
-  typedSince: () => string,
-): Promise<void> {
-  const { projectId, workspaceId } = draft
-  return startThread({
-    inFlightKey: `draft:${draft.draftId}`,
-    projectId,
-    workspaceId,
-    parentId: draft.parentId || workspaceId,
-    ...draftLanding(prompt),
-    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt, typedSince),
-  })
 }

@@ -36,10 +36,10 @@ beforeEach(() => {
 })
 
 describe('holdShownChatFeeds', () => {
-  it('subscribes the shown chat before any view mounts, and only while it is shown', () => {
+  it('subscribes the shown chat before any view mounts, and only while it is shown', async () => {
     seedChats([{ id: 'chat-a' }, { id: 'chat-b' }])
     showViews('view-a')
-    holdShownChatFeeds()
+    await holdShownChatFeeds()
     expect(heldScopes('chat:')).toEqual(['chat:chat-a'])
     showViews('view-b')
     expect(heldScopes('chat:')).toEqual(['chat:chat-b'])

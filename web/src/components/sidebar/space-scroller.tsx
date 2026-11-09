@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActiveSessionsSection } from './active-sessions-section'
@@ -8,7 +8,6 @@ import { TreeFoot } from './tree-foot'
 import { UnreadNotice } from './unread-notice'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
-import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { toast } from '@/features/window/stores/toast-store'
@@ -16,6 +15,13 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import type { Project } from '@/lib/types'
+
+// Lazy so the dialog and its folder pickers load after first paint, not with the boot bundle.
+const AddRepositoryModal = lazy(() =>
+  import('@/components/projects/add-repository-modal').then((m) => ({
+    default: m.AddRepositoryModal,
+  })),
+)
 
 interface SpaceScrollerProps {
   projects: Project[]
@@ -84,7 +90,13 @@ function SpacePanel({
       data-testid="space-panel"
       className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
     >
-      <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} projectId={project.id} />
+      <Suspense fallback={null}>
+        <AddRepositoryModal
+          open={addRepoOpen}
+          onOpenChange={setAddRepoOpen}
+          projectId={project.id}
+        />
+      </Suspense>
       <ScrollArea className="flex-1">
         <div ref={contentRef} data-testid="space-scroll-content">
           <SpaceHostScope hostId={project.hostId}>

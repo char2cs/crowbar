@@ -11,6 +11,8 @@ import { useLocalOperationsStore } from '@/lib/store/local-operations'
 import { operationsState, putLocalOperation, type Operation } from '@/core/entities/operations'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { chatStore } from '@/features/agent/stores/chat-store'
+// The outbox owns chatStore.outbox and joins the lifecycle's forgetting as it loads.
+import '@/features/agent/stores/chat-outbox'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import { chatEntity, projectDTO, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
 import { pairRemoteHost } from '@/__tests__/__fixtures__/remote-host'
