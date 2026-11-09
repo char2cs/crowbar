@@ -12,8 +12,7 @@ type Workspaces = EntityState['byKind']['workspace']
 
 const forgetters = new Set<(chatId: string) => void>()
 
-/** Per-chat state owned by a lazily loaded module joins the forgetting as that module loads;
- *  before it loads it holds nothing to forget, and boot need not load it. */
+/** A lazily loaded owner of per-chat state joins the forgetting as it loads: unloaded, it holds none. */
 export function forgetWithChat(forget: (chatId: string) => void): void {
   forgetters.add(forget)
 }

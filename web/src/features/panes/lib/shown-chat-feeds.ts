@@ -27,8 +27,8 @@ function holdShown(attach: typeof attachFeed) {
 }
 
 /** A shown chat subscribes as soon as the layout and its host are known, not once its
- *  view's chunk has loaded and mounted: its rows replay while the chunk evaluates. The feed
- *  code loads beside that chunk, so the chat folder stays out of the boot bundle. */
+ *  view's chunk has loaded and mounted: its rows replay while that chunk (and, beside it, this
+ *  feed code, kept out of the boot bundle) evaluates. */
 export function holdShownChatFeeds(): Promise<void> {
   started ??= import('@/features/agent/stores/chat-feed').then(({ attachFeed }) => {
     const hold = () => holdShown(attachFeed)

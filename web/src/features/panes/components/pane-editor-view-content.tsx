@@ -12,8 +12,7 @@ import { renderPaneContent } from './pane-content-registry'
 import { sidebarSurfaceOf, sidebarSurfaceRoot } from '../lib/sidebar-surface'
 import { TerminalPane } from './terminal-pane'
 
-// Lazy so the page and pointer agents it injects stay out of the boot bundle until a
-// browser tab is opened.
+// Lazy: the page and pointer agents it injects load with the first browser tab, not at boot.
 const BrowserPane = lazy(() =>
   import('@/features/browser/components/browser-pane').then((m) => ({ default: m.BrowserPane })),
 )

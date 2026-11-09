@@ -33,25 +33,19 @@ beforeEach(() => {
 afterEach(() => stop())
 
 describe('a chat the daemon deleted', () => {
-  it('takes its feed and its pane with it', () => {
+  it('takes its feed, its waiting prompts and its pane with it', () => {
     writeChat({ id: 'c1' })
     openFeed('c1')
+    chatStore.setState({
+      outbox: { c1: [{ requestId: 'r1', wsId: 'w', text: 'hi', state: 'failed' }] },
+    })
     actions().openChat('c1')
 
     forgetEntities('chat', ['c1'])
 
     expect(chatStore.getState().feeds.c1).toBeUndefined()
-    expect(chatPaneIndex(panes()).has('c1')).toBe(false)
-  })
-
-  it('takes the prompts still waiting in its outbox with it', () => {
-    writeChat({ id: 'c1' })
-    const waiting = { requestId: 'r1', wsId: 'ws1', text: 'hi', state: 'failed' as const }
-    chatStore.setState({ outbox: { c1: [waiting] } })
-
-    forgetEntities('chat', ['c1'])
-
     expect(chatStore.getState().outbox.c1).toBeUndefined()
+    expect(chatPaneIndex(panes()).has('c1')).toBe(false)
   })
 })
 
