@@ -35,12 +35,11 @@ func fieldMap(fields map[string]string) spec.FieldMap {
 // descriptorWithFields is descriptor()'s counterpart for a test that needs a
 // REAL multi-path (first_present:-shaped) field, which a plain
 // map[string]string cannot express.
-func descriptorWithFields(canonical string, fields spec.FieldMap, require_ ...string) *spec.Descriptor {
+func descriptorWithFields(canonical string, fields spec.FieldMap) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		canonical: {In: spec.WireRef{canonical}, Map: fields},
 	}}
 	d.Runtime.Hooks.Format = "json"
-	d.Runtime.Hooks.RequirePayloadFields = require_
 	return d
 }
 

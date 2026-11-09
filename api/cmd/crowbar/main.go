@@ -88,7 +88,7 @@ func serve(
 	if err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
-	defer container.Close()
+	defer container.Close() //nolint:contextcheck // teardown runs after ctx is cancelled; it must not inherit that cancellation
 
 	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
 		"host", host, "address", container.Address(), "pid", os.Getpid(), "home", container.Home())

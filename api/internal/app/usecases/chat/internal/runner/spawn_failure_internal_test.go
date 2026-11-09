@@ -148,8 +148,7 @@ func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "missing-test",
 		spawnInput{runnerID: "runner-1", promptMessage: "hello"})
 
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "resolve descriptor")
+	require.ErrorContains(t, err, "resolve descriptor")
 	assert.NoDirExists(t, filepath.Join(chatsDir, "runners", "runner-1-missing-test"), "no runner dir outlives the refusal")
 }
 

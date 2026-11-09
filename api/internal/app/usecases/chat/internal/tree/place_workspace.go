@@ -21,8 +21,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place workspace %s: %w", workspaceID, err)
 	}
 	if repoID == "" {
-		return domain.Chat{}, nil, fmt.Errorf(
-			"agent chat folder: place workspace %s: %w", workspaceID, problem.ErrNotFound)
+		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place workspace %s: %w", workspaceID, problem.ErrNotFound)
 	}
 	// nodeID is the Node the panel reads this row's position from: a locked branch's anchor, but an
 	// ordinary fork's owning chat, since its anchor is never drawn.
@@ -45,9 +44,10 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 		if nErr != nil && problem.CodeOf(nErr) != problem.NotFound {
 			return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place workspace %s: read node: %w", nodeID, nErr)
 		}
-		if current, err = u.anchorView(ctx, nodeID, n); err != nil {
-			return domain.Chat{}, nil, err
-		}
+		current, err = u.anchorView(ctx, nodeID, n)
+	}
+	if err != nil {
+		return domain.Chat{}, nil, err
 	}
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {

@@ -191,37 +191,26 @@ func build(
 		SessionID:  get("session_id"),
 		Message:    get("message"),
 		TurnID:     get("turn_id"),
-		TurnStatus: get("turn_status"),
+		TurnStatus: mapped(statusMap, get("turn_status")),
 		Model:      get("model"),
 		Effort:     get("effort"),
 		Reason:     get("reason"),
 		Raw:        decoded,
 	}
-	if mapped, ok := statusMap[ev.TurnStatus]; ok {
-		ev.TurnStatus = mapped
-	}
 	switch canonical {
 	case spec.HookSessionStart:
 		// Why it started, in Crowbar's words: a clear starts the conversation over.
-		if mapped, ok := statusMap[ev.Reason]; ok {
-			ev.Reason = mapped
-		}
+		ev.Reason = mapped(statusMap, ev.Reason)
 	case spec.HookUserPrompt:
-		if id := get("scope_id"); id != "" {
-			ev.Subagent = &models.SubagentEvent{ID: id}
-		}
+		ev.Subagent = scope(get("scope_id"))
 	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
 		ev.Tool = buildTool(fields, statusMap, kindMap, locations, diffFiles, patch, decoded)
-		if id := get("scope_id"); id != "" {
-			ev.Subagent = &models.SubagentEvent{ID: id}
-		}
+		ev.Subagent = scope(get("scope_id"))
 	case spec.HookSubagentPre, spec.HookSubagentPost, spec.HookSubagentResult:
 		ev.Subagent = buildSubagent(fields, statusMap, decoded)
 	case spec.HookPlanStep:
 		ev.Step = buildStep(fields, statusMap, decoded)
-		if ev.Step.ScopeID != "" {
-			ev.Subagent = &models.SubagentEvent{ID: ev.Step.ScopeID}
-		}
+		ev.Subagent = scope(ev.Step.ScopeID)
 	case spec.HookNotification:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptNotification, Detail: ev.Message}
 	case spec.HookPermission:
@@ -244,24 +233,35 @@ func build(
 		ev.Plan = buildPlan(steps, decoded)
 	case spec.HookTurnFailed:
 		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail")}
-	case spec.HookCompactPre:
-		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptCompaction, Detail: get("trigger")}
-	case spec.HookCompactPost:
+	case spec.HookCompactPre, spec.HookCompactPost:
 		ev.Interrupt = &models.InterruptEvent{
-			Kind: models.InterruptCompaction, Detail: get("trigger"), Resolved: true,
+			Kind: models.InterruptCompaction, Detail: get("trigger"), Resolved: canonical == spec.HookCompactPost,
 		}
 	}
 	return ev
 }
 
+// mapped is v in Crowbar's words where m names it, else v unchanged.
+func mapped(m map[string]string, v string) string {
+	if out, ok := m[v]; ok {
+		return out
+	}
+	return v
+}
+
+// scope is the subagent an event ran under; nil is the main conversation.
+func scope(id string) *models.SubagentEvent {
+	if id == "" {
+		return nil
+	}
+	return &models.SubagentEvent{ID: id}
+}
+
 func buildSubagent(fields spec.FieldMap, statusMap map[string]string, decoded map[string]any) *models.SubagentEvent {
 	get := func(name string) string { return mapping.String(decoded, fields[name]) }
-	status := get("status")
-	if mapped, ok := statusMap[status]; ok {
-		status = mapped
-	}
 	a := &models.SubagentEvent{
-		ID: get("scope_id"), AgentType: get("agent_type"), Title: get("title"), Status: status, Result: get("result"),
+		ID: get("scope_id"), AgentType: get("agent_type"), Title: get("title"),
+		Status: mapped(statusMap, get("status")), Result: get("result"),
 	}
 	tokens, hasTokens := mapping.Int(decoded, fields["usage.tokens"])
 	uses, hasUses := mapping.Int(decoded, fields["usage.tool_uses"])
@@ -274,12 +274,9 @@ func buildSubagent(fields spec.FieldMap, statusMap map[string]string, decoded ma
 
 func buildStep(fields spec.FieldMap, statusMap map[string]string, decoded map[string]any) *models.PlanStepEvent {
 	get := func(name string) string { return mapping.String(decoded, fields[name]) }
-	status := get("status")
-	if mapped, ok := statusMap[status]; ok {
-		status = mapped
-	}
 	return &models.PlanStepEvent{
-		ScopeID: get("scope_id"), StepID: get("step_id"), Text: get("text"), Detail: get("detail"), Status: status,
+		ScopeID: get("scope_id"), StepID: get("step_id"), Text: get("text"), Detail: get("detail"),
+		Status: mapped(statusMap, get("status")),
 	}
 }
 
@@ -310,10 +307,7 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 		if text == "" {
 			continue
 		}
-		status := mapping.String(row, mapping.Paths(steps.Status))
-		if mapped, ok := steps.StatusMap[status]; ok {
-			status = mapped
-		}
+		status := mapped(steps.StatusMap, mapping.String(row, mapping.Paths(steps.Status)))
 		out = append(out, models.PlanStep{Text: text, Status: status})
 	}
 	if len(out) == 0 {
@@ -324,10 +318,7 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 
 func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locations *spec.LocationsSpec, diffFiles *spec.DiffFilesSpec, patch *spec.PatchSpec, decoded map[string]any) *models.ToolEvent {
 	duration, _ := mapping.Int(decoded, fields["duration_ms"])
-	status := mapping.String(decoded, fields["tool_status"])
-	if mapped, ok := statusMap[status]; ok {
-		status = mapped
-	}
+	status := mapped(statusMap, mapping.String(decoded, fields["tool_status"]))
 	kind := mapping.String(decoded, fields["tool_kind"])
 	if mapped, ok := mapping.LookupKind(kindMap, kind); ok {
 		kind = mapped
