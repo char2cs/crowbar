@@ -37,7 +37,7 @@ describe('a chat the daemon deleted', () => {
     writeChat({ id: 'c1' })
     openFeed('c1')
     chatStore.setState({
-      outbox: { c1: [{ requestId: 'r1', wsId: 'w', text: 'hi', state: 'failed' }] },
+      outbox: { c1: [{ requestId: 'r1', wsId: 'w', text: 'hi', steer: false, state: 'failed' }] },
     })
     actions().openChat('c1')
 
