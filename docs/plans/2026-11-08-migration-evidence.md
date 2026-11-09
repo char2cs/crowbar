@@ -2,8 +2,8 @@
 
 Status: measured 2026-11-08 on Linux, `-tags noEmbed` builds, every daemon in a
 network-less container with the home at its original path (or an isolated
-`CROWBAR_HOME`), fake provider CLIs only. Evidence lives under
-`$T/tmp/d-migrate/` (`$T` = the SDD tools dir); paths below are relative to it.
+`CROWBAR_HOME`), fake provider CLIs only. The raw evidence (homes, logs) is kept
+outside the repository; file names below are relative to its directory.
 
 ## Legacy shapes
 
