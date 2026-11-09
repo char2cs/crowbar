@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -336,4 +337,48 @@ func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {
 	raw, readErr := os.ReadFile(filepath.Join(h.Store(), ActivityDB))
 	require.NoError(t, readErr)
 	assert.Equal(t, "this is not a sqlite database, not even a little", string(raw))
+}
+
+// A home a build before the newer columns last wrote converts: each column its
+// tables lack reads as empty, as a row written before the column existed does.
+func TestApply_AHomeAnOlderBuildLastWroteConverts(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA())
+	older := map[string][]string{
+		ActivityDB: {
+			"agent_turns.status", "agent_turns.diff", "agent_turns.plan", "agent_turns.plan_updated_at",
+			"agent_tool_calls.kind", "agent_tool_calls.locations", "agent_tool_calls.diff", "agent_tool_calls.subagent_id",
+			"agent_subagents.messages", "agent_choices.answered_option_ids",
+		},
+		RunnerDB: {"agent_chat_conversations.last_active_at"},
+	}
+	for db, cols := range older {
+		conn := writable(t, filepath.Join(h.Store(), db))
+		for _, c := range cols {
+			table, col, _ := strings.Cut(c, ".")
+			_, err := conn.ExecContext(t.Context(), "ALTER TABLE "+table+" DROP COLUMN "+col)
+			require.NoError(t, err)
+		}
+		require.NoError(t, conn.Close())
+	}
+	want := chatA()
+	for i := range want.Turns {
+		want.Turns[i].Status, want.Turns[i].Diff, want.Turns[i].Plan = "", "", ""
+	}
+	for i := range want.Tools {
+		want.Tools[i].Kind, want.Tools[i].Locations, want.Tools[i].Diff, want.Tools[i].SubagentID = "", "", "", ""
+	}
+	for i := range want.Subagents {
+		want.Subagents[i].Messages = ""
+	}
+	for i := range want.Choices {
+		want.Choices[i].AnsweredOptionIDs = ""
+	}
+	for i := range want.Conversations {
+		want.Conversations[i].LastActiveAt = time.Time{}
+	}
+
+	boot(t, h)
+
+	assert.Equal(t, convert(t, want, nobody).Rows, held(t, h, "chat-a"))
 }

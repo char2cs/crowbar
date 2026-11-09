@@ -25,7 +25,9 @@ func LiveRunners(ctx context.Context, h home.Home) ([]LegacyRunner, error) {
 		}
 		out = append(out, r)
 		return nil
-	}, `SELECT COALESCE(id, ''), current_chat_id, provider_id, started_at FROM agent_runners
-		WHERE current_chat_id != '' AND provider_id != '' ORDER BY started_at, id`)
+	}, func(map[string]bool) string {
+		return `SELECT COALESCE(id, ''), current_chat_id, provider_id, started_at FROM agent_runners
+		WHERE current_chat_id != '' AND provider_id != '' ORDER BY started_at, id`
+	})
 	return out, err
 }

@@ -24,7 +24,8 @@ type fakeLedger struct {
 	onImport  func(chatID string) error
 	imported  []string
 	importing map[string][]ledger.Row
-	landed    map[string][]ledger.Row // rows State holds after those imported
+	landed    map[string][]ledger.Row // rows the chat holds after those imported
+	folds     int                     // States asked of the store
 }
 
 func (f *fakeLedger) SessionOwner(context.Context, string, string) (string, bool, error) {
@@ -48,11 +49,15 @@ func (f *fakeLedger) Import(_ context.Context, chatID string, rows []ledger.Row)
 	return nil
 }
 
-func (f *fakeLedger) State(_ context.Context, chatID string) (ledger.State, error) {
-	return ledger.Fold(chatID, append(slices.Clone(f.importing[chatID]), f.landed[chatID]...)), nil
+func (f *fakeLedger) State(ctx context.Context, chatID string) (ledger.State, error) {
+	f.folds++
+	rows, err := f.Read(ctx, chatID, 0, 0)
+	return ledger.Fold(chatID, rows), err
 }
 
-func (f *fakeLedger) Read(context.Context, string, int64, int) ([]ledger.Row, error) { return nil, nil }
+func (f *fakeLedger) Read(_ context.Context, chatID string, _ int64, _ int) ([]ledger.Row, error) {
+	return append(slices.Clone(f.importing[chatID]), f.landed[chatID]...), nil
+}
 
 func (f *fakeLedger) Append(context.Context, string, ...ledger.Row) ([]ledger.Row, ledger.State, error) {
 	return nil, ledger.State{}, nil
@@ -83,6 +88,18 @@ func TestConvertAll_StopsBeforeTheNextChatOnceCancelled(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{"chat-b"}, store.imported, "no chat is imported after the cancel")
 	assert.Contains(t, cp, "chat-b")
+}
+
+// The store keeps the State of each chat it is asked for: a boot importing a
+// whole home must not ask it for every chat's.
+func TestConvertAll_AsksTheStoreForNoChatsState(t *testing.T) {
+	store := &fakeLedger{}
+
+	_, err := convertAll(context.Background(), slog.Default(), store, marks{}, inMemory(t, chatB(), chatA()))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"chat-b", "chat-a"}, store.imported)
+	assert.Zero(t, store.folds, "each import is checked against the rows read back")
 }
 
 // A session index that cannot be read stops the step: read as "nobody owns

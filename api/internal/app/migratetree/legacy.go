@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/char2cs/asynx"
@@ -159,18 +160,23 @@ func readNodes(ctx context.Context, path string) ([]tree.Node, error) {
 	return out, err
 }
 
+// readFolders reads the folders table; one a build before home folders wrote
+// has no home_id, as its folders are all a repo's.
 func readFolders(ctx context.Context, db *gormdb.DB) ([]tree.Folder, error) {
-	var tables int64
-	if err := db.WithContext(ctx).Raw(
-		"SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'folders'").Scan(&tables).Error; err != nil {
+	var cols []string
+	if err := db.WithContext(ctx).Raw("SELECT name FROM pragma_table_info('folders')").Scan(&cols).Error; err != nil {
 		return nil, fmt.Errorf("migratetree: look for the folders table: %w", err)
 	}
-	if tables == 0 {
+	if len(cols) == 0 {
 		return nil, nil
+	}
+	home := "''"
+	if slices.Contains(cols, "home_id") {
+		home = "home_id"
 	}
 	var rows []struct{ ID, Name, RepoID, HomeID string }
 	if err := db.WithContext(ctx).Raw(
-		"SELECT id, name, repo_id, home_id FROM folders ORDER BY id").Scan(&rows).Error; err != nil {
+		"SELECT id, name, repo_id, " + home + " AS home_id FROM folders ORDER BY id").Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("migratetree: read folders: %w", err)
 	}
 	out := make([]tree.Folder, len(rows))

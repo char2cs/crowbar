@@ -21,6 +21,7 @@ type source struct {
 	h       home.Home
 	dbs     map[string]*sql.DB
 	tables  []legacyTable
+	sel     map[string]string
 	byKey   map[string]bool
 	runners map[string][]LegacyRunner
 	written time.Time
@@ -28,7 +29,9 @@ type source struct {
 
 // openSource opens the legacy databases read-only; a missing one is no rows.
 func openSource(ctx context.Context, h home.Home) (*source, error) {
-	s := &source{h: h, dbs: map[string]*sql.DB{}, byKey: map[string]bool{}, runners: map[string][]LegacyRunner{}}
+	s := &source{
+		h: h, dbs: map[string]*sql.DB{}, sel: map[string]string{}, byKey: map[string]bool{}, runners: map[string][]LegacyRunner{},
+	}
 	if err := s.open(ctx); err != nil {
 		return nil, errors.Join(err, s.Close())
 	}
@@ -61,22 +64,20 @@ func (s *source) open(ctx context.Context) error {
 	return err
 }
 
-// addTable takes t on when its database holds it, and finds out whether a
-// chat's rows can be looked up by the key the old daemon gave each row.
+// addTable takes t on, as the columns its table has, when its database holds
+// it, and finds out whether a chat's rows can be looked up by the key the old
+// daemon gave each row.
 func (s *source) addTable(ctx context.Context, t legacyTable) error {
 	db := s.dbs[t.db]
 	if db == nil {
 		return nil
 	}
-	var n int
-	if err := db.QueryRowContext(ctx,
-		"SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", t.name).Scan(&n); err != nil {
-		return fmt.Errorf("chatledger: %s: %w", t.name, err)
-	}
-	if n == 0 {
-		return nil
+	has, err := tableColumns(ctx, db, t.name)
+	if err != nil || len(has) == 0 {
+		return err
 	}
 	s.tables = append(s.tables, t)
+	s.sel[t.name] = t.selectList(has)
 	keyed, err := prefixKeyed(ctx, db, t.name)
 	s.byKey[t.name] = keyed
 	return err
@@ -215,11 +216,11 @@ func (s *source) load(ctx context.Context, id string) (LegacyChat, error) {
 	return dated(*r.chats[id], s.written), nil
 }
 
-// query runs SELECT t.cols FROM t WHERE where, handing each row to scan.
+// query runs SELECT t's columns FROM t WHERE where, handing each row to scan.
 func (s *source) query(
 	ctx context.Context, t legacyTable, where string, args []any, scan func(*sql.Rows) error,
 ) (err error) {
-	rows, err := s.dbs[t.db].QueryContext(ctx, "SELECT "+t.cols+" FROM "+t.name+" WHERE "+where, args...)
+	rows, err := s.dbs[t.db].QueryContext(ctx, "SELECT "+s.sel[t.name]+" FROM "+t.name+" WHERE "+where, args...)
 	if err != nil {
 		return fmt.Errorf("chatledger: %s: %w", t.name, err)
 	}

@@ -57,7 +57,9 @@ func (s *Store) importAt(ctx context.Context, chatID string, head int64, rows []
 	if err := s.commit(ctx, chatID, kept, next); err != nil {
 		return err
 	}
-	w.state = &next
+	// Not kept: a boot imports a whole home through one store, and the next
+	// touch folds the rows anyway.
+	w.state = nil
 	w.wake()
 	return nil
 }

@@ -8,28 +8,26 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// legacySource is one table that once said which provider ran on a chat.
+// legacySource is one table that once said which provider ran on a chat: its
+// chat, provider and time columns, and which rows.
 type legacySource struct {
-	db, table, query string
-	args             []any
+	db, table string
+	cols      legacyTable
+	where     string
+	args      []any
 }
 
 var sources = []legacySource{
-	{
-		RunnerDB, "agent_chat_conversations",
-		"SELECT chat_id, provider_id, last_active_at FROM agent_chat_conversations ORDER BY last_active_at, provider_id",
-		nil,
-	},
-	{
-		ActivityDB, "agent_interruptions",
-		"SELECT chat_id, detail, at FROM agent_interruptions WHERE kind = ? ORDER BY at, detail",
-		[]any{providerSwitched},
-	},
-	{
-		RunnerDB, "agent_chat_placements",
-		"SELECT chat_id, provider_id, last_placed_at FROM agent_chat_placements ORDER BY last_placed_at, provider_id",
-		nil,
-	},
+	{RunnerDB, "agent_chat_conversations", columns(text("chat_id"), text("provider_id"), added(bare("last_active_at"))), "", nil},
+	{ActivityDB, "agent_interruptions", columns(text("chat_id"), text("detail"), bare("at")), "WHERE kind = ?", []any{providerSwitched}},
+	{RunnerDB, "agent_chat_placements", columns(text("chat_id"), text("provider_id"), bare("last_placed_at")), "", nil},
+}
+
+func columns(cols ...legacyCol) legacyTable { return legacyTable{cols: cols} }
+
+// query reads src's columns from the table at hand, oldest first.
+func (src legacySource) query(has map[string]bool) string {
+	return "SELECT " + src.cols.selectList(has) + " FROM " + src.table + " " + src.where + " ORDER BY 3, 2"
 }
 
 // NewestProviders maps each chat the legacy history names to the provider it
@@ -39,9 +37,14 @@ func NewestProviders(ctx context.Context, h home.Home) (map[string]string, error
 	newest := map[string]placed{}
 	for _, src := range sources {
 		err := queryLegacy(ctx, filepath.Join(h.Store(), src.db), src.table, func(rows *sql.Rows) error {
-			var p placed
-			if err := rows.Scan(&p.ChatID, &p.ProviderID, &p.At); err != nil {
+			c, err := scanCells(rows, 3)
+			if err != nil {
 				return err
+			}
+			// NULL, as a row an older build wrote before the column existed holds, is no time.
+			p := placed{ChatID: c.str(), ProviderID: c.str(), At: c.time(src.cols.cols[2].name)}
+			if c.err != nil {
+				return c.err
 			}
 			if seen, ok := newest[p.ChatID]; !ok || p.newerThan(seen) {
 				newest[p.ChatID] = p

@@ -1,7 +1,10 @@
 package chatledger
 
 import (
+	"cmp"
 	"encoding/json"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,11 +21,24 @@ const (
 // "open-<chat id>-<runner id>".
 const openTurnPrefix = "open-"
 
+// pendingTurnPrefix is the id the old daemon gave a reply it opened for activity
+// before any text: "turn-<chat id>-<seq>". The reply took that activity on when it
+// closed, but not a record written after, as a subagent's own end.
+const pendingTurnPrefix = "turn-"
+
 // turnOf is the ledger turn a legacy record's turn id names: the turn holding
-// that legacy row, or for an open reply's id the runner's turn at at.
+// that legacy row, for an open reply's id the runner's turn at at, and for a
+// pending reply's the turn running at its seq.
 func (c *conversion) turnOf(legacyTurnID string, at time.Time) *group {
 	if g, ok := c.byID[legacyTurnID]; ok && legacyTurnID != "" {
 		return g
+	}
+	if seq, ok := strings.CutPrefix(legacyTurnID, pendingTurnPrefix+c.chatID+"-"); ok {
+		n, err := strconv.ParseInt(seq, 10, 64)
+		if err != nil {
+			return nil
+		}
+		return c.runningAt(n)
 	}
 	runnerID, ok := strings.CutPrefix(legacyTurnID, openTurnPrefix+c.chatID+"-")
 	if !ok || runnerID == "" {
@@ -38,6 +54,32 @@ func (c *conversion) turnOf(legacyTurnID string, at time.Time) *group {
 		}
 	}
 	return found
+}
+
+// runningAt is the turn holding the last legacy row at or before seq.
+func (c *conversion) runningAt(seq int64) *group {
+	if c.bySeq == nil {
+		for _, g := range c.groups {
+			c.bySeq = append(c.bySeq, seqGroup{g.head.Seq, g})
+			for _, r := range g.replies {
+				c.bySeq = append(c.bySeq, seqGroup{r.Seq, g})
+			}
+			if g.notice != nil {
+				c.bySeq = append(c.bySeq, seqGroup{g.notice.Seq, g})
+			}
+		}
+		slices.SortStableFunc(c.bySeq, func(a, b seqGroup) int { return cmp.Compare(a.seq, b.seq) })
+	}
+	i, _ := slices.BinarySearchFunc(c.bySeq, seq+1, func(e seqGroup, t int64) int { return cmp.Compare(e.seq, t) })
+	if i == 0 {
+		return nil
+	}
+	return c.bySeq[i-1].g
+}
+
+type seqGroup struct {
+	seq int64
+	g   *group
 }
 
 // subagents restate each subagent as a start under its own scope and a stop:

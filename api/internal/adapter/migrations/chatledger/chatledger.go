@@ -126,6 +126,7 @@ type conversion struct {
 	bound   map[string]bool   // provider+"\x00"+session bound to this chat
 	groups  []*group
 	byID    map[string]*group // legacy turn id → its ledger turn
+	bySeq   []seqGroup        // each legacy turn row's seq and ledger turn, by seq
 	agents  map[string]*group // legacy subagent id → its ledger turn
 	adopted map[string]bool   // runners the chat is left live on
 	latest  time.Time

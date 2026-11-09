@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -42,30 +43,72 @@ func modTime(path string) (time.Time, error) {
 // legacyTable is one legacy table the reader reads, column for column as its
 // scan expects, a chat's rows in order.
 type legacyTable struct {
-	db, name, cols, order string
-	scan                  func(*reader, *sql.Rows) error
+	db, name string
+	cols     []legacyCol
+	order    string
+	scan     func(*reader, *sql.Rows) error
 }
 
+// legacyCol is one column a scan reads and what it reads as when NULL (a bare
+// one, as it is). A later one was added after its table: a table an older build
+// created without it reads it as NULL too.
+type legacyCol struct {
+	name, or string
+	later    bool
+}
+
+// selectList is t's columns as the table at hand holds them.
+func (t legacyTable) selectList(has map[string]bool) string {
+	exprs := make([]string, len(t.cols))
+	for i, c := range t.cols {
+		switch {
+		case !has[c.name] && c.later:
+			exprs[i] = cmp.Or(c.or, "NULL")
+		case c.or == "":
+			exprs[i] = c.name
+		default:
+			exprs[i] = "COALESCE(" + c.name + ", " + c.or + ")"
+		}
+	}
+	return strings.Join(exprs, ", ")
+}
+
+// text, number and bare are a column read as ”, as 0, and as it is.
+func text(name string) legacyCol   { return legacyCol{name: name, or: "''"} }
+func number(name string) legacyCol { return legacyCol{name: name, or: "0"} }
+func bare(name string) legacyCol   { return legacyCol{name: name} }
+
+// added is c added to its table after the table was first created.
+func added(c legacyCol) legacyCol { c.later = true; return c }
+
 var legacyTables = []legacyTable{
-	{RunnerDB, "agent_chat_conversations", `COALESCE(chat_id, ''), COALESCE(provider_id, ''), COALESCE(session_id, ''),
-		first_seen_at, last_active_at`, "first_seen_at, session_id", (*reader).conversation},
-	{ActivityDB, "agent_turns", `COALESCE(id, ''), chat_id, COALESCE(role, ''), COALESCE(provider_id, ''),
-		COALESCE(runner_id, ''), COALESCE(session_id, ''), COALESCE(text, ''), COALESCE(effort, ''),
-		COALESCE(status, ''), COALESCE(diff, ''), COALESCE(plan, ''), COALESCE(seq, 0),
-		COALESCE(display_order, 0), COALESCE(item_index, 0), started_at, ended_at`, "seq, id", (*reader).turn},
-	{ActivityDB, "agent_tool_calls", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(name, ''),
-		COALESCE(kind, ''), COALESCE(locations, ''), COALESCE(target, ''), COALESCE(request_ref, ''),
-		COALESCE(result_ref, ''), COALESCE(diff, ''), COALESCE(status, ''), COALESCE(error, ''),
-		COALESCE(subagent_id, ''), COALESCE(seq, 0), COALESCE(duration_ms, 0), started_at, ended_at`, "seq, id", (*reader).tool},
-	{ActivityDB, "agent_subagents", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(agent_type, ''),
-		COALESCE(messages, ''), COALESCE(seq, 0), started_at, ended_at`, "seq, id", (*reader).subagent},
-	{ActivityDB, "agent_interruptions", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(kind, ''),
-		COALESCE(detail, ''), COALESCE(seq, 0), COALESCE(display_order, 0), at, resolved_at`, "seq, id", (*reader).interruption},
-	{ActivityDB, "agent_choices", `COALESCE(id, ''), COALESCE(turn_id, ''), chat_id, COALESCE(kind, ''),
-		COALESCE(prompt_id, ''), COALESCE(tool_id, ''), COALESCE(tool_name, ''), COALESCE(title, ''),
-		COALESCE(question, ''), COALESCE(mode, ''), COALESCE(options, ''), COALESCE(questions, ''),
-		COALESCE(schema, ''), COALESCE(resolution, ''), COALESCE(answered_option_ids, ''),
-		COALESCE(multi, 0), COALESCE(seq, 0), at, resolved_at`, "seq, id", (*reader).choice},
+	{RunnerDB, "agent_chat_conversations", []legacyCol{
+		text("chat_id"), text("provider_id"), text("session_id"), bare("first_seen_at"), added(bare("last_active_at")),
+	}, "first_seen_at, session_id", (*reader).conversation},
+	{ActivityDB, "agent_turns", []legacyCol{
+		text("id"), bare("chat_id"), text("role"), text("provider_id"), text("runner_id"), text("session_id"),
+		text("text"), text("effort"), added(text("status")), added(text("diff")), added(text("plan")), number("seq"),
+		number("display_order"), number("item_index"), bare("started_at"), bare("ended_at"),
+	}, "seq, id", (*reader).turn},
+	{ActivityDB, "agent_tool_calls", []legacyCol{
+		text("id"), text("turn_id"), bare("chat_id"), text("name"), added(text("kind")), added(text("locations")), text("target"),
+		text("request_ref"), text("result_ref"), added(text("diff")), text("status"), text("error"), added(text("subagent_id")),
+		number("seq"), number("duration_ms"), bare("started_at"), bare("ended_at"),
+	}, "seq, id", (*reader).tool},
+	{ActivityDB, "agent_subagents", []legacyCol{
+		text("id"), text("turn_id"), bare("chat_id"), text("agent_type"), added(text("messages")), number("seq"),
+		bare("started_at"), bare("ended_at"),
+	}, "seq, id", (*reader).subagent},
+	{ActivityDB, "agent_interruptions", []legacyCol{
+		text("id"), text("turn_id"), bare("chat_id"), text("kind"), text("detail"), number("seq"),
+		number("display_order"), bare("at"), bare("resolved_at"),
+	}, "seq, id", (*reader).interruption},
+	{ActivityDB, "agent_choices", []legacyCol{
+		text("id"), text("turn_id"), bare("chat_id"), text("kind"), text("prompt_id"), text("tool_id"),
+		text("tool_name"), text("title"), text("question"), text("mode"), text("options"), text("questions"),
+		text("schema"), text("resolution"), added(text("answered_option_ids")), number("multi"), number("seq"),
+		bare("at"), bare("resolved_at"),
+	}, "seq, id", (*reader).choice},
 }
 
 // reader gathers legacy records into the chats they name.
