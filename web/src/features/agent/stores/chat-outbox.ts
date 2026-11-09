@@ -18,6 +18,7 @@ import {
 import { chatStore, setStopping, type ChatStoreState } from '@/features/agent/stores/chat-store'
 import { entityOf, entityStore, patchEntities } from '@/core/entities/entity-store'
 import { entityKey } from '@/core/stream/host-scope'
+import { forgetWithChat } from '@/features/agent/stores/chat-lifecycle'
 import {
   mayBeHeld,
   newestRetractable,
@@ -381,3 +382,4 @@ export function holdForTerminal(chatId: string): () => void {
 export function forgetOutbox(chatId: string) {
   update(chatId, () => NO_ITEMS)
 }
+forgetWithChat(forgetOutbox)

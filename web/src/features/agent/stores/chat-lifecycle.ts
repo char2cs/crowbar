@@ -3,8 +3,6 @@ import { splitHostKey } from '@/core/stream/host-scope'
 import type { ChatEntity } from '@/core/entities/chat-entity'
 import { clearExcalidrawEditRequest } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { clearScrollPosition } from '@/features/agent/hooks/lib/transcript-scroll-positions'
-import { forgetOutbox } from '@/features/agent/stores/chat-outbox'
-import { dropFeed } from '@/features/agent/stores/chat-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { forgetWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scope'
@@ -12,10 +10,17 @@ import { forgetWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scop
 type Chats = EntityState['byKind']['chat']
 type Workspaces = EntityState['byKind']['workspace']
 
+const forgetters = new Set<(chatId: string) => void>()
+
+/** Per-chat state owned by a lazily loaded module joins the forgetting as that module loads;
+ *  before it loads it holds nothing to forget, and boot need not load it. */
+export function forgetWithChat(forget: (chatId: string) => void): void {
+  forgetters.add(forget)
+}
+
 /** A chat the daemon deleted: everything this client keeps for it goes with it. */
 function forget(chatId: string) {
-  dropFeed(chatId)
-  forgetOutbox(chatId)
+  for (const drop of forgetters) drop(chatId)
   clearScrollPosition(chatId)
   clearExcalidrawEditRequest(chatId)
   windowPaneStore.getState().paneActions.forgetChat(chatId)

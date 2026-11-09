@@ -1,7 +1,6 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { openHomeChat, type NavigateFn } from './open-actions'
 import { newDraftChatId } from '@/features/agent/lib/draft-chat'
-import { draftLanding, finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { createSurfaceFor } from '@/features/agent/api/agent-providers-api'
 import { IS_MOBILE } from '@/utils/platform'
 import { startThread, startingProvider } from './thread-create'
@@ -43,22 +42,5 @@ export function handleCreateHomeThread(
     parentId: '',
     presentation: 'terminal',
     onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
-  })
-}
-
-/** Creates the chat a project-home draft was waiting to become, with its first prompt. */
-export function promoteHomeDraft(
-  draft: DraftSpec,
-  prompt: DraftPrompt,
-  typedSince: () => string,
-): Promise<void> {
-  const { projectId, workspaceId } = draft
-  return startThread({
-    inFlightKey: `draft:${draft.draftId}`,
-    projectId,
-    workspaceId,
-    parentId: '',
-    ...draftLanding(prompt),
-    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt, typedSince),
   })
 }
