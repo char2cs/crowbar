@@ -427,16 +427,19 @@ describe('a browser tab hosted by its pane', () => {
     />
   )
 
-  it('opens in place for the active tab', () => {
+  it('opens in place for the active tab', async () => {
     const id = openBrowser('https://a.test')
     renderPane(hosted(id, false))
-    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1, false)
+    await vi.waitFor(() =>
+      expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1, false),
+    )
     expect(api.park).not.toHaveBeenCalled()
   })
 
   it('parks the webview while its pane is a drop target, whose overlay would sit under it', async () => {
     const id = openBrowser('https://a.test')
     const { rerender } = renderPane(hosted(id, false))
+    await vi.waitFor(() => expect(api.open).toHaveBeenCalled())
     expect(api.park).not.toHaveBeenCalled()
     rerender(hosted(id, true))
     await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
