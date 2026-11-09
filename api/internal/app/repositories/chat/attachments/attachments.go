@@ -61,7 +61,6 @@ func Store(
 		return "", "", fmt.Errorf("attachments: %w", safepath.ErrFileTooLarge)
 	}
 	fileName = id + "-" + base
-	//nolint:gosec // G301: 0o700 matches RunnerDir's own perms for daemon-managed chat state.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", fmt.Errorf("attachments: create directory: %w", err)
 	}

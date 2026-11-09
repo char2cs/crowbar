@@ -116,7 +116,6 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 		libs.WriteErr(ctx, http.StatusRequestEntityTooLarge, "attachment exceeds the size limit")
 		return nil, "", "", false
 	}
-	//nolint:gosec // G304: path is an absolute host path from a native file dialog/drop, the same residual trust model as icons.go's readFromPath (daemon and webview share a host).
 	f, err := os.Open(body.Path)
 	if err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, "could not read attachment file")

@@ -20,7 +20,6 @@ import (
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
-	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // ── HomeReader mock ────────────────────────────────────────────────────────────
@@ -65,22 +64,6 @@ func (s *stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error {
 type stubWork struct{ working bool }
 
 func (s stubWork) WorkingFor(_ string) bool { return s.working }
-
-// ── NodeCreator mock — the lazy-provisioning path's own position row ────────
-
-type mockNodeCreator struct{ mock.Mock }
-
-func (m *mockNodeCreator) CreateIdempotent(
-	ctx context.Context,
-	id string,
-	kind tree.Kind,
-	parentID string,
-	order int,
-) (tree.Node, error) {
-	args := m.Called(ctx, id, kind, parentID, order)
-	node, _ := args.Get(0).(tree.Node)
-	return node, args.Error(1)
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

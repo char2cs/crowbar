@@ -319,39 +319,6 @@ func TestGet_ByIdCarriesTheWorktreeToo(t *testing.T) {
 	assert.Equal(t, "c1", envelope.Data.Worktree.OwningChatID)
 }
 
-// mintingTree is fakeChatTree with a mint that succeeds and an attach that
-// fails — the shape a request context cancelled between the two (the client
-// reloading mid-GET) leaves behind.
-type mintingTree struct {
-	fakeChatTree
-	minted   int
-	discards int
-}
-
-func (m *mintingTree) MintOwningChat(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	m.minted++
-	return "minted-1", nil
-}
-
-func (m *mintingTree) AttachOwningWorkspace(
-	_ context.Context,
-	_ string,
-	_ domain.Workspace,
-) error {
-	return errors.New("context canceled")
-}
-
-func (m *mintingTree) DiscardOwningChat(
-	_ context.Context,
-	_ string,
-) error {
-	m.discards++
-	return nil
-}
-
 // A list of many chats over a few worktrees must cost one resolution per
 // WORKTREE, not per chat: eligibility is a git dry-run and the placement and
 // owner reads hit the store, and none of them changes between two chats that
