@@ -54,6 +54,31 @@ test('web.swallowed-promise counts .catch handlers that discard the rejection', 
   assert.equal(count('web.swallowed-promise', 'web', 'p.catch((e) => report(e))', 'p.catch(() => { retry() })', 'p.catch(function (e) { report(e) })'), 0)
 })
 
+test('a // comment may end at a } on its own line, and the longest reading of a body wins', () => {
+  assert.equal(count('web.empty-catch', 'web', 'try { a() } catch { // ignore }'), 1)
+  assert.equal(count('web.swallowed-promise', 'web', 'p.catch(() => { // ignore })'), 1)
+  // The comment runs to its line end, so the body closes at the later `}` and swallows the second catch.
+  assert.equal(count('web.empty-catch', 'web', 'catch { // x } catch {}', '}'), 1)
+  assert.equal(count('web.empty-catch', 'web', 'catch { /* a */ x */ }'), 1)
+  assert.equal(count('web.empty-catch', 'web', 'catch { /* a */ x }', '$catch {}', 'catches {}', 'catch (e {}'), 1)
+})
+
+test('web.swallowed-promise reads constants and handlers exactly', () => {
+  assert.equal(count('web.swallowed-promise', 'web', 'p.catch(() => -1.5 )', 'p.catch(e=>"x")', 'p.catch(function named (e) { })', 'p.catch(() => void 0)'), 4)
+  assert.equal(count('web.swallowed-promise', 'web', 'p.catch(() => nullish)', 'p.catch(() => 1.)', "p.catch(() => 'a\n')", 'p.catch(() => {}, x)'), 0)
+})
+
+// The web counters were regexes with nested quantifiers that took seconds at 18 repeats.
+test('an unclosed body costs linear time however long it runs', { timeout: 5000 }, () => {
+  for (const unit of ['// ', ' ', '/* ', '/* */', '*/ ', '//\n']) {
+    const tail = unit.repeat(20_000)
+    assert.equal(count('web.empty-catch', 'web', `try { a() } catch {${tail}`), 0)
+    assert.equal(count('web.swallowed-promise', 'web', `p.catch(() => {${tail}`, `p.catch(function () {${tail}`), 0)
+  }
+  assert.equal(count('web.swallowed-promise', 'web', 'p.catch(('.repeat(20_000), `p.catch(() => '${'x'.repeat(50_000)}`), 0)
+  assert.equal(count('web.empty-catch', 'web', 'catch ('.repeat(20_000), 'catch {}'), 1)
+})
+
 test('only non-test files of the counter language are scanned', () => {
   assert.equal(measureCounters([file('go', 'setTimeout(fn, 1)')])['web.timers'], 0)
   assert.equal(measureCounters([file('web', 'setTimeout(fn, 1)', true)])['web.timers'], 0)
