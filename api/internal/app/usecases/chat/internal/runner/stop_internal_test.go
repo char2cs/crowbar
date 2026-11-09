@@ -263,9 +263,9 @@ func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs))
 }
 
-// The bug of 2026-09-12: a Stop's divider written while a hook of the chat was
-// mid-record anchored to state that hook was about to supersede. Stop records
-// under the chat's lock, so its divider follows the hook's row.
+// A Stop's divider must not anchor to state a hook mid-record is about to
+// supersede. Stop records under the chat's lock, so its divider follows the
+// hook's row.
 func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 	asked, release := make(chan struct{}), make(chan struct{})
 	defer close(release)

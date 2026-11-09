@@ -47,7 +47,7 @@ export interface PromptInput {
 export type SendResult = { ok: true } | { ok: false; error?: string }
 
 const NO_ITEMS: OutboxItem[] = []
-// The feed stays attached while a chat has prompts with no row yet (R17).
+// The feed stays attached while a chat has prompts with no row yet, so their rows still arrive.
 const feedHolds = new Map<string, () => void>()
 interface Pending {
   promise: Promise<string | null>

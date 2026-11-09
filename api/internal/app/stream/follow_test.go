@@ -99,7 +99,7 @@ func ledgerHub(src *ledgerSrc) *appstream.Hub {
 }
 
 // A replay past even the hard bound reaches a writer that holds still: the
-// replay waits for room instead of closing the connection (index R8).
+// replay waits for room instead of closing the connection.
 func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	rows := stream.HardQueueSize + stream.QueueSize
 	src := newLedgerSrc(int64(rows))

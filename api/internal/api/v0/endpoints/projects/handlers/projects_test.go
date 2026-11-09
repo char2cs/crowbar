@@ -312,7 +312,7 @@ func TestCreate_AFailureIsTheOperations(t *testing.T) {
 }
 
 // A retry under the same key is the same request: it answers with the first
-// operation and imports nothing again (R3).
+// operation and imports nothing again.
 func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
 	ops := newRecordedOps(t)
@@ -343,7 +343,7 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 }
 
 // A key is one request: reusing a delete's key for another project is a
-// conflict, not an answer with the first project's operation (R3).
+// conflict, not an answer with the first project's operation.
 func TestDelete_AKeyReusedForAnotherProjectIsAConflict(t *testing.T) {
 	ops := newRecordedOps(t)
 	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops)

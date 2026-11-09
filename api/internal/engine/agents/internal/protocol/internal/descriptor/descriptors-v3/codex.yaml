@@ -313,7 +313,7 @@ events:
       when:
         item.type:   { any_of: [commandExecution, fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall] }
         item.status: { any_of: [failed, declined] }
-      # No recorded failed spawn carries a prompt; T13's live check should capture one.
+      # No recorded failed spawn carries a prompt, so the title stays unverified.
       unverified_fields: [tool_title]
       map:
         session_id:  threadId

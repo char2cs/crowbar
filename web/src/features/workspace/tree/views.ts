@@ -25,7 +25,7 @@ interface ChatView {
 }
 
 interface WorkspaceView {
-  /** Its owning chat's id when it has one, else the workspace id (R18). */
+  /** Its owning chat's id when it has one, else the workspace id. */
   rowId: string
   label: string
   labelProvisional: boolean

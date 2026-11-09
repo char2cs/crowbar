@@ -135,7 +135,7 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 }
 
 // A key is one request: reusing a delete's key for another repo is a conflict,
-// not an answer with the first repo's operation while this one stays (R3).
+// not an answer with the first repo's operation while this one stays.
 func TestDelete_AKeyReusedForAnotherRepoIsAConflict(t *testing.T) {
 	store := &fakeStore{all: []domain.Repository{
 		{ID: "r1", ProjectID: "p1", Name: "alpha"}, {ID: "r2", ProjectID: "p1", Name: "beta"},

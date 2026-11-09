@@ -81,9 +81,8 @@ func TestRegression_RepoAddFailureIsVisible(t *testing.T) {
 	require.True(t, home, "with its repo-home workspace")
 }
 
-// TestRegression_AddingARepoWithOnlyMainSucceeds: the provider's default
-// protected names (main, develop, master) used to fail an add for every branch
-// the repo does not have.
+// TestRegression_AddingARepoWithOnlyMainSucceeds: a default protected name
+// (main, develop, master) the repo does not have must not fail the add.
 func TestRegression_AddingARepoWithOnlyMainSucceeds(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)

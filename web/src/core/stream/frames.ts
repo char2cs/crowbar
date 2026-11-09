@@ -1,6 +1,6 @@
 import type { Problem } from '@/lib/errors/problem'
 
-/** Mirrors `api/internal/domain/stream` by hand (index R20); its golden file is the contract. */
+/** Mirrors `api/internal/domain/stream` by hand; its golden file is the contract. */
 type EntityKind =
   | 'project'
   | 'repo'
