@@ -21,6 +21,7 @@ import { useEditorRef, useEditorSelection, useFormInputProps, usePluginOption } 
 
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Separator } from '@/components/ui/separator'
+import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 
 const popoverVariants = cva(
   'z-50 w-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-hidden',
@@ -156,6 +157,7 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
 function LinkOpenButton() {
   const editor = useEditorRef()
   const selection = useEditorSelection()
+  const wsId = useLinkWorkspace()
 
   const attributes = React.useMemo(
     () => {
@@ -183,6 +185,8 @@ function LinkOpenButton() {
       onMouseOver={(e) => {
         e.stopPropagation()
       }}
+      // The webview opens no new window for the app, so the OS browser gets it explicitly.
+      onClick={(e) => handleMarkdownAnchorClick(e, attributes.href, wsId)}
       aria-label="Open link in a new tab"
       target="_blank"
     >
