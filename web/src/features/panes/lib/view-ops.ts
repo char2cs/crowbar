@@ -152,8 +152,9 @@ export function keepUnsavedTabs(
   if (!pane?.viewId || pane.editorTabIds.length === 0 || !Array.isArray(state.buffers)) return
   const view = state.views[pane.viewId]
   if (!view || getAllLeafIds(view.layout).length > 1) return
-  const unsaved = new Set(state.buffers.filter(hasUnsavedEdits).map((b) => b.id))
-  const kept = pane.editorTabIds.filter((id) => unsaved.has(id))
+  const kept = pane.editorTabIds.filter((id) =>
+    state.buffers.some((b) => b.id === id && hasUnsavedEdits(b)),
+  )
   if (kept.length === 0) return
   const stage = state.panes[getFirstLeafId(state.stage)]
   stage.editorTabIds = [...new Set([...stage.editorTabIds, ...kept])]
