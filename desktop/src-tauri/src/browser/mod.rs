@@ -5,6 +5,8 @@ mod clipboard;
 mod commands;
 mod data;
 mod events;
+#[cfg(target_os = "linux")]
+mod gtk_layer;
 mod park;
 #[cfg(target_os = "macos")]
 mod webkit;

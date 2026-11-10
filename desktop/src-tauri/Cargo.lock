@@ -739,6 +739,7 @@ dependencies = [
  "bytes",
  "cairo-rs",
  "futures-util",
+ "gtk",
  "http-body-util",
  "hyper",
  "hyper-util",

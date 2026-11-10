@@ -4,6 +4,7 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State, We
 use super::park::{self, Parked};
 use super::{events, find, label_for, parse_url};
 
+#[cfg(not(target_os = "linux"))]
 fn bounds<R: Runtime>(
     webview: &tauri::Webview<R>,
     (x, y, width, height): (f64, f64, f64, f64),
@@ -16,13 +17,36 @@ fn bounds<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
+/// GTK ignores Tauri's bounds for a child webview (see `gtk_layer`).
+#[cfg(target_os = "linux")]
+fn bounds<R: Runtime>(
+    webview: &tauri::Webview<R>,
+    frame: (f64, f64, f64, f64),
+) -> Result<(), String> {
+    use gtk::prelude::Cast;
+    webview
+        .with_webview(move |view| super::gtk_layer::place(view.inner().upcast_ref(), frame))
+        .map_err(|e| e.to_string())
+}
+
 /// Moves the view out of the window at its current size (see `park`).
 fn move_away<R: Runtime>(webview: &tauri::Webview<R>) -> Result<(), String> {
     let scale = webview.window().scale_factor().map_err(|e| e.to_string())?;
-    let width = webview.size().map_err(|e| e.to_string())?.width as f64 / scale;
+    let size = webview.size().map_err(|e| e.to_string())?;
+    let (width, height) = (size.width as f64 / scale, size.height as f64 / scale);
     let (x, y) = park::origin(width);
+    bounds(webview, (x, y, width, height))
+}
+
+/// Lifts a new tab off the vbox GTK packed it into, onto the layer over the app.
+#[cfg(target_os = "linux")]
+fn adopt<R: Runtime>(
+    webview: &tauri::Webview<R>,
+    frame: (f64, f64, f64, f64),
+) -> Result<(), String> {
+    use gtk::prelude::Cast;
     webview
-        .set_position(LogicalPosition::new(x, y))
+        .with_webview(move |tab| super::gtk_layer::adopt(tab.inner().upcast_ref(), frame))
         .map_err(|e| e.to_string())
 }
 
@@ -80,6 +104,8 @@ pub async fn browser_open<R: Runtime>(
         )
         .inspect_err(|_| registry.unpark(&label))
         .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    adopt(&webview, (x, y, width, height))?;
     webview.set_zoom(zoom).map_err(|e| e.to_string())
 }
 
