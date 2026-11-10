@@ -4,7 +4,7 @@ import {
   splitFrontmatter,
 } from '@/features/editor/markdown/plate/markdown-frontmatter'
 import {
-  markdownToPlateValue,
+  parseMarkdown,
   plateValueToMarkdown,
 } from '@/features/editor/markdown/plate/markdown-serialization'
 
@@ -154,7 +154,7 @@ describe('splitFrontmatter / joinFrontmatter', () => {
       '---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n\n' +
       '# Heading\n\nSome **bold** text.\n'
     const { frontmatter, body } = splitFrontmatter(md)
-    const roundTrippedBody = plateValueToMarkdown(markdownToPlateValue(body))
+    const roundTrippedBody = plateValueToMarkdown(parseMarkdown(body).value)
     expect(roundTrippedBody).toBe(body)
     expect(joinFrontmatter(frontmatter, roundTrippedBody)).toBe(md)
   })

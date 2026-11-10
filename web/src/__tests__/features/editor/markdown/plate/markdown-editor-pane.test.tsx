@@ -11,7 +11,7 @@ import {
 } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer } from '@/features/editor/documents/open-document'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
-import { markdownToPlateValue } from '@/features/editor/markdown/plate/markdown-serialization'
+import { parseMarkdown } from '@/features/editor/markdown/plate/markdown-serialization'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import {
   resetWindowPaneStoreForTests,
@@ -62,6 +62,10 @@ const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
         '<div align="center">\n  <h1>Crowbar</h1>\n  <a href="https://example.com/docs">Docs</a>\n</div>\n\n# Heading\n',
       // The same kind of block linking its host's own dev server, in a workspace on another host.
       'b-remote-html': '<div>\n  <a href="http://localhost:3000/">Preview</a>\n</div>\n',
+      // A hand-wrapped doc: soft line breaks, `_` emphasis and a compact table, none of which a
+      // fresh serialize writes back as-is.
+      'b-wrapped':
+        '# Notes\n\nA _wrapped_ paragraph\nover two lines.\n\n|a|b|\n|-|-|\n|1|2|\n\nLast one.\n',
     } as Record<string, string>,
   }
 })
@@ -101,16 +105,16 @@ vi.mock('@/lib/external-open', () => ({
   openExternalUrl: (url: string) => openExternalUrl(url),
 }))
 
-// Wrap `markdownToPlateValue` (pass-through except for the sentinel) so the ErrorBoundary test
+// Wrap `parseMarkdown` (pass-through except for the sentinel) so the ErrorBoundary test
 // can force a deserialize throw without touching real parser internals.
 vi.mock('@/features/editor/markdown/plate/markdown-serialization', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/editor/markdown/plate/markdown-serialization')>()
   return {
     ...actual,
-    markdownToPlateValue: (md: string) => {
+    parseMarkdown: (md: string) => {
       if (md === THROW_SENTINEL) throw new Error('boom: forced deserialize failure')
-      return actual.markdownToPlateValue(md)
+      return actual.parseMarkdown(md)
     },
   }
 })
@@ -166,7 +170,7 @@ describe('MarkdownEditorPane', () => {
     await screen.findByText('Hello')
     expect(capturedEditor).not.toBeNull()
 
-    capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
+    capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
 
     expect(documentText(docOf('b1'))).toContain('changed')
     expect(isDirty('b1')).toBe(true)
@@ -177,7 +181,7 @@ describe('MarkdownEditorPane', () => {
     await screen.findByText('Hello')
     expect(capturedEditor).not.toBeNull()
 
-    capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
+    capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
     unmount()
 
     expect(documentText(docOf('b1'))).toContain('changed')
@@ -202,13 +206,28 @@ describe('MarkdownEditorPane', () => {
     await screen.findByText('Hello')
     expect(capturedEditor).not.toBeNull()
 
-    capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
+    capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
 
     const md = documentText(docOf('b-frontmatter'))!
     expect(
       md.startsWith('---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n'),
     ).toBe(true)
     expect(md).toContain('changed')
+  })
+
+  // A save rewrites only what the user edited: a soft line break elsewhere must not become `\`.
+  it('writes an edit to one paragraph without touching the rest of the file', async () => {
+    render(<MarkdownEditorPane paneId="p1" bufferId="b-wrapped" />)
+    await screen.findByText('Notes')
+
+    const children = capturedEditor!.children
+    capturedEditor!.children = children.map((node, i) =>
+      i === children.length - 1 ? { type: 'p', children: [{ text: 'Last one, edited.' }] } : node,
+    ) as Value
+
+    expect(documentText(docOf('b-wrapped'))).toBe(
+      '# Notes\n\nA _wrapped_ paragraph\nover two lines.\n\n|a|b|\n|-|-|\n|1|2|\n\nLast one, edited.\n',
+    )
   })
 
   // As the GFM-table pristine flush above, with frontmatter too: opening and closing a
@@ -355,7 +374,7 @@ describe('MarkdownEditorPane', () => {
       // The banner reflects the NEW frontmatter…
       expect(screen.getByText(/title: Checked Out/)).toBeInTheDocument()
       // …and a later edit re-attaches it byte-identically.
-      capturedEditor!.children = markdownToPlateValue('# Reloaded\n\nEdited after reload.\n')
+      capturedEditor!.children = parseMarkdown('# Reloaded\n\nEdited after reload.\n').value
       const md = documentText(docOf('b1'))!
       expect(md.startsWith('---\ntitle: Checked Out\n---\n')).toBe(true)
       expect(md).toContain('Edited after reload')
@@ -365,7 +384,7 @@ describe('MarkdownEditorPane', () => {
       render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
       await screen.findByText('Hello')
 
-      capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **edited here**.\n')
+      capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **edited here**.\n').value
       const edited = capturedEditor!.children
       act(() => applyExternalText(docOf('b1'), reloaded, { saved: true }))
 
@@ -381,7 +400,7 @@ describe('MarkdownEditorPane', () => {
       await screen.findByText('Hello')
       vi.useFakeTimers()
 
-      capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
+      capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
       const childrenBefore = capturedEditor!.children
       const written = documentText(docOf('b1'))
       // The same bytes come back as the document's text. Re-parsing them would
