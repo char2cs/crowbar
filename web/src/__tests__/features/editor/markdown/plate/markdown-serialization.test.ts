@@ -220,11 +220,9 @@ describe('markdown save over the source', () => {
     })
   }
 
-  it('writes every repo doc back byte for byte', () => {
-    for (const path of repoDocs) {
-      const md = readFileSync(join(REPO, path), 'utf8')
-      expect(save(md), path).toBe(md)
-    }
+  it.each(repoDocs)('writes the repo doc %s back byte for byte', (path) => {
+    const md = readFileSync(join(REPO, path), 'utf8')
+    expect(save(md)).toBe(md)
   })
 
   it('rewrites only the edited block; its neighbours keep their exact bytes', () => {
