@@ -25,6 +25,12 @@ interface LoadingEvent {
   loading: boolean
 }
 
+/** A page in tab `id` asked for a new window (target=_blank, window.open) at `url`. */
+interface NewWindowEvent {
+  id: string
+  url: string
+}
+
 export interface BrowserScreenshot {
   /** Base64, no data: prefix. */
   png: string
@@ -77,4 +83,6 @@ export const browserApi = {
     listenTo<LoadingEvent>('browser://loading', handler),
   onTitle: (handler: (e: TitleEvent) => void): Promise<UnlistenFn> =>
     listenTo<TitleEvent>('browser://title', handler),
+  onNewWindow: (handler: (e: NewWindowEvent) => void): Promise<UnlistenFn> =>
+    listenTo<NewWindowEvent>('browser://new-window', handler),
 }

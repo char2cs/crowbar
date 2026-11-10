@@ -1,4 +1,4 @@
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State, WebviewUrl};
 
 use super::park::{self, Parked};
@@ -76,7 +76,8 @@ pub async fn browser_open<R: Runtime>(
     let window = app
         .get_window("main")
         .ok_or("main window is not available")?;
-    let (nav_id, load_id, title_id) = (id.clone(), id.clone(), id);
+    let (nav_id, load_id, title_id, opener_id) = (id.clone(), id.clone(), id.clone(), id);
+    let opener_app = app.clone();
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url));
     #[cfg(target_os = "macos")]
     let builder = builder.data_store_identifier(super::data::STORE_ID);
@@ -89,6 +90,10 @@ pub async fn browser_open<R: Runtime>(
         })
         .on_document_title_changed(move |webview, title| {
             events::title(&webview, &title_id, &title);
+        })
+        .on_new_window(move |url, _| {
+            events::new_window(&opener_app, &opener_id, url.as_str());
+            NewWindowResponse::Deny
         });
     let (x, y) = if parked {
         registry.park(&label);

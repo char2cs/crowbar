@@ -6,12 +6,17 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 
-const api = vi.hoisted(() => ({ onNavigated: vi.fn(), onTitle: vi.fn(), onLoading: vi.fn() }))
+const api = vi.hoisted(() => ({
+  onNavigated: vi.fn(),
+  onTitle: vi.fn(),
+  onLoading: vi.fn(),
+  onNewWindow: vi.fn(),
+}))
 vi.mock('@/lib/browser-bridge', () => ({ browserApi: api }))
 
 type Handler = (e: { id: string; url?: string; title?: string; loading?: boolean }) => void
-const handlers: { navigated?: Handler; title?: Handler; loading?: Handler } = {}
-const off = { navigated: vi.fn(), title: vi.fn(), loading: vi.fn() }
+const handlers: Partial<Record<'navigated' | 'title' | 'loading' | 'newWindow', Handler>> = {}
+const off = { navigated: vi.fn(), title: vi.fn(), loading: vi.fn(), newWindow: vi.fn() }
 
 beforeEach(() => {
   off.navigated.mockClear()
@@ -27,6 +32,10 @@ beforeEach(() => {
   api.onTitle.mockImplementation(async (cb: Handler) => {
     handlers.title = cb
     return off.title
+  })
+  api.onNewWindow.mockImplementation(async (cb: Handler) => {
+    handlers.newWindow = cb
+    return off.newWindow
   })
   resetWindowPaneStoreForTests()
   windowPaneStore.getState().paneActions.setActiveProject('p1')
@@ -52,6 +61,33 @@ describe('BrowserEventsListener', () => {
     })
   })
 
+  it('opens a page that asks for a new window as a tab beside its opener', async () => {
+    const { bufferActions } = windowPaneStore.getState()
+    const opener = bufferActions.openContent({
+      type: 'browser',
+      url: 'https://a.test',
+      workspaceId: 'ws-test',
+    })
+    const paneId = windowPaneStore.getState().activePaneId
+    render(<BrowserEventsListener />)
+    await vi.waitFor(() => expect(handlers.newWindow).toBeDefined())
+
+    act(() => handlers.newWindow?.({ id: opener, url: 'https://b.test/popup' }))
+    act(() => handlers.newWindow?.({ id: 'closed-tab', url: 'https://x.test' }))
+
+    const tabs = windowPaneStore.getState().panes[paneId]?.editorTabIds ?? []
+    const opened = tabs
+      .map((id) => bufferActions.getBufferById(id))
+      .filter((b) => b?.id !== opener)
+    expect(opened).toEqual([
+      expect.objectContaining({
+        type: 'browser',
+        url: 'https://b.test/popup',
+        workspaceId: 'ws-test',
+      }),
+    ])
+  })
+
   it('unsubscribes on unmount', async () => {
     const view = render(<BrowserEventsListener />)
     await vi.waitFor(() => expect(handlers.title).toBeDefined())
@@ -60,6 +96,7 @@ describe('BrowserEventsListener', () => {
       expect(off.navigated).toHaveBeenCalled()
       expect(off.title).toHaveBeenCalled()
       expect(off.loading).toHaveBeenCalled()
+      expect(off.newWindow).toHaveBeenCalled()
     })
   })
 })
