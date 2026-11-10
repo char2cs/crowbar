@@ -38,25 +38,15 @@ fn move_away<R: Runtime>(webview: &tauri::Webview<R>) -> Result<(), String> {
     bounds(webview, (x, y, width, height))
 }
 
-/// Lifts a new tab off the vbox GTK packed it into, onto the layer over the app, and sends
-/// its target=_blank links to the pane as `on_new_window` does window.open.
+/// Lifts a new tab off the vbox GTK packed it into, onto the layer over the app.
 #[cfg(target_os = "linux")]
 fn adopt<R: Runtime>(
     webview: &tauri::Webview<R>,
     frame: (f64, f64, f64, f64),
 ) -> Result<(), String> {
     use gtk::prelude::Cast;
-    let app = webview.app_handle().clone();
-    let id = super::id_from_label(webview.label())
-        .ok_or("not a browser tab")?
-        .to_string();
     webview
-        .with_webview(move |tab| {
-            super::gtk_layer::adopt(tab.inner().upcast_ref(), frame);
-            super::webkitgtk::route_new_windows(&tab.inner(), move |url| {
-                events::new_window(&app, &id, &url);
-            });
-        })
+        .with_webview(move |tab| super::gtk_layer::adopt(tab.inner().upcast_ref(), frame))
         .map_err(|e| e.to_string())
 }
 
