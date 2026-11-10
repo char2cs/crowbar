@@ -7,6 +7,8 @@ mod data;
 mod events;
 #[cfg(target_os = "linux")]
 mod gtk_layer;
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_test_thread;
 mod park;
 #[cfg(target_os = "macos")]
 mod webkit;

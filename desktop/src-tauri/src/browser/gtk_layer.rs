@@ -76,10 +76,10 @@ fn existing_layer(child: &gtk::Widget) -> Option<gtk::Fixed> {
 mod tests {
     use super::*;
 
+    use crate::browser::gtk_test_thread::on_gtk_thread;
+
     /// A window laid out as Tauri does on GTK: a menu, then the app's webview, in a vbox.
-    /// GTK runs on one thread and needs a display (`xvfb-run cargo test` without one).
     fn app_window() -> (gtk::Box, gtk::Widget) {
-        gtk::init().expect("GTK needs a display: run the tests under xvfb-run");
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let app: gtk::Widget = webkit2gtk::WebView::new().upcast();
@@ -102,11 +102,24 @@ mod tests {
         widget.allocation()
     }
 
-    #[test]
-    fn tabs_sit_where_the_pane_asks_and_the_app_keeps_the_whole_window() {
-        let (vbox, app) = app_window();
-        let full = allocation_after_layout(&app);
+    type Rect = (i32, i32, i32, i32);
 
+    fn rect(a: &gtk::Allocation) -> Rect {
+        (a.x(), a.y(), a.width(), a.height())
+    }
+
+    struct Layout {
+        app_before: Rect,
+        app_after: Rect,
+        tabs: [Rect; 2],
+        parked_x_and_width: (i32, i32),
+        vbox_children: usize,
+    }
+
+    /// Adopts two tabs, then parks the first; reports every allocation along the way.
+    fn adopt_two_tabs_then_park_one() -> Layout {
+        let (vbox, app) = app_window();
+        let app_before = rect(&allocation_after_layout(&app));
         let mut tabs = Vec::new();
         for frame in [(600.0, 120.0, 500.0, 400.0), (10.4, 20.6, 300.0, 200.0)] {
             // What Tauri does with a new child webview on GTK: pack it into the vbox.
@@ -116,29 +129,32 @@ mod tests {
             adopt(&tab, frame);
             tabs.push(tab);
         }
-
-        assert_eq!(allocation_after_layout(&app), full, "the app kept its size");
-        let first = tabs[0].allocation();
-        assert_eq!(
-            (first.x(), first.y(), first.width(), first.height()),
-            (600, 120, 500, 400)
-        );
-        let second = tabs[1].allocation();
-        assert_eq!(
-            (second.x(), second.y(), second.width(), second.height()),
-            (10, 21, 300, 200)
-        );
-
+        let app_after = rect(&allocation_after_layout(&app));
+        let placed = [rect(&tabs[0].allocation()), rect(&tabs[1].allocation())];
         place(&tabs[0], (-600.0, 0.0, 500.0, 400.0));
-        let moved = allocation_after_layout(&tabs[0]);
+        let parked = allocation_after_layout(&tabs[0]);
+        Layout {
+            app_before,
+            app_after,
+            tabs: placed,
+            parked_x_and_width: (parked.x(), parked.width()),
+            vbox_children: vbox.children().len(),
+        }
+    }
+
+    #[test]
+    fn tabs_sit_where_the_pane_asks_and_the_app_keeps_the_whole_window() {
+        let layout = on_gtk_thread(adopt_two_tabs_then_park_one);
+
+        assert_eq!(layout.app_after, layout.app_before, "the app kept its size");
+        assert_eq!(layout.tabs, [(600, 120, 500, 400), (10, 21, 300, 200)]);
         assert_eq!(
-            (moved.x(), moved.width()),
+            layout.parked_x_and_width,
             (-600, 500),
             "parked off the window"
         );
         assert_eq!(
-            vbox.children().len(),
-            2,
+            layout.vbox_children, 2,
             "the menu and one overlay, the app inside it"
         );
     }
