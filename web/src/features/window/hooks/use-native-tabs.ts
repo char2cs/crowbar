@@ -46,7 +46,7 @@ export function useNativeTabs(paneId: string, wsId: string) {
   const activeId = useStore(windowPaneStore, (s) => s.panes[paneId]?.activeEditorTabId ?? null)
   const buffers = useBuffersByIds(tabIds ?? [])
   const { onNewTerminal, onReviewBranch } = usePaneNewTabActions(wsId, paneId)
-  const canReview = usePaneCanReviewBranch(paneId)
+  const canReview = usePaneCanReviewBranch(paneId, wsId)
 
   const snapshot = useMemo<NativeTabs>(
     () => ({

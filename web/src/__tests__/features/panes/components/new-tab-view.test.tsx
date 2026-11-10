@@ -10,6 +10,7 @@ import {
 import * as openDocumentModule from '@/features/editor/documents/open-document'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 import type { Chat } from '@/core/entities/repo-types'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const openUntitled = vi.spyOn(openDocumentModule, 'openUntitledDocument').mockResolvedValue('')
 const homeThread = () =>
@@ -45,6 +46,7 @@ describe('NewTabView', () => {
     platform.mobile = false
     resetWindowPaneStoreForTests()
     resetEntities()
+    __resetWorkspaceScopesForTest()
     ensurePaneChatThenOpen.mockImplementation(
       (ws: string, _pane, open: (p: string, w: string) => void) => open('pane-x', ws),
     )
@@ -123,6 +125,14 @@ describe('NewTabView', () => {
     const paneId = windowPaneStore.getState().activePaneId
     homeThread()
     render(<NewTabView paneId={paneId} wsId="w1" />)
+    expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
+  })
+
+  // A project home has no repo, so no branch; before any chat its pane is chatless.
+  it('hides Review Branch in a project home before it holds a chat', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-p1' })
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="home-p1" />)
     expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
   })

@@ -11,7 +11,7 @@ import {
   openBranchReviewForWorkspace,
   togglePaneEditor,
 } from '@/features/panes/utils/pane-command-actions'
-import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
+import { usePaneCanReviewBranch } from '@/features/panes/hooks/use-pane-can-review-branch'
 import { useHasViewStrip } from '@/features/panes/hooks/use-tab-view-ids'
 import { BuildReadout } from '@/components/layout/build-readout'
 import { useSettingsStore } from '@/features/settings/store'
@@ -133,9 +133,9 @@ const TabBar = ({
   // back to a collapsed sidebar.
   const isEmptyPane = pane !== null && !pane.chatId && !hasEditorTabs
 
-  // A thread runs on its parent's worktree and has no branch of its own to review, so it hides
-  // the review shortcut; an editor-only pane (no chat) keeps it.
-  const chatIsThread = useChatIsThread(pane?.chatId ?? null)
+  // A thread or a project home has no branch of its own to review, so it hides the review
+  // shortcut; an editor-only pane (no chat) on a branch keeps it.
+  const canReview = usePaneCanReviewBranch(paneId ?? '', wsId ?? null)
 
   const [contextMenu, setContextMenu] = useState<TabMenuState>({
     isOpen: false,
@@ -441,7 +441,7 @@ const TabBar = ({
               (git-panel.tsx) — branch review's real home stays the git
               file-explorer card; this is just a faster way to reach it from
               the IDE sector's own row. Pinned at the right edge. */}
-          {paneId && pane && !isEmptyPane && !chatIsThread && (
+          {paneId && pane && !isEmptyPane && canReview && (
             <BranchReviewShortcutButton
               isBottomPane={isBottomPane}
               // THIS pane's own workspace — not whichever one happens to be

@@ -38,7 +38,7 @@ export function NewTabView({
     paneId,
     replaceTabId,
   )
-  const canReview = usePaneCanReviewBranch(paneId)
+  const canReview = usePaneCanReviewBranch(paneId, wsId)
   const v = VARIANTS[IS_MOBILE ? 'phone' : 'desktop']
   return (
     // Focusable so a click on the blank area puts focus in the editor area,

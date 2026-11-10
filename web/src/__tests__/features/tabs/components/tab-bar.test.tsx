@@ -316,6 +316,23 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
     renderTabBar(store, { wsId: 'w1' })
     expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
   })
+
+  // A project home has no repo, so no branch, even in a pane that holds no chat.
+  it('hides it in a project home', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-p1' })
+    const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
+    renderTabBar(store, { wsId: 'home-p1' })
+    expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
+    expect(screen.getByTestId('editor-tab-scroller')).toBeInTheDocument()
+  })
+
+  // A chatless pane is handed no workspace (pane-container passes the chat's): the shortcut
+  // would open nothing, so it is not drawn.
+  it('hides it for a pane given no workspace', () => {
+    const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
+    renderTabBar(store, { wsId: null })
+    expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
+  })
 })
 
 // An emptied split pane leaves the layout, so an empty pane here is the window's last:
