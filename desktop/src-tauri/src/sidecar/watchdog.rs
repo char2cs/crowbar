@@ -21,8 +21,9 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// giving a daemon that just resumed from an OS suspension time to answer
 /// before the watchdog commits to a restart.
 const SUSPEND_GRACE_PROBE: Duration = Duration::from_secs(8);
-/// Consecutive failed probes before the watchdog declares a wedge.
-pub(super) const PROBE_FAILURE_THRESHOLD: u32 = 3;
+/// Consecutive failed probes before the watchdog considers a wedge: about a minute and a half
+/// of silence, so a daemon slowed by a loaded machine has time to answer.
+pub(super) const PROBE_FAILURE_THRESHOLD: u32 = 6;
 /// Grace between SIGQUIT (Go dumps goroutines to captured stderr) and SIGKILL.
 const SIGQUIT_GRACE: Duration = Duration::from_secs(2);
 
@@ -45,6 +46,8 @@ async fn capture_goroutine_dump(socket: &PathBuf) -> Option<String> {
 pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut tracker = supervisor::FailureTracker::new(PROBE_FAILURE_THRESHOLD);
+        // When the current run of failed probes began, and the daemon's CPU time then.
+        let mut silent_since: Option<(std::time::Instant, Option<Duration>)> = None;
         let mut prev_cycle = std::time::SystemTime::now();
         loop {
             tokio::time::sleep(WATCHDOG_INTERVAL).await;
@@ -63,6 +66,7 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
             // to probe (and nothing the watchdog could kill anyway).
             if state.child.lock().unwrap().is_none() {
                 tracker.reset();
+                silent_since = None;
                 continue;
             }
             let Some(socket) = state.socket_path() else {
@@ -73,6 +77,7 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
             // this failure would SIGQUIT a healthy daemon on wake. Discard the cycle.
             if supervisor::cycle_was_suspended(cycle, WATCHDOG_INTERVAL, PROBE_TIMEOUT) {
                 tracker.reset();
+                silent_since = None;
                 continue;
             }
 
@@ -88,7 +93,13 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                      NOT restarting it — the daemon is not what is broken here."
                 );
                 tracker.reset();
+                silent_since = None;
                 continue;
+            }
+            if !supervisor::probe_indicts_daemon(outcome) {
+                silent_since = None;
+            } else if silent_since.is_none() {
+                silent_since = Some((std::time::Instant::now(), daemon_cpu_time(&state).await));
             }
             if !tracker.observe_probe(outcome) {
                 continue;
@@ -112,14 +123,27 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                         .unwrap_or(supervisor::Probe::Unserved),
                 )
             };
-            if !supervisor::should_kill_wedged(daemon_suspended, exonerated) {
+            // A restart needs evidence of a wedge: alive, silent past the whole budget, and idle
+            // meanwhile. A daemon that answers, or is merely slow and still working, is never
+            // restarted: each restart drops every session.
+            let (silent_at, cpu_before) = silent_since
+                .take()
+                .unwrap_or((std::time::Instant::now(), None));
+            let working = supervisor::made_progress(
+                cpu_before,
+                daemon_cpu_time(&state).await,
+                silent_at.elapsed(),
+            );
+            if !supervisor::should_kill_wedged(daemon_suspended, exonerated, working) {
                 log::warn!(
                     "crowbar daemon failed {PROBE_FAILURE_THRESHOLD} probes but is {} \
                      — not a wedge; leaving it to recover",
                     if daemon_suspended {
                         "OS-suspended"
-                    } else {
+                    } else if exonerated {
                         "answering again"
+                    } else {
+                        "busy (it kept using CPU)"
                     }
                 );
                 tracker.reset();
@@ -151,6 +175,29 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
             tracker.reset();
         }
     });
+}
+
+/// The CPU time the daemon we spawned has used so far, if it can be read.
+async fn daemon_cpu_time(state: &SidecarHandle) -> Option<Duration> {
+    let pid = state.daemon_pid()?;
+    #[cfg(target_os = "linux")]
+    {
+        let stat = tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .await
+            .ok()?;
+        // SAFETY: sysconf only reads a configuration value.
+        let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        supervisor::parse_proc_stat_cpu(&stat, u64::try_from(ticks).ok()?)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let out = tokio::process::Command::new("ps")
+            .args(["-o", "time=", "-p", &pid.to_string()])
+            .output()
+            .await
+            .ok()?;
+        supervisor::parse_ps_cpu_time(&String::from_utf8_lossy(&out.stdout))
+    }
 }
 
 /// Whether `pid` is OS-suspended (`ps -o stat` leads with 'T'). Any error reads as
