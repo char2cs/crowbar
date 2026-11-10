@@ -25,6 +25,8 @@ mod init_scripts;
 mod logging;
 mod navigation;
 #[cfg(desktop)]
+mod shell_plugin;
+#[cfg(desktop)]
 mod sidecar;
 #[cfg(test)]
 mod test_support;
@@ -75,7 +77,7 @@ pub fn run() {
         // tauri-plugin-macos-fps covers macOS 13-15; frame_rate covers macOS 26.
         builder = builder
             .plugin(tauri_plugin_macos_fps::init())
-            .plugin(tauri_plugin_shell::init());
+            .plugin(shell_plugin::init());
     }
 
     // Exposes the webview to the Tauri MCP server (WebSocket :9223); never in a release.

@@ -21,6 +21,7 @@ import { useEditorRef, useEditorSelection, useFormInputProps, usePluginOption } 
 
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Separator } from '@/components/ui/separator'
+import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 
 const popoverVariants = cva(
   'z-50 w-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-hidden',
@@ -156,17 +157,14 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
 function LinkOpenButton() {
   const editor = useEditorRef()
   const selection = useEditorSelection()
+  const wsId = useLinkWorkspace()
 
   const attributes = React.useMemo(
     () => {
       const entry = editor.api.node<TLinkElement>({
         match: { type: editor.getType(KEYS.link) },
       })
-      if (!entry) {
-        return {}
-      }
-      const [element] = entry
-      return getLinkAttributes(editor, element)
+      return entry ? getLinkAttributes(editor, entry[0]) : {}
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selection is the recompute trigger, read via editor.api
     [editor, selection],
@@ -175,14 +173,13 @@ function LinkOpenButton() {
   return (
     <a
       {...attributes}
-      className={buttonVariants({
-        size: 'sm',
-        variant: 'ghost',
-      })}
+      className={buttonVariants({ size: 'sm', variant: 'ghost' })}
       // react-doctor-disable-next-line mouse-events-have-key-events -- this is not a feature handler, it is a bubbling guard: the floating link toolbar's parent listens for hover to decide whether to stay open, and this `<a>` swallows the mouseover so hovering the "open in new tab" affordance doesn't re-trigger it. A keyboard user loses nothing (there is no hover to miss), and the focus-event analogue the rule asks for would swallow `focusin` from the same parent, which the toolbar does rely on. The link itself is a real focusable `<a>` with an `aria-label`.
       onMouseOver={(e) => {
         e.stopPropagation()
       }}
+      // The webview opens no new window for the app, so the OS browser gets it explicitly.
+      onClick={(e) => handleMarkdownAnchorClick(e, attributes.href, wsId)}
       aria-label="Open link in a new tab"
       target="_blank"
     >

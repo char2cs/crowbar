@@ -70,6 +70,10 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
     if (!hasUrl && visible) inputRef.current?.focus()
   }, [hasUrl, visible])
 
+  /** A toolbar action on this tab; a failure is reported as `action`. */
+  const run = (op: (id: string) => Promise<void>, action: string) => () =>
+    void op(bufferId).catch((err: unknown) => report(err, { action }))
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const next = normalizeBrowserUrl(draft ?? url, searchTemplateFor(searchEngine, customSearchUrl))
@@ -94,11 +98,7 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           size="icon-sm"
           aria-label="Back"
           disabled={!hasUrl}
-          onClick={() =>
-            void browserApi
-              .back(bufferId)
-              .catch((err: unknown) => report(err, { action: 'Go back' }))
-          }
+          onClick={run(browserApi.back, 'Go back')}
         >
           <ArrowLeftIcon />
         </Button>
@@ -108,11 +108,7 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           size="icon-sm"
           aria-label="Forward"
           disabled={!hasUrl}
-          onClick={() =>
-            void browserApi
-              .forward(bufferId)
-              .catch((err: unknown) => report(err, { action: 'Go forward' }))
-          }
+          onClick={run(browserApi.forward, 'Go forward')}
         >
           <ArrowRightIcon />
         </Button>
@@ -122,11 +118,7 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           size="icon-sm"
           aria-label="Reload"
           disabled={!hasUrl}
-          onClick={() =>
-            void browserApi
-              .reload(bufferId)
-              .catch((err: unknown) => report(err, { action: 'Reload the page' }))
-          }
+          onClick={run(browserApi.reload, 'Reload the page')}
         >
           <ArrowClockwiseIcon />
         </Button>

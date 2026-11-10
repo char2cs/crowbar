@@ -1,6 +1,6 @@
 import { createRef, memo, Profiler, StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
@@ -65,13 +65,6 @@ async function renderDocument() {
   ])
   return { handle, block, second, markdown: () => ref.current?.getMarkdown() ?? '' }
 }
-
-// The drop selects the moved block, which opens the floating toolbar; it
-// positions itself off the DOM selection's rect, which jsdom's Range lacks.
-beforeEach(() => {
-  Range.prototype.getBoundingClientRect ??= () => DOMRect.fromRect()
-  Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList
-})
 
 afterEach(() => {
   vi.restoreAllMocks()

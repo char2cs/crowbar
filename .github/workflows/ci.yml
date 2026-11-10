@@ -293,7 +293,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb
       - name: Build Go sidecar (${{ matrix.triple }})
         run: |
           mkdir -p desktop/src-tauri/binaries
@@ -304,7 +304,8 @@ jobs:
       - name: Cargo clippy
         run: cd desktop/src-tauri && cargo clippy -- -D warnings
       - name: Cargo test
-        run: cd desktop/src-tauri && cargo test
+        # The GTK tests (browser tab placement) need a display.
+        run: cd desktop/src-tauri && xvfb-run -a cargo test
       - name: Cargo build --release (Linux)
         run: cd desktop/src-tauri && cargo build --release
 
