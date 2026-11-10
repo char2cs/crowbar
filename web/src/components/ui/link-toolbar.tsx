@@ -173,6 +173,7 @@ function LinkOpenButton() {
   return (
     <a
       {...attributes}
+      href={attributes.href}
       className={buttonVariants({ size: 'sm', variant: 'ghost' })}
       // react-doctor-disable-next-line mouse-events-have-key-events -- this is not a feature handler, it is a bubbling guard: the floating link toolbar's parent listens for hover to decide whether to stay open, and this `<a>` swallows the mouseover so hovering the "open in new tab" affordance doesn't re-trigger it. A keyboard user loses nothing (there is no hover to miss), and the focus-event analogue the rule asks for would swallow `focusin` from the same parent, which the toolbar does rely on. The link itself is a real focusable `<a>` with an `aria-label`.
       onMouseOver={(e) => {
