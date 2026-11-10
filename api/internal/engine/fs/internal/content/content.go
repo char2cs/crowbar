@@ -184,6 +184,13 @@ func writeAtomic(
 	perm := os.FileMode(0o600)
 	if info, err := os.Stat(full); err == nil {
 		perm = info.Mode().Perm()
+		// Renaming over a file needs only the directory's write bit: refuse what a direct
+		// write would be refused, or a save to a read-only file reports a success.
+		if info.Mode().IsRegular() {
+			if err := requireWritable(full); err != nil {
+				return err
+			}
+		}
 	}
 
 	dir := filepath.Dir(full)
@@ -209,6 +216,15 @@ func writeAtomic(
 		return err
 	}
 	return os.Rename(tmpName, full)
+}
+
+// requireWritable opens full for writing, without truncating it, only to ask the OS.
+func requireWritable(full string) error {
+	f, err := os.OpenFile(full, os.O_WRONLY, 0) //nolint:gosec // G304: full is safepath-resolved or an absolute path the file usecase resolved
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // writeThrough writes data into the existing file link names, never creating
