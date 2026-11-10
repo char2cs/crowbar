@@ -44,6 +44,9 @@ delete (globalThis as { Worker?: unknown }).Worker
 
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
+// Nor a Range's rects, which Plate's floating toolbars position themselves from.
+Range.prototype.getBoundingClientRect = () => DOMRect.fromRect()
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList
 
 // jsdom does not implement ResizeObserver. Inert stub: jsdom has no layout engine, so
 // it could never report a real size change anyway — components that observe elements

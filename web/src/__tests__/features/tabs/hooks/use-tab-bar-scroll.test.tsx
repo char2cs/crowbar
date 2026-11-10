@@ -2,14 +2,6 @@ import { render } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useTabBarScroll } from '@/features/tabs/hooks/use-tab-bar-scroll'
 
-// jsdom has no ResizeObserver; the hook only needs construct/observe/disconnect.
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-
 // Renders the hook against a tab-bar div whose getBoundingClientRect is
 // stubbed to `rect`, and reports the edge flags.
 function renderWithRect(rect: { left: number; right: number; top: number }) {
