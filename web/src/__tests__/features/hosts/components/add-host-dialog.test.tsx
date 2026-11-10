@@ -260,6 +260,16 @@ describe('AddHostDialog', () => {
     expect(probeRemoteFingerprint).not.toHaveBeenCalled()
   })
 
+  it('drops an address error once the address is corrected', async () => {
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage('me@homelab.example.com/v0')
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: 'homelab:3737' } })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   // Two rows for one daemon would make every one of its projects ambiguous.
   it('stops before the fingerprint when the address is already paired, and says what to do', async () => {
     useHostConfigStore.setState({
