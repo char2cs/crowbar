@@ -285,6 +285,16 @@ export async function onConsoleMenuToggle(handler: () => void): Promise<() => vo
   return getCurrentWebview().listen('console:toggle', handler)
 }
 
+/** The shell destroys a closing window's page without `pagehide` (what drafts and held removals
+ *  flush on), so the page gets it here first; Tauri destroys the window once this returns. */
+export async function hidePageOnWindowClose(): Promise<() => void> {
+  if (!isDesktopApp()) return () => {}
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  return getCurrentWindow().onCloseRequested(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
+  })
+}
+
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
 type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem

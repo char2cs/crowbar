@@ -20,6 +20,7 @@ import { startHostStatus } from '@/features/hosts/lib/host-status'
 import { installGlobalReporting, report } from '@/lib/errors/report'
 import { startStream } from '@/core/stream/stream'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
+import { hidePageOnWindowClose } from '@/lib/crowbar-bridge'
 import '@/core/entities/entity-store'
 
 // First in boot: perf marks are no-ops until the observer exists, and it self-gates via
@@ -81,6 +82,12 @@ if (import.meta.hot) import.meta.hot.dispose(() => stopSettingsStorageSync())
 prefetchEditorChunks()
 
 // Native window blur is applied on the Rust side via window-vibrancy (see lib.rs).
+
+// Closing a desktop window must still flush what waits on `pagehide` (drafts, held removals).
+void hidePageOnWindowClose().then(
+  (stop) => import.meta.hot?.dispose(stop),
+  (err: unknown) => report(err, { action: 'Watch the window close' }),
+)
 
 // react-scan is opt-in even in dev (it costs about half of dev-mode performance):
 //   localStorage.setItem('crowbar:react-scan', '1') then reload.
