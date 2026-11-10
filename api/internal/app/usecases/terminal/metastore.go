@@ -2,10 +2,12 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -18,8 +20,15 @@ type WorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
 }
 
+// WorkspaceReader reads a workspace by id: a project home's terminal is owned by the home
+// workspace itself, which no chat's worktree resolves to.
+type WorkspaceReader interface {
+	Get(ctx context.Context, id string) (domain.Workspace, error)
+}
+
 type sessionMetaStoreImpl struct {
 	worktrees   WorktreeResolver
+	workspaces  WorkspaceReader
 	sessions    store.Store[domain.TerminalSession, string]
 	crowbarHome func() (string, error)
 }
@@ -28,14 +37,30 @@ type sessionMetaStoreImpl struct {
 // chat→worktree resolver; it is injected via Engine.SetMetaStore after both layers exist.
 func NewSessionMetaStore(
 	worktrees WorktreeResolver,
+	workspaces WorkspaceReader,
 	sessions store.Store[domain.TerminalSession, string],
 	crowbarHome func() (string, error),
 ) engineterminal.SessionMetaStore {
 	return &sessionMetaStoreImpl{
 		worktrees:   worktrees,
+		workspaces:  workspaces,
 		sessions:    sessions,
 		crowbarHome: crowbarHome,
 	}
+}
+
+// owner resolves a session owner to the workspace its rows and scrollback file under: a chat's
+// worktree, or, for a project home's terminal (owned by the home workspace id), the home itself.
+func (s *sessionMetaStoreImpl) owner(ctx context.Context, ownerID string) (domain.Workspace, error) {
+	ws, err := s.worktrees.Resolve(ctx, ownerID)
+	if !errors.Is(err, worktree.ErrNoWorktreeInAncestry) {
+		return ws, err
+	}
+	home, homeErr := s.workspaces.Get(ctx, ownerID)
+	if homeErr != nil || home.Kind != domain.WorkspaceKindHome {
+		return domain.Workspace{}, err
+	}
+	return home, nil
 }
 
 // Save upserts the session metadata row, resolving (projectID, repoID) from
@@ -44,7 +69,7 @@ func (s *sessionMetaStoreImpl) Save(
 	ctx context.Context,
 	meta engineterminal.SessionMeta,
 ) error {
-	ws, err := s.worktrees.Resolve(ctx, meta.ChatID)
+	ws, err := s.owner(ctx, meta.ChatID)
 	if err != nil {
 		return fmt.Errorf("terminal: metastore: save: resolve chat worktree: %w", err)
 	}
@@ -100,7 +125,7 @@ func (s *sessionMetaStoreImpl) StorageDir(
 		return "", fmt.Errorf("terminal: metastore: storage dir: home: %w", err)
 	}
 
-	ws, err := s.worktrees.Resolve(ctx, chatID)
+	ws, err := s.owner(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("terminal: metastore: storage dir: resolve chat worktree: %w", err)
 	}

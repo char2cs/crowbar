@@ -165,6 +165,7 @@ func New(
 	// maps it to its worktree exists only once the chat usecase does.
 	terminalMeta := terminal.NewSessionMetaStore(
 		worktreeUsecase,
+		repos.Workspace,
 		gormStores.TerminalSessions,
 		crowbarHome,
 	)
