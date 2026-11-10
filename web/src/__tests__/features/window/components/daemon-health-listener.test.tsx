@@ -4,6 +4,7 @@ import { DaemonHealthListener } from '@/features/window/components/daemon-health
 import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
+import { watchToasts } from '@/__tests__/__fixtures__/reports'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {
@@ -83,6 +84,21 @@ describe('DaemonHealthListener', () => {
     crashReportAtLoad = 'exited 3 times'
     render(<DaemonHealthListener />)
     await waitFor(() => expect(useDaemonCrashStore.getState().report).toBe('exited 3 times'))
+  })
+
+  it('reports, without claiming a crash, a supervisor that cannot be asked for a crash loop', async () => {
+    const add = watchToasts()
+    // Tauri rejects a failed command with the shell's own string, not an Error.
+    tauriWindow.__TAURI_INTERNALS__ = {
+      invoke: () => Promise.reject('command daemon_crash_report not found'),
+    }
+    render(<DaemonHealthListener />)
+    await waitFor(() =>
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', title: expect.stringMatching(/crash-looping/) }),
+      ),
+    )
+    expect(useDaemonCrashStore.getState().report).toBeNull()
   })
 
   it('records a halt the supervisor announces, and clears it when the daemon is restarted', async () => {

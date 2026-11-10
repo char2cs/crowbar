@@ -54,7 +54,8 @@ describe('the root route', () => {
   beforeEach(() => {
     handlers.clear()
     useDaemonHaltStore.getState().clear()
-    tauriWindow.__TAURI_INTERNALS__ = {}
+    // A supervisor with no crash loop to report.
+    tauriWindow.__TAURI_INTERNALS__ = { invoke: async () => null }
     // The desktop root also subscribes to webview events and lazy-mounts the browser
     // peer, both needing a native shell this fake lacks; when they ran before the file
     // ended depended on load, each throwing an unhandled error.
