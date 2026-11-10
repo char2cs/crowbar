@@ -10,26 +10,8 @@ export interface BrowserRect {
   height: number
 }
 
-interface NavigatedEvent {
-  id: string
-  url: string
-}
-
-interface TitleEvent {
-  id: string
-  title: string
-}
-
-interface LoadingEvent {
-  id: string
-  loading: boolean
-}
-
-/** A page in tab `id` asked for a new window (target=_blank, window.open) at `url`. */
-interface NewWindowEvent {
-  id: string
-  url: string
-}
+/** A report from tab `id`: its new url, title or loading state. */
+type TabEvent<K extends string, V> = { id: string } & Record<K, V>
 
 export interface BrowserScreenshot {
   /** Base64, no data: prefix. */
@@ -77,12 +59,13 @@ export const browserApi = {
   copyText: (text: string) => invoke<void>('browser_copy_text', { text }),
   capabilities: () => invoke<{ clearData: boolean }>('browser_capabilities'),
   clearData: () => invoke<void>('browser_clear_data'),
-  onNavigated: (handler: (e: NavigatedEvent) => void): Promise<UnlistenFn> =>
-    listenTo<NavigatedEvent>('browser://navigated', handler),
-  onLoading: (handler: (e: LoadingEvent) => void): Promise<UnlistenFn> =>
-    listenTo<LoadingEvent>('browser://loading', handler),
-  onTitle: (handler: (e: TitleEvent) => void): Promise<UnlistenFn> =>
-    listenTo<TitleEvent>('browser://title', handler),
-  onNewWindow: (handler: (e: NewWindowEvent) => void): Promise<UnlistenFn> =>
-    listenTo<NewWindowEvent>('browser://new-window', handler),
+  onNavigated: (handler: (e: TabEvent<'url', string>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://navigated', handler),
+  onLoading: (handler: (e: TabEvent<'loading', boolean>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://loading', handler),
+  onTitle: (handler: (e: TabEvent<'title', string>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://title', handler),
+  /** The page asked for a new window (target=_blank, window.open) at `url`. */
+  onNewWindow: (handler: (e: TabEvent<'url', string>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://new-window', handler),
 }

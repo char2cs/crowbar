@@ -5,13 +5,10 @@ import { browserApi } from '@/lib/browser-bridge'
 /** Opens `url` as a browser tab in the pane that holds tab `openerId`. */
 function openBeside(openerId: string, url: string) {
   const { panes, bufferActions } = windowPaneStore.getState()
-  const opener = bufferActions.getBufferById(openerId)
+  const workspaceId = bufferActions.getBufferById(openerId)?.workspaceId
   const pane = Object.values(panes).find((p) => p.editorTabIds.includes(openerId))
-  if (!opener || !pane) return
-  bufferActions.openContent(
-    { type: 'browser', url, workspaceId: opener.workspaceId },
-    { paneId: pane.id },
-  )
+  if (workspaceId === undefined || !pane) return
+  bufferActions.openContent({ type: 'browser', url, workspaceId }, { paneId: pane.id })
 }
 
 /** The one subscriber for webview reports, so a tab whose pane is unmounted still tracks. */
