@@ -25,6 +25,7 @@ interface HostRowProps<H extends HostSummary> {
 }
 
 const SECONDARY = 'ui-font ui-text-sm truncate text-muted-foreground'
+const ADDRESS = 'font-mono ui-text-sm truncate text-muted-foreground'
 
 function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: HostRowProps<H>) {
   const { state } = useHostView(host.id)
@@ -33,8 +34,9 @@ function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: H
       <HostStatusIcon hostId={host.id} state={state} className="text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
-        {/* Local is the app itself: its line is never tinted. */}
-        <div {...(isLocal ? { className: SECONDARY } : hostToneText(state, SECONDARY))}>
+        {/* Local is the app itself: its line is never tinted. An address is monospace, as typed in
+            the address field: the UI face kerns `7.0` into `70`. */}
+        <div {...(isLocal ? { className: SECONDARY } : hostToneText(state, ADDRESS))}>
           {isLocal ? 'This computer' : host.endpoint}
           {state !== 'up' && ` · ${hostDotLabel(state)}`}
         </div>
