@@ -8,7 +8,10 @@ use javascriptcore::ValueExt;
 use tauri::{Runtime, Webview};
 use tokio::sync::oneshot;
 use webkit2gtk::gio::Cancellable;
-use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
+use webkit2gtk::{
+    NavigationPolicyDecision, NavigationPolicyDecisionExt, PolicyDecisionExt, PolicyDecisionType,
+    SnapshotOptions, SnapshotRegion, URIRequestExt, WebViewExt,
+};
 
 use super::agent::Png;
 
@@ -111,9 +114,110 @@ fn encode(surface: cairo::Surface, shrink: f64) -> Result<Png, String> {
     })
 }
 
+/// Hands `open` the url of every link that asks for a new window (target=_blank), and keeps
+/// WebKit from making one. On GTK such a link never reaches Tauri's new-window handler; only
+/// window.open does.
+pub fn route_new_windows(view: &webkit2gtk::WebView, open: impl Fn(String) + 'static) {
+    use gtk::prelude::Cast;
+    view.connect_decide_policy(move |_, decision, kind| {
+        if kind != PolicyDecisionType::NewWindowAction {
+            return false;
+        }
+        let url = decision
+            .downcast_ref::<NavigationPolicyDecision>()
+            .and_then(|d| d.navigation_action())
+            .and_then(|action| action.request())
+            .and_then(|request| request.uri());
+        let Some(url) = url else {
+            return false;
+        };
+        open(url.to_string());
+        decision.ignore();
+        true
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::browser::gtk_test_thread::on_gtk_thread;
+    use std::rc::Rc;
+    use std::time::{Duration, Instant};
+    use webkit2gtk::LoadEvent;
+
+    /// Runs GTK until `done`, for at most a few seconds; reports whether it got there.
+    fn run_until(done: impl Fn() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() && Instant::now() < deadline {
+            gtk::main_iteration_do(false);
+        }
+        done()
+    }
+
+    /// Runs `script` in a page with a target=_blank link; reports the urls handed to
+    /// `route_new_windows` and the WebKit signals seen. `create` is where Tauri's own
+    /// new-window handler would be asked.
+    fn new_windows_from(script: &'static str) -> (Vec<String>, Vec<String>) {
+        on_gtk_thread(move || {
+            let view = webkit2gtk::WebView::new();
+            let opened = Rc::new(RefCell::new(Vec::new()));
+            let seen = Rc::new(RefCell::new(Vec::new()));
+            let into = opened.clone();
+            route_new_windows(&view, move |url| into.borrow_mut().push(url));
+            let log = seen.clone();
+            view.connect_decide_policy(move |_, _, kind| {
+                log.borrow_mut().push(format!("policy {kind:?}"));
+                false
+            });
+            let log = seen.clone();
+            view.connect_create(move |_, _| {
+                log.borrow_mut().push("create".into());
+                None
+            });
+            let loaded = Rc::new(RefCell::new(false));
+            let flag = loaded.clone();
+            view.connect_load_changed(move |_, event| {
+                if event == LoadEvent::Finished {
+                    *flag.borrow_mut() = true;
+                }
+            });
+            let html = "<a id=a href='https://example.test/next' target=_blank>next</a>";
+            view.load_html(html, Some("https://example.test/"));
+            assert!(run_until(|| *loaded.borrow()), "the page loads");
+            view.call_async_javascript_function(
+                script,
+                None,
+                None,
+                None,
+                None::<&Cancellable>,
+                |_| {},
+            );
+            let asked =
+                || !opened.borrow().is_empty() || seen.borrow().iter().any(|s| s == "create");
+            run_until(asked);
+            let opened = opened.borrow().clone();
+            let seen = seen.borrow().clone();
+            (opened, seen)
+        })
+    }
+
+    #[test]
+    fn a_target_blank_link_asks_for_one_new_window() {
+        let (opened, seen) = new_windows_from("document.getElementById('a').click()");
+        assert_eq!(opened, ["https://example.test/next"], "signals: {seen:?}");
+        assert!(!seen.iter().any(|s| s == "create"), "no window: {seen:?}");
+    }
+
+    #[test]
+    fn window_open_asks_for_one_window_either_way() {
+        let (opened, seen) = new_windows_from("window.open('https://example.test/popup')");
+        let created = seen.iter().filter(|s| *s == "create").count();
+        assert_eq!(
+            opened.len() + created,
+            1,
+            "routed {opened:?}, signals {seen:?}"
+        );
+    }
 
     #[test]
     fn a_snapshot_never_grows_and_keeps_the_requested_width() {
