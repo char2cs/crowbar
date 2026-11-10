@@ -27,6 +27,10 @@ import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { editorTab, seatTab } from '@/__tests__/__fixtures__/view-state'
+import type { EditorTabBase } from '@/features/panes/types/pane-content'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -53,6 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
+  windowPaneStore.setState(windowPaneStore.getInitialState(), true)
   resetEntities()
   // Creating a workspace starts a CLI, so it needs a provider from the global store (there is no
   // workspace yet to scope a per-workspace read through).
@@ -114,6 +119,27 @@ describe('handleTrash', () => {
       const entries = treeUiStore.getState().removals
       expect(entries).toHaveLength(1)
       expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', wsId: 'ws-a' })
+    })
+
+    // The chat's pane closes with it; a file edited beside it is the only copy of those edits.
+    it('keeps an unsaved file open beside the chat when its pane closes', () => {
+      seedRepos([
+        repo({
+          defaultWorkspaceId: undefined,
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ])
+      windowPaneStore.getState().paneActions.openChat('c1', { projectId: 'p1' })
+      const paneId = chatPaneIndex(windowPaneStore.getState().panes).get('c1')!
+      seatTab(windowPaneStore, paneId, { ...editorTab('readme'), isDirty: true } as EditorTabBase)
+
+      expect(handleTrash('c1')).toBe(true)
+
+      const state = windowPaneStore.getState()
+      expect(chatPaneIndex(state.panes).has('c1')).toBe(false)
+      expect(Object.values(state.panes).some((p) => p.editorTabIds.includes('readme'))).toBe(true)
+      expect(state.buffers.find((b) => b.id === 'readme')).toMatchObject({ isDirty: true })
     })
 
     it('refuses when the repo has no workspace at all to scope the request through', () => {

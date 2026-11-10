@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { hasUnsavedEdits, type PaneContent } from '@/features/panes/types/pane-content'
 import { settlePinnedOrder } from './view-pins'
 import {
   closeLayout,
@@ -139,6 +140,27 @@ function transferTabs(state: ViewState, closing: PaneGroup, survivorId: string):
   ) {
     survivor.activeEditorTabId = closing.activeEditorTabId
   }
+}
+
+/** A pane leaving as its view's last member takes its tabs along, except unsaved ones (the only
+ *  copy of those edits), which move to the stage. Call before `removePane`. */
+export function keepUnsavedTabs(
+  state: ViewState & { buffers: PaneContent[] },
+  paneId: string,
+): void {
+  const pane = state.panes[paneId]
+  if (!pane?.viewId || pane.editorTabIds.length === 0 || !Array.isArray(state.buffers)) return
+  const view = state.views[pane.viewId]
+  if (!view || getAllLeafIds(view.layout).length > 1) return
+  const unsaved = new Set<string>()
+  for (const buffer of state.buffers) if (hasUnsavedEdits(buffer)) unsaved.add(buffer.id)
+  const kept = pane.editorTabIds.filter((id) => unsaved.has(id))
+  if (kept.length === 0) return
+  const stage = state.panes[getFirstLeafId(state.stage)]
+  const staged = new Set(stage.editorTabIds)
+  stage.editorTabIds = [...stage.editorTabIds, ...kept.filter((id) => !staged.has(id))]
+  stage.activeEditorTabId ??= kept[0]
+  stage.editorOpen = true
 }
 
 /** Its tabs go to the pane taking its place; a view left chatless goes too (invariant 2); an

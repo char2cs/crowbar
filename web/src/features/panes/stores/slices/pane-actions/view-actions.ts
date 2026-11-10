@@ -5,6 +5,7 @@ import { settlePinnedOrder, setViewPinned } from '@/features/panes/lib/view-pins
 import {
   fillPane,
   insertPane,
+  keepUnsavedTabs,
   movePane,
   removePane,
   removeView,
@@ -110,6 +111,7 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
     closePane(paneId) {
       const pane = get().panes[paneId]
       set((state) => {
+        keepUnsavedTabs(state, paneId)
         removePane(state, paneId)
       })
       if (pane?.chatId) release([{ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null }])
