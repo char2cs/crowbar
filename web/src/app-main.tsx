@@ -29,9 +29,7 @@ installPerfObserver()
 
 // Every rejection nothing handled reaches the user, not only the console.
 const uninstallGlobalReporting = installGlobalReporting()
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => uninstallGlobalReporting())
-}
+import.meta.hot?.dispose(uninstallGlobalReporting)
 
 // The one stream, holding the projects scope every route and the sidebar read.
 const stopStream = startStream()
@@ -53,9 +51,7 @@ if (import.meta.hot) import.meta.hot.dispose(() => stopHostStatus())
 // Wire up daemon event listeners for cache invalidation.
 // Cleanup is registered with Vite HMR so hot-reloading doesn't leak listeners.
 const disconnectDaemonEvents = connectDaemonEvents()
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => disconnectDaemonEvents())
-}
+import.meta.hot?.dispose(disconnectDaemonEvents)
 
 // At boot, not on terminal open: the daemon seeds these colours into each PTY it spawns, and a CLI
 // querying the background has asked before any client attaches. The phone has no local daemon.
