@@ -6,6 +6,10 @@ import { toast } from '@/features/window/stores/toast-store'
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
+const openLog = () => {
+  revealDaemonLog().catch((err: unknown) => toast.error('Could not open the log', errorText(err)))
+}
+
 // The crash loop's only way out: the supervisor stopped respawning the backend, so nothing
 // reconnects until the user restarts it. Drawn over the app rather than in place of it, so the
 // open tabs and their unsaved edits stay mounted.
@@ -25,9 +29,6 @@ export function DaemonCrashPanel() {
     } finally {
       setRestarting(false)
     }
-  }
-  const openLog = () => {
-    revealDaemonLog().catch((err: unknown) => toast.error('Could not open the log', errorText(err)))
   }
   const copyReport = () => {
     navigator.clipboard.writeText(report).then(
