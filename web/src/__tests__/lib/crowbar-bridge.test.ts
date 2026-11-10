@@ -1,25 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import {
-  setWindowTransparency,
-  setMacOSWindowAppearance,
-  setTrafficLightPosition,
-} from '@/lib/crowbar-bridge'
 
 // The terminal transport is covered by crowbar-bridge-terminal.test.ts.
-describe('crowbar-bridge', () => {
-  it('setWindowTransparency resolves without error', async () => {
-    await expect(setWindowTransparency(true)).resolves.toBeUndefined()
-  })
-
-  it('setMacOSWindowAppearance resolves without error', async () => {
-    await expect(setMacOSWindowAppearance('dark', false)).resolves.toBeUndefined()
-  })
-
-  it('setTrafficLightPosition resolves without error', async () => {
-    await expect(setTrafficLightPosition(12, 33)).resolves.toBeUndefined()
-  })
-})
-
 const IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 const MAC =
@@ -53,20 +34,13 @@ describe('the desktop window commands', () => {
   it('gives the page its pagehide before a closing desktop window is destroyed', async () => {
     const { invoke, bridge } = await loadInTauri(MAC)
     const callbacks: Array<(event: unknown) => unknown> = []
-    Object.assign(
-      (window as unknown as Record<string, Record<string, unknown>>).__TAURI_INTERNALS__,
-      {
-        metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
-        transformCallback: (cb: (event: unknown) => unknown) => callbacks.push(cb) - 1,
-      },
-    )
+    const internals = window as unknown as Record<string, Record<string, unknown>>
+    internals.__TAURI_INTERNALS__.metadata = { currentWindow: { label: 'main' } }
+    internals.__TAURI_INTERNALS__.transformCallback = (cb: never) => callbacks.push(cb) - 1
     const seen: string[] = []
     const onPagehide = () => seen.push('pagehide')
     window.addEventListener('pagehide', onPagehide)
-    invoke.mockImplementation(async (...args: unknown[]) => {
-      seen.push(String(args[0]))
-      return 7 as never
-    })
+    invoke.mockImplementation(async (...args: unknown[]) => seen.push(String(args[0])) as never)
 
     await bridge.hidePageOnWindowClose()
     const listen = invoke.mock.calls.find((call: unknown[]) => call[0] === 'plugin:event|listen')
@@ -85,7 +59,7 @@ describe('the desktop window commands', () => {
     expect(bridge.isTauri()).toBe(true)
     expect(bridge.isDesktopApp()).toBe(false)
     await bridge.setTrafficLightPosition(12, 33)
-    await bridge.setMacOSWindowAppearance('dark', false)
+    await bridge.setMacOSWindowAppearance('dark')
     await bridge.setConsoleMenuChord('cmd+`')
     await bridge.revealItemInFinder('/tmp/a')
     const unlisten = await bridge.onConsoleMenuToggle(() => {})

@@ -250,14 +250,7 @@ export async function revealItemInFinder(path: string): Promise<void> {
 
 // ── Window Management ─────────────────────────────────────────────────────────
 
-export async function setWindowTransparency(_enabled: boolean): Promise<void> {
-  // FUTURE: invoke Tauri window transparency plugin
-}
-
-export async function setMacOSWindowAppearance(
-  themeType: string,
-  _transparencyEnabled: boolean,
-): Promise<void> {
+export async function setMacOSWindowAppearance(themeType: string): Promise<void> {
   // Pins the vibrancy blur view's appearance to the app theme (a LIGHT frost in light
   // mode), not NSApp.appearance, which Tauri's setTheme flips inconsistently.
   if (!isDesktopApp()) return

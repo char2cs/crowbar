@@ -1,11 +1,6 @@
 import { qualify } from '@/lib/host-path'
 import { hostIdForChat, hostIdForWorkspace } from '@/lib/host-resolve'
-import { useSyncExternalStore } from 'react'
-import {
-  getOwningChatId,
-  getWorkspaceScope,
-  subscribeToWorkspaceScope,
-} from '@/lib/workspace-scope'
+import { getOwningChatId, getWorkspaceScope } from '@/lib/workspace-scope'
 
 // Builders hand `qualify` bare `/v0/...` paths (desktop's API_BASE is `crowbar://localhost`), and
 // resolve the host before the chat so an unplaceable workspace never reads as "chat not loaded".
@@ -135,12 +130,4 @@ export function workspaceBase(wsId: string): string {
 // data and streams (files and threads stay). False for an unknown scope, so others keep theirs.
 export function isHomeWorkspace(wsId: string): boolean {
   return getWorkspaceScope(wsId)?.repoId === ''
-}
-
-/** {@link isHomeWorkspace} as React state: the scope is recorded after the first render. */
-export function useIsHomeWorkspace(wsId: string): boolean {
-  return useSyncExternalStore(
-    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
-    () => isHomeWorkspace(wsId),
-  )
 }

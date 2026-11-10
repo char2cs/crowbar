@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const bridge = vi.hoisted(() => ({
-  setMacOSWindowAppearance: vi.fn(async (_themeType: string, _transparency: boolean) => {}),
-  setWindowTransparency: vi.fn(async (_enabled: boolean) => {}),
+  setMacOSWindowAppearance: vi.fn(async (_themeType: string) => {}),
 }))
 
 vi.mock('@/lib/crowbar-bridge', () => ({
   setMacOSWindowAppearance: bridge.setMacOSWindowAppearance,
-  setWindowTransparency: bridge.setWindowTransparency,
 }))
 
 import { applyTheme } from '@/features/settings/lib/settings-effects'

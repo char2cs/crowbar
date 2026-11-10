@@ -2,7 +2,7 @@ import {
   cacheFontsForBootstrap,
   cacheThemeForBootstrap,
 } from '@/features/settings/lib/appearance-bootstrap'
-import { setWindowTransparency, setMacOSWindowAppearance } from '@/lib/crowbar-bridge'
+import { setMacOSWindowAppearance } from '@/lib/crowbar-bridge'
 import type { Settings, Theme } from '@/features/settings/types/settings'
 
 const ALL_THEME_CLASSES = [
@@ -30,10 +30,6 @@ function applyWindowTransparency(enabled: boolean) {
     'data-window-transparency',
     enabled ? 'enabled' : 'disabled',
   )
-
-  void setWindowTransparency(enabled).catch((error) => {
-    console.warn('Failed to sync window transparency', error)
-  })
 }
 
 function getSystemThemePreference(): SystemThemePreference {
@@ -120,12 +116,7 @@ export async function applyTheme(theme: Theme) {
 }
 
 function syncMacOSWindowAppearance(themeType: 'light' | 'dark') {
-  const transparencyEnabled =
-    typeof document === 'undefined'
-      ? true
-      : document.documentElement.getAttribute('data-window-transparency') !== 'disabled'
-
-  void setMacOSWindowAppearance(themeType, transparencyEnabled).catch((error) => {
+  void setMacOSWindowAppearance(themeType).catch((error) => {
     console.warn('Failed to sync macOS window appearance', error)
   })
 }
