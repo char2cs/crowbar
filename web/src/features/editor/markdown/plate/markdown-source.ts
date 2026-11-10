@@ -1,7 +1,7 @@
 import type { Descendant, Value } from 'platejs'
 
 /** One top-level markdown block: its byte range in the source and the Plate nodes it parsed to. */
-export interface SourceBlock {
+interface SourceBlock {
   start: number
   end: number
   /** Canonical keys of the block's nodes; empty for a block with no node (a link definition). */
