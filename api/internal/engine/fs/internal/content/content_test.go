@@ -3,7 +3,6 @@ package content_test
 import (
 	"bytes"
 	"encoding/base64"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -487,22 +486,4 @@ func TestAbs_RoundTripAndCap(
 	require.NoError(t, os.Truncate(abs, 25<<20+1))
 	_, err = content.ReadAbs(abs)
 	require.ErrorIs(t, err, content.ErrFileTooLarge)
-}
-
-// A read-only file must refuse a save, as a direct write would: renaming a temp over it needs only
-// the directory's write bit, so the atomic write would otherwise report a success the OS forbids.
-func TestWrite_RefusesAReadOnlyFile(t *testing.T) {
-	testutil.RequirePermissionEnforcement(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "locked.txt")
-	require.NoError(t, os.WriteFile(path, []byte("original"), 0o444))
-
-	err := content.Write(dir, "locked.txt", "changed", "")
-	require.ErrorIs(t, err, fs.ErrPermission)
-	got, readErr := os.ReadFile(path)
-	require.NoError(t, readErr)
-	require.Equal(t, "original", string(got))
-
-	err = content.WriteAbs(path, "changed", "")
-	require.ErrorIs(t, err, fs.ErrPermission)
 }

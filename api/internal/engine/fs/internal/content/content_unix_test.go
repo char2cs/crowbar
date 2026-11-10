@@ -3,6 +3,7 @@
 package content_test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/content"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat pins the LimitReader
@@ -41,4 +43,22 @@ func TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat(
 	require.Error(t, err)
 	require.ErrorIs(t, err, content.ErrFileTooLarge,
 		"a file that grew past the cap after Stat must still be rejected as oversize")
+}
+
+// A read-only file must refuse a save, as a direct write would: renaming a temp over it needs only
+// the directory's write bit, so the atomic write would otherwise report a success the OS forbids.
+func TestWrite_RefusesAReadOnlyFile(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "locked.txt")
+	require.NoError(t, os.WriteFile(path, []byte("original"), 0o444))
+
+	err := content.Write(dir, "locked.txt", "changed", "")
+	require.ErrorIs(t, err, fs.ErrPermission)
+	got, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, "original", string(got))
+
+	err = content.WriteAbs(path, "changed", "")
+	require.ErrorIs(t, err, fs.ErrPermission)
 }
