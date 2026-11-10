@@ -186,6 +186,11 @@ describe('openDocument', () => {
   it.each([
     [new ApiError('gone', 404), 'File not found', '/tmp/s5/notes.md'],
     [new ApiError('big', 413), 'File too large to open', 'notes.md'],
+    [
+      new ApiError('open: permission denied', 403),
+      "Can't open file: permission denied",
+      'notes.md',
+    ],
     [new Error('boom'), 'Failed to open file', 'notes.md'],
   ])('reports %s by its own title', async (error, title, message) => {
     readDocument.mockRejectedValue(error)

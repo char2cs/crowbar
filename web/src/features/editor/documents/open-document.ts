@@ -96,6 +96,7 @@ export function openFailure(target: DocumentTarget, error: unknown): DocumentUna
   const refusal = documentRefusal(error)
   const status = error instanceof ApiError ? error.status : 0
   if (refusal) return refusal
+  if (status === 403) return { title: "Can't open file: permission denied", message: name }
   if (status === 404) return { title: 'File not found', message: path }
   if (status === 413) return { title: 'File too large to open', message: name }
   return { title: 'Failed to open file', message: name }

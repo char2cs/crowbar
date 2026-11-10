@@ -35,6 +35,7 @@ func TestCodeOf_ForeignErrors(t *testing.T) {
 		{fs.ErrNotExist, problem.NotFound},
 		{fs.ErrExist, problem.Conflict},
 		{fs.ErrInvalid, problem.InvalidArgument},
+		{fs.ErrPermission, problem.Forbidden},
 		{asynxmodels.ErrNotFound, problem.NotFound},
 		{asynxmodels.ErrValidation, problem.Unprocessable},
 		{asynxmodels.ErrPipelineFailed, problem.Conflict},

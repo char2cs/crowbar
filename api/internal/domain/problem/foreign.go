@@ -15,6 +15,8 @@ var foreign = []struct {
 	{fs.ErrNotExist, NotFound},
 	{fs.ErrExist, Conflict},
 	{fs.ErrInvalid, InvalidArgument},
+	// The OS refused a file to the daemon's user: the client's to fix, never a daemon fault.
+	{fs.ErrPermission, Forbidden},
 	{asynxmodels.ErrNotFound, NotFound},
 	{asynxmodels.ErrValidation, Unprocessable},
 	{asynxmodels.ErrPipelineFailed, Conflict},
