@@ -105,7 +105,6 @@ import * as keymap from '@/features/keymaps/hooks/use-effective-keymap'
 vi.spyOn(keymap, 'useEffectiveChordMap').mockImplementation(() => ({
   'tabs.closeActive': 'mod+w',
   'tabs.reopenClosed': 'mod+shift+t',
-  'panes.splitRight': 'mod+\\',
   'tabs.new': 'mod+t',
   'tabs.newTerminal': 'mod+j',
   'tabs.newFile': 'mod+shift+n',

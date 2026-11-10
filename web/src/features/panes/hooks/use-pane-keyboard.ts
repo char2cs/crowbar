@@ -26,8 +26,6 @@ import {
   PANE_NAVIGATE_LEFT,
   PANE_NAVIGATE_RIGHT,
   PANE_NAVIGATE_UP,
-  PANE_SPLIT_DOWN,
-  PANE_SPLIT_RIGHT,
   TAB_CLOSE,
   TAB_NEW,
   TAB_NEW_FILE,
@@ -53,13 +51,6 @@ export function usePaneKeyboard() {
       const matches = (commandId: string): boolean => {
         const chord = chordMap[commandId]
         return chord ? eventMatchesChord(e, chord) : false
-      }
-
-      if (matches(PANE_SPLIT_RIGHT) || matches(PANE_SPLIT_DOWN)) {
-        // A pane groups chats, never tabs (spec §7.3), so a tab can't be split into a pane.
-        // The command stays registered so its chord is claimed, not passed to the browser/OS.
-        e.preventDefault()
-        return
       }
 
       // Over an editor area ⌘N (New Chat's chord) means New Tab there instead.

@@ -1,6 +1,6 @@
 // `default` adds no overrides (registry chords). `compact` is a populated alternate that moves
-// the pane splits off `\` onto `]`, proving a preset switch re-resolves live bindings.
-import { PANE_SPLIT_DOWN, PANE_SPLIT_RIGHT, TAB_REOPEN_CLOSED } from '@/features/keymaps/registry'
+// Reopen closed tab, proving a preset switch re-resolves live bindings.
+import { TAB_REOPEN_CLOSED } from '@/features/keymaps/registry'
 import type { KeymapPreset, KeymapPresetId } from '@/features/keymaps/types'
 
 export const KEYMAP_PRESETS: Record<KeymapPresetId, KeymapPreset> = {
@@ -15,9 +15,6 @@ export const KEYMAP_PRESETS: Record<KeymapPresetId, KeymapPreset> = {
     label: 'Compact',
     populated: true,
     bindings: {
-      // Remap splits onto bracket keys, free up backslash.
-      [PANE_SPLIT_RIGHT]: 'mod+]',
-      [PANE_SPLIT_DOWN]: 'mod+shift+]',
       [TAB_REOPEN_CLOSED]: 'mod+shift+r',
     },
   },
