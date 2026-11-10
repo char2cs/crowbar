@@ -139,6 +139,14 @@ pub fn parse_ps_cpu_time(text: &str) -> Option<Duration> {
     Duration::try_from_secs_f64(secs).ok()
 }
 
+/// The daemon log's last run, from its final spawn marker, cut to the last `max_lines`:
+/// what the daemon said before it died.
+pub fn last_run_tail(log: &str, max_lines: usize) -> String {
+    let run = log.rfind("=== daemon spawned").map_or(log, |at| &log[at..]);
+    let lines: Vec<&str> = run.lines().collect();
+    lines[lines.len().saturating_sub(max_lines)..].join("\n")
+}
+
 /// At most `max` restarts per sliding `window`, so a daemon that dies on every boot is
 /// not respawned forever; once spent, the supervisor gives up until the next launch.
 pub struct RestartBudget {
@@ -166,6 +174,11 @@ impl RestartBudget {
         }
         self.restarts.push(now);
         true
+    }
+
+    /// Forgets every recorded restart: one the user asked for starts a fresh budget.
+    pub fn reset(&mut self) {
+        self.restarts.clear();
     }
 }
 
@@ -376,6 +389,35 @@ mod tests {
         );
         assert_eq!(parse_ps_cpu_time(""), None);
         assert_eq!(parse_ps_cpu_time("garbage"), None);
+    }
+
+    #[test]
+    fn the_crash_report_is_the_last_run_of_the_log() {
+        let log =
+            "=== daemon spawned (epoch 1)\n[err] old run\n=== daemon terminated (code=Some(2))\n\
+                   === daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
+                   === daemon terminated (code=Some(2))\n";
+        assert_eq!(
+            last_run_tail(log, 10),
+            "=== daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
+             === daemon terminated (code=Some(2))"
+        );
+        assert_eq!(
+            last_run_tail(log, 2),
+            "[err] goroutine 1\n=== daemon terminated (code=Some(2))"
+        );
+        assert_eq!(last_run_tail("no marker\nat all", 5), "no marker\nat all");
+    }
+
+    #[test]
+    fn a_manual_restart_gets_a_fresh_budget() {
+        let mut b = RestartBudget::new(2, Duration::from_secs(600));
+        let now = Instant::now();
+        assert!(b.allow(now));
+        assert!(b.allow(now));
+        assert!(!b.allow(now), "the crash loop spent the budget");
+        b.reset();
+        assert!(b.allow(now), "the user asked for this restart");
     }
 
     #[test]

@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
-import { isTauri } from '@/lib/crowbar-bridge'
+import { daemonCrashReport, isTauri } from '@/lib/crowbar-bridge'
+import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
 
 // Surfaces the supervisor's daemon lifecycle so a wedge or crash loop isn't silent. Not
-// `terminated` (also fires on intentional shutdown; restarted/dead follow a crash). `halted` goes
-// to the halt store, cleared by `restarted`; an earlier halt arrives via the first refused request.
+// `terminated` (also fires on intentional shutdown). `halted` and `dead` go to their stores,
+// cleared by `restarted`; a crash loop from before this window loaded is asked for on mount.
 export function DaemonHealthListener() {
   useEffect(() => {
     if (!isTauri()) return
@@ -27,17 +28,11 @@ export function DaemonHealthListener() {
           'daemon:restarted',
           () => {
             useDaemonHaltStore.getState().clear()
+            useDaemonCrashStore.getState().clear()
             toast.success('Backend restarted', 'Sessions reconnect automatically.')
           },
         ],
-        [
-          'daemon:dead',
-          () =>
-            toast.error(
-              'Backend keeps failing',
-              'Export diagnostics from Settings → Developer, then restart the app.',
-            ),
-        ],
+        ['daemon:dead', ({ payload }) => useDaemonCrashStore.getState().crashed(String(payload))],
         ['daemon:halted', ({ payload }) => useDaemonHaltStore.getState().halt(String(payload))],
       ]
       // Each subscription is an independent event name, so register them
@@ -47,6 +42,8 @@ export function DaemonHealthListener() {
         if (disposed) unlisten()
         else unlistens.push(unlisten)
       }
+      const report = await daemonCrashReport()
+      if (!disposed && report !== null) useDaemonCrashStore.getState().crashed(report)
     })()
 
     return () => {

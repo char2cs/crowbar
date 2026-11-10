@@ -416,6 +416,22 @@ export async function exportDiagnostics(): Promise<string> {
   return tauriInvoke<string>('diagnostics_export')
 }
 
+/** The desktop supervisor's crash-loop report, or null while it still respawns the daemon. */
+export async function daemonCrashReport(): Promise<string | null> {
+  if (!isDesktopApp()) return null
+  return tauriInvoke<string | null>('daemon_crash_report')
+}
+
+/** Starts a daemon the supervisor gave up on, with a fresh restart budget. */
+export async function restartDaemon(): Promise<void> {
+  await tauriInvoke('daemon_restart')
+}
+
+/** Shows the daemon log in the OS file manager. */
+export async function revealDaemonLog(): Promise<void> {
+  await tauriInvoke('reveal_daemon_log')
+}
+
 // ── Remote Hosts ──────────────────────────────────────────────────────────────
 // Pairing and trust-on-first-contact for remote Crowbar daemon instances.
 
