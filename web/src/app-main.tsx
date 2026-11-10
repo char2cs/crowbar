@@ -81,13 +81,9 @@ if (import.meta.hot) import.meta.hot.dispose(() => stopSettingsStorageSync())
 // here rather than in pane-container module scope so it runs exactly once.
 prefetchEditorChunks()
 
-// Native window blur is applied on the Rust side via window-vibrancy (see lib.rs).
-
-// Closing a desktop window must still flush what waits on `pagehide` (drafts, held removals).
-void hidePageOnWindowClose().then(
-  (stop) => import.meta.hot?.dispose(stop),
-  (err: unknown) => report(err, { action: 'Watch the window close' }),
-)
+void hidePageOnWindowClose()
+  .then((stop) => import.meta.hot?.dispose(stop))
+  .catch((err: unknown) => report(err, { action: 'Watch the window close' }))
 
 // react-scan is opt-in even in dev (it costs about half of dev-mode performance):
 //   localStorage.setItem('crowbar:react-scan', '1') then reload.

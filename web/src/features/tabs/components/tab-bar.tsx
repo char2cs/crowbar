@@ -133,8 +133,6 @@ const TabBar = ({
   // back to a collapsed sidebar.
   const isEmptyPane = pane !== null && !pane.chatId && !hasEditorTabs
 
-  // A thread or a project home has no branch of its own to review, so it hides the review
-  // shortcut; an editor-only pane (no chat) on a branch keeps it.
   const canReview = usePaneCanReviewBranch(paneId ?? '', wsId ?? null)
 
   const [contextMenu, setContextMenu] = useState<TabMenuState>({
@@ -437,16 +435,10 @@ const TabBar = ({
             </>
           )}
 
-          {/* Shortcut into GitPanel's own "Review this branch" action
-              (git-panel.tsx) — branch review's real home stays the git
-              file-explorer card; this is just a faster way to reach it from
-              the IDE sector's own row. Pinned at the right edge. */}
           {paneId && pane && !isEmptyPane && canReview && (
             <BranchReviewShortcutButton
               isBottomPane={isBottomPane}
-              // THIS pane's own workspace — not whichever one happens to be
-              // globally active, which is a different pane in a split
-              // showing a different chat/branch entirely.
+              // THIS pane's workspace, not the globally active one (another pane in a split).
               onOpen={() => openBranchReviewForWorkspace(wsId, paneId)}
             />
           )}

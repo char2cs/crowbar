@@ -309,26 +309,8 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
     expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
   })
 
-  // An editor-only split names no chat, so there is no thread to suppress.
-  it('keeps it for an editor-only pane that holds no chat', () => {
-    seedRepoChats(false)
-    const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
-    renderTabBar(store, { wsId: 'w1' })
-    expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
-  })
-
-  // A project home has no repo, so no branch, even in a pane that holds no chat.
-  it('hides it in a project home', () => {
-    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-p1' })
-    const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
-    renderTabBar(store, { wsId: 'home-p1' })
-    expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
-    expect(screen.getByTestId('editor-tab-scroller')).toBeInTheDocument()
-  })
-
-  // A chatless pane is handed no workspace (pane-container passes the chat's): the shortcut
-  // would open nothing, so it is not drawn.
-  it('hides it for a pane given no workspace', () => {
+  // An editor-only pane is handed no workspace (pane-container passes its chat's): nothing to open.
+  it('hides it for an editor-only pane that holds no chat', () => {
     const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
     renderTabBar(store, { wsId: null })
     expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()

@@ -70,6 +70,6 @@
   "web/src/__tests__/features/panes/components/pane-container.test.tsx": 1497,
   "web/src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts": 568,
   "web/src/__tests__/features/settings/components/tabs/providers-settings.test.tsx": 861,
-  "web/src/__tests__/features/tabs/components/tab-bar.test.tsx": 503,
+  "web/src/__tests__/features/tabs/components/tab-bar.test.tsx": 502,
   "web/src/__tests__/lib/persistence/hydrate.test.ts": 576
 }
