@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useConnectionStore, type Migrating } from '@/lib/ws/connection-store'
+import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 import { toast } from '@/features/window/stores/toast-store'
 
 // One id for every warning/recovery toast, so disconnect cycles update one toast, not stack.
@@ -28,9 +29,16 @@ function migratingToast(migrating: Migrating) {
 export function ConnectionIndicator() {
   const status = useConnectionStore((state) => state.status)
   const migrating = useConnectionStore((state) => state.migrating)
+  // In a crash loop nothing is reconnecting: the crash panel says so instead.
+  const crashLoop = useDaemonCrashStore((state) => state.report !== null)
   const shownRef = useRef(false)
 
   useEffect(() => {
+    if (crashLoop) {
+      shownRef.current = false
+      toast.dismissByKey(TOAST_KEY)
+      return
+    }
     // A migrating daemon is shown at once and updated in place as steps advance.
     if (status === 'migrating' && migrating) {
       shownRef.current = true
@@ -65,7 +73,7 @@ export function ConnectionIndicator() {
     }, SHOW_DELAY_MS)
 
     return () => clearTimeout(timer)
-  }, [status, migrating])
+  }, [status, migrating, crashLoop])
 
   return null
 }

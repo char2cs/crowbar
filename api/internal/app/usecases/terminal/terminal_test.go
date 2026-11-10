@@ -192,7 +192,7 @@ func newMetaStoreForTest(
 	home string,
 ) engineterminal.SessionMetaStore {
 	t.Helper()
-	return terminal.NewSessionMetaStore(worktrees, sessStore, func() (string, error) { return home, nil })
+	return terminal.NewSessionMetaStore(worktrees, fakeWorkspaces{}, sessStore, func() (string, error) { return home, nil })
 }
 
 // TestRestorePersistedSessions_RestoresPlaceholder is the restart round-trip:

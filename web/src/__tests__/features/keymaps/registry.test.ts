@@ -70,6 +70,11 @@ describe('keymap registry — New Tab commands', () => {
   // a command in a category missing from it is invisible in settings — bound and
   // working, but unfindable and unrebindable. Every category in use must appear.
   // Settings lists every command as a shortcut a person can press; nothing mounts a switcher.
+  // A pane groups chats, never tabs, so there is no tab split for a shortcut to run.
+  it('advertises no split shortcut that would do nothing', () => {
+    expect(COMMANDS.filter((c) => /split/i.test(c.label))).toEqual([])
+  })
+
   it('offers no workspace switcher shortcut', () => {
     expect(COMMANDS.map((c) => c.label)).not.toContain('Open workspace switcher')
   })

@@ -1,6 +1,7 @@
 import { render, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DaemonHealthListener } from '@/features/window/components/daemon-health-listener'
+import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -25,7 +26,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
-type TauriWindow = Window & { __TAURI_INTERNALS__?: object }
+type TauriWindow = Window & {
+  __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<unknown> }
+}
+// What the supervisor answers `daemon_crash_report` with when the window loads.
+let crashReportAtLoad: string | null = null
 const tauriWindow = window as TauriWindow
 
 describe('DaemonHealthListener', () => {
@@ -34,8 +39,12 @@ describe('DaemonHealthListener', () => {
     unlistenSpies.length = 0
     vi.clearAllMocks()
     useDaemonHaltStore.getState().clear()
+    useDaemonCrashStore.getState().clear()
+    crashReportAtLoad = null
     // isTauri() keys off this global; the listener must be active in Tauri.
-    tauriWindow.__TAURI_INTERNALS__ = {}
+    tauriWindow.__TAURI_INTERNALS__ = {
+      invoke: async (cmd) => (cmd === 'daemon_crash_report' ? crashReportAtLoad : undefined),
+    }
   })
   afterEach(() => {
     delete tauriWindow.__TAURI_INTERNALS__
@@ -56,12 +65,24 @@ describe('DaemonHealthListener', () => {
       expect.stringMatching(/restarted/i),
       expect.any(String),
     )
+  })
 
-    handlers.get('daemon:dead')!({ payload: null })
-    expect(toast.error).toHaveBeenCalledWith(
-      expect.stringMatching(/backend/i),
-      expect.stringMatching(/diagnostics/i),
-    )
+  it('records a crash loop the supervisor gives up on, and clears it on restart', async () => {
+    render(<DaemonHealthListener />)
+    await waitFor(() => expect(handlers.size).toBe(4))
+
+    handlers.get('daemon:dead')!({ payload: 'panic: boom' })
+    expect(useDaemonCrashStore.getState().report).toBe('panic: boom')
+    expect(toast.error).not.toHaveBeenCalled()
+
+    handlers.get('daemon:restarted')!({ payload: null })
+    expect(useDaemonCrashStore.getState().report).toBeNull()
+  })
+
+  it('asks for a crash loop that began before the window loaded', async () => {
+    crashReportAtLoad = 'exited 3 times'
+    render(<DaemonHealthListener />)
+    await waitFor(() => expect(useDaemonCrashStore.getState().report).toBe('exited 3 times'))
   })
 
   it('records a halt the supervisor announces, and clears it when the daemon is restarted', async () => {

@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { markdownPlugins } from '@/features/editor/markdown/plate/markdown-plugins'
-import { markdownToPlateValue } from '@/features/editor/markdown/plate/markdown-serialization'
+import { parseMarkdown } from '@/features/editor/markdown/plate/markdown-serialization'
 
 // One `<div>` with no blank line parses as a single mdast `html` node, so every
 // payload below reaches HtmlElement through the same path a README header takes.
@@ -19,7 +19,7 @@ const HOSTILE_HTML = `<div>
 const xssFlag = () => (window as unknown as { __xss?: number }).__xss
 
 function MarkdownDocument({ markdown }: { markdown: string }) {
-  const value = useMemo(() => markdownToPlateValue(markdown), [markdown])
+  const value = useMemo(() => parseMarkdown(markdown).value, [markdown])
   const editor = usePlateEditor({ plugins: markdownPlugins, value })
   return (
     <Plate editor={editor}>

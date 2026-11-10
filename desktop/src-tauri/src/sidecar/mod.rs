@@ -1,5 +1,6 @@
 pub mod health;
 pub mod paths;
+pub mod recovery;
 pub mod stop;
 pub mod supervisor;
 pub mod watchdog;
@@ -28,8 +29,8 @@ use tokio::net::UnixStream;
 
 /// Cap per daemon-log generation; one previous generation is kept as `.1`.
 const DAEMON_LOG_MAX_LEN: u64 = 4 * 1024 * 1024;
-/// At most this many automatic respawns per window; beyond it the daemon is
-/// declared dead until the next app launch (guards against crash loops).
+/// At most this many automatic respawns per window; beyond it the daemon is declared
+/// dead until the user restarts it from the crash-loop panel (guards against crash loops).
 const RESTART_MAX: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(600);
 /// Holds the child process handle for the crowbar-api sidecar so it can be
@@ -46,6 +47,9 @@ pub struct SidecarHandle {
     /// `CommandChild`'s kill()/pid() take the shared_child lock.
     daemon_pid: AtomicI32,
     restart_budget: Mutex<supervisor::RestartBudget>,
+    /// Set when the restart budget is spent: what the daemon's last run said. The supervisor
+    /// respawns nothing while it is set; a manual restart clears it.
+    crash_report: Mutex<Option<String>>,
 }
 
 impl SidecarHandle {
@@ -56,6 +60,7 @@ impl SidecarHandle {
             shutting_down: AtomicBool::new(false),
             daemon_pid: AtomicI32::new(0),
             restart_budget: Mutex::new(supervisor::RestartBudget::new(RESTART_MAX, RESTART_WINDOW)),
+            crash_report: Mutex::new(None),
         }
     }
 
@@ -222,9 +227,11 @@ fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
     if !state.restart_budget.lock().unwrap().allow(Instant::now()) {
         log::error!(
             "crowbar daemon died {RESTART_MAX} times within {RESTART_WINDOW:?}; \
-             giving up until the next app launch"
+             not respawning it until the user restarts it"
         );
-        let _ = app.emit("daemon:dead", ());
+        let report = recovery::crash_report(app);
+        state.crash_report.lock().unwrap().replace(report.clone());
+        let _ = app.emit("daemon:dead", report);
         return;
     }
 

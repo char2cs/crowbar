@@ -6,7 +6,7 @@ export type CommandCategory = 'Panes' | 'Tabs' | 'Editor' | 'Navigation' | 'Chat
 
 /** A bindable action from the fixed set the keyboard hooks implement. */
 export interface Command {
-  /** Stable identifier, e.g. `panes.splitRight`. */
+  /** Stable identifier, e.g. `panes.navigateLeft`. */
   id: string
   /** Human-readable label shown in the settings tab. */
   label: string

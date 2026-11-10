@@ -2,7 +2,7 @@ import { BlockSelectionPlugin } from '@platejs/selection/react'
 import { createPlateEditor } from 'platejs/react'
 import { describe, expect, it } from 'vitest'
 import { markdownPlugins } from '@/features/editor/markdown/plate/markdown-plugins'
-import { markdownToPlateValue } from '@/features/editor/markdown/plate/markdown-serialization'
+import { parseMarkdown } from '@/features/editor/markdown/plate/markdown-serialization'
 
 /**
  * Cmd/Ctrl+A must produce a TEXT selection over the whole document, not a
@@ -23,7 +23,7 @@ import { markdownToPlateValue } from '@/features/editor/markdown/plate/markdown-
 const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
 
 const editorWith = (md: string) => {
-  const editor = createPlateEditor({ plugins: markdownPlugins, value: markdownToPlateValue(md) })
+  const editor = createPlateEditor({ plugins: markdownPlugins, value: parseMarkdown(md).value })
   return editor
 }
 

@@ -23,7 +23,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownViewStore } from './markdown-view-store'
 import { joinFrontmatter, splitFrontmatter } from './markdown-frontmatter'
 import { markdownPlugins } from './markdown-plugins'
-import { markdownToPlateValue, plateValueToMarkdown } from './markdown-serialization'
+import type { MarkdownSource } from './markdown-source'
+import { parseMarkdown, plateValueToMarkdown } from './markdown-serialization'
 import { MarkdownViewToggle } from './markdown-view-toggle'
 // Reading typography for the Plate/Slate DOM, scoped under `.crowbar-markdown-editor`. Not
 // `../styles.css`: that one targets the HTML preview's DOM.
@@ -88,10 +89,11 @@ function MarkdownRichEditor({
   // Leading YAML frontmatter never reaches Plate (a `---` block parses as a thematic break and
   // setext heading); it is carried verbatim and re-attached in `flush()`. Deserialized once, so a
   // re-parse never fights the cursor: replaced text goes through adopt, a new bufferId remounts.
-  const initial = useMemo<{ frontmatter: string; initialValue: Value }>(
+  const initial = useMemo<{ frontmatter: string; initialValue: Value; source: MarkdownSource }>(
     () => {
       const { frontmatter, body } = splitFrontmatter(content ?? '')
-      return { frontmatter, initialValue: markdownToPlateValue(body) }
+      const { value, source } = parseMarkdown(body)
+      return { frontmatter, initialValue: value, source }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial value only, deliberately not re-derived on content change
     [],
@@ -102,6 +104,9 @@ function MarkdownRichEditor({
   // so the read-only banner re-renders when a resync brings a new block in.
   const frontmatterRef = useRef(initial.frontmatter)
   const [frontmatterText, setFrontmatterText] = useState(initial.frontmatter)
+  // The body text the editor was loaded from: a save copies every block the user did not touch
+  // back from it byte for byte, and re-serializes only the edited ones.
+  const sourceRef = useRef(initial.source)
 
   const editor = usePlateEditor({ plugins: markdownPlugins, value: initial.initialValue })
 
@@ -124,13 +129,13 @@ function MarkdownRichEditor({
       : null
 
   // Baseline: what a no-edit flush would write, so a pristine flush (or a selection-only onChange)
-  // is a no-op. Not the raw content (the round trip is not byte-stable, e.g. GFM table rules) nor
-  // `initialValue`: Plate's init rewrites children (an empty doc gains a U+200B paragraph).
+  // is a no-op. Not `initialValue`: Plate's init rewrites children (an empty doc gains a U+200B
+  // paragraph), which would otherwise count as an edit.
   const baselineRef = useRef<string | undefined>(undefined)
   if (baselineRef.current === undefined) {
     baselineRef.current = joinFrontmatter(
       frontmatterRef.current,
-      plateValueToMarkdown(editor.children as Value),
+      plateValueToMarkdown(editor.children as Value, sourceRef.current),
     )
   }
 
@@ -152,7 +157,7 @@ function MarkdownRichEditor({
     if (!doc) return // the buffer is gone: nothing to write into
     const md = joinFrontmatter(
       frontmatterRef.current,
-      plateValueToMarkdown(editor.children as Value),
+      plateValueToMarkdown(editor.children as Value, sourceRef.current),
     )
     if (md === baselineRef.current) {
       // No real edit since mount or the last write: writing would dirty (and with autoSave
@@ -186,7 +191,7 @@ function MarkdownRichEditor({
       if (text === syncedContentRef.current) return
       const current = joinFrontmatter(
         frontmatterRef.current,
-        plateValueToMarkdown(editor.children as Value),
+        plateValueToMarkdown(editor.children as Value, sourceRef.current),
       )
       if (current !== baselineRef.current) return // unsaved local edits — never clobber
 
@@ -194,10 +199,12 @@ function MarkdownRichEditor({
       const { frontmatter, body } = splitFrontmatter(text)
       frontmatterRef.current = frontmatter
       setFrontmatterText(frontmatter)
-      editor.tf.setValue(markdownToPlateValue(body))
+      const parsed = parseMarkdown(body)
+      sourceRef.current = parsed.source
+      editor.tf.setValue(parsed.value)
       baselineRef.current = joinFrontmatter(
         frontmatter,
-        plateValueToMarkdown(editor.children as Value),
+        plateValueToMarkdown(editor.children as Value, sourceRef.current),
       )
     },
     [editor],

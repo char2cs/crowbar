@@ -206,7 +206,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	// Real SessionMetaStore that delegates to the GORM store and resolves
 	// StorageDir via crowbarHome + workspace ProjectID/RepoID (leaf: the chat).
 	ms1 := terminal.NewSessionMetaStore(
-		worktrees,
+		worktrees, fakeWorkspaces{},
 		sessStore1,
 		func() (string, error) { return home, nil },
 	)
@@ -287,7 +287,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	})
 
 	ms2 := terminal.NewSessionMetaStore(
-		worktrees,
+		worktrees, fakeWorkspaces{},
 		sessStore2,
 		func() (string, error) { return home, nil },
 	)
@@ -402,7 +402,7 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 	})
 
 	ms := terminal.NewSessionMetaStore(
-		worktrees,
+		worktrees, fakeWorkspaces{},
 		sessStore,
 		func() (string, error) { return home, nil },
 	)
@@ -508,7 +508,7 @@ func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
 	require.NoError(t, err)
 	sessStore1, err := storesqlite.NewFromDB[domain.TerminalSession, string](db1)
 	require.NoError(t, err)
-	ms1 := terminal.NewSessionMetaStore(worktrees, sessStore1, func() (string, error) { return home, nil })
+	ms1 := terminal.NewSessionMetaStore(worktrees, fakeWorkspaces{}, sessStore1, func() (string, error) { return home, nil })
 
 	eng1 := engineterminal.New()
 	eng1.SetMetaStore(ms1)
@@ -556,7 +556,7 @@ func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
-	ms2 := terminal.NewSessionMetaStore(worktrees, sessStore2, func() (string, error) { return home, nil })
+	ms2 := terminal.NewSessionMetaStore(worktrees, fakeWorkspaces{}, sessStore2, func() (string, error) { return home, nil })
 
 	eng2 := engineterminal.New()
 	eng2.SetMetaStore(ms2)

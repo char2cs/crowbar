@@ -23,8 +23,14 @@ import { TableKit } from '@/components/editor/plugins/table-kit'
 import { HtmlKit } from './html-node'
 import { calloutMarkdownRules } from './markdown-callout-rules'
 import { htmlMarkdownRules } from './markdown-html-rules'
+import { softBreakMarkdownRules } from './markdown-softbreak-rules'
 import { MarkdownImageKit } from './markdown-image-node'
 import { underlineMarkdownRules } from './markdown-underline-rules'
+
+// Unpadded table rows (`| a | b |`), so an edit to one cell does not re-pad every row.
+function remarkGfmCompactTables(this: ThisParameterType<typeof remarkGfm>) {
+  remarkGfm.call(this, { tablePipeAlign: false })
+}
 
 /** GFM-core plugin set shared by the live editor and the round-trip tests, so both serialize
  *  identically. The block affordances (drag handle, `/` menu, toolbars) are UI-only and never
@@ -45,13 +51,18 @@ export const markdownPlugins = [
   ...BlockPlaceholderKit,
   MarkdownPlugin.configure({
     options: {
-      remarkPlugins: [remarkGfm, remarkMath],
+      remarkPlugins: [remarkGfmCompactTables, remarkMath],
       // Pin `*italic*` and `- item` (the library defaults are `_` and `*`) so a file the
       // user typed comes back byte-for-byte instead of re-punctuated.
-      remarkStringifyOptions: { emphasis: '*', bullet: '-' },
-      // Overrides only `blockquote`/`callout` (GitHub alerts), `html` (byte-exact raw HTML),
-      // and `underline` serialize (the default throws); Plate merges `rules` per key.
-      rules: { ...calloutMarkdownRules, ...htmlMarkdownRules, ...underlineMarkdownRules },
+      remarkStringifyOptions: { emphasis: '*', bullet: '-', rule: '-' },
+      // Overrides `blockquote`/`callout` (GitHub alerts), `html` (byte-exact raw HTML),
+      // `underline` serialize (the default throws) and `text`/`p` (soft line breaks stay soft).
+      rules: {
+        ...calloutMarkdownRules,
+        ...htmlMarkdownRules,
+        ...underlineMarkdownRules,
+        ...softBreakMarkdownRules,
+      },
     },
   }),
 ]

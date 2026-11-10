@@ -7,8 +7,6 @@ export const PANE_NAVIGATE_LEFT = 'panes.navigateLeft'
 export const PANE_NAVIGATE_RIGHT = 'panes.navigateRight'
 export const PANE_NAVIGATE_UP = 'panes.navigateUp'
 export const PANE_NAVIGATE_DOWN = 'panes.navigateDown'
-export const PANE_SPLIT_RIGHT = 'panes.splitRight'
-export const PANE_SPLIT_DOWN = 'panes.splitDown'
 export const TAB_NEW = 'tabs.new'
 export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
 export const TAB_NEW_FILE = 'tabs.newFile'
@@ -40,20 +38,6 @@ export const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs',
 
 export const COMMANDS: Command[] = [
   // --- Panes (live-editable, resolved from registry) ---
-  {
-    id: PANE_SPLIT_RIGHT,
-    label: 'Split editor right',
-    category: 'Panes',
-    defaultChord: 'mod+\\',
-    liveEditable: true,
-  },
-  {
-    id: PANE_SPLIT_DOWN,
-    label: 'Split editor down',
-    category: 'Panes',
-    defaultChord: 'mod+shift+\\',
-    liveEditable: true,
-  },
   {
     id: PANE_NAVIGATE_LEFT,
     label: 'Focus pane left',

@@ -83,10 +83,68 @@ pub fn cycle_was_suspended(elapsed: Duration, interval: Duration, probe_timeout:
 }
 
 /// Final gate before the irreversible SIGQUIT+SIGKILL. A suspended daemon fails every
-/// probe yet answers on resume, and one that answers the grace probe merely resumed:
-/// only a running daemon that stays unresponsive is wedged.
-pub fn should_kill_wedged(daemon_suspended: bool, grace_probe_healthy: bool) -> bool {
-    !daemon_suspended && !grace_probe_healthy
+/// probe yet answers on resume, one that answers the grace probe merely resumed, and one
+/// that kept burning CPU is busy: only a running, unresponsive, idle daemon is wedged.
+pub fn should_kill_wedged(
+    daemon_suspended: bool,
+    grace_probe_healthy: bool,
+    made_progress: bool,
+) -> bool {
+    !daemon_suspended && !grace_probe_healthy && !made_progress
+}
+
+/// Whether the daemon worked through an unresponsive `stretch`: it used at least 1% of a
+/// core. A deadlocked daemon idles; a loaded one computes. An unreadable sample is no
+/// evidence of work, so a genuine wedge is still caught where CPU time cannot be read.
+pub fn made_progress(before: Option<Duration>, after: Option<Duration>, stretch: Duration) -> bool {
+    match (before, after) {
+        (Some(before), Some(after)) => after.saturating_sub(before) * 100 >= stretch,
+        _ => false,
+    }
+}
+
+/// CPU time (user + system) from a Linux `/proc/<pid>/stat` line. Fields are counted after
+/// the last `)`, since the command name in parentheses may itself hold spaces.
+#[cfg(any(target_os = "linux", test))]
+pub fn parse_proc_stat_cpu(stat: &str, ticks_per_sec: u64) -> Option<Duration> {
+    let fields: Vec<&str> = stat
+        .get(stat.rfind(')')? + 1..)?
+        .split_whitespace()
+        .collect();
+    // utime and stime are fields 14 and 15 of the line; the state (field 3) comes first here.
+    let utime: u64 = fields.get(11)?.parse().ok()?;
+    let stime: u64 = fields.get(12)?.parse().ok()?;
+    if ticks_per_sec == 0 {
+        return None;
+    }
+    Some(Duration::from_millis(
+        (utime + stime) * 1000 / ticks_per_sec,
+    ))
+}
+
+/// CPU time from `ps -o time=`: `[DD-]HH:MM:SS` on Linux, `M:SS.cc` on macOS.
+#[cfg(any(not(target_os = "linux"), test))]
+pub fn parse_ps_cpu_time(text: &str) -> Option<Duration> {
+    let text = text.trim();
+    let (days, clock) = match text.split_once('-') {
+        Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
+        None => (0.0, text),
+    };
+    let mut secs = days * 86_400.0;
+    let mut unit = 1.0;
+    for part in clock.rsplit(':') {
+        secs += part.parse::<f64>().ok()? * unit;
+        unit *= 60.0;
+    }
+    Duration::try_from_secs_f64(secs).ok()
+}
+
+/// The daemon log's last run, from its final spawn marker, cut to the last `max_lines`:
+/// what the daemon said before it died.
+pub fn last_run_tail(log: &str, max_lines: usize) -> String {
+    let run = log.rfind("=== daemon spawned").map_or(log, |at| &log[at..]);
+    let lines: Vec<&str> = run.lines().collect();
+    lines[lines.len().saturating_sub(max_lines)..].join("\n")
 }
 
 /// At most `max` restarts per sliding `window`, so a daemon that dies on every boot is
@@ -116,6 +174,11 @@ impl RestartBudget {
         }
         self.restarts.push(now);
         true
+    }
+
+    /// Forgets every recorded restart: one the user asked for starts a fresh budget.
+    pub fn reset(&mut self) {
+        self.restarts.clear();
     }
 }
 
@@ -244,21 +307,117 @@ mod tests {
     #[test]
     fn should_kill_only_a_running_and_still_unresponsive_daemon() {
         assert!(
-            should_kill_wedged(false, false),
-            "running yet unresponsive after the grace probe = genuine wedge, kill"
+            should_kill_wedged(false, false, false),
+            "running, idle and unresponsive after the grace probe = genuine wedge, kill"
         );
         assert!(
-            !should_kill_wedged(true, false),
+            !should_kill_wedged(true, false, false),
             "an OS-suspended daemon is frozen, not wedged — never kill it"
         );
         assert!(
-            !should_kill_wedged(false, true),
+            !should_kill_wedged(false, true, false),
             "answered the grace probe — it recovered, do not kill"
         );
         assert!(
-            !should_kill_wedged(true, true),
+            !should_kill_wedged(true, true, false),
             "suspended (and/or recovered) — do not kill"
         );
+    }
+
+    #[test]
+    fn a_slow_daemon_that_keeps_working_is_never_killed() {
+        assert!(
+            !should_kill_wedged(false, false, true),
+            "it failed every probe under load but burned CPU throughout: busy, not wedged"
+        );
+    }
+
+    #[test]
+    fn progress_is_cpu_spent_across_the_unresponsive_stretch() {
+        let minute = Duration::from_secs(60);
+        let at = Duration::from_secs;
+        assert!(made_progress(Some(at(10)), Some(at(20)), minute));
+        assert!(
+            made_progress(
+                Some(at(10)),
+                Some(at(10) + Duration::from_millis(600)),
+                minute
+            ),
+            "1% of a core over a minute is work"
+        );
+        assert!(
+            !made_progress(
+                Some(at(10)),
+                Some(at(10) + Duration::from_millis(50)),
+                minute
+            ),
+            "a deadlocked Go runtime still ticks a little; that is not progress"
+        );
+        assert!(
+            !made_progress(None, Some(at(20)), minute),
+            "an unreadable sample is no evidence of work"
+        );
+        assert!(!made_progress(Some(at(10)), None, minute));
+    }
+
+    #[test]
+    fn proc_stat_cpu_reads_utime_plus_stime() {
+        let stat = "4242 (crowbar api) S 1 4242 4242 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 9 0";
+        assert_eq!(
+            parse_proc_stat_cpu(stat, 100),
+            Some(Duration::from_secs(3)),
+            "300 ticks at 100 Hz, despite the space in the command name"
+        );
+        assert_eq!(parse_proc_stat_cpu("4242 (x) S 1", 100), None);
+        assert_eq!(parse_proc_stat_cpu(stat, 0), None);
+    }
+
+    #[test]
+    fn ps_cpu_time_reads_both_clock_formats() {
+        assert_eq!(
+            parse_ps_cpu_time("00:01:05\n"),
+            Some(Duration::from_secs(65))
+        );
+        assert_eq!(
+            parse_ps_cpu_time("2-01:00:00"),
+            Some(Duration::from_secs(2 * 86_400 + 3_600))
+        );
+        assert_eq!(
+            parse_ps_cpu_time(" 1:02.50"),
+            Some(Duration::from_millis(62_500)),
+            "macOS reports minutes and centiseconds"
+        );
+        assert_eq!(parse_ps_cpu_time(""), None);
+        assert_eq!(parse_ps_cpu_time("garbage"), None);
+    }
+
+    #[test]
+    fn the_crash_report_is_the_last_run_of_the_log() {
+        let log =
+            "=== daemon spawned (epoch 1)\n[err] old run\n=== daemon terminated (code=Some(2))\n\
+                   === daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
+                   === daemon terminated (code=Some(2))\n";
+        assert_eq!(
+            last_run_tail(log, 10),
+            "=== daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
+             === daemon terminated (code=Some(2))"
+        );
+        assert_eq!(
+            last_run_tail(log, 2),
+            "[err] goroutine 1\n=== daemon terminated (code=Some(2))"
+        );
+        assert_eq!(last_run_tail("no marker\nat all", 5), "no marker\nat all");
+    }
+
+    #[test]
+    fn a_manual_restart_gets_a_fresh_budget() {
+        let mut b = RestartBudget::new(2, Duration::from_secs(600));
+        let now = Instant::now();
+        assert!(b.allow(now));
+        assert!(b.allow(now));
+        assert!(!b.allow(now), "the crash loop spent the budget");
+        b.reset();
+        assert!(b.allow(now), "the user asked for this restart");
     }
 
     #[test]

@@ -68,7 +68,7 @@ export function usePairingFlow({
 }: PairingFlowOptions): PairingFlow {
   const [stage, setStage] = useState<PairingStage>('address')
   const [name, setName] = useState('')
-  const [address, setAddress] = useState('')
+  const [address, setAddressValue] = useState('')
   const [fingerprint, setFingerprint] = useState('')
   const [code, setCodeValue] = useState('')
   const [turnedAway, setTurnedAway] = useState(false)
@@ -78,9 +78,15 @@ export function usePairingFlow({
   // The canonical address that probe dialed: the code is redeemed at, and saved as, exactly it.
   const dialed = useRef('')
 
+  // A failure about the old address is stale the moment the address changes.
+  function setAddress(next: string) {
+    setAddressValue(next)
+    if (next !== address) setError(null)
+  }
+
   async function submitAddress(fields = { name, address }) {
     setName(fields.name)
-    setAddress(fields.address)
+    setAddressValue(fields.address)
     const trimmedName = fields.name.trim()
     if (pending || !trimmedName || !fields.address.trim()) return
     const normalized = normalizeEndpoint(fields.address)
