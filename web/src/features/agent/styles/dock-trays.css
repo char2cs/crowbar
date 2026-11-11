@@ -30,27 +30,70 @@
   border-top: 0;
   border-radius: 0 0 var(--tray-radius) var(--tray-radius);
 }
+/* Sections of the top tray stack inside one surface, divided by a hairline. */
+.agent-chat .tray-section + .tray-section,
+.agent-chat .tray-top > :not(.tray-section) + .tray-section {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
 .agent-chat .tray-head {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   min-height: var(--tray-row-h);
+  margin: 0;
   padding: 0 14px 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
   font-size: 12px;
+  text-align: start;
+}
+.agent-chat button.tray-head {
+  cursor: pointer;
 }
 .agent-chat .tray-head b {
   font-weight: 600;
   white-space: nowrap;
 }
+.agent-chat .tray-head svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.agent-chat .tray-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tray-ring {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--primary) calc(var(--p) * 1%),
+    color-mix(in oklch, var(--foreground) 14%, transparent) 0
+  );
+  mask-image: radial-gradient(circle, transparent 4px, #000 4.5px);
+}
+.agent-chat .tray-gap {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
 .agent-chat .tray-list {
   margin: 0;
   padding: 2px 8px 8px;
   list-style: none;
+}
+.agent-chat .tray-section > .tray-head + .tray-list {
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 .agent-chat .tray-bottom .tray-list {
   padding: 4px 8px 6px;
-  border-top: 0;
 }
 .agent-chat .tray-list li {
   display: flex;
@@ -60,4 +103,99 @@
   padding: 0 6px;
   font-size: 13px;
   border-radius: 8px;
+}
+.agent-chat .tray-list li > span:not([role='status']) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tray-list li[data-status='done'] {
+  color: var(--muted-foreground);
+}
+.agent-chat .tray-list li[data-status='done'] > span {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 25%, transparent);
+}
+.agent-chat .tray-list li[data-status='active'] {
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+  font-weight: 500;
+}
+.agent-chat .tray-list li[data-status='pending'] {
+  color: color-mix(in oklch, var(--foreground) 72%, transparent);
+}
+.agent-chat .tray-list li > i {
+  font-style: normal;
+}
+.agent-chat .tray-who {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.agent-chat .tray-what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tray-clock {
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.agent-chat li.tray-group {
+  min-height: calc(var(--tray-row-h) * 0.65);
+  padding-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.agent-chat li.tray-more {
+  padding: 0;
+}
+.agent-chat .tray-more button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tray-row-h);
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-chat .tray-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.agent-chat .tray-text {
+  flex: 1;
+}
+.agent-chat .tray-remove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat .tray-remove:hover {
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-remove {
+  width: 36px;
+  height: 36px;
 }

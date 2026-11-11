@@ -1,0 +1,43 @@
+import { describe, expect, it } from 'vitest'
+import { windowRows, type TrayRow } from '@/features/agent/trays/lib/tray-rows'
+
+const row = (
+  id: string,
+  kind: TrayRow['kind'] = 'subagent',
+  status: TrayRow['status'] = 'running',
+): TrayRow => ({ id, kind, label: id, detail: '', status, startedAt: '2026-10-01T12:00:00Z' })
+
+const ids = (entries: ReturnType<typeof windowRows>['entries']) =>
+  entries.map((entry) => (entry.type === 'row' ? entry.row.id : `# ${entry.text}`))
+
+describe('windowRows', () => {
+  it('shows up to four rows as they are', () => {
+    const view = windowRows([row('a'), row('b'), row('c'), row('d')], false)
+    expect(ids(view.entries)).toEqual(['a', 'b', 'c', 'd'])
+    expect(view.more).toBeNull()
+    expect(view.canCollapse).toBe(false)
+  })
+
+  it('folds past four into three rows and a group row counting what runs', () => {
+    const rows = [row('a'), row('b'), row('c'), row('d', 'subagent', 'done'), row('e')]
+    const view = windowRows(rows, false)
+    expect(ids(view.entries)).toEqual(['a', 'b', 'c'])
+    expect(view.more).toEqual({ hidden: 2, running: 1 })
+    expect(view.canCollapse).toBe(false)
+  })
+
+  it('shows every row once expanded and offers to fold again', () => {
+    const rows = ['a', 'b', 'c', 'd', 'e'].map((id) => row(id))
+    const view = windowRows(rows, true)
+    expect(ids(view.entries)).toEqual(['a', 'b', 'c', 'd', 'e'])
+    expect(view.more).toBeNull()
+    expect(view.canCollapse).toBe(true)
+  })
+
+  it('labels the groups only when subagents and shells both show, subagents first', () => {
+    const view = windowRows([row('sh', 'shell'), row('ag')], false)
+    expect(ids(view.entries)).toEqual(['# Subagents', 'ag', '# Shells', 'sh'])
+    expect(ids(windowRows([row('ag')], false).entries)).toEqual(['ag'])
+    expect(ids(windowRows([row('sh', 'shell')], false).entries)).toEqual(['sh'])
+  })
+})

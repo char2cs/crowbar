@@ -1,37 +1,3 @@
-/* The agent's own to-do list: one line per step, the active one at full
-   strength, the finished ones struck through. */
-.agent-chat .plan {
-  margin: 2px 0 0;
-  padding: 0 0 0 24px;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--ui-text-xs);
-  contain: layout;
-}
-.agent-chat .plan li {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-}
-.agent-chat .plan li::before {
-  content: '○ ';
-}
-.agent-chat .plan li[data-status='active'] {
-  color: var(--foreground);
-}
-.agent-chat .plan li[data-status='active']::before {
-  content: '◍ ';
-}
-.agent-chat .plan li[data-status='done'] {
-  text-decoration: line-through;
-}
-.agent-chat .plan li[data-status='done']::before {
-  content: '● ';
-}
-
 .agent-chat .turn-diff {
   max-width: 100%;
 }

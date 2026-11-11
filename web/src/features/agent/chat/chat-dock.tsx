@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode, Ref } from 'react'
-import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
-import { TodoStrip } from '@/features/agent/activity/todo-strip'
+import type { PlanItem } from '@/features/agent/api/chat-rows'
+import { BottomTray } from '@/features/agent/trays/bottom-tray'
+import { TopTray } from '@/features/agent/trays/top-tray'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { DockStack } from '@/features/agent/chat/dock-stack'
@@ -11,7 +12,9 @@ interface ChatDockProps {
   /** Nothing said yet: the composer is the empty document and the footer is its own. */
   blank: boolean
   dockRef: Ref<HTMLDivElement>
-  plan: ComponentProps<typeof TodoStrip>['plan']
+  plan: PlanItem[] | undefined
+  /** A failure notice for the top tray. */
+  failure?: ReactNode
   pickers: ReactNode
   /** Why the chat cannot take a prompt yet. */
   note?: string
@@ -28,6 +31,7 @@ export function ChatDock({
   blank,
   dockRef,
   plan,
+  failure,
   pickers,
   note,
   error,
@@ -38,14 +42,7 @@ export function ChatDock({
     <DockStack
       blank={blank}
       dockRef={dockRef}
-      topTray={
-        !blank && (
-          <>
-            <TodoStrip plan={plan} />
-            <SubagentShelf chatId={chatId} />
-          </>
-        )
-      }
+      topTray={!blank && <TopTray chatId={chatId} plan={plan} failure={failure} />}
       pickers={!blank && pickers}
       notes={
         note && (
@@ -62,6 +59,7 @@ export function ChatDock({
           {...composer}
         />
       }
+      bottomTray={!blank && <BottomTray chatId={chatId} />}
       footer={!blank && <ProviderBar {...footer} />}
       alert={
         error && (
