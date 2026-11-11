@@ -1,9 +1,10 @@
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DaemonHealthListener } from '@/features/window/components/daemon-health-listener'
 import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
+import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
 import { watchToasts } from '@/__tests__/__fixtures__/reports'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -66,6 +67,19 @@ describe('DaemonHealthListener', () => {
       expect.stringMatching(/restarted/i),
       expect.any(String),
     )
+  })
+
+  it('drops a recorded crash loop as soon as the backend is serving again', async () => {
+    resetConnectionState()
+    render(<DaemonHealthListener />)
+    await waitFor(() => expect(handlers.size).toBe(4))
+
+    handlers.get('daemon:dead')!({ payload: 'daemon already running' })
+    expect(useDaemonCrashStore.getState().report).toBe('daemon already running')
+
+    act(() => reportChannelState('/ws/feed', true, 'local'))
+    expect(useDaemonCrashStore.getState().report).toBeNull()
+    resetConnectionState()
   })
 
   it('records a crash loop the supervisor gives up on, and clears it on restart', async () => {

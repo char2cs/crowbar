@@ -4,6 +4,7 @@ import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { report as reportFailure } from '@/lib/errors/report'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 
 const CRASH_CHECK = 'Check whether the backend is crash-looping'
 const CRASH_CHECK_UNANSWERED = 'The desktop app did not answer; the backend may be fine.'
@@ -12,6 +13,12 @@ const CRASH_CHECK_UNANSWERED = 'The desktop app did not answer; the backend may 
 // `terminated` (also fires on intentional shutdown). `halted` and `dead` go to their stores,
 // cleared by `restarted`; a crash loop from before this window loaded is asked for on mount.
 export function DaemonHealthListener() {
+  const serving = useConnectionStore((state) => state.status === 'connected')
+  // A crash report is a claim that nothing reconnects: a live socket proves it stale.
+  useEffect(() => {
+    if (serving) useDaemonCrashStore.getState().clear()
+  }, [serving])
+
   useEffect(() => {
     if (!isTauri()) return
     let disposed = false
