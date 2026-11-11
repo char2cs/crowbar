@@ -142,13 +142,33 @@
 .agent-chat .dochandle[data-touch] .side:last-child {
   gap: var(--touch-gap);
 }
-.agent-chat .dochandle[data-touch] :is(.inner, .ghosts) {
-  /* The dock's own side padding (`.center`), so the bar and the chat's capsule are one width. */
-  --pad: 24px;
+.agent-chat .dochandle[data-touch] .inner {
+  /* The board's capsule: 20px from the edge, the text inside it 14px further. */
+  --pad: 20px;
+}
+.agent-chat .dochandle[data-touch] .ghosts {
+  --pad: 34px;
+  padding-top: 14px;
+  padding-bottom: 26px;
 }
 .agent-chat .doc:has(+ .dochandle[data-touch]) {
-  --pad: 24px;
+  --pad: 34px;
   font-size: var(--touch-text);
+  padding-top: calc(30px + var(--agent-header-clearance, 0px));
+}
+/* The phone's empty page: the invitation is the canvas's serif first line, not body type. Its
+   block takes the placeholder's line so the caret and the handle under it agree with it
+   (`firstLineTop` in agent-empty-document.tsx). */
+.agent-chat
+  .doc:has(+ .dochandle[data-touch])
+  [data-slate-node='element']:has([data-slate-placeholder]) {
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 32px;
+  line-height: 38px;
+  letter-spacing: -0.005em;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) [data-slate-placeholder] {
+  opacity: 0.42 !important;
 }
 /* On the phone each hint's label stacks over its text. */
 .agent-chat .dochandle[data-touch] .ghosts > div {

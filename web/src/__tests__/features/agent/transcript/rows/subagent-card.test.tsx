@@ -105,7 +105,7 @@ describe('SubagentCard', () => {
     expect(screen.queryByText('Parent waiting…')).toBeNull()
   })
 
-  it('keeps the tool uses and tokens it spent on hover, not on the line, once done', () => {
+  it('says the tool uses and tokens it spent on its line once done', () => {
     const l = ledger()
     seed('chat-1', [
       l.start('turn-1'),
@@ -127,8 +127,9 @@ describe('SubagentCard', () => {
     ])
     render(<SubagentCard chatId="chat-1" id="s:c" />)
     expect(screen.getByTestId('agent-subagent-card')).toHaveTextContent('explore')
-    expect(screen.getByTestId('agent-subagent-card')).not.toHaveTextContent('tokens')
-    expect(screen.getByTitle('6 tool uses · 28k tokens')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-subagent-card')).toHaveTextContent(
+      '· 6 tool uses · 28k tokens',
+    )
     expect(screen.getByTestId('agent-subagent-card').querySelector('.tool-glyph')).not.toBeNull()
   })
 

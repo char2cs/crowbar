@@ -177,9 +177,7 @@
   color: var(--primary-foreground);
   cursor: pointer;
   margin-left: 5px;
-  box-shadow:
-    0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent),
-    inset 0 1px var(--elevated-highlight);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent);
   transition:
     transform 0.12s ease,
     background-color 0.12s ease,
@@ -202,17 +200,12 @@
   box-shadow: none;
   cursor: default;
 }
-/* Stop: the charcoal circle, its square a touch larger than the other glyphs. Queue keeps send's
-   moss circle and only swaps the glyph. */
+/* Stop: the charcoal circle. Queue keeps send's moss circle and only swaps the glyph. */
 .agent-chat .send.halt {
   border-color: var(--foreground);
   background: var(--foreground);
   color: var(--background);
   box-shadow: none;
-}
-.agent-chat .send.halt svg:not([class*='size-']) {
-  width: 18px;
-  height: 18px;
 }
 
 .agent-chat .send.queue svg:not([class*='size-']) {

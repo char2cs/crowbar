@@ -107,6 +107,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
           {live ? '' : took(card)}
         </span>
       )}
+      {usage && <span className="subagent-usage">· {usage}</span>}
       {outcome && (
         <span className="tool-call-state" data-outcome={outcome.kind}>
           {outcome.text}
@@ -128,7 +129,6 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
           <button
             type="button"
             className="subagent-head"
-            title={usage || undefined}
             aria-expanded={open}
             onClick={() => setOpen((o) => !o)}
           >
@@ -138,9 +138,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
             </span>
           </button>
         ) : (
-          <div className="subagent-head" title={usage || undefined}>
-            {head}
-          </div>
+          <div className="subagent-head">{head}</div>
         )}
         {live && (
           <p className="subagent-action" data-testid="agent-subagent-action">

@@ -44,6 +44,7 @@ import type {
 } from '@/features/agent/stores/lib/transcript-items'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
 import { JumpToLatest } from '@/features/agent/transcript/jump-to-latest'
+import { isNotice } from '@/features/agent/transcript/rows/marker-row'
 import { copyWithoutAnchors } from '@/features/agent/transcript/lib/plain-copy'
 import {
   TranscriptRow,
@@ -76,9 +77,11 @@ type Key = VirtualItem['key']
 
 /** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
 const ROW_GAP = 18
+/** Notice cards read as a stack, closer than prose rows. */
+const NOTICE_GAP = 10
 
 /** `.dock-spacer`'s height past the dock's own (transcript-layout.css). */
-const DOCK_ROOM = 32
+const DOCK_ROOM = IS_MOBILE ? 14 : 32
 
 /** Whole pixels: `resizeItem` treats any float drift as a real resize. */
 function measureRowHeight(el: Element): number {
@@ -118,7 +121,10 @@ function estimateRowHeight(item: TranscriptItem | undefined): number {
 
 /** Tool, ask and marker rows of one run sit flush; prose gets the gap. */
 const compact = (id: string, item: TranscriptItem | undefined) =>
-  id.startsWith('g:') || item?.kind === 'tool' || item?.kind === 'ask' || item?.kind === 'marker'
+  id.startsWith('g:') ||
+  item?.kind === 'tool' ||
+  item?.kind === 'ask' ||
+  (item?.kind === 'marker' && !isNotice(item))
 
 /** tanstack's `observeElementRect`, held back while a pane is dragged and never
  *  reporting a parked (0×0) view, which would unmount every row. The anchor hears
@@ -454,6 +460,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
               if (!id) return null
               const next = rows[virtualRow.index + 1]
               const flush = !next || (compact(id, itemOf(id)) && compact(next, itemOf(next)))
+              const noticeRun = !!next && isNotice(itemOf(id)) && isNotice(itemOf(next))
               const firstTurn = places.get(id)?.firstTurn === true
               return (
                 <div
@@ -466,7 +473,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     left: 0,
                     width: '100%',
                     transform: `translateY(${virtualRow.start}px)`,
-                    paddingBottom: flush || firstTurn ? 0 : ROW_GAP,
+                    paddingBottom: flush || firstTurn ? 0 : noticeRun ? NOTICE_GAP : ROW_GAP,
                   }}
                 >
                   <TranscriptRow

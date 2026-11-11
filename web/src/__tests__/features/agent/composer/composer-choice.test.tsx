@@ -54,6 +54,19 @@ describe('ComposerChoice permission card', () => {
     expect(labels).toEqual(['Deny', 'Allow for session', 'Allow once'])
   })
 
+  it('names the plain allow "Allow once" when a broader grant sits beside it', () => {
+    show({
+      options: [
+        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow for session' },
+        { id: 'deny', kind: 'deny', label: 'Deny' },
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Allow once' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+  })
+
   it('offers each suggestion as a button that grants it', async () => {
     show({
       options: [

@@ -28,6 +28,21 @@ beforeEach(() => chatStore.setState({ feeds: {}, outbox: {} }))
 afterEach(() => vi.restoreAllMocks())
 
 describe('MarkerRow', () => {
+  it('draws the command a compaction ran beside its words in one pill', () => {
+    const l = ledger()
+    const feed = seed([
+      l.prompt('r1', '/compact'),
+      l.start('turn-1', 'r1'),
+      l.end('turn-1'),
+      l.row('marker', { kind: 'compaction_ended' }),
+    ])
+    draw(markerOf(feed)!)
+
+    const tag = screen.getByTestId('agent-compaction-divider')
+    expect(tag).toHaveTextContent('/compactCompacted')
+    expect(screen.getByTestId('slash-command')).toBeInTheDocument()
+  })
+
   it('keeps a failed turn as one divider in the board’s words, with no notice of its own', () => {
     const l = ledger()
     const feed = seed([
@@ -35,7 +50,7 @@ describe('MarkerRow', () => {
       l.start('turn-1', 'r1'),
       l.row(
         'turn_failed',
-        { reason: 'rate_limit', detail: '429 rate_limit_error: limit reached, resets at 7pm' },
+        { reason: 'provider words', detail: 'provider detail 429', kind: 'limit' },
         { turnId: 'turn-1' },
       ),
     ])
@@ -45,7 +60,7 @@ describe('MarkerRow', () => {
       'Stopped · usage limit reached',
     )
     expect(screen.queryByTestId('agent-failure-notice')).toBeNull()
-    expect(screen.queryByText(/429|rate_limit_error|7pm/)).toBeNull()
+    expect(screen.queryByText(/429|provider words/)).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
   })
 
@@ -119,8 +134,8 @@ describe('MarkerRow', () => {
   it('reads a switch of provider, model and effort as one divider', () => {
     const l = ledger()
     const feed = seed([
-      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
-      l.row('marker', { kind: 'model_changed', detail: 'gpt-big' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'provider-b' }),
+      l.row('marker', { kind: 'model_changed', detail: 'model-big' }),
       l.row('marker', { kind: 'effort_changed', detail: 'low' }),
     ])
     render(
@@ -128,12 +143,12 @@ describe('MarkerRow', () => {
         actions={noRowActions}
         chatId="chat-1"
         id={markerOf(feed)!}
-        providers={[{ id: 'codex', displayName: 'Codex' } as never]}
+        providers={[{ id: 'provider-b', displayName: 'Provider B' } as never]}
       />,
     )
 
     expect(screen.getByTestId('agent-switch-divider')).toHaveTextContent(
-      'Switched to Codex · gpt-big · low effort',
+      'Switched to Provider B · model-big · low effort',
     )
   })
 
@@ -223,13 +238,15 @@ describe('MarkerRow', () => {
     expect(actions.compact).toHaveBeenCalled()
   })
 
-  // codex's own words (0.164): bold first sentence, the rest on the line after it.
+  // A provider's warning: bold first sentence, the rest on the line after it.
   it('says a warning by its first sentence in bold, the rest beside it, with no Details', () => {
     const said =
-      'Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager.'
+      'Provider A could not find bubblewrap on PATH. Install bubblewrap with your OS package manager.'
     draw(markerOf(seed([ledger().row('marker', { kind: 'warning', detail: said })]))!)
     const notice = screen.getByTestId('agent-marker-notice')
-    expect(notice.querySelector('b')).toHaveTextContent('Codex could not find bubblewrap on PATH.')
+    expect(notice.querySelector('b')).toHaveTextContent(
+      'Provider A could not find bubblewrap on PATH.',
+    )
     expect(notice).toHaveTextContent('Install bubblewrap with your OS package manager.')
     expect(screen.queryByRole('button', { name: 'Details' })).toBeNull()
   })

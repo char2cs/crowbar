@@ -14,7 +14,7 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
 const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']
 
 /** An edit writes a new file when its diff has no old side, or its one hunk starts
- *  from nothing (how claude's Write reports a file that was not there). */
+ *  from nothing (how a provider reports a file that was not there). */
 const writesNewFile = (diff = '') => {
   if (diff.startsWith('--- /dev/null\n')) return true
   const hunks = diff.match(/^@@ .*$/gm) ?? []

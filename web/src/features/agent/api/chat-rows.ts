@@ -111,7 +111,7 @@ export interface RowBodies {
     effort?: string
     diff?: string
   }
-  turn_failed: { reason: string; detail?: string }
+  turn_failed: { reason: string; detail?: string; kind?: string }
   session_bound: { provider: string; sessionId: string; cause: string }
   session_lost: { provider: string; sessionId: string; reason: string; movedTo?: string }
   runner_started: {

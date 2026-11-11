@@ -1,7 +1,7 @@
 import { memo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import type { MarkerItem } from '@/features/agent/stores/lib/transcript-items'
+import type { MarkerItem, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 import { markerFailure, stoppedByYou } from '@/features/agent/transcript/lib/marker-failure'
 import { warningHeadline } from '@/features/agent/transcript/lib/turn-failure'
 import type { NoticeActions } from '@/features/agent/transcript/lib/marker-failure'
@@ -99,6 +99,10 @@ function noticeWords(item: MarkerItem): { text: string; rest?: string } | undefi
   }
 }
 
+/** Whether a marker is drawn as a notice card rather than a pill on a line. */
+export const isNotice = (item: TranscriptItem | undefined) =>
+  item?.kind === 'marker' && noticeWords(item) !== undefined
+
 /** What a notice offers, when it names something to do: the daemon's own facts decide. */
 function noticeAction(
   item: MarkerItem,
@@ -189,7 +193,12 @@ function MarkerRowBody({ chatId, item, providers, actions, provider }: MarkerPro
       <div className="divider" role="separator" data-testid="agent-event-divider">
         <span className="wavy-rule" />
         <span className="tag" data-testid={testId}>
-          {label}
+          {item.command && (
+            <span className="slash-marker" data-testid="slash-command">
+              {item.command}
+            </span>
+          )}
+          <span className={item.command ? 'tag-result' : undefined}>{label}</span>
         </span>
         <span className="wavy-rule" />
       </div>

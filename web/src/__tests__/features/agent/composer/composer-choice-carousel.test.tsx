@@ -44,7 +44,7 @@ const questionAsk = (id: string) =>
   })
 
 function mount(asks: AskItem[]) {
-  const props = { wsId: 'w1', chatId: 'c1', providerLabel: 'Claude', onOpenTerminal: vi.fn() }
+  const props = { wsId: 'w1', chatId: 'c1', providerLabel: 'Provider A', onOpenTerminal: vi.fn() }
   const view = render(<ComposerChoiceCarousel asks={asks} {...props} />)
   return {
     ...view,

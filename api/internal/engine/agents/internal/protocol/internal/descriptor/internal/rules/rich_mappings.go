@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -80,6 +81,12 @@ func checkCanonicalMaps(id, name string, event spec.EventSpec, kinds, statuses m
 		}
 	}
 	for _, mapped := range event.StatusMap {
+		if name == spec.HookTurnFailed {
+			if !slices.Contains([]string{spec.FailureAuth, spec.FailureLimit, spec.FailureOverloaded}, mapped) {
+				return invalid(id, "events[%s].status_map: unknown failure kind %q", name, mapped)
+			}
+			continue
+		}
 		if _, ok := statuses[mapped]; !ok {
 			return invalid(id, "events[%s].status_map: unknown canonical status %q", name, mapped)
 		}

@@ -62,7 +62,7 @@ function draw(overrides: Partial<AgentComposerProps> = {}, { dnd = false } = {})
     wsId: 'w1',
     chatId: 'c1',
     asks: [],
-    providerLabel: 'Claude',
+    providerLabel: 'Provider A',
     live: true,
     working: false,
     compacting: false,

@@ -43,7 +43,8 @@
   font-weight: 500;
 }
 .agent-chat .subagent-type,
-.agent-chat .subagent-clock {
+.agent-chat .subagent-clock,
+.agent-chat .subagent-usage {
   flex: none;
   font-variant-numeric: tabular-nums;
 }
@@ -98,6 +99,9 @@
   padding: 6px 0;
   color: var(--muted-foreground);
   font-size: var(--ui-text-xs);
+}
+.agent-chat .divider .tag-result {
+  margin-left: 8px;
 }
 .agent-chat .divider .tag {
   display: inline-flex;

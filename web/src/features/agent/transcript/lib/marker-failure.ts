@@ -69,8 +69,7 @@ export function markerFailure(
   switch (item.marker) {
     case 'turn_failed': {
       const said = describeFailure({
-        reason: item.reason,
-        detail: item.detail,
+        kind: item.failureKind,
         provider,
         resetsAt,
         now,

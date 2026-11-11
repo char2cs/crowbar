@@ -4,9 +4,6 @@
   color: var(--muted-foreground);
   font-size: 0.68rem;
 }
-.agent-chat .tools li[data-status='awaiting_approval'] .tool-call-state {
-  color: var(--warn-text);
-}
 /* The failure notice, the tray above the input box: what happened in at most two plain
    lines, its way on at the right. No icon. A phone stacks the buttons full width. */
 .failure-notice {
@@ -147,4 +144,8 @@
   justify-content: center;
   gap: 6px;
   padding-bottom: 6px;
+}
+/* The board's primary buttons carry one soft drop shadow, not the library's inset highlight. */
+.agent-chat :is(.failure-notice, .rq-box) button.bg-primary:not(:disabled) {
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent);
 }

@@ -1,5 +1,5 @@
-/** What kind of trouble failed a turn, as far as its words tell: a sign-in has a
- *  way out the person can take, a limit lifts by itself, an overload passes. */
+/** What kind of trouble failed a turn, as the provider's descriptor classified it: a sign-in
+ *  has a way out the person can take, a limit lifts by itself, an overload passes. */
 export type FailureKind = 'auth' | 'limit' | 'overloaded' | 'other'
 
 export interface TurnFailure {
@@ -12,29 +12,11 @@ export interface TurnFailure {
   tag: string
 }
 
-const AUTH = /\b40[13]\b|unauthori[sz]ed|authentication|not logged in|invalid api key|log ?in/i
-const OVERLOADED = /\b529\b|overloaded/i
-const LIMIT = /\b429\b|rate.?limit|usage.?limit|too many requests|quota/i
-// "resets at 7pm", "reset at 7:30 PM": the provider's own clock, read in the person's.
-const RESET_AT = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i
+const KINDS: readonly FailureKind[] = ['auth', 'limit', 'overloaded']
 
-function kindOf(said: string): FailureKind {
-  if (AUTH.test(said)) return 'auth'
-  if (OVERLOADED.test(said)) return 'overloaded'
-  return LIMIT.test(said) ? 'limit' : 'other'
-}
-
-/** The next time the clock reads `hour:minute` after `now`, from the words "resets at 7pm". */
-function resetFromWords(said: string, now: Date): Date | undefined {
-  const match = RESET_AT.exec(said)
-  if (!match) return undefined
-  const hour = Number(match[1])
-  if (hour < 1 || hour > 12) return undefined
-  const afternoon = match[3]?.toLowerCase() === 'pm'
-  const at = new Date(now)
-  at.setHours((hour % 12) + (afternoon ? 12 : 0), Number(match[2] ?? 0), 0, 0)
-  if (at <= now) at.setDate(at.getDate() + 1)
-  return at
+/** The kind a row names; none, or one this build does not know, is any other trouble. */
+function failureKindOf(named: string | undefined): FailureKind {
+  return KINDS.find((kind) => kind === named) ?? 'other'
 }
 
 function untilLabel(ms: number): string {
@@ -56,8 +38,8 @@ function limitHint(resetsAt: Date | undefined, now: Date): string {
 const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
 export interface FailureInput {
-  reason?: string
-  detail?: string
+  /** The kind the daemon classified the failure as (a turn_failed row's `kind`). */
+  kind?: string
   /** The provider's name, as the person knows it; "the agent" when none is known. */
   provider?: string
   /** When a limit lifts, where the provider reported it. */
@@ -65,18 +47,15 @@ export interface FailureInput {
   now?: Date
 }
 
-/** A failed turn in the board's words. The provider's own text only decides which
- *  words these are: it is never shown, and neither are its codes or numbers. */
+/** A failed turn in the board's words: the provider's own text and codes are never shown. */
 export function describeFailure({
-  reason = '',
-  detail = '',
+  kind,
   provider = 'the agent',
   resetsAt,
   now = new Date(),
 }: FailureInput): TurnFailure {
-  const said = `${reason}\n${detail}`
   const name = provider || 'the agent'
-  switch (kindOf(said)) {
+  switch (failureKindOf(kind)) {
     case 'auth':
       return {
         kind: 'auth',
@@ -85,7 +64,7 @@ export function describeFailure({
         tag: `Stopped · signed out of ${name}`,
       }
     case 'limit': {
-      const lifts = resetsAt ? new Date(resetsAt) : resetFromWords(said, now)
+      const lifts = resetsAt ? new Date(resetsAt) : undefined
       return {
         kind: 'limit',
         headline: 'Usage limit reached',

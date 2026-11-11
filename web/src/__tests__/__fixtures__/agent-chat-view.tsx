@@ -18,7 +18,7 @@ export function drawChatView(
   const props: ComponentProps<typeof AgentChatView> = {
     wsId: 'w1',
     chatId,
-    providerId: 'codex',
+    providerId: 'provider-b',
     providers: [],
     live: true,
     canSend: true,
@@ -26,7 +26,7 @@ export function drawChatView(
     visible: true,
     isActivePane: true,
     onOpenTerminal: () => {},
-    provider: 'codex',
+    provider: 'provider-b',
     model: '',
     effort: '',
     onSelectionChange: () => {},

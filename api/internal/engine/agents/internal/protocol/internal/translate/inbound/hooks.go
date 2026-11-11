@@ -255,7 +255,8 @@ func build(
 	case spec.HookPlanUpdate:
 		ev.Plan = buildPlan(steps, decoded)
 	case spec.HookTurnFailed:
-		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail")}
+		kind, _ := mapping.Scalar(decoded, fields["failure_kind"])
+		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail"), Kind: statusMap[kind]}
 	case spec.HookCompactPre, spec.HookCompactPost:
 		ev.Interrupt = &models.InterruptEvent{
 			Kind: models.InterruptCompaction, Detail: get("trigger"), Resolved: canonical == spec.HookCompactPost,

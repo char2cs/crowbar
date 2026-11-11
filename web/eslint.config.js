@@ -58,6 +58,21 @@ const ENTITY_API_PATH_MESSAGE =
   'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
   'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
 
+// Provider facts come from the provider catalog and the daemon's neutral fields, never from a name in the UI.
+const PROVIDER_NAME = '(claude|codex|anthropic|openai)'
+const PROVIDER_VOCABULARY_RULES = [
+  {
+    selector: `Literal[value=/${PROVIDER_NAME}/i]`,
+    message:
+      'Crowbar is provider-agnostic: read the provider catalog (label, icon, capabilities), not a hard-coded name.',
+  },
+  {
+    selector: `TemplateElement[value.raw=/${PROVIDER_NAME}/i]`,
+    message:
+      'Crowbar is provider-agnostic: read the provider catalog (label, icon, capabilities), not a hard-coded name.',
+  },
+]
+
 // A swallowed failure is invisible: return a fallback or report() it.
 const SWALLOWED_FAILURE_RULES = [
   {
@@ -174,6 +189,18 @@ export default tseslint.config(
         'error',
         ...SWALLOWED_FAILURE_RULES,
         ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
+      ],
+    },
+  },
+  {
+    files: ['src/features/agent/**/*.{ts,tsx}', 'src/lib/**/*.{ts,tsx}'],
+    ignores: ['src/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...SWALLOWED_FAILURE_RULES,
+        ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
+        ...PROVIDER_VOCABULARY_RULES,
       ],
     },
   },

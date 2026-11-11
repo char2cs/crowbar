@@ -1,5 +1,5 @@
-/* Copy and when, out of the way until the reply is hovered or focused; touch screens have no
-   hover, so they always show it. */
+/* Copy and when, out of the way until the reply is hovered or focused; a touch screen shows no
+   footer under the reply (the board has none): the OS selection menu copies. */
 .agent-chat .turnbar {
   display: flex;
   align-items: center;
@@ -15,7 +15,7 @@
 }
 @media (hover: none) {
   .agent-chat .turnbar {
-    opacity: 1;
+    display: none;
   }
 }
 .agent-chat .turn-effort {
@@ -233,7 +233,6 @@
   box-sizing: border-box;
   height: 18px;
   padding: 0 8px;
-  border: 1px solid var(--border);
   border-radius: 9999px;
   font-family: var(--app-font-family, inherit);
   font-size: 0.72rem;
@@ -243,6 +242,7 @@
 }
 /* Zero specificity, so each outcome below can recolour it. */
 :where(.agent-chat .tool-call-state[data-outcome], .agent-chat .tool-call-note[data-outcome]) {
+  border: 1px solid var(--border);
   background: var(--muted);
   color: var(--foreground);
 }
@@ -279,6 +279,10 @@
 }
 .agent-chat .tools li[data-status='declined'] .tool-glyph {
   color: var(--warn-text);
+}
+/* A denied command never ran: its text says so. */
+.agent-chat .tools li[data-status='declined'] .tool-call-subject {
+  text-decoration: line-through;
 }
 .agent-chat .mcp-server {
   --mcp-hue: var(--chart-1);

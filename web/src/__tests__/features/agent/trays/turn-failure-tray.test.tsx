@@ -14,7 +14,7 @@ function seed(rows: LedgerRow[]) {
   applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
 }
 
-function show(providers = [provider('fake', 'Claude')], actions = noRowActions) {
+function show(providers = [provider('fake', 'Provider A')], actions = noRowActions) {
   return render(
     <TopTray
       chatId="chat-1"
@@ -26,40 +26,44 @@ function show(providers = [provider('fake', 'Claude')], actions = noRowActions) 
   )
 }
 
-const failed = (reason: string, detail = '', from = ledger()) => [
+const failed = (kind?: string, from = ledger()) => [
   from.row(
     'user_message',
     { requestId: 'r1', text: 'hi', origin: 'crowbar' },
     { turnId: 'turn-1' },
   ),
   from.start('turn-1', 'r1'),
-  from.row('turn_failed', { reason, detail }, { turnId: 'turn-1' }),
+  from.row(
+    'turn_failed',
+    { reason: 'provider words', detail: 'provider detail 429', kind },
+    { turnId: 'turn-1' },
+  ),
 ]
 
 beforeEach(() => resetChatStore())
 
 describe('the stopped turn’s notice', () => {
   it('says a usage limit in two plain lines with Switch model, and no code or raw text', () => {
-    seed(failed('rate_limit', '429 rate_limit_error: limit reached. Your limit will reset at 7pm.'))
-    show([provider('fake', 'Claude', { modelSelect: true, models: ['opus'] })])
+    seed(failed('limit'))
+    show([provider('fake', 'Provider A', { modelSelect: true, models: ['model-a'] })])
 
     expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('Usage limit reached')
     expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent(
-      /Resets at .*Another model can keep going now\./,
+      'Another model can keep going now.',
     )
     expect(screen.getByRole('button', { name: 'Switch model' })).toBeInTheDocument()
-    expect(screen.queryByText(/429|rate_limit_error/)).toBeNull()
+    expect(screen.queryByText(/429|provider words/)).toBeNull()
     expect(screen.queryByRole('button', { name: /details|open terminal/i })).toBeNull()
   })
 
   it('opens the footer’s model picker from Switch model', () => {
-    seed(failed('rate_limit'))
-    const providers = [provider('fake', 'Claude', { modelSelect: true, models: ['opus'] })]
+    seed(failed('limit'))
+    const providers = [provider('fake', 'Provider A', { modelSelect: true, models: ['model-a'] })]
     render(
       <AgentSelectionPicker
         provider={providers[0]}
         providers={providers}
-        model="opus"
+        model="model-a"
         effort=""
         permission={{ wsId: 'ws-1', chatId: 'chat-1' }}
         onSelectionChange={() => {}}
@@ -73,15 +77,15 @@ describe('the stopped turn’s notice', () => {
   })
 
   it('offers no Switch model where no provider has a model to pick', () => {
-    seed(failed('rate_limit'))
+    seed(failed('limit'))
     show()
     expect(screen.queryByRole('button', { name: 'Switch model' })).toBeNull()
   })
 
   it('names the provider a signed-out person must sign in to, and opens its terminal', () => {
-    seed(failed('401 Unauthorized'))
+    seed(failed('auth'))
     const actions = { ...noRowActions, openTerminal: vi.fn() }
-    show([provider('fake', 'Claude')], actions)
+    show([provider('fake', 'Provider A')], actions)
 
     expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('Signed out of')
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
@@ -89,14 +93,14 @@ describe('the stopped turn’s notice', () => {
   })
 
   it('words a provider fault plainly and retries the prompt once', () => {
-    seed(failed('provider_error', 'API Error: 500 Internal server error'))
+    seed(failed())
     const actions = { ...noRowActions, retry: vi.fn() }
-    show([provider('fake', 'Claude')], actions)
+    show([provider('fake', 'Provider A')], actions)
 
     expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent(
-      'Claude had a problem on its side',
+      'Provider A had a problem on its side',
     )
-    expect(screen.queryByText(/500|Internal server error/)).toBeNull()
+    expect(screen.queryByText(/provider words|provider detail/)).toBeNull()
     const retry = screen.getByRole('button', { name: 'Retry' })
     fireEvent.click(retry)
     fireEvent.click(retry)
@@ -106,7 +110,7 @@ describe('the stopped turn’s notice', () => {
 
   it('goes once a later prompt is sent or on its way', () => {
     const l = ledger()
-    seed([...failed('provider_error', '', l), l.prompt('r2', 'again')])
+    seed([...failed(undefined, l), l.prompt('r2', 'again')])
     const { container } = show()
     expect(container).toBeEmptyDOMElement()
   })
@@ -125,7 +129,7 @@ describe('the stopped turn’s notice', () => {
   it('offers a new conversation on a lost session', () => {
     seed([ledger().row('session_lost', { provider: 'acme', sessionId: 'S1', reason: 'x' })])
     const actions = { ...noRowActions, newConversation: vi.fn() }
-    show([provider('fake', 'Claude')], actions)
+    show([provider('fake', 'Provider A')], actions)
     fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
     expect(actions.newConversation).toHaveBeenCalled()
   })

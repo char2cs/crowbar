@@ -112,7 +112,7 @@ describe('TextRow', () => {
   it('names the model the turn ran on beside its effort', () => {
     const l = ledger()
     seed([
-      l.row('marker', { kind: 'model_changed', detail: 'gpt-5.6-luna' }),
+      l.row('marker', { kind: 'model_changed', detail: 'model-luna' }),
       l.start('turn-1'),
       l.text('turn-1', 'm1', -1, 'done'),
       l.row('turn_ended', { status: 'done', effort: 'low' }, { turnId: 'turn-1' }),
@@ -126,7 +126,7 @@ describe('TextRow', () => {
         place={{ turnbar: true }}
       />,
     )
-    expect(screen.getByTestId('message-model')).toHaveTextContent('gpt-5.6-luna')
+    expect(screen.getByTestId('message-model')).toHaveTextContent('model-luna')
     expect(screen.getByTestId('message-effort')).toHaveTextContent('low')
   })
 

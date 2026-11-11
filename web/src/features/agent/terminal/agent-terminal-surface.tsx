@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { IS_MOBILE } from '@/utils/platform'
 
 /** `pending` is not idle: offering Resume there would spawn a second CLI. A null
- *  sessionId is a live runner with no terminal (codex), not dormancy. */
+ *  sessionId is a live runner with no terminal (a provider with no terminal), not dormancy. */
 export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
@@ -155,7 +155,7 @@ export function AgentTerminalSurface({
         )}
 
       {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
-        // A live runner with nothing attached (codex): no Resume, nothing to restart.
+        // A live runner with nothing attached (a provider with no terminal): no Resume, nothing to restart.
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
           <p className="max-w-sm text-center text-muted-foreground text-sm">
             This agent has no terminal view attached right now.

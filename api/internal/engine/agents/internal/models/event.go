@@ -72,6 +72,10 @@ type MessageComplete struct {
 type TurnFailure struct {
 	Reason string
 
+	// Kind is the trouble in Crowbar's words (auth, limit, overloaded), by the
+	// event's status_map; empty when the descriptor names none.
+	Kind string
+
 	Detail string
 }
 

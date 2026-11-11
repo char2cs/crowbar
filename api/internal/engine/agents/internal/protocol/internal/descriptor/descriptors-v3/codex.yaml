@@ -143,12 +143,16 @@ events:
   # occur.
   turn_failed:
     required: [session_id, reason]
+    status_map: { '401': auth, '403': auth, unauthorized: auth, '429': limit, usageLimitExceeded: limit,
+      '529': overloaded, serverOverloaded: overloaded }
     api:
       in: turn/completed
       when: { turn.status: failed }
       map:
         session_id: threadId
         reason:     { first_present: [turn.error.message, turn.status] }
+        # codexErrorInfo is a named error or an object around the HTTP status that failed.
+        failure_kind: { first_present: [turn.error.codexErrorInfo.httpConnectionFailed.httpStatusCode, turn.error.codexErrorInfo] }
         # additionalDetails is often null (a 401 when not logged in): the message is then all it says.
         detail:     { first_present: [turn.error.additionalDetails, turn.error.message] }
         # See turn_stop's own turn_id comment — a compaction can fail too.

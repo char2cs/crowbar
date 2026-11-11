@@ -133,13 +133,13 @@ final class PayloadDecodingTests: XCTestCase {
     let state = try decode(
       ModelPickerState.self,
       """
-      {"open":true,"providers":[{"id":"claude","name":"Claude","fallbackIcon":"Robot",
+      {"open":true,"providers":[{"id":"provider-a","name":"Provider A","fallbackIcon":"Robot",
         "models":[{"id":"m1","name":"Model 1"}]}],
-       "selected":{"providerId":"claude","modelId":"m1"},"efforts":["low","high"],"effort":null}
+       "selected":{"providerId":"provider-a","modelId":"m1"},"efforts":["low","high"],"effort":null}
       """)
     XCTAssertNil(state.providers[0].icon)
     XCTAssertEqual(state.providers[0].models[0].name, "Model 1")
-    XCTAssertEqual(state.selected, PickerSelection(providerId: "claude", modelId: "m1"))
+    XCTAssertEqual(state.selected, PickerSelection(providerId: "provider-a", modelId: "m1"))
     XCTAssertEqual(state.efforts, ["low", "high"])
   }
 

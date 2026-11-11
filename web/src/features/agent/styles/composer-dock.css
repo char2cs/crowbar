@@ -30,7 +30,7 @@
   width: 100%;
   max-width: 768px;
   margin: 0 auto;
-  padding: 0 24px 14px;
+  padding: 0 24px 8px;
   /* No fill: any colour, even translucent, is a tint that never matches what it sits over.
      Only the pill and chips paint, each with its own opaque surface. */
   /* `.scroll` runs under this box the full pane height, so its empty padding must not take the
@@ -39,6 +39,10 @@
 }
 .agent-chat .dock > * {
   pointer-events: auto;
+}
+/* The phone's board: the box and its trays reach 12px from the edge. */
+.agent-chat-pane[data-touch] .agent-chat .dock {
+  padding-inline: 12px;
 }
 /* Status and error lines about the composer read centred on the input box. */
 .agent-chat .composer-note {

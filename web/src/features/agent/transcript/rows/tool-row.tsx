@@ -1,6 +1,7 @@
 import { memo, useCallback, useState } from 'react'
 import {
   CaretRightIcon,
+  CheckIcon,
   CircleDashedIcon,
   ProhibitIcon,
   StopIcon,
@@ -68,7 +69,7 @@ const AWAITING: Outcome = {
   Glyph: CircleDashedIcon,
 }
 
-/** Running spins, a call that went well adds nothing, every other outcome has its glyph. */
+/** Running spins, a call that went well is checked, every other outcome has its own glyph. */
 function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?: Outcome }) {
   if (outcome) {
     const { Glyph } = outcome
@@ -80,7 +81,8 @@ function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?
       />
     )
   }
-  return status === 'running' ? <FlickerSpinner className="size-3" /> : null
+  if (status === 'running') return <FlickerSpinner className="size-3" />
+  return status === 'ok' ? <CheckIcon size={12} className="tool-glyph" /> : null
 }
 
 function Label({ item }: { item: ToolItem }) {

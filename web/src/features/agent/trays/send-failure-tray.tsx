@@ -28,6 +28,7 @@ export function SendFailureTray({
           <Button
             size="sm"
             variant="outline"
+            className="bg-background"
             onClick={() => {
               discardPrompt(chatId, item.requestId)
               onEdit(item.text)
@@ -35,7 +36,12 @@ export function SendFailureTray({
           >
             Edit
           </Button>
-          <Button size="sm" variant="outline" onClick={() => discardPrompt(chatId, item.requestId)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-background"
+            onClick={() => discardPrompt(chatId, item.requestId)}
+          >
             Discard
           </Button>
           {!final && (

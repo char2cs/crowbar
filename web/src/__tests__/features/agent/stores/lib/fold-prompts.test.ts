@@ -7,15 +7,15 @@ describe('divider', () => {
   it('draws one switch divider for switches back and forth with nothing said between', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
-      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'provider-b' }),
       l.row('marker', { kind: 'model_changed', detail: 'big' }),
-      l.row('marker', { kind: 'provider_switched', detail: 'claude' }),
-      l.row('marker', { kind: 'provider_switched', detail: 'codex' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'provider-a' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'provider-b' }),
     ])
     expect(feed.order).toEqual(['k:1'])
     expect(feed.items.get('k:1')).toMatchObject({
       parts: [
-        { marker: 'provider_switched', detail: 'codex' },
+        { marker: 'provider_switched', detail: 'provider-b' },
         { marker: 'model_changed', detail: 'big' },
       ],
     })
@@ -31,24 +31,24 @@ describe('divider', () => {
         delivery: 'restart',
       }),
       l.row('marker', { kind: 'effort_changed', detail: 'low' }),
-      l.row('marker', { kind: 'provider_switched', detail: 'claude' }),
-      l.row('marker', { kind: 'model_changed', detail: 'sonnet' }),
+      l.row('marker', { kind: 'provider_switched', detail: 'provider-a' }),
+      l.row('marker', { kind: 'model_changed', detail: 'model-a' }),
       l.start('turn-1', 'r1'),
       l.end('turn-1'),
-      l.row('marker', { kind: 'model_changed', detail: 'opus' }),
+      l.row('marker', { kind: 'model_changed', detail: 'model-b' }),
     ])
     const kinds = feed.order.map((id) => feed.items.get(id)?.kind)
     expect(kinds).toEqual(['marker', 'user', 'marker'])
     expect(feed.items.get(feed.order[0]!)).toMatchObject({
       parts: [
-        { marker: 'provider_switched', detail: 'claude' },
-        { marker: 'model_changed', detail: 'sonnet' },
+        { marker: 'provider_switched', detail: 'provider-a' },
+        { marker: 'model_changed', detail: 'model-a' },
         { marker: 'effort_changed', detail: 'low' },
       ],
     })
     expect(feed.items.get(feed.order[2]!)).toMatchObject({
       marker: 'model_changed',
-      detail: 'opus',
+      detail: 'model-b',
     })
   })
 
@@ -93,5 +93,20 @@ describe('divider', () => {
       fallback('a5678329cf05b4df', 'req_00ff11ee22dd33cc'),
     ])
     expect(feed.order.filter((id) => feed.items.get(id)?.kind === 'marker')).toHaveLength(1)
+  })
+
+  it('draws a lost session that was continued from the record as the continuation alone', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.row('session_lost', {
+        provider: 'provider-a',
+        sessionId: 's1',
+        reason: 'could not resume',
+      }),
+      l.row('marker', { kind: 'from_record' }),
+    ])
+    expect(feed.order.map((id) => feed.items.get(id))).toMatchObject([
+      { kind: 'marker', marker: 'from_record' },
+    ])
   })
 })

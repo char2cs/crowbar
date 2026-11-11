@@ -223,3 +223,22 @@ func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
 	}
 	expectEq(t, "a typed prompt ends none", typed.Shell == nil, true)
 }
+
+// A failed turn is classified by the descriptor, so nothing downstream reads the provider's words.
+func TestClaudeDescriptor_ATurnFailureCarriesItsNeutralKind(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	for stopped, want := range map[string]string{
+		"authentication_failed": spec.FailureAuth,
+		"rate_limit":            spec.FailureLimit,
+		"server_error":          spec.FailureOverloaded,
+		"invalid_request":       "",
+	} {
+		raw := []byte(`{"session_id":"s","hook_event_name":"StopFailure","error":"` + stopped + `"}`)
+		ev, err := inbound.Parse(d, spec.HookTurnFailed, raw, spec.ChannelHooks)
+		if err != nil || ev.Failure == nil {
+			t.Fatalf("%s: failure %v, err %v", stopped, ev.Failure, err)
+		}
+		expectEq(t, stopped+" kind", ev.Failure.Kind, want)
+		expectEq(t, stopped+" reason", ev.Failure.Reason, stopped)
+	}
+}

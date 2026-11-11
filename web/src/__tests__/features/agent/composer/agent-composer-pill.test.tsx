@@ -10,7 +10,7 @@ function draw(overrides: Partial<Parameters<typeof AgentComposer>[0]> = {}) {
       wsId="w1"
       chatId="c1"
       asks={[]}
-      providerLabel="Claude"
+      providerLabel="Provider A"
       live
       working={false}
       compacting={false}

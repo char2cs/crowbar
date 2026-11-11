@@ -22,8 +22,8 @@ afterEach(() => {
 })
 
 const provider: AgentProvider = {
-  id: 'codex',
-  displayName: 'Codex',
+  id: 'provider-b',
+  displayName: 'Provider B',
   icon: '',
   connected: true,
   enabled: true,
@@ -146,13 +146,13 @@ describe('ProviderBar', () => {
     const selectableProvider: AgentProvider = {
       ...provider,
       modelSelect: true,
-      models: ['sonnet'],
+      models: ['model-a'],
     }
     renderBar({
       provider: selectableProvider,
       providers: [selectableProvider],
-      reportedModel: 'Claude Sonnet 4.5',
+      reportedModel: 'Model X 4.5',
     })
-    expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Claude Sonnet 4.5')
+    expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Model X 4.5')
   })
 })

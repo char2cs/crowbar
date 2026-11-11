@@ -58,8 +58,8 @@ describe('ToolRow', () => {
     )
   })
 
-  // Each outcome reads differently at a glance, and a call that went well adds nothing.
-  it('gives running a spinner, ok nothing, and each failure its own outcome', () => {
+  // Each outcome reads differently at a glance; a call that went well is a quiet check.
+  it('gives running a spinner, ok a check, and each failure its own outcome', () => {
     const l = ledger()
     const call = (toolId: string, extra: Pick<ToolCallBody, 'phase'> & Partial<ToolCallBody>) =>
       l.row(
@@ -88,7 +88,8 @@ describe('ToolRow', () => {
         text: el.querySelector('[data-outcome]')?.textContent,
       }
     }
-    expect(row('ok')).toMatchObject({ spinner: null, glyph: null, outcome: undefined })
+    expect(row('ok')).toMatchObject({ spinner: null, outcome: undefined })
+    expect(row('ok').glyph).not.toBeNull()
     expect(row('bad')).toMatchObject({ outcome: 'failed', text: 'Failed' })
     expect(row('cut')).toMatchObject({ outcome: 'stopped', text: 'Stopped' })
     expect(row('lost')).toMatchObject({ outcome: 'unavailable', text: 'Result unavailable' })

@@ -30,34 +30,37 @@ vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPermissionLe
 
 const { AgentSelectionPicker } = await import('@/features/agent/controls/agent-selection-picker')
 
-const claude: AgentProvider = {
-  id: 'claude',
-  displayName: 'Claude',
+const providerA: AgentProvider = {
+  id: 'provider-a',
+  displayName: 'Provider A',
   icon: '<svg></svg>',
   connected: true,
   enabled: true,
   mcpEnabled: true,
   modelSelect: true,
   effortSelect: true,
-  models: ['sonnet', 'opus', 'haiku'],
-  efforts: { sonnet: ['low', 'medium', 'high'], opus: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  models: ['model-a', 'model-b', 'model-c'],
+  efforts: {
+    'model-a': ['low', 'medium', 'high'],
+    'model-b': ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
   compaction: false,
   hasTerminal: true,
   hotswap: false,
   terminalStartHere: false,
 }
 
-const codex: AgentProvider = {
-  id: 'codex',
-  displayName: 'Codex',
+const providerB: AgentProvider = {
+  id: 'provider-b',
+  displayName: 'Provider B',
   icon: '<svg></svg>',
   connected: true,
   enabled: true,
   mcpEnabled: true,
   modelSelect: true,
   effortSelect: true,
-  models: ['gpt-5.6-sol', 'gpt-5.6-luna'],
-  efforts: { 'gpt-5.6-sol': ['low', 'medium', 'high', 'ultra'] },
+  models: ['model-sol', 'model-luna'],
+  efforts: { 'model-sol': ['low', 'medium', 'high', 'ultra'] },
   compaction: false,
   hasTerminal: true,
   hotswap: false,
@@ -68,9 +71,9 @@ type PickerProps = Parameters<typeof AgentSelectionPicker>[0]
 const draw = (props: Partial<PickerProps> = {}) =>
   render(
     <AgentSelectionPicker
-      provider={claude}
-      providers={[claude, codex]}
-      model="opus"
+      provider={providerA}
+      providers={[providerA, providerB]}
+      model="model-b"
       effort="high"
       onSelectionChange={vi.fn()}
       {...props}
@@ -90,7 +93,7 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('renders nothing when no offered provider declares a model catalogue', () => {
-    const noCatalogue: AgentProvider = { ...claude, modelSelect: false, models: [] }
+    const noCatalogue: AgentProvider = { ...providerA, modelSelect: false, models: [] }
     const { container } = draw({
       provider: noCatalogue,
       providers: [noCatalogue],
@@ -103,49 +106,49 @@ describe('AgentSelectionPicker', () => {
   it('shows the current provider icon, model and effort on the trigger', () => {
     draw()
     const trigger = screen.getByRole('button', { name: /Agent:/ })
-    expect(trigger).toHaveTextContent('opus')
+    expect(trigger).toHaveTextContent('model-b')
     expect(trigger).toHaveTextContent('High')
   })
 
   // A blank draft has neither: "Default · Default" said the same word twice.
   it('names an unpicked model and effort once', () => {
-    draw({ providers: [claude], model: '', effort: '', unsetLabel: 'Default' })
+    draw({ providers: [providerA], model: '', effort: '', unsetLabel: 'Default' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveTextContent(/^Default$/)
   })
 
   it('still names the effort when only the model is unpicked', () => {
-    draw({ providers: [claude], model: '', effort: 'low', unsetLabel: 'Default' })
+    draw({ providers: [providerA], model: '', effort: 'low', unsetLabel: 'Default' })
     expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('DefaultLow')
   })
 
   it('groups models under their own provider section, one section per offered provider', () => {
     draw()
     openMenu()
-    expect(screen.getByText('Claude')).toBeInTheDocument()
-    expect(screen.getByText('Codex')).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'sonnet' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'gpt-5.6-sol' })).toBeInTheDocument()
+    expect(screen.getByText('Provider A')).toBeInTheDocument()
+    expect(screen.getByText('Provider B')).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'model-a' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'model-sol' })).toBeInTheDocument()
   })
 
   it('picking a model on the SAME provider stages provider, model and effort together', () => {
     const onSelectionChange = vi.fn()
     draw({ onSelectionChange })
     openMenu()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'model-a' }))
 
-    // sonnet declares high — the current effort survives the pick unchanged.
-    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith('claude', 'sonnet', 'high')
+    // model-a declares high — the current effort survives the pick unchanged.
+    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith('provider-a', 'model-a', 'high')
   })
 
   it('picking a model whose declared efforts do not include the current one falls back to its own first level', () => {
     const onSelectionChange = vi.fn()
     draw({ effort: 'xhigh', onSelectionChange })
     openMenu()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'model-a' }))
 
-    // sonnet has no xhigh — lands on sonnet's own first declared level.
-    expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'low')
+    // model-a has no xhigh — lands on model-a's own first declared level.
+    expect(onSelectionChange).toHaveBeenCalledWith('provider-a', 'model-a', 'low')
   })
 
   // A cross-provider pick stages like any other; the switch happens server-side
@@ -154,16 +157,16 @@ describe('AgentSelectionPicker', () => {
     const onSelectionChange = vi.fn()
     draw({ onSelectionChange })
     openMenu()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'gpt-5.6-sol' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'model-sol' }))
 
-    // gpt-5.6-sol declares high too, so the current effort survives the pick.
-    expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-sol', 'high')
+    // model-sol declares high too, so the current effort survives the pick.
+    expect(onSelectionChange).toHaveBeenCalledWith('provider-b', 'model-sol', 'high')
   })
 
   // A short catalogue fits on sight; a long one grows a search field.
   const crowded: AgentProvider = {
-    ...claude,
-    models: [...(claude.models ?? []), ...Array.from({ length: 10 }, (_, i) => `model-${i}`)],
+    ...providerA,
+    models: [...(providerA.models ?? []), ...Array.from({ length: 10 }, (_, i) => `model-${i}`)],
   }
 
   it('offers no search field for a short catalogue', () => {
@@ -173,24 +176,26 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('typing a provider name surfaces every model under it', () => {
-    draw({ provider: crowded, providers: [crowded, codex] })
+    draw({ provider: crowded, providers: [crowded, providerB] })
     openMenu()
-    fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'codex' } })
+    fireEvent.change(screen.getByPlaceholderText(/Search models/), {
+      target: { value: 'Provider B' },
+    })
 
-    expect(screen.getByText('Codex')).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'gpt-5.6-sol' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'gpt-5.6-luna' })).toBeInTheDocument()
-    expect(screen.queryByText('Claude')).not.toBeInTheDocument()
+    expect(screen.getByText('Provider B')).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'model-sol' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'model-luna' })).toBeInTheDocument()
+    expect(screen.queryByText('Provider A')).not.toBeInTheDocument()
   })
 
   it('filters to matching models only when the query names no provider', () => {
-    draw({ provider: crowded, providers: [crowded, codex] })
+    draw({ provider: crowded, providers: [crowded, providerB] })
     openMenu()
-    fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'haiku' } })
+    fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'model-c' } })
 
-    expect(screen.getByRole('menuitem', { name: 'haiku' })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'sonnet' })).not.toBeInTheDocument()
-    expect(screen.queryByText('Codex')).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'model-c' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'model-a' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Provider B')).not.toBeInTheDocument()
   })
 
   const effortGroup = () => screen.getByRole('radiogroup', { name: /Reasoning effort/ })
@@ -201,7 +206,7 @@ describe('AgentSelectionPicker', () => {
       .map((radio) => radio.textContent)
 
   it('lists the efforts of the CURRENT model, not the whole provider', () => {
-    draw({ provider: codex, model: 'gpt-5.6-sol' })
+    draw({ provider: providerB, model: 'model-sol' })
     openMenu()
     expect(
       within(effortGroup())
@@ -212,7 +217,7 @@ describe('AgentSelectionPicker', () => {
 
   // An undeclared effort must not clamp to "Low": nobody picked that level.
   it('marks no effort when the current one is not declared by the model', () => {
-    draw({ provider: codex, model: 'gpt-5.6-sol', effort: 'Default' })
+    draw({ provider: providerB, model: 'model-sol', effort: 'Default' })
     openMenu()
     expect(checkedEffort()).toEqual([])
     expect(screen.getByRole('radio', { name: 'Low' })).toBeInTheDocument()
@@ -220,11 +225,11 @@ describe('AgentSelectionPicker', () => {
 
   // '' is "the provider's default": with that default stated, it is the level marked.
   it("marks the model's stated default effort when none is chosen", () => {
-    const withDefault: AgentProvider = { ...codex, defaultEfforts: { 'gpt-5.6-sol': 'medium' } }
+    const withDefault: AgentProvider = { ...providerB, defaultEfforts: { 'model-sol': 'medium' } }
     draw({
       provider: withDefault,
-      providers: [claude, withDefault],
-      model: 'gpt-5.6-sol',
+      providers: [providerA, withDefault],
+      model: 'model-sol',
       effort: '',
     })
     openMenu()
@@ -232,7 +237,7 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('hides the effort control entirely for a model with no declared levels', () => {
-    draw({ provider: codex, model: 'gpt-5.6-luna', effort: '' })
+    draw({ provider: providerB, model: 'model-luna', effort: '' })
     openMenu()
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
   })
@@ -243,24 +248,24 @@ describe('AgentSelectionPicker', () => {
     openMenu()
     fireEvent.click(screen.getByRole('radio', { name: 'Max' }))
 
-    expect(onSelectionChange).toHaveBeenCalledWith('claude', 'opus', 'max')
+    expect(onSelectionChange).toHaveBeenCalledWith('provider-a', 'model-b', 'max')
   })
 
   it('marks the current model as picked (a checkmark) and no other row', () => {
     draw()
     openMenu()
-    const opusRow = screen.getByRole('menuitem', { name: 'opus' })
-    const sonnetRow = screen.getByRole('menuitem', { name: 'sonnet' })
-    expect(opusRow.querySelector('svg')).toBeTruthy()
-    expect(sonnetRow.querySelector('svg')).toBeNull()
+    const rowB = screen.getByRole('menuitem', { name: 'model-b' })
+    const rowA = screen.getByRole('menuitem', { name: 'model-a' })
+    expect(rowB.querySelector('svg')).toBeTruthy()
+    expect(rowA.querySelector('svg')).toBeNull()
   })
 
   it('shows nothing selected when model/effort are unset — the "unfired hook" state, not a bug', () => {
     draw({ model: '', effort: '' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
-    expect(trigger).toHaveAccessibleName('Agent: Claude, model unset, effort unset')
+    expect(trigger).toHaveAccessibleName('Agent: Provider A, model unset, effort unset')
     openMenu()
-    for (const name of ['sonnet', 'opus', 'haiku']) {
+    for (const name of ['model-a', 'model-b', 'model-c']) {
       expect(screen.getByRole('menuitem', { name }).querySelector('svg')).toBeNull()
     }
   })
@@ -269,12 +274,12 @@ describe('AgentSelectionPicker', () => {
   // unset model ('') must find it, where a baked-in label would not.
   it("finds the provider's own '' entry and draws the effort control when no model is confirmed yet", () => {
     const withDefaultEfforts: AgentProvider = {
-      ...claude,
-      efforts: { ...claude.efforts, '': ['low', 'medium'] },
+      ...providerA,
+      efforts: { ...providerA.efforts, '': ['low', 'medium'] },
     }
     draw({
       provider: withDefaultEfforts,
-      providers: [withDefaultEfforts, codex],
+      providers: [withDefaultEfforts, providerB],
       model: '',
       effort: '',
     })
@@ -295,44 +300,44 @@ describe('AgentSelectionPicker', () => {
 
   // `reportedModel` names which model answered; it is display-only, never the selection.
   it('shows the provider-reported model next to the unset label when nothing is explicitly picked', () => {
-    draw({ model: '', effort: '', reportedModel: 'Claude Sonnet 4.5' })
+    draw({ model: '', effort: '', reportedModel: 'Model X 4.5' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
     expect(trigger).toHaveTextContent('unset')
-    expect(trigger).toHaveTextContent('(Claude Sonnet 4.5)')
+    expect(trigger).toHaveTextContent('(Model X 4.5)')
     expect(trigger).toHaveAccessibleName(
-      'Agent: Claude, model unset (reported Claude Sonnet 4.5), effort unset',
+      'Agent: Provider A, model unset (reported Model X 4.5), effort unset',
     )
   })
 
   it('an explicit model selection ignores a reported model entirely', () => {
-    draw({ reportedModel: 'Claude Sonnet 4.5' })
+    draw({ reportedModel: 'Model X 4.5' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
-    expect(trigger).toHaveTextContent('opus')
-    expect(trigger).not.toHaveTextContent('Sonnet')
-    expect(trigger).toHaveAccessibleName('Agent: Claude, model opus, effort high')
+    expect(trigger).toHaveTextContent('model-b')
+    expect(trigger).not.toHaveTextContent('Model X')
+    expect(trigger).toHaveAccessibleName('Agent: Provider A, model model-b, effort high')
   })
 
   // The report must not stand in for the '' model: the effort control still finds
   // `efforts['']`, and a pick stages the raw '' model.
   it("a reported model does not break the unset model's own efforts[''] control or leak into a pick", () => {
     const withDefaultEfforts: AgentProvider = {
-      ...claude,
-      efforts: { ...claude.efforts, '': ['low', 'medium'] },
+      ...providerA,
+      efforts: { ...providerA.efforts, '': ['low', 'medium'] },
     }
     const onSelectionChange = vi.fn()
     draw({
       provider: withDefaultEfforts,
-      providers: [withDefaultEfforts, codex],
+      providers: [withDefaultEfforts, providerB],
       model: '',
       effort: '',
-      reportedModel: 'Claude Sonnet 4.5',
+      reportedModel: 'Model X 4.5',
       onSelectionChange,
     })
     openMenu()
     expect(screen.getByRole('radio', { name: 'Low' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('radio', { name: 'Medium' }))
-    expect(onSelectionChange).toHaveBeenCalledWith('claude', '', 'medium')
+    expect(onSelectionChange).toHaveBeenCalledWith('provider-a', '', 'medium')
   })
 
   describe('on the phone', () => {
@@ -346,7 +351,7 @@ describe('AgentSelectionPicker', () => {
     })
     const renderPhone = (onSelectionChange = vi.fn()) => {
       chrome.on = true
-      draw({ model: 'sonnet', effort: 'medium', onSelectionChange })
+      draw({ model: 'model-a', effort: 'medium', onSelectionChange })
       return onSelectionChange
     }
 
@@ -357,13 +362,13 @@ describe('AgentSelectionPicker', () => {
       await waitFor(() => expect(last().open).toBe(true))
       expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
       expect(last()).toMatchObject({
-        selected: { providerId: 'claude', modelId: 'sonnet' },
+        selected: { providerId: 'provider-a', modelId: 'model-a' },
         efforts: ['low', 'medium', 'high'],
         effort: 'medium',
       })
       expect(last().providers.map((p) => [p.name, p.models.map((m) => m.id)])).toEqual([
-        ['Claude', ['sonnet', 'opus', 'haiku']],
-        ['Codex', ['gpt-5.6-sol', 'gpt-5.6-luna']],
+        ['Provider A', ['model-a', 'model-b', 'model-c']],
+        ['Provider B', ['model-sol', 'model-luna']],
       ])
     })
 
@@ -371,8 +376,8 @@ describe('AgentSelectionPicker', () => {
       const onSelectionChange = renderPhone()
       openMenu()
       await waitFor(() => expect(last().open).toBe(true))
-      send({ type: 'selectModel', providerId: 'codex', modelId: 'gpt-5.6-sol' })
-      expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-sol', 'medium')
+      send({ type: 'selectModel', providerId: 'provider-b', modelId: 'model-sol' })
+      expect(onSelectionChange).toHaveBeenCalledWith('provider-b', 'model-sol', 'medium')
       await waitFor(() => expect(last().open).toBe(false))
     })
 
@@ -381,7 +386,7 @@ describe('AgentSelectionPicker', () => {
       openMenu()
       await waitFor(() => expect(last().open).toBe(true))
       send({ type: 'setEffort', effort: 'high' })
-      expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'high')
+      expect(onSelectionChange).toHaveBeenCalledWith('provider-a', 'model-a', 'high')
       expect(last().open).toBe(true)
     })
   })

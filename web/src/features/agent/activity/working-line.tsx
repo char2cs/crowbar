@@ -33,24 +33,24 @@ const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatElapsed(secon
 /** The most specific true thing the turn is doing, never a guess, beside its clock. */
 function headingOf(p: WorkingLineProps, thought: string | undefined): string {
   if (p.stopping) return 'Stopping…'
-  if (p.asking) return 'Waiting for your answer'
-  if (p.compacting) return 'Compacting…'
   if (p.connecting && !p.working) return p.connecting
-  if (p.activeTodo) return p.activeTodo
-  if (p.toolLabel) return p.toolLabel
-  if (thought) return thought
-  if (p.streaming) return 'Writing…'
-  return ''
+  return thought ?? ''
 }
 
+/** The pane already shows the agent busy: a request card, the running call, the plan, the
+ *  reply being written, the compaction label under the box. The line adds nothing to them. */
+const shownElsewhere = (p: WorkingLineProps) =>
+  !!(p.asking || p.compacting || p.toolLabel || p.activeTodo || p.streaming)
+
 export function WorkingLine(props: WorkingLineProps) {
-  const { working, compacting = false, asking = false, connecting } = props
+  const { working, connecting } = props
   const [tick, setTick] = useState(0)
   const thought = props.reasoning ? reasoningHeadline(props.reasoning) : null
+  const quiet = shownElsewhere(props) && !props.stopping
   const heading = headingOf(props, thought?.headline || undefined)
   // Subagents running with nothing else to say: their cards in the stream are the sign.
   const onlyAgents = working && !!props.agents && heading === ''
-  const rotating = working && heading === '' && !onlyAgents
+  const rotating = working && heading === '' && !onlyAgents && !quiet
   const clockRef = useTextClock(props.since, clockText)
 
   useEffect(() => {
@@ -62,12 +62,12 @@ export function WorkingLine(props: WorkingLineProps) {
     return () => window.clearInterval(timer)
   }, [rotating])
 
-  if (onlyAgents || (!working && !compacting && !asking && !connecting)) return null
+  if (quiet || onlyAgents || (!working && !connecting)) return null
 
   return (
     <div className="activity" data-testid="agent-activity-strip">
       <div className="hd">
-        {!asking && <FlickerSpinner className="size-4" />}
+        <FlickerSpinner className="size-4" />
         <span>
           {/* Announced on change; the clock beside it stays out of the live region,
               and the rotating verb is announced once as "Working". */}
@@ -79,7 +79,7 @@ export function WorkingLine(props: WorkingLineProps) {
               </>
             )}
           </b>
-          {!asking && <span className="dim" ref={clockRef} />}
+          <span className="dim" ref={clockRef} />
         </span>
       </div>
       {thought?.body && heading === thought.headline && (

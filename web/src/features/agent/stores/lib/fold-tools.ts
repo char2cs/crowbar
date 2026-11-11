@@ -22,8 +22,9 @@ export const markOutput = (fold: FeedFold, row: LedgerRow) => {
 }
 
 export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
-  const spawns = toolFamily(row.body) === 'subagent'
   const { toolId } = row.body
+  // The end of a spawn may carry no kind: it is still its card's, never a tool row.
+  const spawns = toolFamily(row.body) === 'subagent' || !!fold.item(subagentItemId(toolId))
   noteCall(fold, row, spawns ? subagentItemId(toolId) : toolItemId(toolId))
   // A spawning call is its subagent's card, which takes the call's place.
   if (spawns) {

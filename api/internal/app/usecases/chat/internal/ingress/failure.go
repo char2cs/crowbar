@@ -18,6 +18,7 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 	if ev.Failure != nil {
 		fail.Reason = cmp.Or(ev.Failure.Reason, fail.Reason)
 		fail.Detail = cmp.Or(ev.Failure.Detail, ev.Message)
+		fail.Kind = ev.Failure.Kind
 		if ev.Failure.Detail != "" {
 			reply = ev.Message // the provider's explanation is the detail; this is its reply
 		}
@@ -51,6 +52,9 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 // prompts it carries unconsumed.
 func noticeRows(st ledger.State, runnerID string, notice engineagents.TerminalNotice, live Unrecorded) ([]ledger.Row, error) {
 	fail := ledger.TurnFailed{Reason: notice.Kind, Detail: notice.Text}
+	if notice.Kind == engineagents.TerminalNoticeUsageLimit {
+		fail.Kind = engineagents.FailureLimit
+	}
 	if _, running := st.RunningTurn(); !running {
 		failed, _, _, err := ledger.FailTurnOf(st, runnerID, uuid.NewString(), fail)
 		if err != nil {

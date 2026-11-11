@@ -14,7 +14,7 @@ import { useConnectionStore } from '@/lib/ws/connection-store'
 function attachmentOn(
   chatId: string,
   {
-    providerName = 'Claude',
+    providerName = 'Provider A',
     presentation = 'terminal',
     hostId = 'local',
   }: { providerName?: string; presentation?: 'chat' | 'terminal'; hostId?: string } = {},
@@ -75,7 +75,7 @@ describe('usePaneAttachment', () => {
     seedFeed('c1')
 
     expect(attachmentOn('c1', { presentation: 'chat' }).current.connecting).toBe(
-      'Connecting to Claude…',
+      'Connecting to Provider A…',
     )
   })
 
@@ -84,7 +84,7 @@ describe('usePaneAttachment', () => {
     seedFeed('c1')
 
     expect(attachmentOn('c1', { presentation: 'chat' }).current.connecting).toBe(
-      'Connecting to Claude…',
+      'Connecting to Provider A…',
     )
   })
 

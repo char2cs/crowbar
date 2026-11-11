@@ -126,7 +126,7 @@ describe('AgentChatView', () => {
   // A failed turn is history, not a lock: the bar stays an input, the row says why.
   it('keeps the composer after a failed turn, whose row says why', () => {
     const l = ledger('c1')
-    const failed = { reason: 'turn_failed', detail: '401 Unauthorized' }
+    const failed = { reason: 'turn_failed', kind: 'auth' }
     seedFeed('c1', [
       l.prompt('r1', 'hi'),
       l.start('turn-1', 'r1'),
@@ -172,7 +172,6 @@ describe('AgentChatView', () => {
 
     expect(await screen.findByTestId('agent-queued-tray')).toHaveTextContent('next one')
     expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument()
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(submit).not.toHaveBeenCalled()
   })
 

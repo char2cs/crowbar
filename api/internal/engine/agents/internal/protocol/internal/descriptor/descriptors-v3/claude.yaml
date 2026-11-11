@@ -90,10 +90,12 @@ events:
   turn_failed:
     required: [session_id, reason]
     unverified: true
+    status_map: { authentication_failed: auth, rate_limit: limit, billing_error: limit, server_error: overloaded }
     in: StopFailure
     map:
       session_id: session_id
       reason:     error
+      failure_kind: error
       detail:     error_details
       message:    last_assistant_message
 

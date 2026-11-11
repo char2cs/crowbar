@@ -30,7 +30,7 @@ export function showChoice(overrides: Partial<AgentChoice> = {}, props: ChoicePr
       wsId="w1"
       chatId="c1"
       choice={choice(overrides)}
-      providerLabel="Claude"
+      providerLabel="Provider A"
       {...props}
     />,
   )

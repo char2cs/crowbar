@@ -43,7 +43,10 @@ events:
   turn_failed:
     direction: in
     required: [reason]
-    optional: [session_id, message, detail, turn_id]
+    # failure_kind is the provider's word for the trouble (an error code, a status);
+    # its status_map turns it into auth, limit or overloaded.
+    optional: [session_id, message, detail, turn_id, failure_kind]
+    extras: [status_map]
 
   # tool_title is the agent's own description of the call, mcp_server and mcp_tool name a
   # call into an MCP server, exit_code and interrupted say how a call ended; cwd is the

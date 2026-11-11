@@ -105,12 +105,17 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
+  /** A turn_failed boundary's trouble as the provider's descriptor classified it (auth, limit,
+   *  overloaded); absent on a row recorded before the daemon classified. */
+  failureKind?: string
   /** The other chat the boundary names: who holds a conflicting session, or took a lost one. */
   chat?: string
   /** A legacy_unreadable boundary's left-out records, each in its own words. */
   records?: string[]
   /** A launch's switches (provider, model, effort) drawn as this one divider. */
   parts?: { marker: MarkerName; detail?: string }[]
+  /** The slash command this boundary ran, drawn beside its words. */
+  command?: string
   /** A 'move' marker's newest phase, over what its request named (where to, under what). */
   move?: MoveBody
 }

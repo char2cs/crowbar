@@ -1,5 +1,5 @@
 // Cheap subsequence fuzzy score: every query char must appear in order;
-// contiguous runs score higher so "hgh" ranks "high" over "haiku".
+// contiguous runs score higher so "hgh" ranks "high" over "highlight".
 export function fuzzyScore(query: string, text: string): number {
   if (!query) return 1
   const q = query.toLowerCase()

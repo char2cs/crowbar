@@ -38,7 +38,7 @@ describe('agent-chat-commands', () => {
 
   it('threads a staged model/effort onto the same prompt body, committed atomically', async () => {
     apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
-    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', '', 'opus', 'high')
+    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', '', 'model-b', 'high')
     expect(apiFetch).toHaveBeenCalledWith(
       '/v0/projects/p1/repos/r1/chats/c1/prompts',
       expect.objectContaining({
@@ -47,7 +47,7 @@ describe('agent-chat-commands', () => {
           text: 'go',
           clientRequestId: 'request-1',
           provider: '',
-          model: 'opus',
+          model: 'model-b',
           effort: 'high',
         }),
       }),
@@ -58,7 +58,7 @@ describe('agent-chat-commands', () => {
   // kills the live CLI before anything is sent; the backend decides whether to switch.
   it('threads a staged provider onto the same prompt body, committed atomically', async () => {
     apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
-    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'codex', '', '')
+    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'provider-b', '', '')
     expect(apiFetch).toHaveBeenCalledWith(
       '/v0/projects/p1/repos/r1/chats/c1/prompts',
       expect.objectContaining({
@@ -66,7 +66,7 @@ describe('agent-chat-commands', () => {
         body: JSON.stringify({
           text: 'go',
           clientRequestId: 'request-1',
-          provider: 'codex',
+          provider: 'provider-b',
           model: '',
           effort: '',
         }),
@@ -82,20 +82,20 @@ describe('agent-chat-commands', () => {
 
   it('switchProvider POSTs to /switch and returns the NEW RUNNER id', async () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
-    const runnerId = await api.switchProvider('w1', 'c1', 'claude')
+    const runnerId = await api.switchProvider('w1', 'c1', 'provider-a')
     expect(runnerId).toBe('r2')
     expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/c1/switch')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
-      body: JSON.stringify({ provider: 'claude' }),
+      body: JSON.stringify({ provider: 'provider-a' }),
     })
   })
 
   it('switchProvider names the surface the new runner starts on', async () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
-    await api.switchProvider('w1', 'c1', 'codex', 'terminal')
+    await api.switchProvider('w1', 'c1', 'provider-b', 'terminal')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
-      body: JSON.stringify({ provider: 'codex', surface: 'terminal' }),
+      body: JSON.stringify({ provider: 'provider-b', surface: 'terminal' }),
     })
   })
 
@@ -122,10 +122,10 @@ describe('agent-chat-commands', () => {
       '/v0/projects/p1/repos/r1/chats/c1',
       { method: 'DELETE' },
     ])
-    apiFetch.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    apiFetch.mockResolvedValue([{ id: 'provider-a', displayName: 'Provider A', icon: '<svg/>' }])
     const p = await providersApi.listProviders('w1')
     expect(apiFetch.mock.calls[2][0]).toBe('/v0/projects/p1/repos/r1/chats/providers')
-    expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
+    expect(p[0]).toMatchObject({ id: 'provider-a', displayName: 'Provider A' })
   })
 
   it('deleteChat answers the chats its cascade took, and none for a reply without a list', async () => {
@@ -190,7 +190,7 @@ describe('agent-chat-commands', () => {
           title: 'T',
           liveRunnerId: '',
           terminalSessionId: '',
-          activeProviderId: 'claude',
+          activeProviderId: 'provider-a',
           createdAt: '2026-01-01T00:00:00Z',
           // parentId/order omitted on the wire chat — grounded by mapChat below.
         },
@@ -214,7 +214,7 @@ describe('agent-chat-commands', () => {
           title: 'T',
           liveRunnerId: '',
           terminalSessionId: '',
-          activeProviderId: 'claude',
+          activeProviderId: 'provider-a',
           createdAt: '2026-01-01T00:00:00Z',
         },
       })

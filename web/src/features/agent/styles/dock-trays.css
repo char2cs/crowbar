@@ -141,7 +141,7 @@
 .agent-chat ol.tray-list li[data-status='pending'] {
   color: color-mix(in oklch, var(--foreground) 72%, transparent);
 }
-.agent-chat .tray-list li > i {
+.agent-chat .tray-list li i {
   font-style: normal;
 }
 /* Subagents, shells and monitors: the name and its action on one line, the clock at the end;

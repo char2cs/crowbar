@@ -34,6 +34,12 @@ const (
 
 	HookTurnFailed = "turn_failed"
 
+	// The kinds of trouble a failed turn is classified as; any other word a
+	// descriptor does not map reads as none of these.
+	FailureAuth       = "auth"
+	FailureLimit      = "limit"
+	FailureOverloaded = "overloaded"
+
 	// The kinds a background command is: a shell, or a monitor that reports the
 	// lines it prints.
 	ShellKindShell   = "shell"

@@ -40,7 +40,7 @@
   /* The room under the composer is `.dock-spacer` (a child of `.stream`), NOT a padding-bottom
      here: WebKit can leave a padding out of `scrollHeight` in borderline cases, leaving a chat
      with nothing to scroll. */
-  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 32px);
+  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + var(--agent-dock-room, 32px));
   /* Text is gone under the dock and the overlay header, fading in over the 24px band above the
      dock and over the header's dissolve reach: a webview without backdrop blur still never shows
      text through either. A second layer keeps the scrollbar strip opaque (masks union). The mask
@@ -49,7 +49,7 @@
     linear-gradient(
       to top,
       transparent var(--agent-dock-h, 92px),
-      black calc(var(--agent-dock-h, 92px) + 24px),
+      black calc(var(--agent-dock-h, 92px) + var(--agent-dock-fade, 24px)),
       black calc(100% - var(--agent-transcript-header-clearance, 0px)),
       transparent calc(100% - var(--agent-header-clearance, 0px))
     ),
@@ -63,7 +63,7 @@
     linear-gradient(
       to top,
       transparent var(--agent-dock-h, 92px),
-      black calc(var(--agent-dock-h, 92px) + 24px),
+      black calc(var(--agent-dock-h, 92px) + var(--agent-dock-fade, 24px)),
       black calc(100% - var(--agent-transcript-header-clearance, 0px)),
       transparent calc(100% - var(--agent-header-clearance, 0px))
     ),
@@ -81,6 +81,14 @@
   max-width: 768px;
   margin: 0 auto;
   padding: 0 24px;
+}
+/* The phone's board: text 20px from the edge, and the last row 14px above the pill. */
+.agent-chat-pane[data-touch] .agent-chat .center {
+  padding: 0 20px;
+}
+.agent-chat-pane[data-touch] .agent-chat {
+  --agent-dock-room: 14px;
+  --agent-dock-fade: 14px;
 }
 /* Not `margin-top: auto` / `justify-content: flex-end` on `.stream`: WebKit computes scrollable
    overflow from the uncollapsed auto margin, so an overflowing chat reports nothing to scroll.
@@ -110,7 +118,7 @@
    fade mask, so the gap and the fade band agree. */
 .agent-chat .dock-spacer {
   flex-shrink: 0;
-  height: calc(var(--agent-dock-h, 92px) + 32px);
+  height: calc(var(--agent-dock-h, 92px) + var(--agent-dock-room, 32px));
 }
 
 /* The virtualizer's rows, absolutely positioned against this box (height set inline). Explicit

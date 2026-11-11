@@ -124,6 +124,23 @@ function joinLaunch(fold: FeedFold, drawn: string) {
   fold.unplace(drawn)
 }
 
+/** A session lost and then continued from the record is one event, said by the continuation. */
+function absorbLostSession(fold: FeedFold, drawn: string) {
+  const order = fold.placedOrder
+  const head = fold.item<MarkerItem>(order[order.lastIndexOf(drawn) - 1] ?? '')
+  if (head?.kind === 'marker' && head.marker === 'session_lost') fold.unplace(head.id)
+}
+
+/** `/compact` and the compaction it ran are one event, said once with the command in the pill. */
+function absorbCompactCommand(fold: FeedFold, drawn: string) {
+  const order = fold.placedOrder
+  const head = fold.item(order[order.lastIndexOf(drawn) - 1] ?? '')
+  const item = fold.item<MarkerItem>(drawn)
+  if (!item || head?.kind !== 'user' || head.text.trim() !== '/compact') return
+  fold.put({ ...item, command: '/compact' })
+  fold.unplace(head.id)
+}
+
 /** Draws a pill marker; a launch's lands above the prompt it carries, which
  *  the ledger records first so the new CLI can find it. A selection change
  *  takes no busy guard, so a queued prompt stays where it is. */
@@ -141,5 +158,7 @@ export function divider(fold: FeedFold, kind: string, draw: () => string) {
   if (move) fold.unplace(carried!)
   const drawn = draw()
   if (launch) joinLaunch(fold, drawn)
+  if (kind === 'from_record') absorbLostSession(fold, drawn)
+  if (kind === 'compaction_ended') absorbCompactCommand(fold, drawn)
   if (move) fold.place(carried!, '')
 }

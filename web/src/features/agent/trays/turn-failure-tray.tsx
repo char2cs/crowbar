@@ -100,7 +100,12 @@ export function TurnFailureTray({
       actions={
         <>
           {failure.way === 'switch-model' && hasCatalogue(providers) && (
-            <Button size="sm" variant="outline" onClick={() => openModelPicker(chatId)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="bg-background"
+              onClick={() => openModelPicker(chatId)}
+            >
               Switch model
             </Button>
           )}

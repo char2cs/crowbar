@@ -214,6 +214,7 @@ export function ComposerChoice({
                 {!ownPosition && step > 0 ? (
                   <Button
                     variant="outline"
+                    className="bg-background"
                     disabled={busy}
                     onClick={() => update({ step: step - 1 })}
                   >
@@ -221,7 +222,12 @@ export function ComposerChoice({
                   </Button>
                 ) : (
                   skip && (
-                    <Button variant="outline" disabled={busy} onClick={skip}>
+                    <Button
+                      variant="outline"
+                      className="bg-background"
+                      disabled={busy}
+                      onClick={skip}
+                    >
                       Skip
                     </Button>
                   )
@@ -250,6 +256,7 @@ export function ComposerChoice({
                     <Button
                       data-role="refuse"
                       variant="outline"
+                      className="bg-background"
                       disabled={busy}
                       onClick={() => void send(['decline'])}
                     >
@@ -294,7 +301,7 @@ export function ComposerChoice({
 
 function TerminalLink({ onOpenTerminal }: { onOpenTerminal: () => void }) {
   return (
-    <Button variant="outline" onClick={onOpenTerminal}>
+    <Button variant="outline" className="bg-background" onClick={onOpenTerminal}>
       Terminal
     </Button>
   )

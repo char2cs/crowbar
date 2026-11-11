@@ -103,6 +103,7 @@ const (
 	HookReasoningDelta  = spec.HookReasoningDelta
 	HookTurnFailed      = spec.HookTurnFailed
 	HookTerminalInput   = spec.HookTerminalInput
+	FailureLimit        = spec.FailureLimit
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate

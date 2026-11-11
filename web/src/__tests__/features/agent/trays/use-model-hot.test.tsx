@@ -19,16 +19,10 @@ describe('useModelHot', () => {
     expect(result.current).toBe(false)
     const l = ledger()
     push(l.start('turn-1'))
-    push(
-      l.row(
-        'turn_failed',
-        { reason: 'rate_limit', detail: '429 usage limit' },
-        { turnId: 'turn-1' },
-      ),
-    )
+    push(l.row('turn_failed', { reason: 'provider words', kind: 'limit' }, { turnId: 'turn-1' }))
     expect(result.current).toBe(true)
     push(l.start('turn-2'))
-    push(l.row('turn_failed', { reason: 'authentication_failed' }, { turnId: 'turn-2' }))
+    push(l.row('turn_failed', { reason: 'provider words', kind: 'auth' }, { turnId: 'turn-2' }))
     expect(result.current).toBe(false)
   })
 })

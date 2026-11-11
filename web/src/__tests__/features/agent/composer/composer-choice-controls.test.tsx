@@ -182,7 +182,7 @@ describe('ComposerChoice with several questions', () => {
         wsId="w1"
         chatId="c1"
         choice={choice({ ...three, id: 'k2' })}
-        providerLabel="Claude"
+        providerLabel="Provider A"
       />,
     )
 
@@ -203,7 +203,7 @@ describe('ComposerChoice question Skip', () => {
         wsId="w1"
         chatId="c1"
         choice={choice(single)}
-        providerLabel="Claude"
+        providerLabel="Provider A"
         position={{ index: 0, total: 2, noun: 'request', onPrev: vi.fn(), onNext }}
       />,
     )

@@ -217,10 +217,10 @@ export function AgentComposer(props: AgentComposerProps) {
     if (returned && (!active || active === window.document.body)) editorRef.current?.focus()
   }, [input, editorRef])
 
-  // Compaction queues what is typed, as a busy turn does; the footer already says it compacts.
+  // A compaction is only a visual: the box invites a prompt as usual, and the footer says it compacts.
   const placeholder = document
     ? 'Describe the change…'
-    : props.working || props.sending || state.kind === 'compacting'
+    : props.working || props.sending
       ? 'Queue a follow-up…'
       : IS_MOBILE
         ? 'Ask for a change…'

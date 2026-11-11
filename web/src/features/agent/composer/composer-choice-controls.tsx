@@ -102,6 +102,12 @@ export function ChoiceButtons({
   busy: boolean
   onPick: (option: AgentChoiceOption) => void
 }) {
+  // Beside a broader grant, a bare "Allow" would not say it covers this call only.
+  const hasGrant = options.some((option) => !refusing(option) && option.kind !== 'allow')
+  const labelOf = (option: AgentChoiceOption) =>
+    hasGrant && option.kind === 'allow' && (!option.label || option.label === 'Allow')
+      ? 'Allow once'
+      : optionLabel(option)
   const ordered = [
     ...options.filter(refusing),
     ...options.filter((option) => !refusing(option) && option.kind !== 'allow'),
@@ -116,12 +122,13 @@ export function ChoiceButtons({
           <Button
             key={option.id}
             data-role={role}
-            variant={role === 'primary' ? 'default' : role === 'grant' ? 'secondary' : 'outline'}
+            variant={role === 'primary' ? 'default' : 'outline'}
+            className={role === 'primary' ? undefined : 'bg-background'}
             disabled={busy}
             title={option.description || undefined}
             onClick={() => onPick(option)}
           >
-            {optionLabel(option)}
+            {labelOf(option)}
             {keyed && place < 9 && (
               <kbd className="choice-key" aria-hidden="true">
                 {place + 1}

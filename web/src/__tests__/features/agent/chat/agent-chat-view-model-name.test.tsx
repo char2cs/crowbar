@@ -16,14 +16,16 @@ beforeEach(() => {
 // One chat, one name for the model: the blank handle and the underbar are the same
 // control, and a live runner's raw launch id must not replace the reported name.
 describe('AgentChatView model name', () => {
-  const selectable = [provider('codex', 'Codex', { modelSelect: true, models: ['gpt-5'] })]
+  const selectable = [
+    provider('provider-b', 'Provider B', { modelSelect: true, models: ['model-five'] }),
+  ]
 
   it('names the launch model on the blank document handle too', () => {
     seedFeed('c1', [])
-    draw('c1', { providers: selectable, launchModel: 'gpt-5.6-luna' })
+    draw('c1', { providers: selectable, launchModel: 'model-luna' })
 
     expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-luna, effort Default',
+      'Agent: Provider B, model model-luna, effort Default',
     )
   })
 
@@ -31,18 +33,18 @@ describe('AgentChatView model name', () => {
     const report: reads.AgentTelemetry = {
       observedAt: '2026-09-23T00:00:00Z',
       source: 'callback',
-      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
+      model: { id: 'model-x-4-5', displayName: 'Model X 4.5' },
     }
     entityStore.setState((s) => ({
       byKind: { ...s.byKind, telemetry: { ...s.byKind.telemetry, c1: { v: 1, data: report } } },
     }))
     seedFeed('c1', spokenIn('c1'))
-    draw('c1', { providers: selectable, launchModel: 'claude-sonnet-4-5' })
+    draw('c1', { providers: selectable, launchModel: 'model-x-4-5' })
 
     const picker = screen.getByTestId('agent-selection-picker')
-    expect(picker).toHaveTextContent('Claude Sonnet 4.5')
+    expect(picker).toHaveTextContent('Model X 4.5')
     expect(picker).toHaveAccessibleName(
-      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
+      'Agent: Provider B, model Default (reported Model X 4.5), effort Default',
     )
   })
 })

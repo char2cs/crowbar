@@ -278,7 +278,7 @@ function marker(
   name: MarkerName,
   detail?: string,
   reason?: string,
-  extra: Pick<MarkerItem, 'chat' | 'records'> = {},
+  extra: Pick<MarkerItem, 'chat' | 'records' | 'failureKind'> = {},
 ) {
   const id = markerItemId(row.seq)
   const { seq, turnId, at } = row
@@ -352,7 +352,7 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   // A turn that failed before it started was named by no turn_started: its CLI's provider.
   const providers = fold.record('providers')
   if (!providers[row.turnId] && fold.facts.provider) providers[row.turnId] = fold.facts.provider
-  marker(fold, row, 'turn_failed', row.body.detail, row.body.reason)
+  marker(fold, row, 'turn_failed', row.body.detail, row.body.reason, { failureKind: row.body.kind })
 }
 
 const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
