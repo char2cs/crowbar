@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use super::{daemon_log_path, socket_path, spawn, supervisor, SidecarHandle, RESTART_MAX};
+use super::{daemon_log_path, socket_path, spawn, supervisor, SidecarHandle};
 
 /// How much of the daemon log's end is read for the report: its last run's final words.
 const LOG_TAIL_BYTES: u64 = 64 * 1024;
@@ -31,11 +31,19 @@ fn read_log_tail() -> String {
     }
 }
 
+/// The crash panel's headline: how many times the daemon exited inside the restart window.
+pub(super) fn crash_summary(deaths: usize, window: std::time::Duration) -> String {
+    format!(
+        "The backend exited {deaths} times within {} minutes.",
+        window.as_secs() / 60
+    )
+}
+
 /// What the window shows and copies for a crash loop: versions, then the last run's log.
-pub(super) fn crash_report<R: Runtime>(app: &AppHandle<R>) -> String {
+pub(super) fn crash_report<R: Runtime>(app: &AppHandle<R>, summary: &str) -> String {
     let pkg = app.package_info();
     format!(
-        "Crowbar {} on {} {}\nThe backend exited {RESTART_MAX} times within 10 minutes.\n\n{}",
+        "Crowbar {} on {} {}\n{summary}\n\n{}",
         pkg.version,
         std::env::consts::OS,
         std::env::consts::ARCH,
@@ -77,4 +85,17 @@ pub async fn daemon_restart<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
 pub async fn reveal_daemon_log() -> Result<(), String> {
     let path = daemon_log_path().ok_or("the daemon log's location is unknown")?;
     crate::file_manager::reveal_in_finder(path.to_string_lossy().into_owned()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_summary_names_the_deaths_counted_and_the_window() {
+        assert_eq!(
+            crash_summary(4, std::time::Duration::from_secs(600)),
+            "The backend exited 4 times within 10 minutes."
+        );
+    }
 }

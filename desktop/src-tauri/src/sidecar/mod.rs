@@ -224,12 +224,15 @@ fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
     if state.shutting_down.load(Ordering::SeqCst) {
         return;
     }
-    if !state.restart_budget.lock().unwrap().allow(Instant::now()) {
-        log::error!(
-            "crowbar daemon died {RESTART_MAX} times within {RESTART_WINDOW:?}; \
-             not respawning it until the user restarts it"
-        );
-        let report = recovery::crash_report(app);
+    let verdict = state
+        .restart_budget
+        .lock()
+        .unwrap()
+        .on_death(Instant::now());
+    if let supervisor::Verdict::GiveUp { deaths } = verdict {
+        let summary = recovery::crash_summary(deaths, RESTART_WINDOW);
+        log::error!("crowbar daemon: {summary} Not respawning it until the user restarts it");
+        let report = recovery::crash_report(app, &summary);
         state.crash_report.lock().unwrap().replace(report.clone());
         let _ = app.emit("daemon:dead", report);
         return;

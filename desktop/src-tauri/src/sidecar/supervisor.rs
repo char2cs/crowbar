@@ -148,11 +148,21 @@ pub fn last_run_tail(log: &str, max_lines: usize) -> String {
 }
 
 /// At most `max` restarts per sliding `window`, so a daemon that dies on every boot is
-/// not respawned forever; once spent, the supervisor gives up until the next launch.
+/// not respawned forever; once spent, the supervisor gives up until the user restarts it.
 pub struct RestartBudget {
     window: Duration,
     max: usize,
     restarts: Vec<Instant>,
+}
+
+/// What one daemon death leads to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Respawn,
+    /// The budget is spent: `deaths` exits inside the window, this one included.
+    GiveUp {
+        deaths: usize,
+    },
 }
 
 impl RestartBudget {
@@ -164,16 +174,19 @@ impl RestartBudget {
         }
     }
 
-    /// Returns whether a restart may happen at `now`, recording it if allowed.
-    pub fn allow(&mut self, now: Instant) -> bool {
+    /// Records a death at `now`: a respawn while the window holds fewer than `max`, else giving
+    /// up. Every respawn in the window followed a death, so the deaths are those plus this one.
+    pub fn on_death(&mut self, now: Instant) -> Verdict {
         let window = self.window;
         self.restarts
             .retain(|t| now.saturating_duration_since(*t) < window);
         if self.restarts.len() >= self.max {
-            return false;
+            return Verdict::GiveUp {
+                deaths: self.restarts.len() + 1,
+            };
         }
         self.restarts.push(now);
-        true
+        Verdict::Respawn
     }
 
     /// Forgets every recorded restart: one the user asked for starts a fresh budget.
@@ -413,32 +426,36 @@ mod tests {
     fn a_manual_restart_gets_a_fresh_budget() {
         let mut b = RestartBudget::new(2, Duration::from_secs(600));
         let now = Instant::now();
-        assert!(b.allow(now));
-        assert!(b.allow(now));
-        assert!(!b.allow(now), "the crash loop spent the budget");
+        assert_eq!(b.on_death(now), Verdict::Respawn);
+        assert_eq!(b.on_death(now), Verdict::Respawn);
+        assert_eq!(b.on_death(now), Verdict::GiveUp { deaths: 3 }); // the crash loop spent it
         b.reset();
-        assert!(b.allow(now), "the user asked for this restart");
+        assert_eq!(b.on_death(now), Verdict::Respawn); // the user asked for this restart
     }
 
     #[test]
-    fn restart_budget_allows_up_to_max_within_window() {
+    fn three_respawns_then_the_fourth_death_gives_up_and_counts_four() {
         let mut b = RestartBudget::new(3, Duration::from_secs(600));
         let now = Instant::now();
-        assert!(b.allow(now));
-        assert!(b.allow(now));
-        assert!(b.allow(now));
-        assert!(!b.allow(now), "fourth restart inside the window is denied");
+        for _ in 0..3 {
+            assert_eq!(b.on_death(now), Verdict::Respawn);
+        }
+        assert_eq!(b.on_death(now), Verdict::GiveUp { deaths: 4 });
     }
 
     #[test]
     fn restart_budget_frees_slots_as_the_window_slides() {
         let mut b = RestartBudget::new(2, Duration::from_secs(600));
         let start = Instant::now();
-        assert!(b.allow(start));
-        assert!(b.allow(start));
-        assert!(!b.allow(start + Duration::from_secs(1)));
-        assert!(
-            b.allow(start + Duration::from_secs(601)),
+        assert_eq!(b.on_death(start), Verdict::Respawn);
+        assert_eq!(b.on_death(start), Verdict::Respawn);
+        assert_eq!(
+            b.on_death(start + Duration::from_secs(1)),
+            Verdict::GiveUp { deaths: 3 }
+        );
+        assert_eq!(
+            b.on_death(start + Duration::from_secs(601)),
+            Verdict::Respawn,
             "restarts older than the window must not count"
         );
     }
