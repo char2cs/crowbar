@@ -214,13 +214,21 @@
 /* The phone's 44pt touch target, invisible: the segments keep their size. */
 /* Keyed to the pointer, not the pane: the header slot sits outside `.agent-chat-pane`. */
 @media (pointer: coarse) {
+  /* The pair is 50px wide, so each segment's 44px reaches 22px outward;
+     the margin keeps the right segment's reach on screen. */
+  .viewswitch {
+    margin-right: 8px;
+  }
   .viewswitch button {
     position: relative;
   }
   .viewswitch button::before {
     content: '';
     position: absolute;
-    inset: -11px -3px;
+    inset: -11px 0 -11px -22px;
+  }
+  .viewswitch button:last-child::before {
+    inset: -11px -22px -11px 0;
   }
 }
 .viewswitch svg {

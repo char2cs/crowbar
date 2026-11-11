@@ -220,7 +220,7 @@
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 .agent-chat li.tray-more {
-  padding: 0;
+  padding: 0 6px;
 }
 .agent-chat .tray-more button {
   display: inline-flex;
@@ -309,7 +309,7 @@
   font-size: 12.5px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .tray-more button {
-  min-height: 40px;
+  min-height: 44px;
   font-size: 13px;
 }
 /* The answered requests' "Show"/"Hide" at the header's right, beside its chevron. */

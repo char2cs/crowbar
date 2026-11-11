@@ -61,6 +61,45 @@ describe('useWorkRows', () => {
     expect(result.current).toEqual([])
   })
 
+  it('names a typed subagent by its kind, then what it was given and how it ended', () => {
+    const l = ledger()
+    const { result } = renderHook(() => useWorkRows('chat-1'))
+    push(l.start('turn-1'))
+    push(
+      l.row(
+        'tool_call',
+        { toolId: 'c', phase: 'pre', name: 'Agent', kind: 'subagent', title: 'Audit queries' },
+        { turnId: 'turn-1' },
+      ),
+    )
+    push(
+      l.row(
+        'subagent',
+        { phase: 'start', spawnToolId: 'c', title: 'Audit queries' },
+        {
+          turnId: 'turn-1',
+        },
+      ),
+    )
+    push(
+      l.row(
+        'subagent',
+        { phase: 'bound', spawnToolId: 'c', type: 'Explore' },
+        { turnId: 'turn-1', scope: 'sub-1' },
+      ),
+    )
+    push(l.row('subagent', { phase: 'start', type: 'plan' }, { turnId: 'turn-1', scope: 'sub-2' }))
+    expect(result.current[0]).toMatchObject({
+      label: 'Explore',
+      detail: 'Audit queries',
+      hint: 'Thinking…',
+    })
+    push(l.row('subagent', { phase: 'stop' }, { turnId: 'turn-1', scope: 'sub-1' }))
+    expect(result.current.find((row) => row.label === 'Explore')?.detail).toBe(
+      'Audit queries · done',
+    )
+  })
+
   it('keeps the same rows while unrelated rows arrive', () => {
     const l = ledger()
     const { result } = renderHook(() => useWorkRows('chat-1'))

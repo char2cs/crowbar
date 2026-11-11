@@ -7,7 +7,7 @@ import type { SubagentItem } from '@/features/agent/stores/lib/transcript-items'
 import { shellRow } from '@/features/agent/trays/lib/shell-rows'
 import type { TrayRow } from '@/features/agent/trays/lib/tray-rows'
 
-const FIELDS = 6
+const FIELDS = 7
 
 const ENDED: Record<string, TrayRow['status']> = {
   done: 'done',
@@ -23,6 +23,14 @@ function endNote(card: SubagentItem): string {
   const word = card.status === 'done' || card.status === 'failed' ? card.status : 'stopped'
   const extra = said || (uses ? `${uses} tool ${uses === 1 ? 'use' : 'uses'}` : '')
   return extra ? `${word} · ${extra}` : word
+}
+
+/** A subagent's two texts as the board sets them: its kind in bold, then what it was given and
+ *  how it ended. One with no kind is named by its title; with nothing given, `fallback` says. */
+function words(card: SubagentItem, ended: string, fallback: string): [string, string] {
+  const given = card.type ? card.title : ''
+  const detail = [given, ended].filter(Boolean).join(' · ') || fallback
+  return [card.type || card.title, detail]
 }
 
 /** The work the agent has going, for the bottom tray: the turn's subagents, running ones first
@@ -48,19 +56,19 @@ export function useWorkRows(chatId: string): TrayRow[] {
       return [
         ...live.flatMap((card) => [
           card.id,
-          card.title || card.type,
-          subagentAction(feed, card.scope),
+          ...words(card, '', subagentAction(feed, card.scope)),
           card.startedAt,
           'running',
           '',
+          subagentAction(feed, card.scope),
         ]),
         ...ended.flatMap((card) => [
           card.id,
-          card.title || card.type,
-          endNote(card),
+          ...words(card, endNote(card), ''),
           card.startedAt,
           card.status,
           card.endedAt ?? '',
+          '',
         ]),
       ]
     }),
@@ -69,15 +77,16 @@ export function useWorkRows(chatId: string): TrayRow[] {
   return useMemo(() => {
     const rows: TrayRow[] = []
     for (let i = 0; i < flat.length; i += FIELDS) {
-      const [id, label, detail, startedAt, status, endedAt] = flat.slice(
+      const [id, label, detail, startedAt, status, endedAt, hint] = flat.slice(
         i,
         i + FIELDS,
-      ) as string[] as [string, string, string, string, string, string]
+      ) as string[] as [string, string, string, string, string, string, string]
       rows.push({
         id,
         kind: 'subagent',
         label,
         detail,
+        hint: hint || undefined,
         status: ENDED[status] ?? 'running',
         startedAt,
         endedAt: endedAt || undefined,

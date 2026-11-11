@@ -18,10 +18,10 @@ const GHOST_PROMPTS = [
 ] as const
 
 // An empty doc has no line to measure, so the handle sits at `.doc`'s top padding plus one line
-// (14px x 1.7; the phone's is the 38px serif placeholder), plus `--agent-header-clearance`,
+// (the serif placeholder: 40px on desktop, 38px on the phone), plus `--agent-header-clearance`,
 // which the caret is padded down by too.
 function firstLineTop(headerClearancePx: number): number {
-  return IS_MOBILE ? 30 + headerClearancePx + 38 : 48 + headerClearancePx + 23.8
+  return IS_MOBILE ? 30 + headerClearancePx + 38 : 48 + headerClearancePx + 40
 }
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4

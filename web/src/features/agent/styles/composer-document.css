@@ -30,7 +30,7 @@
 .agent-chat .doc {
   --pad: max(22px, calc((100% - 720px) / 2));
   /* 200px under the last line: room for the ghost prompts and the pill beneath them. */
-  padding: 48px var(--pad) 200px;
+  padding: 48px calc(var(--pad) + var(--inset, 18px)) 200px;
   /* The document is top-anchored, so the floating chat header would cover its first line;
      `--agent-header-clearance` comes from agent-chat-pane.tsx. agent-empty-document.tsx's
      `firstLineTop` fallback must agree with this offset. */
@@ -48,6 +48,17 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+}
+/* The invitation is the canvas's serif first line, not body type; its block takes the
+   placeholder's line so the caret and the handle under it agree (`firstLineTop`). */
+.agent-chat .doc [data-slate-node='element']:has([data-slate-placeholder]) {
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 34px;
+  line-height: 40px;
+  letter-spacing: -0.005em;
+}
+.agent-chat .doc [data-slate-placeholder] {
+  opacity: 0.42 !important;
 }
 /* The document's editable. Plate owns the blocks inside it; this is only the
    column they sit in. */
@@ -110,7 +121,7 @@
 .agent-chat .dochandle .ghosts {
   --pad: max(22px, calc((100% - 720px) / 2));
   margin: 0;
-  padding: 6px var(--pad) 18px;
+  padding: 11.5px calc(var(--pad) + var(--inset, 18px)) 25.5px;
   color: var(--muted-foreground);
   pointer-events: none;
 }
@@ -124,6 +135,7 @@
   width: 76px;
   font-family: var(--editor-font-family, ui-monospace, monospace);
   font-size: 11.5px;
+  line-height: 20px;
   letter-spacing: 0.02em;
   opacity: 0.62;
 }
@@ -148,11 +160,13 @@
 }
 .agent-chat .dochandle[data-touch] .ghosts {
   --pad: 34px;
+  --inset: 0px;
   padding-top: 14px;
   padding-bottom: 26px;
 }
 .agent-chat .doc:has(+ .dochandle[data-touch]) {
   --pad: 34px;
+  --inset: 0px;
   font-size: var(--touch-text);
   padding-top: calc(30px + var(--agent-header-clearance, 0px));
 }
