@@ -64,10 +64,17 @@
 }
 /* Plate's placeholder is a rendered span, not the `::placeholder` pseudo the
    textarea had. It is absolutely positioned over the first block, so it must
-   not add height of its own. */
+   not add height of its own. It is a hint, not content: never selectable or hit-testable, and an
+   empty block shows no selection highlight. */
 .agent-chat [data-slate-placeholder] {
   color: var(--muted-foreground);
   opacity: 1 !important;
+  user-select: none;
+  pointer-events: none;
+}
+.agent-chat [data-slate-node='element']:has([data-slate-placeholder]),
+.agent-chat [data-slate-node='element']:has([data-slate-placeholder]) ::selection {
+  background: transparent;
 }
 
 /* ── the editable's blocks ─────────────────────────────── */
