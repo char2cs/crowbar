@@ -15,12 +15,12 @@ function slots() {
 }
 
 describe('DockStack', () => {
-  it('stacks the slots top tray to alert around the pill', () => {
+  it('stacks the slots around the pill, the top tray last before it', () => {
     const { container } = render(<DockStack blank={false} dockRef={null} {...slots()} />)
     const order = Array.from(container.firstElementChild?.children ?? []).map((el) =>
       el.getAttribute('data-testid'),
     )
-    expect(order).toEqual(['top', 'pickers', 'notes', 'pill', 'bottom', 'footer', 'alert'])
+    expect(order).toEqual(['notes', 'pickers', 'top', 'pill', 'bottom', 'footer', 'alert'])
     expect(container.firstElementChild?.className).toBe('dock')
   })
 

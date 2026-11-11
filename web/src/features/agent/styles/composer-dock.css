@@ -44,6 +44,10 @@
 .agent-chat .composer-note {
   text-align: center;
 }
+/* A line before the input box sits a beat above whatever follows it. */
+.agent-chat .dock > .composer-note:not(:last-child) {
+  padding-bottom: 8px;
+}
 /* arrival-animation.ts drives the dock's slide as an inline transform; this keeps the underbar
    hidden while `data-arriving` is present (one render), then fades it in once JS lifts it. */
 .agent-chat .dock .underbar {

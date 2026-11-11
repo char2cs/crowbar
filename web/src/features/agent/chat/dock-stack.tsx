@@ -4,12 +4,12 @@ export interface DockStackProps {
   /** The blank chat's document stands in for the dock: same slots, different frame. */
   blank: boolean
   dockRef: Ref<HTMLDivElement>
-  /** Above the pill, tucked behind it: plan, queued messages, failures. */
-  topTray?: ReactNode
+  /** Status lines above the dock: why the chat cannot take a prompt yet. */
+  notes?: ReactNode
   /** Command and file pickers that open over the pill. */
   pickers?: ReactNode
-  /** Status lines before the pill: why the chat cannot take a prompt yet. */
-  notes?: ReactNode
+  /** Directly above the pill, tucked behind it: plan, queued messages, failures. */
+  topTray?: ReactNode
   /** The input box itself; it keeps its node, and its text, when the first send moves it down. */
   pill: ReactNode
   /** Below the pill, tucked behind it: subagents and shells. */
@@ -20,13 +20,13 @@ export interface DockStackProps {
   alert?: ReactNode
 }
 
-/** The slots around the composer, in a fixed order so no slot moves the pill's node. */
+/** Slots in a fixed order, the top tray last before the pill that covers its tuck. */
 export function DockStack({
   blank,
   dockRef,
-  topTray,
-  pickers,
   notes,
+  pickers,
+  topTray,
   pill,
   bottomTray,
   footer,
@@ -34,9 +34,9 @@ export function DockStack({
 }: DockStackProps) {
   return (
     <div ref={blank ? undefined : dockRef} className={blank ? 'docframe' : 'dock'}>
-      {topTray}
-      {pickers}
       {notes}
+      {pickers}
+      {topTray}
       {pill}
       {bottomTray}
       {footer}

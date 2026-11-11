@@ -9,6 +9,9 @@
   gap: 12px;
   max-height: min(70vh, 640px);
   overflow-y: auto;
+  /* Above the tray tucked behind it, as the pill is. */
+  position: relative;
+  z-index: 1;
   padding: 16px 18px;
   border-radius: 22px;
   border: 1px solid var(--input);

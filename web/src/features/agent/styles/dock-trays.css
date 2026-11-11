@@ -92,6 +92,9 @@
 .agent-chat .tray-section > .tray-head + .tray-list {
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
+.agent-chat .tray-top .tray-list[data-flat] {
+  padding: 0 8px;
+}
 .agent-chat .tray-bottom .tray-list {
   padding: 4px 8px 6px;
 }
