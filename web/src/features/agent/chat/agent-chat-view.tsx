@@ -23,6 +23,8 @@ import type {
   ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
+import { FooterViewSwitch } from '@/features/agent/controls/footer-view-switch'
+import { IS_MOBILE } from '@/utils/platform'
 import { ChatViewSwitch } from '@/features/agent/controls/chat-view-switch'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
@@ -368,6 +370,15 @@ export function AgentChatView({
     />
   )
 
+  // The phone's switch sits in the footer, or beside the model chip while the chat is blank.
+  const viewSwitch = IS_MOBILE && presentation === 'chat' && provider?.hasTerminal !== false && (
+    <FooterViewSwitch
+      presentation={presentation}
+      handoverBlocked={!provider?.hotswap && working}
+      onSelect={onSelectPresentation}
+    />
+  )
+
   // One tree for the blank document and the dock: the composer keeps its node, and
   // its text, when the first send moves it down.
   return (
@@ -435,7 +446,12 @@ export function AgentChatView({
                 onStop: handleStop,
                 onOpenTerminal,
                 takeoverContainer: chatSurfaceEl,
-                controls: <SelectionCluster {...selection} model={shownModel} />,
+                controls: (
+                  <>
+                    <SelectionCluster {...selection} model={shownModel} />
+                    {viewSwitch}
+                  </>
+                ),
                 banner: blankSignpost,
                 headerClearancePx,
                 documentRef: emptyDocRef,
@@ -446,6 +462,7 @@ export function AgentChatView({
                 telemetry,
                 compacting,
                 onCompact,
+                viewSwitch,
               }}
             />
           )}

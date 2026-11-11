@@ -7,6 +7,7 @@ const COMMANDS: &[&str] = &[
     "set_files",
     "set_tabs",
     "set_model_picker",
+    "set_plus_menu",
     "confirm",
     "prompt",
     "register_listener",

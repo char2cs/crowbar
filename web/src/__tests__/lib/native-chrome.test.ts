@@ -25,6 +25,7 @@ import {
   onNativeChromeIntent,
   setNativeChrome,
   setNativeHostPicker,
+  setNativePlusMenu,
   setNativeModelPicker,
   setNativeSidebar,
   type NativeChrome,
@@ -108,6 +109,14 @@ describe('setNativeSidebar', () => {
     host.mobile = false
     setNativeSidebar(sidebar)
     expect(host.invoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('setNativePlusMenu', () => {
+  it('hands the whole menu to the plugin', () => {
+    const menu = { open: true, title: 'Add', items: [] }
+    setNativePlusMenu(menu)
+    expect(host.invoke).toHaveBeenCalledWith('plugin:crowbar-chrome|set_plus_menu', menu)
   })
 })
 

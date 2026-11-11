@@ -1,7 +1,9 @@
 /* ── the slash and file pickers ────────────────────────── */
 .agent-chat .slash {
   margin-bottom: 8px;
-  max-height: 360px;
+  /* Never taller than the room above the dock, or it climbs under the header and the view
+     switcher: 300px is the header, the switcher, the pill and the footer. */
+  max-height: min(360px, calc(100dvh - 300px));
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -167,7 +169,7 @@
 /* ── prompt stash picker ───────────────────────────────── */
 .agent-chat .stash-picker {
   width: min(100%, 440px);
-  max-height: 280px;
+  max-height: min(280px, calc(100dvh - 300px));
   overflow-y: auto;
   margin: 0 0 8px auto;
   padding: 6px;
@@ -225,7 +227,7 @@
   margin-left: auto;
 }
 
-/* ── the plus menu (a popover on a desktop, a sheet on the phone) and the attach dialog ──
+/* ── the plus menu (a popover; the phone's is native) and the attach dialog ──
    Portaled out of `.agent-chat`, so unscoped. Unlayered, so they beat the shared components'
    utilities. */
 .plus-menu {
@@ -288,7 +290,6 @@
   border-radius: 9px;
   background: color-mix(in oklch, var(--foreground) 20%, transparent);
 }
-.plus-sheet.plus-sheet,
 .attach-sheet.attach-sheet {
   padding: 0 10px 22px;
   border: 1px solid var(--border);
@@ -297,23 +298,12 @@
   background: var(--popover);
   box-shadow: 0 -12px 40px -16px oklch(0 0 0 / 0.4);
 }
-.plus-sheet-title,
 .attach-sheet .attach-title {
   margin: 6px 8px 6px;
   font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
   font-size: 25px;
   font-weight: 400;
   line-height: 30px;
-}
-.plus-sheet .plus-item {
-  min-height: 48px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  gap: 12px;
-  font-size: 16px;
-}
-.plus-sheet .plus-hint {
-  font-size: 11px;
 }
 
 .attach-dlg.attach-dlg {
@@ -444,6 +434,19 @@
 }
 .attach-file[data-status='bad'] .attach-file-note {
   color: var(--destructive);
+}
+.attach-retry {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-decoration: underline;
+}
+.attach-sheet .attach-retry {
+  padding: 10px 6px;
+  margin: -10px 0 -10px 2px;
 }
 .attach-bar {
   height: 3px;

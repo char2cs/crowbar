@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
@@ -11,9 +11,27 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   },
 }))
 
+const chrome = vi.hoisted(() => ({
+  native: false,
+  show: vi.fn(),
+  listener: null as null | ((intent: { type: string; id?: string }) => void),
+}))
+vi.mock('@/lib/native-chrome', () => ({
+  hasNativeChrome: () => chrome.native,
+  setNativePlusMenu: chrome.show,
+  onNativeChromeIntent: (cb: typeof chrome.listener) => {
+    chrome.listener = cb
+    return () => {
+      chrome.listener = null
+    }
+  },
+}))
+
 afterEach(() => {
   cleanup()
   platform.mobile = false
+  chrome.native = false
+  chrome.show.mockClear()
 })
 
 function draw(overrides: Partial<Parameters<typeof ComposerPlusButton>[0]> = {}) {
@@ -95,15 +113,78 @@ describe('ComposerPlusButton on a desktop', () => {
 })
 
 describe('ComposerPlusButton on the phone', () => {
-  it('opens the sheet with photo library, camera, attach and drawing before the pickers', async () => {
+  const openSheet = async (overrides: Parameters<typeof draw>[0] = {}) => {
     platform.mobile = true
-    const user = userEvent.setup()
+    chrome.native = true
+    const view = draw(overrides)
+    await userEvent.setup().click(screen.getByRole('button', { name: /add to this message/i }))
+    return view
+  }
+
+  it('hands the native sheet the board rows: photo library, camera, attach, drawing, then the pickers', async () => {
+    await openSheet()
+    expect(screen.queryByRole('menuitem')).toBeNull()
+    expect(chrome.show).toHaveBeenLastCalledWith({
+      open: true,
+      title: 'Add to this message',
+      items: [
+        { id: 'photos', title: 'Photo library', icon: 'Images', hint: null, divider: false },
+        { id: 'camera', title: 'Take a photo', icon: 'Camera', hint: null, divider: false },
+        { id: 'attach', title: 'Attach files', icon: 'Paperclip', hint: null, divider: false },
+        {
+          id: 'drawing',
+          title: 'New drawing',
+          icon: 'PencilSimpleLine',
+          hint: null,
+          divider: false,
+        },
+        { id: 'mention', title: 'Mention a file', icon: 'At', hint: '@', divider: true },
+        {
+          id: 'command',
+          title: 'Run a command',
+          icon: 'TerminalWindow',
+          hint: '/',
+          divider: false,
+        },
+      ],
+    })
+  })
+
+  it.each([
+    ['drawing', 'onOpenExcalidraw'],
+    ['attach', 'onOpenAttachFile'],
+    ['mention', 'onMentionFile'],
+    ['command', 'onStartCommand'],
+  ] as const)('routes the native row "%s" to %s and closes the sheet', async (id, action) => {
+    const { props } = await openSheet()
+    act(() => chrome.listener?.({ type: 'pickPlusItem', id }))
+    expect(props[action]).toHaveBeenCalledTimes(1)
+    expect(chrome.listener).toBeNull()
+  })
+
+  it('closes without running anything when the sheet is dismissed', async () => {
+    const { props } = await openSheet()
+    act(() => chrome.listener?.({ type: 'closePlusMenu' }))
+    expect(chrome.listener).toBeNull()
+    expect(props.onOpenAttachFile).not.toHaveBeenCalled()
+  })
+
+  it('uploads what the photo library returns like a paste', async () => {
+    const { props } = await openSheet()
+    const input = screen.getByLabelText('Photo library', { selector: 'input' })
+    const click = vi.spyOn(input, 'click')
+    act(() => chrome.listener?.({ type: 'pickPlusItem', id: 'photos' }))
+    expect(click).toHaveBeenCalledTimes(1)
+    const photo = new File(['x'], 'IMG_1.jpg', { type: 'image/jpeg' })
+    fireEvent.change(input, { target: { files: [photo] } })
+    expect(props.onFiles).toHaveBeenCalledWith([photo])
+  })
+
+  it('keeps the menu where the native chrome is absent', async () => {
+    platform.mobile = true
     draw()
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    expect(
-      await screen.findByText('Add to this message', { selector: 'h2, h3, [id]' }),
-    ).toBeTruthy()
-    expect(names(screen.getAllByRole('menuitem'))).toEqual([
+    await userEvent.setup().click(screen.getByRole('button', { name: /add to this message/i }))
+    expect(names(await screen.findAllByRole('menuitem'))).toEqual([
       'Photo library',
       'Take a photo',
       'Attach files',
@@ -111,18 +192,5 @@ describe('ComposerPlusButton on the phone', () => {
       'Mention a file',
       'Run a command',
     ])
-  })
-
-  it('uploads what the photo library returns like a paste', async () => {
-    platform.mobile = true
-    const user = userEvent.setup()
-    const { props } = draw()
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /photo library/i }))
-    const photo = new File(['x'], 'IMG_1.jpg', { type: 'image/jpeg' })
-    fireEvent.change(screen.getByLabelText('Photo library', { selector: 'input' }), {
-      target: { files: [photo] },
-    })
-    expect(props.onFiles).toHaveBeenCalledWith([photo])
   })
 })

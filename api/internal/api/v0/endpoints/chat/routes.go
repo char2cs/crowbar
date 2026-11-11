@@ -40,6 +40,10 @@ func Register(
 	repoScoped.GET("/chats/:id", h.Get)
 	repoScoped.POST("/chats/:id/prompts", h.SubmitPrompt)
 	repoScoped.POST("/chats/:id/attachments", h.UploadAttachment)
+	repoScoped.POST("/chats/:id/attachments/uploads", h.BeginAttachmentUpload)
+	repoScoped.PUT("/chats/:id/attachments/uploads/:uploadId", h.AppendAttachmentUpload)
+	repoScoped.POST("/chats/:id/attachments/uploads/:uploadId/complete", h.CompleteAttachmentUpload)
+	repoScoped.DELETE("/chats/:id/attachments/uploads/:uploadId", h.AbortAttachmentUpload)
 	repoScoped.GET("/chats/:id/attachments/:file", h.Attachment)
 	// The web file-card size label issues HEAD here; net/http's HEAD handling suffices.
 	repoScoped.HEAD("/chats/:id/attachments/:file", h.Attachment)

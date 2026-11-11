@@ -12,6 +12,7 @@ final class ChromeOverlays {
   private let files: PageChannel
   private let picker = ModelPickerModel()
   private let hostPicker = HostPickerModel()
+  private let plus = PlusMenuModel()
   private let settingsModel = SettingsModel()
   private var rowMenu: RowMenu?
   private weak var webview: WKWebView?
@@ -39,6 +40,19 @@ final class ChromeOverlays {
     UIHostingController(rootView: ModelPickerSheet(model: picker, chrome: model))
   } onUserDismiss: { [picker] in
     picker.send(.of("closeModelPicker"))
+  }
+  private lazy var plusSheet: SheetPresenter = SheetPresenter(
+    undimmed: false, detents: [.medium(), .large()]
+  ) { [plus, model, weak self] in
+    UIHostingController(
+      rootView: PlusMenuSheet(
+        model: plus, chrome: model,
+        pick: { id in
+          self?.plusSheet.closeThen { model.send(.of("pickPlusItem", ["id": id])) }
+        },
+        close: { model.send(.of("closePlusMenu")) }))
+  } onUserDismiss: { [model] in
+    model.send(.of("closePlusMenu"))
   }
   private lazy var hostSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
     [hostPicker, model] in
@@ -159,6 +173,12 @@ final class ChromeOverlays {
   func applyModelPicker(_ state: ModelPickerState) {
     picker.apply(state)
     pickerSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
+  }
+
+  func applyPlusMenu(_ state: PlusMenuState) {
+    // A closing push is empty: the sheet keeps its rows while it animates away.
+    if state.open { plus.state = state }
+    plusSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
   }
 
   func applyHostPicker(_ state: HostPickerState) {

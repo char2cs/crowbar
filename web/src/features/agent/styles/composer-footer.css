@@ -135,6 +135,28 @@
   font-weight: 600;
   color: var(--primary);
 }
+/* The footer's centre is the row's true centre: equal 1fr sides, so the switch never drifts with
+   the chips' widths. The sides shrink and clip before the switch does. */
+.agent-chat .underbar[data-touch]:has(> .mid) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+.agent-chat .underbar[data-touch] > .mid {
+  display: flex;
+  justify-content: center;
+}
+.agent-chat .underbar[data-touch] > .right {
+  justify-self: end;
+}
+/* 36pt to the eye, 44pt to the finger. */
+.footer-viewswitch [role='tab'] {
+  position: relative;
+}
+.footer-viewswitch [role='tab']::before {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
 /* The phone's footer is a row of 44px targets: the model chip at the left, the pill at the right. */
 .agent-chat .underbar[data-touch] {
   min-height: 44px;

@@ -22,7 +22,7 @@ extension CrowbarIcon {
   /// A template image of the icon, for the APIs that take an image (menus, swipe actions).
   func image(size: CGFloat) -> UIImage {
     let key = "\(rawValue)@\(size)"
-    if let cached = Self.images.object(forKey: key as NSString) { return cached }
+    if let cached = Self.rendered.object(forKey: key as NSString) { return cached }
     let art = art
     let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { context in
       UIColor.black.setFill()
@@ -37,11 +37,11 @@ extension CrowbarIcon {
         outline.fill()
       }
     }.withRenderingMode(.alwaysTemplate)
-    Self.images.setObject(image, forKey: key as NSString)
+    Self.rendered.setObject(image, forKey: key as NSString)
     return image
   }
 
-  private static let images = NSCache<NSString, UIImage>()
+  private static let rendered = NSCache<NSString, UIImage>()
 
   /// Parses the generator's normalised data: absolute M, L, C and Z, space separated.
   static func parse(_ data: String) -> Path {

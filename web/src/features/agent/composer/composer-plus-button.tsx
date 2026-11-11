@@ -9,7 +9,6 @@ import {
   TerminalWindowIcon,
 } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +24,8 @@ import {
 } from '@/features/agent/composer/lib/plus-menu'
 import { report, UNREACHED } from '@/lib/errors/report'
 import { toast } from '@/features/window/stores/toast-store'
+import { NativePlusMenuSheet } from '@/features/agent/composer/native-plus-menu'
+import { hasNativeChrome } from '@/lib/native-chrome'
 import { IS_MOBILE } from '@/utils/platform'
 
 interface ComposerPlusButtonProps {
@@ -41,6 +42,8 @@ interface PlusItem {
   id: string
   label: string
   icon: ReactElement
+  /** The Phosphor name the phone's native sheet draws; the rows without one stay off it. */
+  glyph?: string
   hint?: string
   disabled?: boolean
   /** Starts the group after the divider. */
@@ -49,7 +52,7 @@ interface PlusItem {
 }
 
 /** Styled neutrally: it opens a choice and sends nothing, so it never borrows
- *  send's primary treatment. A menu on a desktop, a sheet on the phone. */
+ *  send's primary treatment. A menu on a desktop, the native sheet on the phone. */
 export function ComposerPlusButton({
   onOpenExcalidraw,
   onOpenAttachFile,
@@ -79,6 +82,7 @@ export function ComposerPlusButton({
 
   const attach: PlusItem = {
     id: 'attach',
+    glyph: 'Paperclip',
     label: IS_MOBILE ? 'Attach files' : 'Attach files…',
     icon: <PaperclipIcon size={16} />,
     hint: IS_MOBILE ? undefined : ATTACH_SHORTCUT_LABEL,
@@ -86,6 +90,7 @@ export function ComposerPlusButton({
   }
   const drawing: PlusItem = {
     id: 'drawing',
+    glyph: 'PencilSimpleLine',
     label: 'New drawing',
     icon: <PencilSimpleLineIcon size={16} />,
     run: onOpenExcalidraw,
@@ -95,12 +100,14 @@ export function ComposerPlusButton({
       ? [
           {
             id: 'photos',
+            glyph: 'Images',
             label: 'Photo library',
             icon: <ImagesIcon size={16} />,
             run: () => photosRef.current?.click(),
           },
           {
             id: 'camera',
+            glyph: 'Camera',
             label: 'Take a photo',
             icon: <CameraIcon size={16} />,
             run: () => cameraRef.current?.click(),
@@ -120,6 +127,7 @@ export function ComposerPlusButton({
     drawing,
     {
       id: 'mention',
+      glyph: 'At',
       label: 'Mention a file',
       icon: <AtIcon size={16} />,
       hint: '@',
@@ -128,12 +136,27 @@ export function ComposerPlusButton({
     },
     {
       id: 'command',
+      glyph: 'TerminalWindow',
       label: 'Run a command',
       icon: <TerminalWindowIcon size={16} />,
       hint: '/',
       run: onStartCommand,
     },
   ]
+
+  const nativeItems = items.flatMap((item) =>
+    item.glyph
+      ? [
+          {
+            id: item.id,
+            title: item.label,
+            icon: item.glyph,
+            hint: item.hint ?? null,
+            divider: item.divider ?? false,
+          },
+        ]
+      : [],
+  )
 
   const trigger = {
     className: 'plusbtn rounded-full',
@@ -145,55 +168,20 @@ export function ComposerPlusButton({
 
   return (
     <>
-      {IS_MOBILE ? (
+      {hasNativeChrome() ? (
         <>
           <Button variant="ghost" size="icon-xs" {...trigger} onClick={() => setOpen(true)}>
             {glyph}
           </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogPopup className="plus-sheet" showCloseButton={false}>
-              <span className="plus-grab" aria-hidden="true" />
-              <DialogTitle className="plus-sheet-title">Add to this message</DialogTitle>
-              <div role="menu" className="plus-list">
-                {items.map((item) => (
-                  <Fragment key={item.id}>
-                    {item.divider && <hr className="plus-rule" />}
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="plus-item"
-                      disabled={item.disabled}
-                      onClick={() => {
-                        setOpen(false)
-                        item.run()
-                      }}
-                    >
-                      {item.icon}
-                      <span className="plus-label">{item.label}</span>
-                      {item.hint && <span className="plus-hint">{item.hint}</span>}
-                    </button>
-                  </Fragment>
-                ))}
-              </div>
-            </DialogPopup>
-          </Dialog>
-          <input
-            ref={photosRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            aria-label="Photo library"
-            onChange={picked}
-          />
-          <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            aria-label="Camera"
-            onChange={picked}
+          <NativePlusMenuSheet
+            open={open}
+            title="Add to this message"
+            items={nativeItems}
+            onPick={(id) => {
+              setOpen(false)
+              items.find((item) => item.id === id)?.run()
+            }}
+            onClose={() => setOpen(false)}
           />
         </>
       ) : (
@@ -215,6 +203,28 @@ export function ComposerPlusButton({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {IS_MOBILE && (
+        <>
+          <input
+            ref={photosRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            aria-label="Photo library"
+            onChange={picked}
+          />
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            aria-label="Camera"
+            onChange={picked}
+          />
+        </>
       )}
     </>
   )

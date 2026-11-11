@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"io"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -120,6 +121,15 @@ type TurnUsecase interface {
 		ctx context.Context,
 		chatID, fileName string,
 	) ([]byte, string, error)
+
+	// BeginAttachmentUpload starts or resumes a chunked upload and answers the bytes already held.
+	BeginAttachmentUpload(ctx context.Context, chatID, id, fileName string, size int64) (int64, error)
+	// AppendAttachmentUpload writes one chunk at offset and answers the bytes held afterwards.
+	AppendAttachmentUpload(ctx context.Context, chatID, id string, offset int64, chunk io.Reader) (int64, error)
+	// CompleteAttachmentUpload stores the staged bytes as the attachment UploadAttachment would.
+	CompleteAttachmentUpload(ctx context.Context, chatID, id, fileName string, size int64) (agentusecase.StoredAttachment, error)
+	// AbortAttachmentUpload deletes a chunked upload's staged bytes.
+	AbortAttachmentUpload(ctx context.Context, chatID, id string) error
 }
 
 // RunnerUsecase is the vendor CLI itself: which one is on a chat, what it has

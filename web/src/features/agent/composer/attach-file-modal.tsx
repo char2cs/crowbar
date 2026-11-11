@@ -1,6 +1,7 @@
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 import { useCallback, useRef, useState } from 'react'
 import { XIcon } from '@phosphor-icons/react'
+import { nanoid } from 'nanoid'
 import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import type { UploadChatAttachmentInput } from '@/features/agent/api/upload-chat-attachment'
 import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
@@ -19,6 +20,8 @@ interface Staged {
   /** Unknown for a path the desktop hands over: the daemon reads it. */
   bytes: number | null
   status: Status
+  /** What a Retry sends again, under the same upload id so the daemon resumes. */
+  retry?: () => void
   /** Bytes sent so far; stays 0 for a path the daemon reads itself. */
   loaded?: number
   markdown?: string
@@ -85,18 +88,28 @@ export function AttachFileModal({
         return
       }
       setItems((current) => [...current, { id, name, bytes, status: 'uploading' }])
-      const controller = new AbortController()
-      uploads.current.set(id, controller)
-      uploadAttachmentMarkdown(wsId, chatId, input, {
-        signal: controller.signal,
-        onProgress: (loaded) => settle(id, { loaded }),
-      }).then(
-        (markdown) => settle(id, { status: 'done', markdown }),
-        (err: unknown) => {
-          if (controller.signal.aborted) return
-          settle(id, { status: 'bad', problem: userWords(err, UNREACHED) ?? UNREACHED })
-        },
-      )
+      const uploadId = nanoid()
+      const send = () => {
+        const controller = new AbortController()
+        uploads.current.set(id, controller)
+        settle(id, { status: 'uploading', loaded: undefined, problem: undefined, retry: undefined })
+        uploadAttachmentMarkdown(wsId, chatId, input, {
+          id: uploadId,
+          signal: controller.signal,
+          onProgress: (loaded) => settle(id, { loaded }),
+        }).then(
+          (markdown) => settle(id, { status: 'done', markdown }),
+          (err: unknown) => {
+            if (controller.signal.aborted) return
+            settle(id, {
+              status: 'bad',
+              problem: userWords(err, UNREACHED) ?? UNREACHED,
+              retry: send,
+            })
+          },
+        )
+      }
+      send()
     },
     [wsId, chatId, settle],
   )
@@ -183,7 +196,14 @@ export function AttachFileModal({
               <div key={item.id} className="attach-file" data-status={item.status}>
                 <div className="attach-file-text">
                   <div className="attach-file-name">{item.name}</div>
-                  <div className="attach-file-note">{rowNote(item)}</div>
+                  <div className="attach-file-note">
+                    {rowNote(item)}
+                    {item.retry && (
+                      <button type="button" className="attach-retry" onClick={item.retry}>
+                        Retry
+                      </button>
+                    )}
+                  </div>
                   {item.status === 'uploading' && (
                     <div
                       className="attach-bar"

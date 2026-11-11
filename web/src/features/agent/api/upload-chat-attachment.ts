@@ -1,8 +1,8 @@
 import { nanoid } from 'nanoid'
 import { chatBase } from '@/features/agent/api/agent-chat-reads'
+import { CHUNK_BYTES, uploadInChunks } from '@/features/agent/api/upload-chunked'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { apiFetchRaw } from '@/lib/api/fetch'
-import { progressFetch } from '@/lib/api/xhr-transport'
 import { encodeMultipart, readDesktopFile } from '@/lib/desktop-file-upload'
 import { splitHostPath } from '@/lib/host-path'
 
@@ -16,7 +16,7 @@ export interface UploadedChatAttachment {
 export type UploadChatAttachmentInput = { file: File } | { path: string }
 
 export interface UploadOptions {
-  /** Bytes of the file sent so far, and its size; only a file sent as bytes reports. */
+  /** Bytes the daemon holds, and the file's size; only a file larger than a chunk reports. */
   onProgress?: (loaded: number, total: number) => void
   signal?: AbortSignal
 }
@@ -39,7 +39,9 @@ export async function uploadChatAttachment(
   const path = `${base}/${encodeURIComponent(chatId)}/attachments`
   const file = 'file' in input ? input.file : await fileForRemoteChat(base, input.path)
   const response = file
-    ? await postMultipartAttachment(path, file, id, options)
+    ? file.size > CHUNK_BYTES
+      ? await uploadInChunks(`${path}/uploads`, file, id, options)
+      : await postMultipartAttachment(path, file, id, options.signal)
     : await apiFetchRaw(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -64,14 +66,13 @@ async function postMultipartAttachment(
   path: string,
   file: File,
   id: string,
-  { onProgress, signal }: UploadOptions,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const { body, contentType } = await encodeMultipart({ id }, 'file', file)
-  const init = { method: 'POST', headers: { 'Content-Type': contentType }, body, signal }
-  if (!onProgress) return apiFetchRaw(path, init)
-  // The body carries multipart framing: report the share of it that is the file.
-  const send = progressFetch((loaded, total) =>
-    onProgress(Math.min(file.size, Math.round((loaded / total) * file.size)), file.size),
-  )
-  return apiFetchRaw(path, init, undefined, undefined, send)
+  return apiFetchRaw(path, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body,
+    signal,
+  })
 }

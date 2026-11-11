@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
@@ -23,6 +24,8 @@ interface ProviderBarProps {
   /** A stop another model gets past: the model chip is lit. */
   modelHot?: boolean
   onCompact?: () => void
+  /** The phone's chat/terminal switch, centred between the model chip and the pill. */
+  viewSwitch?: ReactNode
 }
 
 /** The footer line under the pill. Every control renders nothing when the provider declares
@@ -40,6 +43,7 @@ export function ProviderBar({
   compacting,
   modelHot,
   onCompact,
+  viewSwitch,
 }: ProviderBarProps) {
   return (
     <div className="underbar" data-touch={IS_MOBILE || undefined}>
@@ -56,6 +60,7 @@ export function ProviderBar({
           onSelectionChange={onSelectionChange}
         />
       </div>
+      {viewSwitch && <div className="mid">{viewSwitch}</div>}
       <div className="right">
         {compacting && <span className="ctx-compacting">Compacting…</span>}
         <AgentContextGauge telemetry={telemetry} compacting={compacting} onCompact={onCompact} />

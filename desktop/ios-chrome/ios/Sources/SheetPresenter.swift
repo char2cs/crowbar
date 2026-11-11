@@ -79,6 +79,15 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     run(plan.update(open: open))
   }
 
+  /// Dismisses a sheet the user acted in, then runs `done`: what the action presents next
+  /// (a system picker) would otherwise collide with the sheet leaving.
+  func closeThen(_ done: @escaping () -> Void) {
+    guard let open = sheet else { return done() }
+    sheet = nil
+    plan.dismissedByUser()
+    open.dismiss(animated: true, completion: done)
+  }
+
   private func run(_ step: SheetPlan.Step) {
     switch step {
     case .none:

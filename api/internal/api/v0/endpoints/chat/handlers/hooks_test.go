@@ -123,11 +123,11 @@ type fakeAgentUsecase struct {
 	uploadAttachmentCalls []uploadAttachmentCall
 	uploadAttachmentOut   agentusecase.StoredAttachment
 	uploadAttachmentErr   error
-
-	readAttachmentCalls []readAttachmentCall
-	readAttachmentData  []byte
-	readAttachmentType  string
-	readAttachmentErr   error
+	chunks                chunkedUploadFake
+	readAttachmentCalls   []readAttachmentCall
+	readAttachmentData    []byte
+	readAttachmentType    string
+	readAttachmentErr     error
 
 	answerCalls []answerCall
 	answerErr   error

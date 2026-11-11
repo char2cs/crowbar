@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -415,3 +416,19 @@ func (stubUsecase) UploadAttachment(
 func (stubUsecase) ReadAttachment(context.Context, string, string) ([]byte, string, error) {
 	return nil, "", nil
 }
+
+func (stubUsecase) BeginAttachmentUpload(context.Context, string, string, string, int64) (int64, error) {
+	return 0, nil
+}
+
+func (stubUsecase) AppendAttachmentUpload(context.Context, string, string, int64, io.Reader) (int64, error) {
+	return 0, nil
+}
+
+func (stubUsecase) CompleteAttachmentUpload(
+	context.Context, string, string, string, int64,
+) (agentusecase.StoredAttachment, error) {
+	return agentusecase.StoredAttachment{}, nil
+}
+
+func (stubUsecase) AbortAttachmentUpload(context.Context, string, string) error { return nil }

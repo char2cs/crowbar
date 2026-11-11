@@ -138,6 +138,58 @@ describe('AttachFileModal', () => {
     expect(screen.getByText('512 KB of 2 MB · Uploading…')).toBeInTheDocument()
   })
 
+  it('advances the bar with each acknowledged chunk until the file is uploaded', async () => {
+    let report: ((loaded: number, total: number) => void) | undefined
+    let finish: ((value: UploadedChatAttachment) => void) | undefined
+    vi.mocked(uploadChatAttachment).mockImplementationOnce((_ws, _chat, _input, _id, options) => {
+      report = (loaded, total) => options?.onProgress?.(loaded, total)
+      return new Promise((resolve) => (finish = resolve))
+    })
+    draw()
+    const total = 4 * 1024 * 1024
+    browse(new File([new Uint8Array(total)], 'big.bin'))
+    const bar = await screen.findByRole('progressbar', { name: 'Uploading big.bin' })
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+
+    for (const [loaded, percent, note] of [
+      [1024 * 1024, '25', '1 MB of 4 MB · Uploading…'],
+      [3 * 1024 * 1024, '75', '3 MB of 4 MB · Uploading…'],
+    ] as const) {
+      act(() => report?.(loaded, total))
+      await waitFor(() => expect(bar).toHaveAttribute('aria-valuenow', percent))
+      expect(screen.getByText(note)).toBeInTheDocument()
+    }
+
+    await act(async () => {
+      finish?.({ ref: 'r', filename: 'big.bin', size: total, contentType: 't' })
+    })
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.getByText('4 MB · Uploaded')).toBeInTheDocument()
+  })
+
+  it('offers Retry on a failed upload and sends it again under the same upload id', async () => {
+    const ids: Array<string | undefined> = []
+    vi.mocked(uploadChatAttachment).mockImplementationOnce(async (_ws, _chat, _input, id) => {
+      ids.push(id)
+      throw new Error('boom')
+    })
+    vi.mocked(uploadChatAttachment).mockImplementationOnce(async (_ws, _chat, input, id) => {
+      ids.push(id)
+      const name = 'file' in input ? input.file.name : input.path
+      return { ref: `r/${name}`, filename: name, size: 1, contentType: 't' }
+    })
+    draw()
+    browse(new File(['x'], 'a.bin'))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText(/Uploaded/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[1]).toBe(ids[0])
+  })
+
   it('aborts an upload still on its way when its row is removed or the dialog is cancelled', async () => {
     const signals: AbortSignal[] = []
     const hang = (
@@ -276,7 +328,7 @@ describe('AttachFileModal', () => {
         'w1',
         'c1',
         { file },
-        undefined,
+        expect.any(String),
         expect.anything(),
       )
     })
@@ -299,7 +351,7 @@ describe('AttachFileModal', () => {
         'w1',
         'c1',
         { path: '/Users/me/report.csv' },
-        undefined,
+        expect.any(String),
         expect.anything(),
       )
       expect(await screen.findByText('report.csv')).toBeInTheDocument()

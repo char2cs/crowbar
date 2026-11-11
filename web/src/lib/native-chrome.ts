@@ -226,6 +226,23 @@ export type NativeModelPicker = {
   } | null
 }
 
+/** The composer's plus menu, drawn as a native sheet; the web keeps what each row does. */
+// A type, not an interface, for invoke's args (see NativeSidebar).
+export type NativePlusMenu = {
+  open: boolean
+  title: string
+  items: {
+    id: string
+    title: string
+    /** A Phosphor icon name. */
+    icon: string
+    /** The character a row types into the composer, shown trailing. */
+    hint: string | null
+    /** Starts the group after a divider. */
+    divider: boolean
+  }[]
+}
+
 // Types, not interfaces, for invoke's args (see NativeSidebar).
 type ConfirmOptions = {
   title: string
@@ -278,6 +295,8 @@ export type NativeChromeIntent =
   | { type: 'setEffort'; effort: string }
   | { type: 'setPermissionLevel'; level: PermissionLevel }
   | { type: 'closeModelPicker' }
+  | { type: 'pickPlusItem'; id: string }
+  | { type: 'closePlusMenu' }
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
@@ -335,6 +354,12 @@ export function setNativeTabs(tabs: NativeTabs): void {
 export function setNativeModelPicker(picker: NativeModelPicker): void {
   if (!hasNativeChrome()) return
   void invoke(`plugin:${PLUGIN}|set_model_picker`, picker)
+}
+
+/** Replaces the plus menu's content. */
+export function setNativePlusMenu(menu: NativePlusMenu): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_plus_menu`, menu)
 }
 
 /** Asks a native yes/no question over whatever is on screen; no without the phone's chrome. */

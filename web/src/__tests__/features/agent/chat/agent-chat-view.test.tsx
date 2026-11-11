@@ -408,6 +408,15 @@ describe('AgentChatView on a phone', () => {
     expect(bar!.querySelector('.grp .selpos')).not.toBeNull()
   })
 
+  it('keeps the view switch beside the model chip while the chat is blank', () => {
+    seedFeed('c1', [])
+    draw('c1')
+
+    const bar = screen.getByTestId('agent-empty-document').querySelector('.dochandle')
+    expect(bar!.querySelector('[role="tablist"]')).not.toBeNull()
+    expect(screen.getAllByRole('tablist', { name: 'View' })).toHaveLength(1)
+  })
+
   it('treats Return as a newline: only the send button sends', async () => {
     submitted()
     seedFeed('c1', spokenIn('c1'))

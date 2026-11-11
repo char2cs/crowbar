@@ -64,6 +64,14 @@ class ChromePlugin: Plugin {
     }
   }
 
+  @objc public func setPlusMenu(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(PlusMenuState.self)
+    DispatchQueue.main.async {
+      if #available(iOS 26.0, *) { self.mounted()?.applyPlusMenu(state) }
+      invoke.resolve()
+    }
+  }
+
   @objc public func setHostPicker(_ invoke: Invoke) throws {
     let state = try invoke.parseArgs(HostPickerState.self)
     DispatchQueue.main.async {

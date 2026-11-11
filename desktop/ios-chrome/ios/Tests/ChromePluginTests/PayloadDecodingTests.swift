@@ -48,6 +48,20 @@ final class PayloadDecodingTests: XCTestCase {
     XCTAssertEqual(state.list.shownHost, "h1")
   }
 
+  func testPlusMenuStateSplitsGroupsAtTheDivider() throws {
+    let state = try decode(
+      PlusMenuState.self,
+      """
+      {"open":true,"title":"Add","items":[
+        {"id":"photos","title":"Photo library","icon":"Images","hint":null,"divider":false},
+        {"id":"drawing","title":"New drawing","icon":"PencilSimpleLine","hint":null,"divider":false},
+        {"id":"mention","title":"Mention a file","icon":"At","hint":"@","divider":true},
+        {"id":"command","title":"Run a command","icon":"TerminalWindow","hint":"/","divider":false}]}
+      """)
+    XCTAssertEqual(state.groups.map { $0.map(\.id) }, [["photos", "drawing"], ["mention", "command"]])
+    for item in state.items { XCTAssertNotNil(CrowbarIcon(named: item.icon), item.icon) }
+  }
+
   func testHostListStateIsTheSettingsHostsSnapshot() throws {
     let list = try decode(
       HostListState.self,

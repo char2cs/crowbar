@@ -320,6 +320,23 @@
   min-height: 44px;
   font-size: 13px;
 }
+/* The folded phone tray is one quiet line: a 32px row whose 44pt hit area reaches past its edges. */
+.agent-chat .dock:has(.pill[data-touch]) .tray-bottom .tray-list:has(> li.tray-summary) {
+  padding: 0 8px 2px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list li.tray-summary {
+  min-height: 0;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-summary button {
+  position: relative;
+  min-height: 32px;
+  text-align: left;
+}
+.agent-chat .tray-summary button::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
 .agent-chat .tray-summary-counts {
   flex: 1;
   min-width: 0;

@@ -93,6 +93,14 @@ describe('ProviderBar', () => {
     expect(screen.queryByTestId('chat-permission-level-chip')).not.toBeInTheDocument()
   })
 
+  it('centres a view switch between the model chip and the pill', () => {
+    const { container } = renderBar({ viewSwitch: <button>switch</button> })
+    const mid = container.querySelector('.underbar > .mid')
+    expect(mid).toContainElement(screen.getByText('switch'))
+    expect(mid?.previousElementSibling).toHaveClass('left')
+    expect(mid?.nextElementSibling).toHaveClass('right')
+  })
+
   it('names compaction at the right of the line only while it runs', () => {
     const { rerender } = renderBar({ compacting: true })
     expect(screen.getByText('Compacting…')).toBeInTheDocument()

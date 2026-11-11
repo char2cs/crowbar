@@ -471,29 +471,3 @@ describe('uploadChatAttachment from a disk path', () => {
     expect(uploads).toEqual([])
   })
 })
-
-const setHeader = () => {}
-
-describe('uploadChatAttachment progress', () => {
-  it('reports the file’s own share of the bytes sent, not the multipart framing', async () => {
-    const answer = { data: { ref: 'r', fileName: 'a', size: 4, contentType: 't' } }
-    class Xhr {
-      upload: { onprogress?: (e: object) => void } = {}
-      onload?: () => void
-      status = 201
-      response = new TextEncoder().encode(JSON.stringify(answer)).buffer
-      open = setHeader
-      setRequestHeader = setHeader
-      getAllResponseHeaders = () => ''
-      send = (sent: Uint8Array) => {
-        const [loaded, total] = [sent.length / 2, sent.length]
-        this.upload.onprogress?.({ lengthComputable: true, loaded, total })
-        this.onload?.()
-      }
-    }
-    vi.stubGlobal('XMLHttpRequest', Xhr)
-    const onProgress = vi.fn()
-    await uploadChatAttachment('ws1', 'c1', { file: new File(['abcd'], 'a') }, 'x', { onProgress })
-    expect(onProgress).toHaveBeenCalledWith(2, 4)
-  })
-})
