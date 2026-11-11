@@ -85,6 +85,11 @@ describe('requestView for an MCP call', () => {
       mcpServer: 'echo',
       toolInput: { text: 'one\r\ntwo\nthree', loud: true },
     })
-    expect(view.code.map((line) => line.text)).toEqual(['text: one', 'two', 'three', 'loud: true'])
+    expect(view.code.map((line) => [line.key, line.text])).toEqual([
+      ['text', 'one'],
+      [undefined, 'two'],
+      [undefined, 'three'],
+      ['loud', 'true'],
+    ])
   })
 })

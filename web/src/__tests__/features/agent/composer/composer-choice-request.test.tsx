@@ -23,7 +23,7 @@ describe('ChoiceRequest request body', () => {
     expect(body).not.toHaveTextContent('# Add hello')
   })
 
-  it('shows the command and its description for a command approval', () => {
+  it('shows only the command for a command approval', () => {
     show({
       request: {
         toolName: 'Bash',
@@ -32,7 +32,7 @@ describe('ChoiceRequest request body', () => {
     })
     const body = screen.getByTestId('agent-choice-request')
     expect(body).toHaveTextContent('rm -rf build')
-    expect(body).toHaveTextContent('Clean the build')
+    expect(body).not.toHaveTextContent('Clean the build')
   })
 
   it('shows the server and formatted args for an MCP approval', () => {
@@ -45,8 +45,22 @@ describe('ChoiceRequest request body', () => {
     })
     const body = screen.getByTestId('agent-choice-request')
     expect(body).toHaveTextContent('echo · shout')
-    expect(body).toHaveTextContent('text: hi')
-    expect(body).toHaveTextContent('loud: true')
+    const keys = [...body.querySelectorAll('.choice-request-key')].map((k) => k.textContent)
+    expect(keys).toEqual(['text', 'loud'])
+    expect(body).toHaveTextContent('texthi')
+    expect(body).toHaveTextContent('loudtrue')
+  })
+
+  it('counts the added and removed lines of an edit beside its path', () => {
+    show({
+      request: {
+        toolName: 'Edit',
+        toolInput: { file_path: 'a.ts', old_string: 'x\ny', new_string: 'z' },
+      },
+    })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent('a.ts')
+    expect(body.querySelector('.choice-request-counts')).toHaveTextContent('+1 −2')
   })
 
   it('shows a truncated tool input as text, not as parsed arguments', () => {
@@ -90,7 +104,7 @@ describe('ChoiceRequest with a very long input', () => {
     expect(body.textContent).not.toContain('z'.repeat(500))
     unmount()
     show({ request, expanded: true })
-    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('k13: 13')
+    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('k1313')
     expect(screen.getByTestId('agent-choice-request').textContent).toContain('z'.repeat(500))
   })
 })

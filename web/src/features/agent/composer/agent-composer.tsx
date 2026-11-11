@@ -5,7 +5,7 @@ import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
-import { ComposerChoice } from '@/features/agent/composer/composer-choice'
+import { ComposerChoiceCarousel } from '@/features/agent/composer/composer-choice-carousel'
 import { ComposerField } from '@/features/agent/composer/composer-field'
 import { CompactionRain } from '@/features/agent/composer/compaction-rain'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
@@ -241,7 +241,6 @@ export function AgentComposer(props: AgentComposerProps) {
           wsId={props.wsId}
           chatId={props.chatId}
           providerLabel={props.providerLabel}
-          permissionLevels={props.permissionLevels}
           terminalWait={props.terminalWait}
           onOpenTerminal={props.onOpenTerminal}
           onStop={(props.working || props.sending) && props.canStop ? props.onStop : undefined}
@@ -331,7 +330,6 @@ interface ComposerOccupantProps {
   wsId: string
   chatId: string
   providerLabel: string
-  permissionLevels?: PermissionLevel[]
   terminalWait?: AgentTerminalWait
   onOpenTerminal: () => void
   onStop?: () => void
@@ -354,31 +352,13 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
       )
     case 'choices':
       return (
-        <div className="choice-stack" data-testid="agent-choice-stack">
-          {state.asks.map((ask, i) => (
-            <ComposerChoice
-              key={ask.id}
-              wsId={props.wsId}
-              chatId={props.chatId}
-              pending={state.asks.length}
-              choice={ask.choice}
-              toolTarget={ask.toolTarget}
-              providerLabel={props.providerLabel}
-              permissionLevels={props.permissionLevels}
-              onOpenTerminal={props.onOpenTerminal}
-              position={i + 1}
-              family={ask.family}
-              request={{
-                toolName: ask.choice.toolName,
-                toolTarget: ask.toolTarget,
-                toolInput: ask.toolInput,
-                truncated: ask.toolInputTruncated,
-                mcpServer: ask.mcpServer,
-                why: ask.detail,
-              }}
-            />
-          ))}
-        </div>
+        <ComposerChoiceCarousel
+          asks={state.asks}
+          wsId={props.wsId}
+          chatId={props.chatId}
+          providerLabel={props.providerLabel}
+          onOpenTerminal={props.onOpenTerminal}
+        />
       )
     default:
       return null

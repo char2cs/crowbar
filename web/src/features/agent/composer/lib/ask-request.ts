@@ -12,6 +12,8 @@ export interface AskRequest {
 
 export interface CodeLine {
   text: string
+  /** An MCP argument's name, on the first line of its value: drawn as a labelled row. */
+  key?: string
   tone?: 'del' | 'add'
   /** Drawn short: the rest of the line is counted, not shown. */
   cut?: boolean
@@ -25,6 +27,8 @@ export interface RequestView {
   /** Prose the call carries, drawn as markdown rather than as lines of source. */
   markdown?: string
   note?: string
+  /** The code is a command, drawn with a shell prompt. */
+  shell?: boolean
 }
 
 /** What a folded card draws before it says how much more there is. */
@@ -38,10 +42,12 @@ const plain = (text: string): CodeLine[] => lines(text).map((line) => ({ text: l
 
 const argText = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value))
 
-/** An MCP call's arguments, one `key: value` line each. */
-function mcpArgs(input: unknown): string[] {
+/** An MCP call's arguments: each value's lines, the first carrying the argument's name. */
+function mcpArgs(input: unknown): CodeLine[] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return []
-  return Object.entries(input as Record<string, unknown>).map(([key, v]) => `${key}: ${argText(v)}`)
+  return Object.entries(input as Record<string, unknown>).flatMap(([key, v]) =>
+    plain(argText(v)).map((line, i) => (i === 0 ? { ...line, key } : line)),
+  )
 }
 
 function mcpView(req: AskRequest): RequestView {
@@ -49,7 +55,7 @@ function mcpView(req: AskRequest): RequestView {
   const prefix = `mcp__${server}__`
   const name = req.toolName ?? ''
   const tool = name.startsWith(prefix) ? name.slice(prefix.length) : name
-  return { server, head: tool, code: mcpArgs(req.toolInput).flatMap(plain) }
+  return { server, head: tool, code: mcpArgs(req.toolInput) }
 }
 
 const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
@@ -82,7 +88,7 @@ export function requestView(req: AskRequest): RequestView {
   if (req.mcpServer) return mcpView(req)
   const input = (req.toolInput ?? {}) as Record<string, unknown>
   const command = str(input.command)
-  if (command) return { code: plain(command), note: str(input.description) || undefined }
+  if (command) return { code: plain(command), shell: true }
   // A plan approval asks about the plan it carries.
   const plan = str(input.plan)
   if (plan) return { code: [], markdown: plan }
