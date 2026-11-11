@@ -305,7 +305,6 @@ describe('ToolRow', () => {
     draw('t:tool-1')
     expect(status()).toBe('awaiting_approval')
     expect(screen.getByText('Needs your answer')).toBeInTheDocument()
-    // A call waiting on the person reads as the board's pending row: the live verb, not the tool's name.
     expect(screen.getByTestId('agent-tool-label')).toHaveTextContent(/^Running/)
     expect(reveal).toHaveBeenCalled()
     act(
