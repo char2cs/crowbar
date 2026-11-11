@@ -24,6 +24,22 @@
 .agent-chat .pill.multi {
   border-radius: 18px;
 }
+/* Desktop: the extra 4px a multi-line box has over a pill sits around its text, as the board
+   has it (9px + 3px above, 6px + 6px below). On the pill, not the field: padding on the field
+   would count toward the height that decides when the pill turns multi-line. Send is pinned to
+   the bottom edge, 6px in, and plus sits 4px above its circle. */
+.agent-chat .pill.multi:not([data-touch]) {
+  padding-block: 12px;
+}
+.agent-chat .pill.multi:not([data-touch]) .handle {
+  top: auto;
+  right: 6px;
+  bottom: 11px;
+  transform: none !important; /* beats the inline offset that rides a pill's last line */
+}
+.agent-chat .pill.multi:not([data-touch]) .plusbtn {
+  bottom: calc(100% + 9px);
+}
 .agent-chat .pill:focus-within {
   border-color: color-mix(in oklch, var(--ring) 60%, transparent);
   box-shadow:
@@ -377,4 +393,20 @@
   .agent-chat .rain .fall {
     animation-play-state: paused;
   }
+}
+
+/* A command or file reference typed into the draft, marked in place. */
+.agent-chat .composer-slash,
+.agent-chat .composer-ref {
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+  font-family: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
+  font-size: 0.92em;
+}
+.agent-chat .composer-slash {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 11%, transparent);
+}
+.agent-chat .composer-ref {
+  background: var(--muted);
 }

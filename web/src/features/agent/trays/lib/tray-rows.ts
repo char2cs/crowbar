@@ -83,10 +83,8 @@ const NOUNS: Record<TrayRow['kind'], [string, string]> = {
 
 /** What the tray holds in a line, for the phone's folded row: `3 subagents · 2 shells · 1 monitor`. */
 export function summarizeRows(rows: TrayRow[]): string {
-  return GROUPS.map(({ kind }) => {
+  return GROUPS.flatMap(({ kind }) => {
     const n = rows.filter((row) => row.kind === kind).length
-    return n > 0 ? `${n} ${NOUNS[kind][n === 1 ? 0 : 1]}` : ''
-  })
-    .filter(Boolean)
-    .join(' · ')
+    return n > 0 ? [`${n} ${NOUNS[kind][n === 1 ? 0 : 1]}`] : []
+  }).join(' · ')
 }

@@ -9,6 +9,7 @@ import {
   insertPendingImageInto,
   settlePendingImageInto,
 } from '@/features/agent/composer/plate/chat-attachment-insert'
+import { ChatComposerChipPlugin } from '@/features/agent/composer/plate/chat-composer-chips'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import {
   blankParagraph,
@@ -231,11 +232,18 @@ export function ChatMarkdownEditor({
       ? [
           ...chatComposerPlugins,
           chatComposerStructurePlugin,
+          ChatComposerChipPlugin,
           keyPlugin,
           dropGuardPlugin,
           pastePlugin,
         ]
-      : [...chatComposerPlugins, chatComposerStructurePlugin, keyPlugin, dropGuardPlugin],
+      : [
+          ...chatComposerPlugins,
+          chatComposerStructurePlugin,
+          ChatComposerChipPlugin,
+          keyPlugin,
+          dropGuardPlugin,
+        ],
     autoSelect: 'end',
     // Unused here, and it re-subscribes every edited block to the editor store on
     // each keystroke: one more render queued behind every key typed.
