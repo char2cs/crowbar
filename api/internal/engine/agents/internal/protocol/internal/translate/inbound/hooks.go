@@ -118,7 +118,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 		markReasons(ev.Choice.Options, d, canonical)
 	}
 	if canonical == spec.HookUserPrompt {
-		ev = handedBack(d, ev)
+		ev = endedShell(d, handedBack(d, ev))
 	}
 	return ev, nil
 }
@@ -143,6 +143,28 @@ func handedBack(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 		Kind: spec.HookSubagentResult, SessionID: ev.SessionID, TurnID: ev.TurnID, Raw: ev.Raw,
 		Subagent: &models.SubagentEvent{ID: scope, Status: status, Result: strings.TrimSpace(p.Result.Find(ev.Message))},
 	}
+}
+
+// endedShell is a prompt its descriptor declares the end of a background task
+// as that task named: still the prompt that opens the turn answering it.
+func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEvent {
+	if ev.Kind != spec.HookUserPrompt {
+		return ev
+	}
+	p, ok := promptorigin.Match(d, ev.Message)
+	if !ok || p.Kind != spec.InjectedPromptTaskNotification {
+		return ev
+	}
+	id := p.TaskID.Find(ev.Message)
+	if id == "" {
+		return ev
+	}
+	status := p.Status.Find(ev.Message)
+	if mapped, ok := p.StatusMap[status]; ok {
+		status = mapped
+	}
+	ev.Shell = &models.ShellEvent{ID: id, Status: status}
+	return ev
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -355,6 +377,8 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		DurationMS:     duration,
 		SpawnsScope:    mapping.String(decoded, fields["spawns_scope"]),
 		AddressesScope: mapping.String(decoded, fields["addresses_scope"]),
+		SpawnsShell:    mapping.String(decoded, fields["spawns_shell"]),
+		StopsShell:     mapping.String(decoded, fields["stops_shell"]),
 	}
 }
 

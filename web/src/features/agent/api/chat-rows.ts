@@ -152,6 +152,14 @@ export interface RowBodies {
     usage?: { tokens?: number; toolUses?: number; durationMs?: number }
   }
   plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
+  /** A command the main agent left running in the background. */
+  shell: {
+    phase: 'start' | 'end'
+    shellId: string
+    command?: string
+    label?: string
+    status?: 'finished' | 'failed' | 'stopped'
+  }
   /** The chat changing the folder its CLI runs in (api/internal/domain/ledger/move.go). */
   move: MoveBody
 }

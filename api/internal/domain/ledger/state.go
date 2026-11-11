@@ -30,6 +30,7 @@ type State struct {
 	plan    []PlanItem // the main agent's plan
 	effort  string     // the effort the newest main turn to report one ran at
 	moves   moves
+	shells  map[string]Shell // every background shell, by id
 
 	keys keys // what a retried hook's fact is recognised by
 }
@@ -154,6 +155,7 @@ var appliers = map[Kind]func(*State, Row){
 	KindSubagent:      (*State).applySubagent,
 	KindPlan:          (*State).applyPlan,
 	KindMove:          (*State).applyMove,
+	KindShell:         (*State).applyShell,
 }
 
 // Apply advances s by one row. It never fails: a row naming a prompt that is
@@ -224,6 +226,7 @@ func (s State) Clone() State {
 	s.agents = s.agents.clone()
 	s.plan = slices.Clone(s.plan)
 	s.moves = s.moves.clone()
+	s.shells = maps.Clone(s.shells)
 	return s
 }
 

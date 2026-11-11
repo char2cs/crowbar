@@ -109,8 +109,8 @@ events:
     fixtures: [MessageDisplay.json]
 
   tool_pre:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
-      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Monitor: execute,
+      TaskStop: meta, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
       TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
@@ -137,8 +137,8 @@ events:
       deny: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":{reason_json}}}'
 
   tool_post:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
-      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Monitor: execute,
+      TaskStop: meta, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
       TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
@@ -160,15 +160,21 @@ events:
       tool_output: tool_response.stdout
       duration_ms: duration_ms
       spawns_scope: tool_response.agentId
+      # A command left running in the background answers with the id of its task:
+      # Bash as backgroundTaskId, Monitor as taskId. TaskStop confirms the one it stopped.
+      spawns_shell: { first_present: [tool_response.backgroundTaskId, tool_response.taskId] }
+      stops_shell:  { first_present: [tool_response.task_id, tool_input.task_id, tool_input.shell_id] }
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
     fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json, PostToolUse.Bash.json,
                PostToolUse.mcp.json, PostToolUse.Agent.json]
+    # No recorded background command, Monitor or TaskStop: their ids follow the documented tool_response.
+    unverified_fields: [spawns_shell, stops_shell]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
   tool_fail:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
-      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Monitor: execute,
+      TaskStop: meta, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
       TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
@@ -647,6 +653,11 @@ telemetry:
 injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
+    # Ends a background command by its task id. A subagent's finish names its agent the same
+    # way and ends no shell, as nothing of that id was started as one.
+    task_id: { pattern: '<task-id>(?P<v>[^<]+)</task-id>' }
+    status:  { pattern: '<status>(?P<v>[^<]+)</status>' }
+    status_map: { completed: finished, failed: failed, stopped: stopped }
   - needle: "<teammate-message"
   # The hand-back of a subagent's result: subagent_result, never a prompt.
   - kind: subagent_result

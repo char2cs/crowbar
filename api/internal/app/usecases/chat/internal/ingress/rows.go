@@ -147,6 +147,11 @@ func scopedRows(f func(ledger.State, engineagents.CanonicalEvent, Source, string
 // mapPromptEvent is a prompt's rows; the provider's own prompt titles the chat.
 func mapPromptEvent(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
 	rows, err := mapPrompt(st, ev, src)
+	if err == nil && ev.Subagent == nil {
+		var ended []ledger.Row
+		ended, err = promptShellRows(st, ev.Shell)
+		rows = append(rows, ended...)
+	}
 	fx := Effects{}
 	if len(rows) > 0 && src.Prompt.Origin == ledger.OriginProvider {
 		fx.Title = src.Prompt.Text

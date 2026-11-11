@@ -181,6 +181,13 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	if err != nil || phase == ledger.ToolPre {
 		return rows, err
 	}
+	if phase == ledger.ToolPost && scope == "" {
+		shells, err := toolShellRows(st, tool, turnID)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, shells...)
+	}
 	for _, askID := range st.AsksOfTool(scope, id) {
 		resolved, err := ledger.ResolveAsk(st, askID, ledger.ResolutionProceeded, nil)
 		if err != nil {

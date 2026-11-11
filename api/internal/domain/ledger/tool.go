@@ -23,6 +23,8 @@ const (
 	ToolKindSubagent = "subagent"
 	ToolKindRead     = "read"
 	ToolKindEdit     = "edit"
+	ToolKindExecute  = "execute"
+	ToolKindMeta     = "meta"
 )
 
 // ToolCall is the body of a tool_call row: one phase of one tool call.

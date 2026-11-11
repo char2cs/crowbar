@@ -131,6 +131,21 @@ export interface SubagentItem extends ItemBase {
   endedAt?: string
 }
 
+type ShellStatus = 'running' | 'finished' | 'failed' | 'stopped'
+
+/** A background command of the main agent; kept in the items but never placed
+ *  in the transcript order, since the tray lists it. */
+export interface ShellItem extends ItemBase {
+  kind: 'shell'
+  /** The provider's id for the task, which a notification names. */
+  shellId: string
+  command: string
+  label: string
+  status: ShellStatus
+  startedAt: string
+  endedAt?: string
+}
+
 export interface ReasoningItem extends ItemBase {
   kind: 'reasoning'
   text: string
@@ -151,6 +166,7 @@ export type TranscriptItem =
   | AskItem
   | MarkerItem
   | SubagentItem
+  | ShellItem
   | ReasoningItem
   | PlanSnapshotItem
 
@@ -174,6 +190,8 @@ export interface TurnFacts {
   openAsks: string[]
   /** Subagent cards still starting or running. */
   liveSubagents: string[]
+  /** Every background shell of the chat, in the order they started. */
+  shells: string[]
   /** scope → the card bound to it. */
   subagentScopes: Record<string, string>
   /** A subagent that announced its scope while a spawn it may be is unbound. */
@@ -234,6 +252,7 @@ export const toolItemId = (toolId: string) => `t:${toolId}`
 export const askItemId = (askId: string) => `a:${askId}`
 export const markerItemId = (seq: number) => `k:${seq}`
 export const moveItemId = (requestId: string) => `m:${requestId}`
+export const shellItemId = (shellId: string) => `h:${shellId}`
 export const subagentItemId = (key: string) => `s:${key}`
 export const planItemId = (turnId: string) => `l:${turnId}`
 export const liveKey = (stream: string, id: string) => `${stream}:${id}`

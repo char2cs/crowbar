@@ -27,6 +27,7 @@
     "runner_started",
     "session_bound",
     "session_lost",
+    "shell",
     "subagent",
     "tool_call",
     "turn_ended",

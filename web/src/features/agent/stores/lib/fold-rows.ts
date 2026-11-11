@@ -25,6 +25,7 @@ import {
 } from '@/features/agent/stores/lib/fold-subagents'
 import { ItemMap, type ItemDraft } from '@/features/agent/stores/lib/item-map'
 import { placeMessage, settleRound } from '@/features/agent/stores/lib/fold-rounds'
+import { applyShell, stopShells } from '@/features/agent/stores/lib/fold-shells'
 import { applyMove } from '@/features/agent/stores/lib/fold-moves'
 import {
   liveKey,
@@ -45,6 +46,7 @@ const emptyFacts: TurnFacts = {
   compacting: false,
   openAsks: [],
   liveSubagents: [],
+  shells: [],
   subagentScopes: {},
   pendingScopes: {},
   plan: {},
@@ -359,6 +361,7 @@ const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
   fold.set('lastExit', { runnerId, reason, exitCode, seq: row.seq })
   endTurn(fold, null)
   interruptSubagents(fold, row)
+  stopShells(fold, row)
   if (!row.scope && ABNORMAL_EXITS.has(reason))
     marker(fold, row, 'runner_exited', undefined, reason)
 }
@@ -469,6 +472,7 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   subagent: applySubagent,
   plan: applyPlan,
   move: applyMove,
+  shell: applyShell,
 }
 
 /** Folds the row right after the feed's seq; any other is not applied. */

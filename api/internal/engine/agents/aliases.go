@@ -31,6 +31,7 @@ type (
 	SubagentEvent  = models.SubagentEvent
 	SubagentUsage  = models.SubagentUsage
 	PlanStepEvent  = models.PlanStepEvent
+	ShellEvent     = models.ShellEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
 	PromptQuestion = models.PromptQuestion

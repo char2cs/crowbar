@@ -75,6 +75,11 @@ events:
       # only waits on or closes. scope_id set means a SUBAGENT made this call.
       - spawns_scope
       - addresses_scope
+      # spawns_shell is the id of the background command this call left running,
+      # stops_shell the one it stopped; a shell's end otherwise arrives as an
+      # injected prompt (see injected_prompts task_id).
+      - spawns_shell
+      - stops_shell
       - scope_id
       - tool_title
       - mcp_server
