@@ -238,7 +238,7 @@ describe('usePaneKeyboard — Cmd+W closes the active tab', () => {
     fakeState.buffers = [{ id: 'buf-1', type: 'editor', isDirty: true }]
     renderHook(() => usePaneKeyboard())
     pressCmdW()
-    expect(setPendingClose).toHaveBeenCalledWith({ type: 'single', bufferId: 'buf-1' })
+    expect(setPendingClose).toHaveBeenCalledWith({ bufferId: 'buf-1', paneId: ROOT_PANE_ID })
     expect(closeBuffer).not.toHaveBeenCalled()
     expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })

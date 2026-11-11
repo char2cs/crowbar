@@ -207,9 +207,8 @@ export interface ClosedBuffer {
   workspaceId: string
 }
 
+/** A dirty tab's close, awaiting the user's answer; the pane it closes from answers it. */
 export interface PendingClose {
   bufferId: string
-  type: 'single' | 'others' | 'all' | 'to-left' | 'to-right'
-  anchorBufferId?: string
-  keepBufferId?: string
+  paneId: string
 }

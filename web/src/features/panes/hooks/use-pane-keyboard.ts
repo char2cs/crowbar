@@ -171,7 +171,7 @@ export function usePaneKeyboard() {
         if (!tabId) return
         const buf = state.buffers.find((b) => b.id === tabId)
         if (buf && buf.type === 'editor' && buf.isDirty) {
-          state.bufferActions.setPendingClose({ type: 'single', bufferId: tabId })
+          state.bufferActions.setPendingClose({ bufferId: tabId, paneId })
           return
         }
         state.paneActions.removeEditorTabFromPane(paneId, tabId)

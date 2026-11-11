@@ -115,7 +115,7 @@ const TabBar = ({
       // (isUncloseable) has none, so it is honoured here too.
       if (buf?.isUncloseable) return
       if (buf && buf.type === 'editor' && buf.isDirty) {
-        setPendingClose({ type: 'single', bufferId })
+        if (paneId) setPendingClose({ bufferId, paneId })
         return
       }
       if (paneId) removeEditorTabFromPane(paneId, bufferId)

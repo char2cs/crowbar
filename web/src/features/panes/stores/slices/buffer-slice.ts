@@ -287,12 +287,8 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           state.pendingClose = null
         })
-        if (pc.type === 'single') {
-          get().bufferActions.closeBuffer(pc.bufferId)
-        }
-        // Other close types (others, all, to-left, to-right) are handled by the
-        // callers that set pendingClose — they call closeBuffer for each target
-        // after confirmation. This resets the gate.
+        get().paneActions.removeEditorTabFromPane(pc.paneId, pc.bufferId)
+        get().bufferActions.closeBuffer(pc.bufferId)
       },
     },
   }
