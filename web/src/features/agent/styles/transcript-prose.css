@@ -212,5 +212,12 @@
     height: 36px;
     padding: 0 14px;
     font-size: 14px;
+    position: relative;
+  }
+  /* 44pt to the finger, 36pt to the eye. */
+  .agent-chat .message-error-action::after {
+    content: '';
+    position: absolute;
+    inset: -4px 0;
   }
 }
