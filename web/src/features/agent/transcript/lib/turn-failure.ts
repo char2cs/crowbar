@@ -1,27 +1,32 @@
 /** What kind of trouble failed a turn, as far as its words tell: a sign-in has a
- *  way out the person can take, a limit lifts by itself, anything else is retried. */
-export type FailureKind = 'auth' | 'limit' | 'other'
+ *  way out the person can take, a limit lifts by itself, an overload passes. */
+export type FailureKind = 'auth' | 'limit' | 'overloaded' | 'other'
 
 export interface TurnFailure {
   kind: FailureKind
-  /** The provider's own first line, else a plain sentence for its code. */
-  text: string
-  /** The rest of what the provider said, when it said more than one line. */
+  /** One plain sentence: no error code, HTTP number or JSON. */
+  headline: string
+  /** At most one short second line. */
+  hint?: string
+  /** The provider's raw words, kept for a Details toggle; never shown by default. */
   more?: string
 }
 
 const AUTH = /\b40[13]\b|unauthori[sz]ed|authentication|not logged in|invalid api key|log ?in/i
-// An overloaded provider (529) is busy, not limited: it has no window to wait out.
+const OVERLOADED = /\b529\b|overloaded/i
 const LIMIT = /\b429\b|rate.?limit|usage.?limit|too many requests|quota/i
 
 // A reason that is a code, not a sentence: the provider gave no words of its own.
 const CODE = /^[a-z_]+$/
-const CODE_TEXT: Record<FailureKind, string> = {
-  auth: 'The provider refused the sign-in.',
-  limit: 'The provider’s usage limit was reached.',
-  other: 'The provider stopped this turn.',
+// A status the provider put in front of its sentence: "API Error: 500 ...".
+const STATUS_PREFIX = /^(?:api error:?\s*)?(?:(?:http|status)\s*)?\d{3}\b[:\s-]*/i
+
+const SAID: Record<Exclude<FailureKind, 'other'>, Pick<TurnFailure, 'headline' | 'hint'>> = {
+  auth: { headline: 'You are signed out', hint: 'Sign in again to continue.' },
+  limit: { headline: 'Usage limit reached' },
+  overloaded: { headline: 'The provider is overloaded.', hint: 'Try again in a moment.' },
 }
-const OVERLOADED = 'The provider is overloaded right now.'
+const STOPPED = 'The provider stopped this turn.'
 
 /** The message inside a provider error whose words end in its raw JSON body. */
 function jsonMessage(words: string): string | undefined {
@@ -39,15 +44,20 @@ function jsonMessage(words: string): string | undefined {
   }
 }
 
+function kindOf(said: string): FailureKind {
+  if (AUTH.test(said)) return 'auth'
+  if (OVERLOADED.test(said)) return 'overloaded'
+  return LIMIT.test(said) ? 'limit' : 'other'
+}
+
 export function describeFailure(reason = '', detail = ''): TurnFailure {
-  const said = `${reason}\n${detail}`
-  const kind: FailureKind = AUTH.test(said) ? 'auth' : LIMIT.test(said) ? 'limit' : 'other'
   const words = detail.trim() || (CODE.test(reason) ? '' : reason.trim())
-  if (!words) return { kind, text: reason === 'overloaded' ? OVERLOADED : CODE_TEXT[kind] }
-  const message = jsonMessage(words)
-  if (message) return { kind, text: message, more: words }
-  const [first = '', ...rest] = words.split('\n')
-  return { kind, text: first, more: rest.join('\n').trim() || undefined }
+  const kind = kindOf(`${reason}\n${detail}`)
+  const more = words || undefined
+  if (kind !== 'other') return { kind, ...SAID[kind], more }
+  const first = (jsonMessage(words) ?? words.split('\n')[0] ?? '').replace(STATUS_PREFIX, '')
+  const headline = first.trim() || STOPPED
+  return { kind, headline, more: more === headline ? undefined : more }
 }
 
 /** When a limit lifts, in the person's own clock; '' for an unreadable time. */

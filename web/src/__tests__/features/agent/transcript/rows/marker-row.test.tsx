@@ -29,7 +29,7 @@ beforeEach(() => chatStore.setState({ feeds: {}, outbox: {} }))
 afterEach(() => vi.restoreAllMocks())
 
 describe('MarkerRow', () => {
-  it('says why a turn failed, in the provider’s words, and retries that prompt', () => {
+  it('says why a turn failed in plain words, keeps the raw detail behind Details, and retries', () => {
     const l = ledger()
     const feed = seed([
       l.row(
@@ -47,8 +47,8 @@ describe('MarkerRow', () => {
     const actions = { ...noRowActions, retry: vi.fn(), openTerminal: vi.fn() }
     draw(markerOf(feed)!, actions)
 
-    expect(screen.getByTestId('agent-failed-divider')).toHaveTextContent('Turn failed')
-    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('rate limited')
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('Usage limit reached')
+    expect(screen.queryByText(/retry later/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Details' }))
     expect(screen.getByText(/retry later/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
@@ -67,6 +67,19 @@ describe('MarkerRow', () => {
   }
   const codex = provider('fake', 'Codex', { signIn: 'codex login' })
 
+  it('says a provider is overloaded without its code or JSON body', () => {
+    const detail =
+      'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+    draw(markerOf(failure('overloaded', detail))!)
+
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent(
+      'The provider is overloaded.',
+    )
+    expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent('Try again in a moment.')
+    expect(screen.queryByText(/529|overloaded_error/)).toBeNull()
+    expect(screen.queryByTestId('agent-failed-divider')).toBeNull()
+  })
+
   it('tells a signed-out person how to sign in, with the provider’s own command', () => {
     const detail = 'unexpected status 401 Unauthorized: Missing bearer, cf-ray: a5678360fab4b516'
     const feed = failure(detail, detail)
@@ -79,9 +92,11 @@ describe('MarkerRow', () => {
       />,
     )
 
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('You are signed out')
     expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent(
-      'Sign in: run codex login in a terminal',
+      'Run codex login to sign in again.',
     )
+    expect(screen.queryByText(/401|Missing bearer/)).toBeNull()
   })
 
   // A failure before its turn started: no turn names the provider, the CLI does.
@@ -114,7 +129,7 @@ describe('MarkerRow', () => {
         providers={[codex]}
       />,
     )
-    expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent('Sign in: run codex login')
+    expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent('Run codex login')
   })
 
   it('says when a rate limit lifts, and gives no sign-in hint for it', () => {
@@ -134,7 +149,7 @@ describe('MarkerRow', () => {
     )
 
     expect(screen.getByTestId('agent-failed-hint')).toHaveTextContent(/^Resets /)
-    expect(screen.queryByText(/Sign in/)).toBeNull()
+    expect(screen.queryByText(/sign in/i)).toBeNull()
   })
 
   const failedTurn = (l: ReturnType<typeof ledger>, n: number) => [
@@ -309,16 +324,16 @@ describe('MarkerRow', () => {
     const feed = seed([l.row('marker', { kind: 'from_record' })])
     draw(markerOf(feed)!)
     expect(screen.getByTestId('agent-from-record-divider')).toHaveTextContent(
-      'The session was lost; continued from Crowbar’s record',
+      'Continued from Crowbar’s record',
     )
   })
 
-  it('says the chat kept its session and ended the CLI that left it, not the session id', () => {
+  it('says another chat holds the session, not the session id', () => {
     const l = ledger()
     const feed = seed([l.row('marker', { kind: 'session_conflict', detail: 'S-1' })])
     draw(markerOf(feed)!)
     expect(screen.getByTestId('agent-session-conflict-divider')).toHaveTextContent(
-      'Another chat holds that session; its CLI was ended so nothing goes unrecorded',
+      'Another chat holds that session',
     )
   })
 

@@ -7,40 +7,64 @@
 .agent-chat .tools li[data-status='awaiting_approval'] .tool-call-state {
   color: var(--warn-text);
 }
-/* Why a turn failed and the way on, under its pill, in the provider's own words. */
-.agent-chat .marker-failure {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.agent-chat .marker-reason,
-.agent-chat .marker-hint {
-  margin: 0;
-  max-width: 100%;
-  font-size: var(--ui-text-xs);
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-.agent-chat .marker-reason {
-  color: var(--warn-text);
-}
-.agent-chat .marker-hint {
-  color: var(--muted-foreground);
-}
-.agent-chat .marker-hint code {
-  font-family: var(--font-mono);
-}
-/* What a failure or a lost session offers, under its pill. */
-.agent-chat .marker-actions {
+/* A failure or warning as a notice: text left, its way on right, no icon. Also the dock's
+   failure slot, so it owns its own surface and reads on the pill's tray. */
+.failure-notice {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding-bottom: 6px;
+  gap: 6px 12px;
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--foreground) 3%, var(--background));
 }
-.agent-chat .marker-detail {
+.failure-notice[data-kind='auth'],
+.failure-notice[data-kind='warning'] {
+  border-color: color-mix(in srgb, var(--warn-text) 35%, var(--border));
+}
+.failure-notice[data-kind='overloaded'],
+.failure-notice[data-kind='other'] {
+  border-color: color-mix(in srgb, var(--destructive) 35%, var(--border));
+}
+.failure-notice-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.failure-notice-headline,
+.failure-notice-hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.failure-notice-headline {
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--foreground);
+}
+.failure-notice-hint {
+  font-size: var(--ui-text-xs);
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+.failure-notice-details {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.failure-notice-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.failure-notice-raw {
   flex-basis: 100%;
   max-height: 10rem;
   overflow: auto;
@@ -52,4 +76,14 @@
   font-family: var(--font-mono);
   font-size: 0.68rem;
   white-space: pre-wrap;
+}
+
+/* What a lost session or an exited agent offers, under its pill. */
+.agent-chat .marker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 6px;
 }
