@@ -1,21 +1,16 @@
-import type { ComponentProps } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { Value } from 'platejs'
-import { PlateController, useEditorRef, type PlateEditor } from 'platejs/react'
 import { delta, ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as reads from '@/features/agent/api/agent-chat-reads'
-import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import * as serialization from '@/features/agent/composer/plate/chat-composer-serialization'
 import * as transcriptModule from '@/features/agent/transcript/agent-transcript'
 import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { applyFeedFrame, chatStore, failFeed } from '@/features/agent/stores/chat-store'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { entityStore } from '@/core/entities/entity-store'
-import { provider, slashCatalog } from '@/__tests__/__fixtures__/agent-chat'
+import { slashCatalog } from '@/__tests__/__fixtures__/agent-chat'
+import { drawChatView as draw, grabbed } from '@/__tests__/__fixtures__/agent-chat-view'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@/utils/platform', async (importOriginal) => ({
@@ -48,45 +43,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function draw(chatId: string, overrides: Partial<ComponentProps<typeof AgentChatView>> = {}) {
-  const props: ComponentProps<typeof AgentChatView> = {
-    wsId: 'w1',
-    chatId,
-    providerId: 'codex',
-    providers: [],
-    live: true,
-    canSend: true,
-    active: true,
-    visible: true,
-    isActivePane: true,
-    onOpenTerminal: () => {},
-    provider: 'codex',
-    model: '',
-    effort: '',
-    onSelectionChange: () => {},
-    presentation: 'chat',
-    splitEnabled: false,
-    onSelectPresentation: () => {},
-    ...overrides,
-  }
-  // An empty workspace store: no list in any store names this chat.
-  return render(
-    <PlateController>
-      <WorkspaceStoreContext.Provider value={createWorkspaceStore('w1')}>
-        <AgentChatView {...props} />
-      </WorkspaceStoreContext.Provider>
-      <GrabEditor />
-    </PlateController>,
-  )
-}
-
-// The real composer. jsdom has no `isContentEditable`, and Plate's hotkeys drop a
-// key unless the box holds focus, so a key goes to a focused, editable box.
-const grabbed: { editor?: PlateEditor } = {}
-function GrabEditor() {
-  grabbed.editor = useEditorRef()
-  return null
-}
 const COMPOSER = /message the agent/i
 const DOCUMENT = /describe the change/i
 const box = (name = COMPOSER) => screen.getByRole('textbox', { name })
@@ -463,39 +419,5 @@ describe('AgentChatView on a phone', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('hello')
-  })
-})
-
-// One chat, one name for the model: the blank handle and the underbar are the same
-// control, and a live runner's raw launch id must not replace the reported name.
-describe('AgentChatView model name', () => {
-  const selectable = [provider('codex', 'Codex', { modelSelect: true, models: ['gpt-5'] })]
-
-  it('names the launch model on the blank document handle too', () => {
-    seedFeed('c1', [])
-    draw('c1', { providers: selectable, launchModel: 'gpt-5.6-luna' })
-
-    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-luna, effort Default',
-    )
-  })
-
-  it('keeps the reported display name when a live runner reports its raw launch id', () => {
-    const report: reads.AgentTelemetry = {
-      observedAt: '2026-09-23T00:00:00Z',
-      source: 'callback',
-      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
-    }
-    entityStore.setState((s) => ({
-      byKind: { ...s.byKind, telemetry: { ...s.byKind.telemetry, c1: { v: 1, data: report } } },
-    }))
-    seedFeed('c1', spokenIn('c1'))
-    draw('c1', { providers: selectable, launchModel: 'claude-sonnet-4-5' })
-
-    const picker = screen.getByTestId('agent-selection-picker')
-    expect(picker).toHaveTextContent('Claude Sonnet 4.5')
-    expect(picker).toHaveAccessibleName(
-      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
-    )
   })
 })
