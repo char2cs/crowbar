@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 interface Props {
   children: ReactNode
   fallback?: ReactNode
+  /** A change clears a caught error, so the children get another try. */
+  resetKey?: unknown
 }
 
 interface State {
@@ -24,6 +26,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info)
+  }
+
+  componentDidUpdate(prev: Props) {
+    if (this.state.error && prev.resetKey !== this.props.resetKey) this.reset()
   }
 
   reset = () => this.setState({ error: null })

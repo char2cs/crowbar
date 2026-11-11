@@ -1,12 +1,17 @@
 import { memo, useCallback, useState } from 'react'
-import { CaretRightIcon } from '@phosphor-icons/react'
+import {
+  CaretRightIcon,
+  CircleDashedIcon,
+  ProhibitIcon,
+  StopIcon,
+  XIcon,
+} from '@phosphor-icons/react'
+import type { Icon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 import { useLiveText } from '@/features/agent/hooks/use-chat-feed'
 import { describeResolvedChoice } from '@/features/agent/composer/lib/ask-labels'
 import {
-  CheckIcon,
-  CloseIcon,
   FetchIcon,
   FileIcon,
   PencilIcon,
@@ -43,17 +48,39 @@ const FAMILY_ICONS: Partial<Record<ToolItem['family'], typeof ToolIcon>> = {
   subagent: SubagentIcon,
 }
 
-/** What a call that never finished says in place of a result. */
-const STATE_TEXT: Partial<Record<ToolItem['status'], string>> = {
-  declined: 'Denied',
-  interrupted: 'Stopped',
-  abandoned: 'Result unavailable',
+/** A call's outcome when it is not simply "went well": each reads differently at a glance. */
+interface Outcome {
+  kind: 'failed' | 'denied' | 'stopped' | 'unavailable' | 'awaiting'
+  text: string
+  Glyph: Icon
 }
 
-function StatusGlyph({ status }: { status: ToolItem['status'] }) {
-  if (status === 'running') return <FlickerSpinner className="size-3" />
-  if (status === 'ok') return <CheckIcon size={12} className="tool-glyph" />
-  return <CloseIcon size={12} className="tool-glyph" />
+const OUTCOMES: Partial<Record<ToolItem['status'], Outcome>> = {
+  error: { kind: 'failed', text: 'Failed', Glyph: XIcon },
+  declined: { kind: 'denied', text: 'Denied', Glyph: ProhibitIcon },
+  interrupted: { kind: 'stopped', text: 'Stopped', Glyph: StopIcon },
+  abandoned: { kind: 'unavailable', text: 'Result unavailable', Glyph: CircleDashedIcon },
+}
+
+const AWAITING: Outcome = {
+  kind: 'awaiting',
+  text: 'Waiting for your approval',
+  Glyph: CircleDashedIcon,
+}
+
+/** Running spins, a call that went well adds nothing, every other outcome has its glyph. */
+function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?: Outcome }) {
+  if (outcome) {
+    const { Glyph } = outcome
+    return (
+      <Glyph
+        size={12}
+        weight={outcome.kind === 'stopped' ? 'fill' : 'regular'}
+        className="tool-glyph"
+      />
+    )
+  }
+  return status === 'running' ? <FlickerSpinner className="size-3" /> : null
 }
 
 function Label({ item }: { item: ToolItem }) {
@@ -103,6 +130,7 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
   const showDiff = toggled ?? (stat !== null && stat.added + stat.removed <= OPEN_DIFF_LINES)
   const expandable = Boolean(body.inputRef || body.resultRef || patch)
   const Icon = FAMILY_ICONS[family] ?? ToolIcon
+  const outcome = item.askId !== undefined ? AWAITING : OUTCOMES[status]
   const errorLine = status === 'error' ? body.error?.split('\n')[0] : undefined
   const exit =
     body.exitCode && (body.resultRef || output) ? (
@@ -119,22 +147,26 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
   )
   const summary = (
     <span className="tool-call-summary">
-      <StatusGlyph status={status} />
+      <StatusGlyph status={status} outcome={outcome} />
       <span className="kind" data-tool-kind={body.kind}>
         <Icon size={12} />
       </span>
       <Label item={item} />
-      {item.askId ? (
-        <span className="tool-call-state">Waiting for your approval</span>
-      ) : (
-        // How its ask was decided says why it did not run; the state would repeat it.
-        STATE_TEXT[status] &&
-        !item.askNote && <span className="tool-call-state">{STATE_TEXT[status]}</span>
-      )}
-      {item.askNote && (
-        <span className="tool-call-note" data-testid="agent-tool-ask-note">
+      {/* How its ask was decided says why it did not run; the outcome would repeat it. */}
+      {item.askNote ? (
+        <span
+          className="tool-call-note"
+          data-outcome={outcome?.kind}
+          data-testid="agent-tool-ask-note"
+        >
           {item.askNote}
         </span>
+      ) : (
+        outcome && (
+          <span className="tool-call-state" data-outcome={outcome.kind}>
+            {outcome.text}
+          </span>
+        )
       )}
       {stat && (
         <span className="tool-call-stat">

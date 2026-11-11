@@ -3,12 +3,13 @@ import { ArrowCounterClockwiseIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { turnTimestampLabel, turnTimeTitle } from '@/features/agent/lib/turn-time'
 import { CloseIcon, PencilIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import { SESSION_LOST_TEXT } from '@/features/agent/stores/lib/outbox'
 import type { UserItem } from '@/features/agent/stores/lib/transcript-items'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { MessageBoundary } from '@/features/agent/transcript/rows/message-boundary'
+import { slashCommand } from '@/features/agent/transcript/lib/slash-command'
 
 /** What a person can do about a prompt that has not gone through. */
 export interface PromptActions {
@@ -77,6 +78,29 @@ function MachineRow({ item, name }: { item: UserItem; name: string }) {
           <code>{item.text}</code>
         )}
       </div>
+    </article>
+  )
+}
+
+/** A command the person ran is the session's event, not their words: a marker, not a bubble. */
+function SlashRow({
+  id,
+  command,
+  args,
+  builtin,
+}: {
+  id: string
+  command: string
+  args: string
+  builtin?: boolean
+}) {
+  return (
+    <article className="row slash-row" data-row-id={id} data-role="user">
+      <span className="slash-marker" data-testid="slash-command">
+        {command}
+      </span>
+      {args && <span className="slash-args">{args}</span>}
+      {builtin && <span className="slash-args">Ran in the terminal</span>}
     </article>
   )
 }
@@ -159,6 +183,8 @@ function UserRowBody({
     return <MachineRow item={item} name={name} />
   }
   if (text === undefined) return null
+  const slash = state ? undefined : slashCommand(text)
+  if (slash) return <SlashRow id={id} command={slash.command} args={slash.args} builtin={builtin} />
   const multi = text.length > 60 || text.includes('\n')
   const bad = state === 'failed' || state === 'refused'
   return (
@@ -192,17 +218,14 @@ function UserRowBody({
         </div>
       ) : (
         <div className={cn(firstTurn ? 'frozen' : 'bubble', !firstTurn && multi && 'multi')}>
-          <MarkdownMessageStatic diagrams variant="chat" className="break-words">
-            {text}
-          </MarkdownMessageStatic>
+          <MessageBoundary text={text}>
+            <MarkdownMessageStatic diagrams variant="chat" className="break-words">
+              {text}
+            </MarkdownMessageStatic>
+          </MessageBoundary>
         </div>
       )}
       {builtin && <p className="meta">Ran in the terminal</p>}
-      {item && !state && (
-        <time className="turn-time" dateTime={item.at} title={turnTimeTitle(item.at)}>
-          {turnTimestampLabel(item.at)}
-        </time>
-      )}
     </article>
   )
 }

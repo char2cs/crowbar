@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LedgerRow } from '@/features/agent/api/chat-rows'
+import type { LedgerRow, ToolCallBody } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 
@@ -17,6 +17,7 @@ function seed(rows: LedgerRow[]) {
 
 const draw = (id: string) =>
   render(<TranscriptRow actions={actions} chatId="chat-1" id={id} providers={[]} />)
+const push = (row: LedgerRow) => act(() => void applyFeedFrame('chat-1', { type: 'row', row }))
 const status = () => document.querySelector('[data-status]')?.getAttribute('data-status')
 
 beforeEach(() => chatStore.setState({ feeds: {} }))
@@ -60,6 +61,58 @@ describe('ToolRow', () => {
     expect(screen.getByText('Ran')).toBeInTheDocument()
     expect(screen.getByText('1.5s')).toBeInTheDocument()
     expect(screen.queryByTestId('agent-tool-output')).toBeNull()
+  })
+
+  // Each outcome reads differently at a glance, and a call that went well adds nothing.
+  it('gives running a spinner, ok nothing, and each failure its own outcome', () => {
+    const l = ledger()
+    const call = (toolId: string, extra: Pick<ToolCallBody, 'phase'> & Partial<ToolCallBody>) =>
+      l.row(
+        'tool_call',
+        { toolId, name: 'Bash', kind: 'execute', target: 'ls', ...extra },
+        { turnId: 'turn-1' },
+      )
+    seed([
+      l.start('turn-1'),
+      call('run', { phase: 'pre' }),
+      call('ok', { phase: 'post' }),
+      call('bad', { phase: 'fail', error: 'boom' }),
+      call('cut', { phase: 'fail', interrupted: true }),
+      call('lost', { phase: 'pre' }),
+    ])
+    push(l.end('turn-1'))
+    const row = (id: string) => {
+      const view = render(
+        <TranscriptRow actions={actions} chatId="chat-1" id={`t:${id}`} providers={[]} />,
+      )
+      const el = view.container
+      return {
+        spinner: el.querySelector('[data-flicker-spinner]'),
+        glyph: el.querySelector('.tool-glyph'),
+        outcome: el.querySelector('[data-outcome]')?.getAttribute('data-outcome'),
+        text: el.querySelector('[data-outcome]')?.textContent,
+      }
+    }
+    expect(row('ok')).toMatchObject({ spinner: null, glyph: null, outcome: undefined })
+    expect(row('bad')).toMatchObject({ outcome: 'failed', text: 'Failed' })
+    expect(row('cut')).toMatchObject({ outcome: 'stopped', text: 'Stopped' })
+    expect(row('lost')).toMatchObject({ outcome: 'unavailable', text: 'Result unavailable' })
+  })
+
+  it('shows a live spinner only while the call runs', () => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.row(
+        'tool_call',
+        { toolId: 'tool-1', phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    const { container } = draw('t:tool-1')
+    expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
+    push(l.end('turn-1'))
+    expect(container.querySelector('[data-flicker-spinner]')).toBeNull()
   })
 
   it('says a path outside the workspace whole, the tooltip with its line', () => {
@@ -217,6 +270,7 @@ describe('ToolRow', () => {
       expect(status()).toBe('declined')
       expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent(note)
       expect(screen.getAllByText(/Denied|No answer in time/)).toHaveLength(1)
+      expect(document.querySelector('[data-outcome="denied"]')).not.toBeNull()
       expect(screen.queryByText('Ran')).toBeNull()
     },
   )

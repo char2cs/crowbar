@@ -19,7 +19,7 @@ export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
   | { state: 'reviving'; message: string }
-  | { state: 'idle'; message: string }
+  | { state: 'idle'; message?: string }
 
 export interface AgentTerminalSurfaceProps {
   wsId: string

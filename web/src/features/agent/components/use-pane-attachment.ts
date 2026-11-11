@@ -23,8 +23,9 @@ interface PaneAttachmentInputs {
   promptReplacing: boolean
 }
 
-/** Why a dormant chat has no CLI, in one sentence, and what continues it. */
-function describeDormant(exitReason: string): string {
+/** Why a dormant chat has no CLI, in one sentence, and what continues it. An ordinary
+ *  exit needs no sentence: the composer already takes the next message. */
+function describeDormant(exitReason: string): string | undefined {
   switch (exitReason) {
     case 'stopped':
       return 'Stopped. Send a message to continue the conversation.'
@@ -44,7 +45,7 @@ function describeDormant(exitReason: string): string {
     case 'spawn_failed':
       return 'The agent could not start. Check that its CLI is installed, then try again.'
     default:
-      return 'The agent is not running. Send a message to continue the conversation.'
+      return undefined
   }
 }
 
@@ -62,7 +63,8 @@ function attachmentOf(
   }
   // A new chat's CLI starts with its first message: not yet started is no ended session.
   if (neverStarted) return { state: 'idle', message: `Your first message starts ${providerName}.` }
-  return { state: 'idle', message: describeDormant(exitReason) }
+  const message = describeDormant(exitReason)
+  return message ? { state: 'idle', message } : { state: 'idle' }
 }
 
 /** The pane's view of its chat's session: liveness from the entity snapshot, the

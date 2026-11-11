@@ -163,3 +163,21 @@
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
 }
+
+/* One message that failed to render: its text as written, scoped to it alone. */
+.agent-chat .message-error {
+  padding: 9px 14px;
+  border: 1px dashed color-mix(in oklch, var(--destructive) 40%, var(--border));
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.agent-chat .message-error-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-chat .message-error-note {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+}

@@ -1,11 +1,12 @@
 import { memo, useMemo, useState } from 'react'
-import { CaretRightIcon } from '@phosphor-icons/react'
+import { CaretRightIcon, CircleDashedIcon, StopIcon, XIcon } from '@phosphor-icons/react'
+import type { Icon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { useTextClock } from '@/features/agent/activity/lib/text-clock'
 import { useChatItem, useChatItems } from '@/features/agent/hooks/use-chat-feed'
 import { useSubagentAction } from '@/features/agent/hooks/use-subagent-action'
-import { CheckIcon, CloseIcon, SubagentIcon } from '@/features/agent/shared/agent-icons'
+import { SubagentIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { SubagentItem } from '@/features/agent/stores/lib/transcript-items'
@@ -16,6 +17,15 @@ import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
 import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
 
 const NO_IDS: string[] = []
+
+/** A subagent that ended any way but done says how, as a tool call's outcome does. */
+const OUTCOMES: Partial<
+  Record<SubagentItem['status'], { kind: string; text: string; Glyph: Icon }>
+> = {
+  failed: { kind: 'failed', text: 'Failed', Glyph: XIcon },
+  interrupted: { kind: 'stopped', text: 'Stopped', Glyph: StopIcon },
+  abandoned: { kind: 'unavailable', text: 'Result unavailable', Glyph: CircleDashedIcon },
+}
 
 const tokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
 
@@ -55,7 +65,6 @@ function Work({ chatId, scope }: { chatId: string; scope: string }) {
                 key={row.id}
                 chatId={chatId}
                 item={item}
-                providers={[]}
                 firstReply={false}
                 turnbar={false}
               />
@@ -80,14 +89,13 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
   const clockRef = useTextClock(live ? card?.startedAt : undefined)
   if (card?.kind !== 'subagent') return null
   const usage = live ? '' : spent(card)
+  const outcome = OUTCOMES[card.status]
   const head = (
     <>
       {live ? (
         <FlickerSpinner className="size-3" />
-      ) : card.status === 'done' ? (
-        <CheckIcon size={12} />
       ) : (
-        <CloseIcon size={12} />
+        outcome && <outcome.Glyph size={12} className="tool-glyph" />
       )}
       <SubagentIcon size={12} />
       <span className="subagent-title">{card.title || card.type || 'Subagent'}</span>
@@ -96,6 +104,11 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
         {live ? '' : took(card)}
       </span>
       {usage && <span className="subagent-usage">· {usage}</span>}
+      {outcome && (
+        <span className="tool-call-state" data-outcome={outcome.kind}>
+          {outcome.text}
+        </span>
+      )}
     </>
   )
   return (

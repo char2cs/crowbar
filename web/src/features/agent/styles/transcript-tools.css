@@ -1,34 +1,30 @@
-/* Whose turn this was, and a way to take it elsewhere. The provider icon has no padding, so only
-   the copy button needs a correction, and only when it leads (no provider icon known). */
+/* Copy and when, out of the way until the reply is hovered or focused; touch screens have no
+   hover, so they always show it. */
 .agent-chat .turnbar {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   margin-top: 2px;
   color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 0.15s;
 }
-/* The copy button's icon sits 8px inside its box; pulling the button by 8px when it leads puts
-   the icon flush with the prose above, as in the provider-icon case. */
-.agent-chat .turnbar > button:first-child {
-  margin-left: -8px;
+.agent-chat .row:hover .turnbar,
+.agent-chat .turnbar:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .agent-chat .turnbar {
+    opacity: 1;
+  }
 }
 .agent-chat .turn-effort {
   font-size: var(--ui-text-xs);
 }
 
-/* Inside `.turnbar` it inherits that row's layout and colour; as a user row's sibling it sets
-   both itself. The `>` keeps these off the turnbar's nested `.turn-time`, where the margin would
-   still apply and nudge it out of line. */
 .agent-chat .turn-time {
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
-}
-.agent-chat .row.stacked > .turn-time {
-  margin-top: 2px;
-  align-self: flex-start;
-}
-.agent-chat .row.me > .turn-time {
-  align-self: flex-end;
 }
 
 .agent-chat .tools {
@@ -236,8 +232,44 @@
   font-family: var(--font-mono);
   font-size: 0.68rem;
 }
-.agent-chat .tools li[data-status='abandoned'] .tool-call-state {
-  color: var(--warn-text);
+/* Each outcome has its own look: failed is the error tone, denied the warning tone, stopped
+   a solid chip, and a result that never came a dashed, empty one. */
+.agent-chat .tool-call-state[data-outcome],
+.agent-chat .tool-call-note[data-outcome] {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  font-family: var(--app-font-family, inherit);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 18px;
+}
+[data-outcome='failed'] {
+  border-color: color-mix(in oklch, var(--destructive) 36%, var(--border));
+  background: color-mix(in oklch, var(--destructive) 8%, var(--background));
+  color: var(--destructive);
+}
+[data-outcome='denied'] {
+  border-color: color-mix(in oklch, var(--warning) 55%, var(--border));
+  background: color-mix(in oklch, var(--warning) 13%, var(--background));
+  color: var(--warning-foreground);
+}
+[data-outcome='stopped'] {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+}
+[data-outcome='unavailable'],
+[data-outcome='awaiting'] {
+  border-style: dashed;
+  background: none;
+  color: var(--muted-foreground);
+}
+.agent-chat .tools li[data-status='error'] .tool-glyph {
+  color: var(--destructive);
+}
+.agent-chat .tools li[data-status='declined'] .tool-glyph {
+  color: var(--warning-foreground);
 }
 .agent-chat .tool-call-command {
   min-width: 0;

@@ -247,3 +247,24 @@
 
 /* Text NOBODY in the conversation typed (`harness`: the provider's machinery; `notice`: Crowbar
    relaying why a chat stopped). Neither wears the user's bubble, which would misquote a person. */
+
+/* A slash command is the session's event, not the person's words: monospace, moss, no bubble. */
+.agent-chat .slash-row {
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.agent-chat .slash-marker {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--primary) 11%, transparent);
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.agent-chat .slash-args {
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  overflow-wrap: anywhere;
+}

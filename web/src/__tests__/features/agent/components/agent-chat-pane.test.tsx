@@ -831,7 +831,7 @@ describe('AgentChatPane', () => {
       await renderPane(store, openChatPane(store, 'c1', ''))
 
       expect(resumeChatFn).not.toHaveBeenCalled()
-      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(/send a message/i)
+      expect(screen.queryByTestId('agent-session-note')).toBeNull()
       typeAndSend('wake up')
       await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
       expect(resumeChatFn).not.toHaveBeenCalled()
@@ -1285,12 +1285,14 @@ describe('AgentChatPane', () => {
       // The daemon's lifecycle frame says the runner is gone.
       await act(async () => writeChat(dormantChat({ id: 'c1' })))
 
-      expect(await screen.findByTestId('agent-session-note')).toHaveTextContent(/not running/i)
+      await vi.waitFor(() =>
+        expect(chatStore.getState().outbox.c1?.[0]).toMatchObject({
+          state: 'failed',
+          error: 'replacement failed',
+        }),
+      )
+      expect(screen.queryByTestId('agent-session-note')).not.toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
-      expect(chatStore.getState().outbox.c1?.[0]).toMatchObject({
-        state: 'failed',
-        error: 'replacement failed',
-      })
     })
   })
 

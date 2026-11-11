@@ -129,4 +129,22 @@ describe('SubagentCard', () => {
     expect(screen.getByTestId('agent-subagent-card')).toHaveTextContent('explore')
     expect(screen.getByTestId('agent-subagent-card')).toHaveTextContent('6 tool uses · 28k tokens')
   })
+
+  it('reads a done subagent quietly and a stopped one with its own outcome', () => {
+    const l = ledger()
+    seed('chat-1', [
+      l.start('turn-1'),
+      l.row(
+        'tool_call',
+        { toolId: 'c', phase: 'pre', name: 'Agent', kind: 'subagent', title: 'Scout' },
+        { turnId: 'turn-1' },
+      ),
+      l.row('subagent', { phase: 'bound', spawnToolId: 'c' }, { turnId: 'turn-1', scope: 'sub-1' }),
+    ])
+    const { container } = render(<SubagentCard chatId="chat-1" id="s:c" />)
+    expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
+    push(l.row('runner_exited', { runnerId: 'r1', reason: 'stopped', exitCode: 0 }))
+    expect(container.querySelector('[data-flicker-spinner]')).toBeNull()
+    expect(container.querySelector('[data-outcome="stopped"]')).toHaveTextContent('Stopped')
+  })
 })

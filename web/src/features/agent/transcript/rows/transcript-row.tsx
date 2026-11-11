@@ -19,7 +19,6 @@ export interface RowPlace {
   firstTurn?: boolean
   firstReply?: boolean
   turnbar?: boolean
-  precedingUserAt?: string
 }
 
 function useTurnFact(
@@ -73,13 +72,10 @@ function TranscriptRowBody({
         <TextRow
           chatId={chatId}
           item={item}
-          providers={providers}
-          provider={provider}
           effort={effort}
           model={model}
           firstReply={place?.firstReply ?? false}
           turnbar={place?.turnbar ?? false}
-          precedingUserAt={place?.precedingUserAt}
         />
       )
     case 'tool':

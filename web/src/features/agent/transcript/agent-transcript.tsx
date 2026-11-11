@@ -205,14 +205,9 @@ const pinFloor = (start: number, viewport: number, header: number) =>
   Math.max(0, start + viewport - header)
 
 const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
-  !!a &&
-  a.firstTurn === b.firstTurn &&
-  a.firstReply === b.firstReply &&
-  a.turnbar === b.turnbar &&
-  a.precedingUserAt === b.precedingUserAt
+  !!a && a.firstTurn === b.firstTurn && a.firstReply === b.firstReply && a.turnbar === b.turnbar
 
-/** Each row's place: the first turn and reply keep the document hand, a reply is timed from its
- *  prompt, and only the reply that hands control back (none after it before the next prompt) gets
+/** Each row's place: the first turn and reply keep the document hand, and only the reply that hands control back (none after it before the next prompt) gets
  *  a turnbar; the newest run hands it back only once nothing runs. */
 function placesOf(
   ids: string[],
@@ -225,7 +220,6 @@ function placesOf(
   const first = fromStart ? itemOf(ids[0] ?? '') : undefined
   const firstTurn = first?.kind === 'user' ? first.id : undefined
   let firstReply: string | undefined
-  let lastUserAt: string | undefined
   let lastText: string | undefined
   const closeRun = (handedBack: boolean) => {
     const place = lastText ? places.get(lastText) : undefined
@@ -237,12 +231,11 @@ function placesOf(
     if (item?.kind === 'user') {
       if (item.origin === 'harness' || item.origin === 'note') continue
       closeRun(true)
-      lastUserAt = item.at
       places.set(id, { firstTurn: id === firstTurn })
     } else if (item?.kind === 'text') {
       if (firstTurn && !firstReply) firstReply = id
       lastText = id
-      places.set(id, { firstReply: id === firstReply, turnbar: false, precedingUserAt: lastUserAt })
+      places.set(id, { firstReply: id === firstReply, turnbar: false })
     } else if (item?.kind !== 'marker') {
       // A call (or run of them) after the words: those words did not hand back.
       lastText = undefined

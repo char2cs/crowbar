@@ -8,6 +8,7 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
   execute: ['Running', 'Ran', 'Run'],
   search: ['Searching for', 'Searched', 'Search'],
   fetch: ['Fetching', 'Fetched', 'Fetch'],
+  subagent: ['Running subagent', 'Ran subagent', 'Subagent'],
 }
 
 const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']

@@ -82,6 +82,17 @@ describe('usePaneAttachment', () => {
     })
   })
 
+  it('has no sentence for an exit that needs no explaining', () => {
+    const l = ledger('c1')
+    seedChats([{ id: 'c1' }])
+    seedFeed('c1', [l.row('runner_exited', { runnerId: 'r1', reason: 'exited', exitCode: 0 })])
+
+    const result = attachmentOn('c1', { presentation: 'chat' }).current
+
+    expect(result.attachment).toEqual({ state: 'idle' })
+    expect(result.sessionNote).toBeUndefined()
+  })
+
   it('says the chat is connecting while its live CLI moves onto the chat surface', () => {
     seedChats([{ id: 'c1', liveRunnerId: 'r1', phase: 'switching' }])
     seedFeed('c1')

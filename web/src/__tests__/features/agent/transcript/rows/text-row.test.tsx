@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
@@ -9,6 +9,21 @@ import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 const actions = noRowActions
+
+// One message whose text the renderer cannot take, standing in for any renderer crash.
+vi.mock('@/features/agent/transcript/plate/markdown-message-static', async (importOriginal) => {
+  const real =
+    await importOriginal<
+      typeof import('@/features/agent/transcript/plate/markdown-message-static')
+    >()
+  return {
+    ...real,
+    MarkdownMessageStatic: (props: Parameters<typeof real.MarkdownMessageStatic>[0]) => {
+      if (String(props.children).includes('BOOM')) throw new Error('cannot render')
+      return real.MarkdownMessageStatic(props)
+    },
+  }
+})
 
 const providers = [{ id: 'fake', displayName: 'Fake', icon: '<svg/>' }] as AgentProvider[]
 const ID = 'm:turn-1:m1'
@@ -161,6 +176,49 @@ describe('TextRow', () => {
     expect(screen.getByTestId('message-turn-actions')).toBeInTheDocument()
   })
 
+  it('keeps the footer to what a reader wants: no provider glyph, duration or clock text', () => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.text('turn-1', 'm1', -1, 'done'),
+      l.row('turn_ended', { status: 'done', effort: 'low' }, { turnId: 'turn-1' }),
+    ])
+    render(
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: true }}
+      />,
+    )
+    const bar = screen.getByTestId('message-turn-actions')
+    expect(bar.querySelector('svg:not(button svg)')).toBeNull()
+    expect(bar.textContent).not.toMatch(/\d+[mhd] ·/)
+    expect(screen.getByRole('button', { name: 'Copy this message' })).toBeInTheDocument()
+  })
+
+  it('confines a message the renderer cannot draw to a plain-text fallback', () => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.text('turn-1', 'm1', -1, 'BOOM **raw**'),
+      l.text('turn-1', 'm2', -1, 'still fine'),
+      l.end('turn-1'),
+    ])
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(
+      <>
+        <TranscriptRow actions={actions} chatId="chat-1" id={ID} providers={providers} />
+        <TranscriptRow actions={actions} chatId="chat-1" id="m:turn-1:m2" providers={providers} />
+      </>,
+    )
+    quiet.mockRestore()
+    expect(screen.getByText('Could not render this message')).toBeInTheDocument()
+    expect(screen.getByText('BOOM **raw**')).toBeInTheDocument()
+    expect(screen.getByText('still fine')).toBeInTheDocument()
+  })
+
   it('draws nothing for an id the feed does not hold', () => {
     seed([])
     const { container } = render(
@@ -180,6 +238,40 @@ describe('UserRow', () => {
     expect(document.querySelector('[data-row-id="p:r1"]')).not.toHaveAttribute('data-state')
     expect(screen.getByText('make dev').closest('code')).not.toBeNull()
     expect(document.querySelector('.row.me .bubble')).not.toBeNull()
+  })
+
+  it('draws a slash command as a system marker, not a bubble', () => {
+    const l = ledger()
+    seed([l.row('user_message', { text: '/compact', origin: 'provider' })])
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="u:1" providers={providers} />)
+    expect(screen.getByTestId('slash-command')).toHaveTextContent('/compact')
+    expect(document.querySelector('.bubble')).toBeNull()
+  })
+
+  it('keeps the arguments after the command beside it', () => {
+    const l = ledger()
+    seed([l.row('user_message', { text: '/review the diff', origin: 'provider' })])
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="u:1" providers={providers} />)
+    expect(screen.getByTestId('slash-command')).toHaveTextContent('/review')
+    expect(screen.getByText('the diff')).toBeInTheDocument()
+  })
+
+  it.each(['/Users/me/file.ts is broken', 'run /compact later', 'a path /usr/bin'])(
+    'leaves %s as an ordinary message',
+    (text) => {
+      const l = ledger()
+      seed([l.row('user_message', { text, origin: 'provider' })])
+      render(<TranscriptRow actions={actions} chatId="chat-1" id="u:1" providers={providers} />)
+      expect(screen.queryByTestId('slash-command')).toBeNull()
+      expect(document.querySelector('.bubble')).not.toBeNull()
+    },
+  )
+
+  it('stamps no time under a sent message', () => {
+    const l = ledger()
+    seed([l.row('user_message', { text: 'hello', origin: 'provider' })])
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="u:1" providers={providers} />)
+    expect(document.querySelector('time')).toBeNull()
   })
 
   it('says who sent a harness message instead of wearing the user bubble', () => {

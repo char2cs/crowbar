@@ -98,6 +98,13 @@ describe('tool labels', () => {
     expect(labelText(tool({}, 'ok'))).toBe('Tool')
   })
 
+  it('labels a subagent call as a subagent, never as a bare "Tool"', () => {
+    const call = { kind: 'subagent', name: 'Task', target: 'Audit billing' }
+    expect(labelText(tool(call, 'running'))).toBe('Running subagent Audit billing')
+    expect(labelText(tool(call, 'ok'))).toBe('Ran subagent Audit billing')
+    expect(labelText(tool({ kind: 'subagent' }, 'ok'))).toBe('Ran subagent')
+  })
+
   it('symptom 8: names the MCP server and summarizes the first two scalar args', () => {
     const call = tool({
       kind: 'mcp',
