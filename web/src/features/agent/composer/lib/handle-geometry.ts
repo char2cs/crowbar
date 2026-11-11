@@ -3,16 +3,17 @@ export const COMPOSER_LINE_HEIGHT = 20
 /** The pill's vertical padding, per side. */
 export const COMPOSER_PADDING_Y = 8
 
-export const SEND_DIAMETER = 28
+export const SEND_DIAMETER = 30
 
 /** Rides the last line, not the caret's: the bottom is where a hand goes for send. */
 export function handleOffset(fieldHeight: number): number {
   return Math.max(0, Math.round(fieldHeight - COMPOSER_LINE_HEIGHT))
 }
 
-/** 6px of slack: fractional font-metric heights make a bare `> LINE` flicker. */
+/** A third line turns the pill into a rounded rectangle; two still read as a pill. 6px of slack:
+ *  fractional font-metric heights make a bare `> 2 * LINE` flicker. */
 export function isMultiline(fieldHeight: number): boolean {
-  return fieldHeight > COMPOSER_LINE_HEIGHT + 6
+  return fieldHeight > 2 * COMPOSER_LINE_HEIGHT + 6
 }
 
 /** One inset for every edge: `right` must match the vertical overhang or the
@@ -40,7 +41,7 @@ export function handleClusterWidth(
   return occupants * diameter + Math.max(0, occupants - 1) * gap
 }
 
-/** Must equal `.agent-chat .pill .field`'s `padding-right` (62px) with no slack, which
+/** Must equal `.agent-chat .pill .field`'s `padding-right` (65px) with no slack, which
  *  is why `.handle .send` has no `margin-left` on top of the flex gap. */
 export function fieldRightPadding(
   rightInset: number = sendInset(),

@@ -9,6 +9,8 @@
     inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
   padding: 8px 14px;
   transition: box-shadow 0.18s ease;
+  /* The compaction rain sits at z-index -1: above the fill, below the text. */
+  isolation: isolate;
 }
 /* Stadium on one line, 18px once it wraps. Instant, not eased: an eased outline visibly lags
    text that has already wrapped. */
@@ -45,7 +47,7 @@
   overflow-y: auto;
   scrollbar-gutter: stable;
   max-height: 50vh;
-  padding: 0 62px 0 0;
+  padding: 0 65px 0 0;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   caret-color: var(--foreground);
@@ -146,7 +148,7 @@
 /* Rides the field's growth instantly: an eased offset lags text that has already wrapped. */
 .agent-chat .handle {
   position: absolute;
-  right: 4px;
+  right: 3px;
   top: 8px;
   display: flex;
   align-items: center;
@@ -160,13 +162,13 @@
   margin: 0 4px;
 }
 
-/* A 28px circle inset 4px on every side of the pill's 36px padding box: (36 - d) / 2 = right.
+/* A 30px circle inset 3px on every side of the pill's 36px padding box: (36 - d) / 2 = right.
    Diameter, padding and `right` are one number; change them together. */
 .agent-chat .send {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1px solid var(--primary);
   background: var(--primary);
@@ -198,11 +200,17 @@
   box-shadow: none;
   cursor: default;
 }
+/* Stop: the charcoal circle, its square a touch larger than the other glyphs. Queue keeps send's
+   moss circle and only swaps the glyph. */
 .agent-chat .send.halt {
-  border-color: color-mix(in oklch, var(--foreground) 22%, transparent);
-  background: color-mix(in oklch, var(--foreground) 12%, transparent);
-  color: var(--foreground);
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
   box-shadow: none;
+}
+.agent-chat .send.halt svg:not([class*='size-']) {
+  width: 18px;
+  height: 18px;
 }
 
 /* In `.handle`, its flex `gap: 2px` is the only spacing beside `.send`; send's base margin would
@@ -211,7 +219,12 @@
   margin-left: 0;
 }
 
-/* Cosmetics come from the shared Button (composer-plus-button.tsx); `.plusbtn` only positions. */
+/* Cosmetics come from the shared Button (composer-plus-button.tsx); `.plusbtn` sizes and positions.
+   Unlayered, so it beats the Button's size utilities. */
+.agent-chat .plusbtn {
+  width: 30px;
+  height: 30px;
+}
 .agent-chat .plusbtn svg:not([class*='size-']) {
   width: 16px;
   height: 16px;
@@ -229,7 +242,7 @@
 .agent-chat .pill.multi .field {
   /* The text column must match the one-line field's (100% - 62px), or wrapping flips `.multi` and
      back (height flicker). `width` gives back send's 18px reach so the scrollbar clears it. */
-  padding-right: 44px;
+  padding-right: 47px;
   width: calc(100% - 18px);
 }
 
@@ -301,19 +314,6 @@
   position: absolute;
   inset: -6px;
 }
-/* The empty document's bar is the same capsule: as tall as the one-line pill. */
-.agent-chat .dochandle[data-touch] .grp {
-  height: calc(var(--touch-line) + 2 * var(--touch-pad-y) + 2px);
-  padding: 0 calc(var(--touch-inset) - 1px) 0 calc(var(--touch-pad-x) - 7px);
-}
-.agent-chat .dochandle[data-touch] .inner {
-  /* The dock's own side padding (`.center`), so the bar and the chat's capsule are one width. */
-  --pad: 24px;
-}
-.agent-chat .doc:has(+ .dochandle[data-touch]) {
-  --pad: 24px;
-  font-size: var(--touch-text);
-}
 /* Under the model row: half the desktop's foot, the safe area still below it. */
 .agent-chat .dock:has(.pill[data-touch]) {
   padding-bottom: 7px;
@@ -366,4 +366,38 @@
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Compaction: faint dot-matrix rain behind the pill's content. Two SVG layers, one transform
+   animation each in discrete steps; opacities are low enough that the text stays fully readable. */
+.agent-chat .pill .rain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--primary);
+}
+.agent-chat .rain circle {
+  fill: currentColor;
+  stroke: none;
+}
+.agent-chat .rain .fall {
+  animation: rain-fall var(--t) steps(14) infinite;
+  will-change: transform;
+}
+@keyframes rain-fall {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(84px);
+  }
+}
+/* Paused, not removed: the columns keep their stagger. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat .rain .fall {
+    animation-play-state: paused;
+  }
 }

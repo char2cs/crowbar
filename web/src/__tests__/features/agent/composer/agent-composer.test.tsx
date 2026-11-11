@@ -267,9 +267,9 @@ describe('AgentComposer', () => {
     expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeInTheDocument()
   })
 
-  it('marks the pill multiline once the field grows past one line', () => {
+  it('marks the pill multiline once the field grows past two lines', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      height: 40,
+      height: 60,
       width: 0,
     } as DOMRect)
     const { pill } = draw()

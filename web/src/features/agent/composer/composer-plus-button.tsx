@@ -24,9 +24,8 @@ export function ComposerPlusButton({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        // `sm:size-7` overrides icon-xs's `sm:size-6` so plus matches send's 28px
-        // (PLUS_DIAMETER === SEND_DIAMETER in handle-geometry.ts).
-        className="plusbtn rounded-full sm:size-7"
+        // composer-pill.css sizes it to send's diameter (PLUS_DIAMETER in handle-geometry.ts).
+        className="plusbtn rounded-full"
         render={<Button variant="ghost" size="icon-xs" />}
         data-open={open || undefined}
         aria-label="Add to this message"

@@ -36,21 +36,23 @@ describe('isMultiline', () => {
     expect(isMultiline(24.5)).toBe(false)
   })
 
-  it('is true once a second line lands', () => {
-    expect(isMultiline(40)).toBe(true)
+  // Two lines are still a full pill with plus beside send; the rounded rectangle starts at three.
+  it('stays a pill through two lines and wraps at the third', () => {
+    expect(isMultiline(40)).toBe(false)
+    expect(isMultiline(60)).toBe(true)
   })
 })
 
 describe('sendInset', () => {
   // THE TWO ARE ONE NUMBER: change the diameter or the padding and the button
   // stops being centred in the box it is nested in.
-  it('insets the shipped button by 4px on every side', () => {
-    expect(sendInset()).toBe(4)
+  it('insets the shipped 30px button by 3px on every side', () => {
+    expect(sendInset()).toBe(3)
   })
 
   it('follows the diameter', () => {
     expect(sendInset(24)).toBe(6)
-    expect(sendInset(SEND_DIAMETER, 20, 10)).toBe(6)
+    expect(sendInset(SEND_DIAMETER, 20, 10)).toBe(5)
   })
 })
 
@@ -72,11 +74,11 @@ describe('fieldRightPadding', () => {
   // THE TWO ARE ONE NUMBER, same as sendInset: this must equal the literal
   // `padding-right` composer-pill.css already ships on `.pill .field`.
   it('matches the shipped field padding-right exactly, for two occupants', () => {
-    expect(fieldRightPadding()).toBe(62)
+    expect(fieldRightPadding()).toBe(65)
   })
 
   it('shrinks to the single-occupant reservation', () => {
-    expect(fieldRightPadding(sendInset(), 1)).toBe(32)
+    expect(fieldRightPadding(sendInset(), 1)).toBe(33)
   })
 
   it('follows HANDLE_GAP', () => {

@@ -68,6 +68,18 @@ export const UpIcon = icon(
   'UpIcon',
 )
 
+/** Stacked lines with a plus: a message joining the queue behind the running turn. */
+export const QueueIcon = icon(
+  <>
+    <path d="M5 7h11" />
+    <path d="M5 12h11" />
+    <path d="M5 17h6" />
+    <path d="M17 14.5v6" />
+    <path d="M14 17.5h6" />
+  </>,
+  'QueueIcon',
+)
+
 export const UpDownIcon = icon(
   <>
     <path d="M8 9.5 12 5.5l4 4" />

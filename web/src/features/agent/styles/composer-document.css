@@ -29,7 +29,8 @@
    turn it becomes are one text, so the type must not resize when the first turn lands. */
 .agent-chat .doc {
   --pad: max(22px, calc((100% - 720px) / 2));
-  padding: 48px var(--pad) 96px;
+  /* 200px under the last line: room for the ghost prompts and the pill beneath them. */
+  padding: 48px var(--pad) 200px;
   /* The document is top-anchored, so the floating chat header would cover its first line;
      `--agent-header-clearance` comes from agent-chat-pane.tsx. agent-empty-document.tsx's
      `firstLineTop` fallback must agree with this offset. */
@@ -80,8 +81,8 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 38px;
-  padding: 0 4px 0 10px;
+  height: 42px;
+  padding: 0 5px 0 10px;
   border-radius: 9999px;
   border: 1px solid var(--input);
   background: color-mix(in oklch, var(--foreground) 3%, var(--background));
@@ -104,4 +105,45 @@
 .agent-chat .dochandle .banner {
   width: 100%;
   pointer-events: auto;
+}
+
+/* Ghost prompts: what a first instruction covers, under the line and above the pill. */
+.agent-chat .dochandle .ghosts {
+  --pad: max(22px, calc((100% - 720px) / 2));
+  margin: 0;
+  padding: 6px var(--pad) 18px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.agent-chat .dochandle .ghosts > div {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 3px 0;
+}
+.agent-chat .dochandle .ghosts dt {
+  flex: none;
+  width: 52px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+.agent-chat .dochandle .ghosts dd {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.62;
+}
+
+/* The empty document's bar is the same capsule: as tall as the one-line pill. */
+.agent-chat .dochandle[data-touch] .grp {
+  height: calc(var(--touch-line) + 2 * var(--touch-pad-y) + 2px);
+  padding: 0 calc(var(--touch-inset) - 1px) 0 calc(var(--touch-pad-x) - 7px);
+}
+.agent-chat .dochandle[data-touch] :is(.inner, .ghosts) {
+  /* The dock's own side padding (`.center`), so the bar and the chat's capsule are one width. */
+  --pad: 24px;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) {
+  --pad: 24px;
+  font-size: var(--touch-text);
 }

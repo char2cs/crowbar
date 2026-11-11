@@ -1,14 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-
-const platform = vi.hoisted(() => ({ mobile: false }))
-vi.mock('@/utils/platform', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/utils/platform')>()),
-  get IS_MOBILE() {
-    return platform.mobile
-  },
-}))
+import { describe, expect, it, vi } from 'vitest'
 
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 
@@ -34,17 +26,18 @@ function draw(overrides: Partial<Parameters<typeof ComposerHandle>[0]> = {}) {
   return { ...view, onSend, onStop, onOpenExcalidraw, onOpenAttachFile }
 }
 
-afterEach(() => {
-  platform.mobile = false
-})
-
 describe('ComposerHandle', () => {
-  // Return is a newline on a phone, so the button is the only way to queue a follow-up.
-  it('queues typed text on a phone while a turn runs, and stops once the box is empty', () => {
-    platform.mobile = true
+  // While a turn runs, typed text turns Stop into a Queue button on every platform: the same
+  // circle as send, and Stop returns the moment the box is empty again.
+  it('queues typed text while a turn runs, and stops once the box is empty', () => {
     const typed = draw({ hasText: true, working: true, canStop: true })
-    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    const queue = screen.getByRole('button', { name: 'Queue this message' })
+    expect(queue).toBeEnabled()
+    expect(queue.className).toMatch(/\bqueue\b/)
+    expect(queue.className).not.toMatch(/\bhalt\b/)
+    fireEvent.click(queue)
     expect(typed.onSend).toHaveBeenCalled()
+    expect(typed.onStop).not.toHaveBeenCalled()
     typed.unmount()
 
     draw({ hasText: false, working: true, canStop: true })
@@ -59,18 +52,6 @@ describe('ComposerHandle', () => {
     expect(button.className).not.toMatch(/\boff\b/)
     fireEvent.click(button)
     expect(onSend).toHaveBeenCalled()
-  })
-
-  // Stop stays reachable while text is in the box: it is the only way to interrupt a running turn
-  // (no Escape fallback), and Enter still queues the typed text.
-  it('stops a running turn even with text in the box', () => {
-    const { onStop } = draw({ hasText: true, working: true, canStop: true })
-
-    const button = screen.getByRole('button', { name: 'Stop this turn' })
-    expect(button).toBeEnabled()
-    expect(button.className).toMatch(/\bhalt\b/)
-    fireEvent.click(button)
-    expect(onStop).toHaveBeenCalled()
   })
 
   it('sends text even mid-delivery, when there is no running turn to stop', () => {

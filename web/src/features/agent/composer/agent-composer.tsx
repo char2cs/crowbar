@@ -7,6 +7,7 @@ import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-termina
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
+import { CompactionRain } from '@/features/agent/composer/compaction-rain'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
@@ -260,6 +261,7 @@ export function AgentComposer(props: AgentComposerProps) {
         onDragLeave={handlePillDragLeave}
         onDrop={handlePillDrop}
       >
+        {!document && props.compacting && <CompactionRain width={IS_MOBILE ? 330 : 720} />}
         <div ref={docRef} className={document ? 'doc' : undefined}>
           <ComposerField
             ref={editorRef}

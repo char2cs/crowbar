@@ -222,16 +222,21 @@ describe('AgentEmptyDocument selectionchange gating', () => {
 })
 
 describe('AgentEmptyDocument stop control', () => {
-  // This surface duplicates composer-handle.tsx's send/stop button; Stop must not depend on the
-  // document being empty, since a background handoff can start a turn before anything is typed.
-  it('stops a running turn even with text already in the document', () => {
+  // Same Stop / Queue rule as the dock composer: text typed into a running turn queues.
+  it('queues the document while a turn runs, and stops when it is empty', () => {
+    const onSubmit = vi.fn()
     const onStop = vi.fn()
-    draw({ hasText: true, working: true, canStop: true, onStop })
+    const typed = draw({ hasText: true, working: true, canStop: true, onSubmit, onStop })
 
-    const button = screen.getByRole('button', { name: 'Stop this turn' })
-    expect(button).toBeEnabled()
-    expect(button.className).toMatch(/\bhalt\b/)
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: 'Queue this message' }))
+    expect(onSubmit).toHaveBeenCalled()
+    expect(onStop).not.toHaveBeenCalled()
+    typed.unmount()
+
+    draw({ working: true, canStop: true, onStop })
+    const stop = screen.getByRole('button', { name: 'Stop this turn' })
+    expect(stop.className).toMatch(/\bhalt\b/)
+    fireEvent.click(stop)
     expect(onStop).toHaveBeenCalled()
   })
 
@@ -322,5 +327,24 @@ describe('AgentEmptyDocument sending state', () => {
 
     expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+describe('AgentEmptyDocument ghost prompts', () => {
+  it('guides the first instruction with GOAL, WHERE and KEEP until text is written', () => {
+    const empty = draw()
+    for (const label of ['GOAL', 'WHERE', 'KEEP']) expect(screen.getByText(label)).toBeVisible()
+    empty.unmount()
+
+    draw({ hasText: true })
+    expect(screen.queryByText('GOAL')).toBeNull()
+  })
+
+  it('puts plus next to send in the one pill', () => {
+    draw({ attach: createElement('button', { 'aria-label': 'Add to this message' }) })
+
+    const plus = screen.getByRole('button', { name: 'Add to this message' })
+    const send = screen.getByRole('button', { name: 'Send prompt' })
+    expect(plus.nextElementSibling).toBe(send)
   })
 })
