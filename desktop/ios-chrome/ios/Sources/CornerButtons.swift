@@ -16,12 +16,6 @@ struct CornerButtons: View {
   var body: some View {
     GlassEffectContainer(spacing: 8) {
       HStack(spacing: 8) {
-        // Only on the chat itself: the IDE carries no `ide` button.
-        if side == "trailing", buttons.contains(where: { $0.id == "ide" }),
-          let context = model.context, let percent = context.percent
-        {
-          ContextMeter(state: context, percent: percent, send: model.send, present: model.present)
-        }
         ForEach(buttons.filter { $0.side == side }) { button in
           GlassCircle(
             icon: button.icon, label: button.label, enabled: button.enabled,

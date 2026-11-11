@@ -203,16 +203,6 @@ export type NativeTabs = {
   newTabActions: { id: string; title: string; icon: string }[]
 }
 
-/** The visible chat's context meter, drawn beside the IDE button. `percent` null hides it: the
- *  provider has not reported usage, which is not the same as 0%. */
-// A type, not an interface, for invoke's args (see NativeSidebar).
-export type NativeContext = {
-  percent: number | null
-  usedLabel: string
-  canCompact: boolean
-  compacting: boolean
-}
-
 /** The composer's model and effort picker, drawn as a native sheet. */
 // A type, not an interface, for invoke's args (see NativeSidebar).
 export type NativeModelPicker = {
@@ -229,6 +219,11 @@ export type NativeModelPicker = {
   /** The selected model's effort levels, in order; empty hides the effort control. */
   efforts: string[]
   effort: string | null
+  /** The chat's permission level and the levels its provider offers; null hides the section. */
+  permission: {
+    levels: { value: PermissionLevel; label: string }[]
+    level: PermissionLevel | ''
+  } | null
 }
 
 // Types, not interfaces, for invoke's args (see NativeSidebar).
@@ -279,9 +274,9 @@ export type NativeChromeIntent =
   | { type: 'selectTab'; id: string }
   | { type: 'closeTab'; id: string }
   | { type: 'newTab'; actionId: string }
-  | { type: 'compact' }
   | { type: 'selectModel'; providerId: string; modelId: string }
   | { type: 'setEffort'; effort: string }
+  | { type: 'setPermissionLevel'; level: PermissionLevel }
   | { type: 'closeModelPicker' }
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
@@ -334,12 +329,6 @@ export function setNativeFiles(files: NativeFiles): void {
 export function setNativeTabs(tabs: NativeTabs): void {
   if (!hasNativeChrome()) return
   void invoke(`plugin:${PLUGIN}|set_tabs`, tabs)
-}
-
-/** Replaces the context meter's content. */
-export function setNativeContext(context: NativeContext): void {
-  if (!hasNativeChrome()) return
-  void invoke(`plugin:${PLUGIN}|set_context`, context)
 }
 
 /** Replaces the model picker's content. */

@@ -21,6 +21,19 @@ struct PickerSelection: Decodable, Equatable {
   let modelId: String
 }
 
+struct PickerPermissionLevel: Decodable, Identifiable, Equatable {
+  let value: String
+  let label: String
+  var id: String { value }
+}
+
+/// The chat's permission level and the levels its provider offers.
+struct PickerPermission: Decodable, Equatable {
+  let levels: [PickerPermissionLevel]
+  /// Empty while the chat's level is not known yet.
+  let level: String
+}
+
 /// The composer's model and effort picker, as `set_model_picker` hands it over.
 struct ModelPickerState: Decodable, Equatable {
   let open: Bool
@@ -28,12 +41,13 @@ struct ModelPickerState: Decodable, Equatable {
   let selected: PickerSelection?
   let efforts: [String]
   let effort: String?
+  let permission: PickerPermission?
 }
 
 /// What the web last handed the picker, with each provider's icon decoded once.
 final class ModelPickerModel: ObservableObject {
   @Published var state = ModelPickerState(
-    open: false, providers: [], selected: nil, efforts: [], effort: nil)
+    open: false, providers: [], selected: nil, efforts: [], effort: nil, permission: nil)
   private(set) var icons: [String: UIImage] = [:]
   var send: (ChromeIntent) -> Void = { _ in }
 
@@ -67,6 +81,9 @@ struct ModelPickerSheet: View {
     NavigationStack {
       List {
         if !model.state.efforts.isEmpty { effort }
+        if let permission = model.state.permission, !permission.levels.isEmpty {
+          permissionSection(permission)
+        }
         ForEach(matches) { provider in
           Section {
             ForEach(provider.models) { item in row(item, of: provider) }
@@ -123,6 +140,29 @@ struct ModelPickerSheet: View {
       .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
     } header: {
       Text("Effort").foregroundStyle(secondaryText)
+    }
+    .listRowBackground(palette?.raised)
+  }
+
+  private func permissionSection(_ permission: PickerPermission) -> some View {
+    Section {
+      ForEach(permission.levels) { item in
+        Button {
+          Haptics.select()
+          model.send(.of("setPermissionLevel", ["level": item.value]))
+        } label: {
+          HStack {
+            Text(item.label).foregroundStyle(text)
+            Spacer()
+            if item.value == permission.level { PhosphorIcon(.check, size: 18) }
+          }
+          .contentShape(.rect)
+        }
+        .tint(text)
+        .accessibilityAddTraits(item.value == permission.level ? .isSelected : [])
+      }
+    } header: {
+      Text("Permission").foregroundStyle(secondaryText)
     }
     .listRowBackground(palette?.raised)
   }

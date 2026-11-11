@@ -72,14 +72,6 @@ class ChromePlugin: Plugin {
     }
   }
 
-  @objc public func setContext(_ invoke: Invoke) throws {
-    let state = try invoke.parseArgs(ContextState.self)
-    DispatchQueue.main.async {
-      if #available(iOS 26.0, *) { self.mounted()?.applyContext(state) }
-      invoke.resolve()
-    }
-  }
-
   @objc public func setTabs(_ invoke: Invoke) throws {
     let state = try invoke.parseArgs(TabsState.self)
     DispatchQueue.main.async {

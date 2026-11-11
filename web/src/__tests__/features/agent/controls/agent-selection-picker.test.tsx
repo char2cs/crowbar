@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { NativeChromeIntent, NativeModelPicker } from '@/lib/native-chrome'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const chrome = vi.hoisted(() => ({
   on: false,
@@ -16,6 +17,16 @@ vi.mock('@/lib/native-chrome', () => ({
     return () => chrome.listeners.delete(cb)
   },
 }))
+
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+const setLevel = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPermissionLevel: setLevel }))
 
 const { AgentSelectionPicker } = await import('@/features/agent/controls/agent-selection-picker')
 
@@ -380,6 +391,67 @@ describe('AgentSelectionPicker', () => {
       send({ type: 'setEffort', effort: 'high' })
       expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'high')
       expect(last().open).toBe(true)
+    })
+  })
+
+  describe('permission level on the phone', () => {
+    const permission = {
+      wsId: 'w1',
+      chatId: 'c1',
+      levels: ['guarded' as const, 'trusted' as const],
+    }
+    const send = (intent: NativeChromeIntent) =>
+      act(() => chrome.listeners.forEach((listener) => listener(intent)))
+    beforeEach(() => {
+      resetChatStore()
+      writeChat({ id: 'c1', permissionLevel: 'trusted' })
+      setLevel.mockClear()
+    })
+    afterEach(() => {
+      chrome.on = false
+      platform.mobile = false
+      chrome.pushed.length = 0
+      chrome.listeners.clear()
+    })
+
+    it('hands the native sheet the declared levels and the current one', async () => {
+      chrome.on = true
+      platform.mobile = true
+      draw({ permission })
+      openMenu()
+      await waitFor(() => expect(chrome.pushed.at(-1)?.open).toBe(true))
+      expect(chrome.pushed.at(-1)?.permission).toEqual({
+        levels: [
+          { value: 'guarded', label: 'Guarded' },
+          { value: 'trusted', label: 'Trusted' },
+        ],
+        level: 'trusted',
+      })
+    })
+
+    it('writes a level picked natively and keeps the sheet open', async () => {
+      chrome.on = true
+      platform.mobile = true
+      draw({ permission })
+      openMenu()
+      await waitFor(() => expect(chrome.pushed.at(-1)?.open).toBe(true))
+      send({ type: 'setPermissionLevel', level: 'guarded' })
+      expect(setLevel).toHaveBeenCalledWith('w1', 'c1', 'guarded')
+      expect(chrome.pushed.at(-1)?.open).toBe(true)
+    })
+
+    it('offers the same choice in the web menu where there is no native sheet', () => {
+      platform.mobile = true
+      draw({ permission })
+      openMenu()
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Guarded' }))
+      expect(setLevel).toHaveBeenCalledWith('w1', 'c1', 'guarded')
+    })
+
+    it('offers none on the desktop, where the footer chip owns it', () => {
+      draw({ permission })
+      openMenu()
+      expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
     })
   })
 })

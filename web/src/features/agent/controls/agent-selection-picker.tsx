@@ -3,10 +3,15 @@ import { MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { Dropdown } from '@/components/ui/dropdown'
 import { Input } from '@/components/ui/input'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import type { AgentProvider, PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import {
+  usePermissionLevel,
+  type PermissionTarget,
+} from '@/features/agent/composer/permission-level-switcher'
 import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 import { hasNativeChrome } from '@/lib/native-chrome'
+import { IS_MOBILE } from '@/utils/platform'
 import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
 import { NativeModelPicker } from './native-model-picker'
 
@@ -32,6 +37,8 @@ export interface AgentSelectionPickerProps {
   /** The model the last turn reported, shown beside an unset label. Display only:
    *  substituting it for `model` would break the `efforts['']` lookup. */
   reportedModel?: string
+  /** On the phone the chat's permission level is chosen inside this picker, not in the footer. */
+  permission?: PermissionTarget
 }
 
 interface ModelRow {
@@ -261,6 +268,40 @@ function EffortSlider({
   )
 }
 
+/** The phone's web fallback for the native sheet's level section. */
+function PermissionRadios({
+  options,
+  level,
+  onPick,
+}: {
+  options: { value: PermissionLevel; label: string }[]
+  level: PermissionLevel | ''
+  onPick: (level: PermissionLevel) => void
+}) {
+  return (
+    <div role="group" aria-label="Permission level" className="border-border/60 border-t p-1">
+      <div className="ui-font ui-text-sm px-2.5 py-1 text-muted-foreground">Permission</div>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="menuitemradio"
+          aria-checked={opt.value === level}
+          onClick={() => onPick(opt.value)}
+          className="ui-font ui-text-sm flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-foreground hover:bg-muted"
+        >
+          {opt.value === level ? (
+            <CheckIcon size={12} className="shrink-0" />
+          ) : (
+            <span className="inline-block size-3 shrink-0" />
+          )}
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** One menu: picking a model picks its provider (providers are sections), and
  *  effort sits at the foot as a property of the current model. A provider with
  *  no catalogue contributes nothing — never a disabled control. */
@@ -273,6 +314,7 @@ export function AgentSelectionPicker({
   onSelectionChange,
   unsetLabel = 'unset',
   reportedModel,
+  permission,
 }: AgentSelectionPickerProps) {
   const modelLabel = model || unsetLabel
   const effortLabelText = effort || unsetLabel
@@ -282,6 +324,9 @@ export function AgentSelectionPicker({
   const [highlight, setHighlight] = useState(0)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const level = usePermissionLevel(IS_MOBILE && isOpen && permission ? permission : null)
+  const permissionChoice =
+    level.options.length > 0 ? { ...level, onPick: level.setLevel } : undefined
 
   // An uninstalled CLI cannot spawn; a disabled one the user asked not to see.
   const offered = useMemo(
@@ -405,6 +450,7 @@ export function AgentSelectionPicker({
           provider={provider}
           model={model}
           effort={effort}
+          permission={permissionChoice}
           onSelectionChange={onSelectionChange}
           onClose={close}
         />
@@ -448,6 +494,13 @@ export function AgentSelectionPicker({
               defaultEffort={provider?.defaultEfforts?.[model] ?? ''}
               onPick={pickEffort}
             />
+            {permissionChoice && (
+              <PermissionRadios
+                options={permissionChoice.options}
+                level={permissionChoice.level}
+                onPick={permissionChoice.onPick}
+              />
+            )}
           </div>
         </Dropdown>
       )}

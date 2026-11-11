@@ -1,72 +1,74 @@
+import { useCallback, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
-import { cn } from '@/lib/utils'
+import { Dropdown } from '@/components/ui/dropdown'
+import { IS_MOBILE } from '@/utils/platform'
 
 /** Past this, a compaction is imminent. */
 const WARN_AT = 85
 
-/** No bar until the provider reports: "not reported" is not 0%. Compaction is an
- *  unrelated capability, so it is still offered bar-less without a report. */
+/** The footer's context-usage pill. Nothing until the provider reports: "not reported" is not 0%.
+ *  Compaction is an unrelated capability, so `onCompact` offers it from the pill's menu (alone,
+ *  without a report); absent means not offered, never a disabled control. */
 export function AgentContextGauge({
   telemetry,
   onCompact,
 }: {
   telemetry: AgentTelemetry | null
-  /** Absent when compaction can't be offered now: absence, never a disabled button. */
   onCompact?: () => void
 }) {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
   const used = telemetry?.context?.usedPercent
-  if (used === undefined) {
-    if (!onCompact) return null
-    return (
-      <button
-        type="button"
-        className="gauge chip compact-only"
-        title="Compact the conversation"
-        data-testid="agent-context-gauge"
-        onClick={onCompact}
-      >
-        Compact
-      </button>
-    )
-  }
-  const pct = Math.max(0, Math.min(100, used))
-  const bar = (
-    <span className={cn('gbar', pct >= WARN_AT && 'warn')}>
-      <span style={{ width: `${pct}%` }} />
-    </span>
-  )
-  const title = contextTitle(telemetry)
 
-  if (!onCompact) {
-    return (
-      <span className="gauge" title={title} data-testid="agent-context-gauge">
-        {bar}
-        {Math.round(used)}% context
-      </span>
+  if (used === undefined && !onCompact) return null
+  const pct = used === undefined ? undefined : Math.max(0, Math.min(100, used))
+  const body =
+    pct === undefined ? (
+      'Compact'
+    ) : (
+      <>
+        <i className="ctx-ring" style={{ '--p': pct } as CSSProperties} />
+        <b>{Math.round(pct)}%</b>
+        {!IS_MOBILE && <span>context</span>}
+      </>
     )
+  const shared = {
+    className: 'ctx-pill',
+    'data-testid': 'agent-context-gauge',
+    'data-level': pct !== undefined && pct >= WARN_AT ? 'warn' : undefined,
+    title: contextTitle(telemetry),
   }
+  if (!onCompact) return <span {...shared}>{body}</span>
 
   return (
-    <button
-      type="button"
-      className="gauge chip"
-      title={title}
-      data-testid="agent-context-gauge"
-      onClick={onCompact}
-    >
-      {/* `.gaction` paints over the bar on hover so it never widens the row. */}
-      <span className="gstack">
-        {bar}
-        <span className="gaction">Compact</span>
-      </span>
-      <span className="gpct">{Math.round(used)}% context</span>
-    </button>
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        {...shared}
+        aria-haspopup={pct === undefined ? undefined : 'menu'}
+        aria-expanded={pct === undefined ? undefined : open}
+        onClick={() => (pct === undefined ? onCompact() : setOpen((was) => !was))}
+      >
+        {body}
+      </button>
+      <Dropdown
+        isOpen={open}
+        onClose={close}
+        anchorRef={anchorRef}
+        anchorSide="top"
+        anchorAlign="end"
+        items={[{ id: 'compact', label: 'Compact conversation', onClick: onCompact }]}
+      />
+    </>
   )
 }
 
 function contextTitle(telemetry: AgentTelemetry | null): string {
   const context = telemetry?.context
-  if (!context) return ''
+  if (!context) return 'Compact the conversation'
   const parts: string[] = []
   if (context.usedTokens !== undefined && context.capacityTokens !== undefined) {
     parts.push(

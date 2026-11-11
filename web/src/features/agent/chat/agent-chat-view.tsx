@@ -36,7 +36,6 @@ import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
 import { useChatTelemetry } from '@/features/agent/hooks/use-chat-entity'
-import { useNativeContext } from '@/features/agent/hooks/use-native-context'
 import {
   getScrollPosition,
   setScrollPosition,
@@ -208,7 +207,6 @@ export function AgentChatView({
     declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
   const idle = !!provider?.compaction && live && !compacting && !working && !onTerminalSurface
   const onCompact = offeredCompact(wsId, chatId, idle)
-  useNativeContext({ visible, telemetry, compacting, onCompact })
 
   // A chat recording no agent cannot start; it says what would let it.
   const agentNote =
@@ -310,6 +308,7 @@ export function AgentChatView({
     showSwitcher: presentation !== 'terminal' && provider?.hasTerminal !== false,
     handoverBlocked: !provider?.hotswap && working,
     switchDisabled,
+    permission: { wsId, chatId, levels: provider?.permissionLevels },
     onSelectionChange,
     onSelectPresentation,
   }
@@ -420,7 +419,7 @@ export function AgentChatView({
                 ...selection,
                 model: shownModel,
                 telemetry,
-                queued: prompts.waiting,
+                compacting,
                 onCompact,
               }}
             />

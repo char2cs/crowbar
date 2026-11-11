@@ -1,5 +1,6 @@
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
+import type { PermissionTarget } from '@/features/agent/composer/permission-level-switcher'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
@@ -15,6 +16,8 @@ export interface SelectionClusterProps {
   showSwitcher?: boolean
   handoverBlocked?: boolean
   switchDisabled?: boolean
+  /** Offered inside the model picker's phone sheet. */
+  permission?: PermissionTarget
   onSelectionChange: (provider: string, model: string, effort: string) => void
   onSelectPresentation: (next: ChatPresentation) => void
 }
@@ -32,6 +35,7 @@ export function SelectionCluster({
   showSwitcher,
   handoverBlocked,
   switchDisabled,
+  permission,
   onSelectionChange,
   onSelectPresentation,
 }: SelectionClusterProps) {
@@ -46,6 +50,7 @@ export function SelectionCluster({
         effort={effort}
         reportedModel={reportedModel}
         disabled={switchDisabled}
+        permission={permission}
         onSelectionChange={onSelectionChange}
         // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"

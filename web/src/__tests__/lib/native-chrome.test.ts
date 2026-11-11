@@ -127,6 +127,7 @@ describe('setNativeModelPicker', () => {
       selected: null,
       efforts: ['low', 'high'],
       effort: 'low',
+      permission: null,
     }
     setNativeModelPicker(picker)
     expect(host.invoke).toHaveBeenCalledWith('plugin:crowbar-chrome|set_model_picker', picker)

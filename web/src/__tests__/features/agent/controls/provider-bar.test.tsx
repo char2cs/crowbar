@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@/utils/platform', async (importOriginal) => ({
@@ -11,6 +12,10 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
     return platform.mobile
   },
 }))
+beforeEach(() => {
+  resetChatStore()
+  writeChat({ id: 'c1', permissionLevel: 'trusted' })
+})
 afterEach(() => {
   platform.mobile = false
 })
@@ -36,7 +41,7 @@ const telemetry: AgentTelemetry = {
   context: { usedPercent: 61 },
 }
 
-function renderBar(onCompact?: () => void) {
+function renderBar(props: Partial<React.ComponentProps<typeof ProviderBar>> = {}) {
   return render(
     <ProviderBar
       provider={provider}
@@ -48,44 +53,71 @@ function renderBar(onCompact?: () => void) {
       splitEnabled={false}
       onSelectionChange={vi.fn()}
       onSelectPresentation={vi.fn()}
-      onCompact={onCompact}
+      {...props}
     />,
   )
 }
 
-// ProviderBar's own doc: "what this chat has SPENT, and the one gesture that
-// spends less" — onCompact is the thread from AgentChatView's own gating
-// (provider capability, live, not already compacting) down to the one
-// element that offers it. This only has to prove the thread is intact; the
-// gauge's own button-vs-span behavior is context-gauge.test.tsx's subject.
+const permission = { wsId: 'w1', chatId: 'c1', levels: ['guarded', 'trusted'] as const }
+
+// The footer line: model chip, permission chip (desktop only), and at the right the context pill.
 describe('ProviderBar', () => {
-  it('passes onCompact through to the context gauge unchanged', () => {
+  it('passes onCompact through to the context pill’s Compact item', () => {
     const onCompact = vi.fn()
-    renderBar(onCompact)
+    renderBar({ onCompact })
 
     fireEvent.click(screen.getByTestId('agent-context-gauge'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Compact conversation' }))
     expect(onCompact).toHaveBeenCalledTimes(1)
   })
 
-  // The phone's meter is native, beside the IDE button; under the composer only the picker stays.
-  it('draws no context gauge on the phone', () => {
-    platform.mobile = true
-    renderBar(vi.fn())
-    expect(screen.queryByTestId('agent-context-gauge')).not.toBeInTheDocument()
+  it('leaves the pill a plain report when the caller offers no onCompact', () => {
+    renderBar()
+    expect(screen.getByTestId('agent-context-gauge').tagName).toBe('SPAN')
   })
 
-  // The phone's picker is drawn at the composer's touch scale (composer-pill.css `[data-touch]`).
-  it('draws the picker row at the touch scale on the phone only', () => {
+  it('draws the same context pill on the phone, short', () => {
+    platform.mobile = true
+    renderBar({ onCompact: vi.fn() })
+    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^61%$/)
+  })
+
+  // The phone's level choice lives in the model picker sheet instead.
+  it('draws the permission chip on the desktop only', () => {
+    renderBar({ permission: { ...permission, levels: [...permission.levels] } })
+    expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent('Trusted')
+    platform.mobile = true
+    document.body.innerHTML = ''
+    renderBar({ permission: { ...permission, levels: [...permission.levels] } })
+    expect(screen.queryByTestId('chat-permission-level-chip')).not.toBeInTheDocument()
+  })
+
+  it('names compaction at the right of the line only while it runs', () => {
+    const { rerender } = renderBar({ compacting: true })
+    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+    rerender(
+      <ProviderBar
+        provider={provider}
+        providers={[provider]}
+        model=""
+        effort=""
+        telemetry={telemetry}
+        presentation="chat"
+        splitEnabled={false}
+        onSelectionChange={vi.fn()}
+        onSelectPresentation={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText('Compacting…')).not.toBeInTheDocument()
+  })
+
+  // The phone's controls are drawn at the composer's touch scale (composer-pill.css `[data-touch]`).
+  it('draws the row at the touch scale on the phone only', () => {
     const desktop = renderBar().container.querySelector('.underbar')
     expect(desktop).not.toHaveAttribute('data-touch')
     platform.mobile = true
     const phone = renderBar().container.querySelector('.underbar')
     expect(phone).toHaveAttribute('data-touch')
-  })
-
-  it('leaves the gauge non-interactive when the caller offers no onCompact', () => {
-    renderBar(undefined)
-    expect(screen.getByTestId('agent-context-gauge').tagName).toBe('SPAN')
   })
 
   it('passes reportedModel through to the selection cluster unchanged', () => {
@@ -94,20 +126,11 @@ describe('ProviderBar', () => {
       modelSelect: true,
       models: ['sonnet'],
     }
-    render(
-      <ProviderBar
-        provider={selectableProvider}
-        providers={[selectableProvider]}
-        model=""
-        effort=""
-        reportedModel="Claude Sonnet 4.5"
-        telemetry={telemetry}
-        presentation="chat"
-        splitEnabled={false}
-        onSelectionChange={vi.fn()}
-        onSelectPresentation={vi.fn()}
-      />,
-    )
+    renderBar({
+      provider: selectableProvider,
+      providers: [selectableProvider],
+      reportedModel: 'Claude Sonnet 4.5',
+    })
     expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Claude Sonnet 4.5')
   })
 })

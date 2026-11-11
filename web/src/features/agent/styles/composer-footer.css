@@ -1,5 +1,5 @@
 /* ── the row under the pill ────────────────────────────── */
-/* Never wraps: a wrapped `.right` (queued count, context gauge/Compact) lands at or past the
+/* Never wraps: a wrapped `.right` (compaction label, context pill) lands at or past the
    dock's bottom edge at narrow widths. `.right` holds the row; `.left` shrinks and clips. */
 .agent-chat .underbar {
   display: flex;
@@ -20,7 +20,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  /* Never break "N queued" or "NN% context" mid-word — a group that doesn't
+  /* Never break "NN% context" mid-word — a group that doesn't
      fit moves to the next line whole, it doesn't fold in place. */
   white-space: nowrap;
 }
@@ -82,53 +82,80 @@
   cursor: default;
 }
 
-.agent-chat .gauge {
+/* The context pill at the right end of the line: a conic ring and the percentage. At 85% the ring
+   turns to the warning colour. A plain span reports; a button opens the Compact menu. */
+.agent-chat .ctx-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: 24px;
+  padding: 0 9px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: none;
+  font-family: inherit;
+  font-size: var(--ui-text-xs);
+  line-height: 1;
+  color: var(--muted-foreground);
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.agent-chat .gbar {
-  width: 44px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--muted);
-  overflow: hidden;
+.agent-chat button.ctx-pill {
+  cursor: pointer;
 }
-.agent-chat .gbar > span {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: color-mix(in oklch, var(--foreground) 42%, transparent);
-  transition: width 0.3s ease;
-}
-.agent-chat .gbar.warn > span {
-  background: var(--warning);
-}
-/* The gauge as a button, rendered only when compaction is offered (context-gauge.tsx). `.gstack`
-   overlays `.gaction` on the bar in one grid cell, revealed on hover, so it never widens the row
-   (the cell already fits "Compact"). */
-.gauge .gstack {
-  display: grid;
-}
-.gauge .gstack > * {
-  grid-area: 1 / 1;
-  align-self: center;
-  justify-self: center;
-}
-.gauge .gaction {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  opacity: 0;
-  transition:
-    opacity 0.15s ease,
-    color 0.15s ease;
-}
-.gauge.chip:hover:not(:disabled) .gaction {
-  opacity: 1;
+.agent-chat button.ctx-pill:hover {
+  background: var(--accent);
   color: var(--foreground);
+}
+.agent-chat .ctx-pill b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.agent-chat .ctx-ring {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--primary) calc(var(--p) * 1%),
+    color-mix(in oklch, var(--foreground) 14%, transparent) 0
+  );
+  mask-image: radial-gradient(circle, transparent 4px, #000 4.5px);
+}
+.agent-chat .ctx-pill[data-level='warn'] .ctx-ring {
+  background: conic-gradient(
+    var(--warning) calc(var(--p) * 1%),
+    color-mix(in oklch, var(--foreground) 14%, transparent) 0
+  );
+}
+.agent-chat .ctx-compacting {
+  padding: 0 8px;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  color: var(--primary);
+}
+/* The phone's footer is a row of 44px targets. */
+.agent-chat .underbar[data-touch] {
+  min-height: 44px;
+  padding-top: 2px;
+  font-size: 13px;
+}
+.agent-chat .underbar[data-touch] .ctx-pill {
+  height: 32px;
+  padding: 0 11px 0 8px;
+  font-size: 13px;
+  gap: 7px;
+}
+.agent-chat .underbar[data-touch] .ctx-ring {
+  width: 15px;
+  height: 15px;
+  mask-image: radial-gradient(circle, transparent 5px, #000 5.5px);
+}
+.agent-chat .underbar[data-touch] .ctx-compacting {
+  padding: 0 4px;
+  font-size: 13px;
+}
+.agent-chat .underbar[data-touch] .chip {
+  height: 44px;
 }
 
 /* ── the view switcher (ui/tabs pill variant) ──────────── */

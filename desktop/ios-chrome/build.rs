@@ -6,7 +6,6 @@ const COMMANDS: &[&str] = &[
     "set_host_picker",
     "set_files",
     "set_tabs",
-    "set_context",
     "set_model_picker",
     "confirm",
     "prompt",

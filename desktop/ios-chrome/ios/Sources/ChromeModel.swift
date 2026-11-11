@@ -165,7 +165,6 @@ final class ChromeModel: ObservableObject {
   // Kept after the web closes the sheet, so it slides away showing what it showed.
   @Published var connect: ConnectState?
   @Published var headers = ChromeHeaders(chat: [], ide: [])
-  @Published var context: ContextState?
   var send: (ChromeIntent) -> Void = { _ in }
   /// Shows a native dialog over whatever is up.
   var present: (UIViewController) -> Void = { _ in }

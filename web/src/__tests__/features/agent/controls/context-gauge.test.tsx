@@ -1,12 +1,25 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+afterEach(() => {
+  platform.mobile = false
+})
+
 function telemetry(overrides: Partial<AgentTelemetry> = {}): AgentTelemetry {
   return { observedAt: '2026-08-24T12:00:00Z', source: 'callback', ...overrides }
 }
+
+const reported = (usedPercent: number) => telemetry({ context: { usedPercent } })
 
 describe('AgentContextGauge', () => {
   // "Not reported" and "zero" are different facts, and a confident 0% over the
@@ -21,32 +34,34 @@ describe('AgentContextGauge', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows the percentage the provider itself reported', () => {
-    render(<AgentContextGauge telemetry={telemetry({ context: { usedPercent: 61 } })} />)
-    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent('61% context')
+  it('says "N% context" on the desktop and just "N%" on the phone', () => {
+    const { unmount } = render(<AgentContextGauge telemetry={reported(38)} />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^38%context$/)
+    unmount()
+    platform.mobile = true
+    render(<AgentContextGauge telemetry={reported(38)} />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^38%$/)
   })
 
-  it('rounds for the label but fills the bar with what it was given', () => {
-    render(<AgentContextGauge telemetry={telemetry({ context: { usedPercent: 61.4 } })} />)
-    const gauge = screen.getByTestId('agent-context-gauge')
-    expect(gauge).toHaveTextContent('61% context')
-    expect(gauge.querySelector('.gbar > span')).toHaveStyle({ width: '61.4%' })
-  })
-
-  it('warns once a compaction is imminent', () => {
-    const { rerender } = render(
-      <AgentContextGauge telemetry={telemetry({ context: { usedPercent: 84 } })} />,
-    )
-    expect(screen.getByTestId('agent-context-gauge').querySelector('.gbar')).not.toHaveClass('warn')
-    rerender(<AgentContextGauge telemetry={telemetry({ context: { usedPercent: 92 } })} />)
-    expect(screen.getByTestId('agent-context-gauge').querySelector('.gbar')).toHaveClass('warn')
+  it('fills the ring with what it was given and rounds only the label', () => {
+    render(<AgentContextGauge telemetry={reported(61.4)} />)
+    const pill = screen.getByTestId('agent-context-gauge')
+    expect(pill).toHaveTextContent('61%')
+    expect(pill.querySelector('.ctx-ring')).toHaveStyle({ '--p': '61.4' })
   })
 
   it('never paints past full on a provider that over-reports', () => {
-    render(<AgentContextGauge telemetry={telemetry({ context: { usedPercent: 140 } })} />)
-    expect(screen.getByTestId('agent-context-gauge').querySelector('.gbar > span')).toHaveStyle({
-      width: '100%',
+    render(<AgentContextGauge telemetry={reported(140)} />)
+    expect(screen.getByTestId('agent-context-gauge').querySelector('.ctx-ring')).toHaveStyle({
+      '--p': '100',
     })
+  })
+
+  it('warns once a compaction is imminent', () => {
+    const { rerender } = render(<AgentContextGauge telemetry={reported(84)} />)
+    expect(screen.getByTestId('agent-context-gauge')).not.toHaveAttribute('data-level', 'warn')
+    rerender(<AgentContextGauge telemetry={reported(85)} />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveAttribute('data-level', 'warn')
   })
 
   it('carries the tokens, the limit windows and the cost in its title', () => {
@@ -65,94 +80,33 @@ describe('AgentContextGauge', () => {
     expect(title).toContain('$0.4213')
   })
 
-  // The one gesture that spends less — offered on the same element already
-  // reporting why someone would reach for it, rather than a second control.
-  describe('onCompact', () => {
-    it('stays the plain, non-interactive report when compaction is not offered', () => {
-      render(<AgentContextGauge telemetry={telemetry({ context: { usedPercent: 61 } })} />)
-      const gauge = screen.getByTestId('agent-context-gauge')
-      expect(gauge.tagName).toBe('SPAN')
+  describe('compaction', () => {
+    it('is a plain report when compaction is not offered', () => {
+      render(<AgentContextGauge telemetry={reported(61)} />)
+      expect(screen.getByTestId('agent-context-gauge').tagName).toBe('SPAN')
     })
 
-    it('becomes a real button the instant a handler is offered — never a disabled one', () => {
-      render(
-        <AgentContextGauge
-          telemetry={telemetry({ context: { usedPercent: 61 } })}
-          onCompact={() => {}}
-        />,
-      )
-      const gauge = screen.getByTestId('agent-context-gauge')
-      expect(gauge.tagName).toBe('BUTTON')
-      expect(gauge).not.toBeDisabled()
-    })
-
-    it('calls onCompact on click, and nothing else', () => {
+    it('is a menu button once offered, whose Compact item runs it and closes the menu', async () => {
       const onCompact = vi.fn()
-      render(
-        <AgentContextGauge
-          telemetry={telemetry({ context: { usedPercent: 61 } })}
-          onCompact={onCompact}
-        />,
-      )
-      fireEvent.click(screen.getByTestId('agent-context-gauge'))
+      render(<AgentContextGauge telemetry={reported(61)} onCompact={onCompact} />)
+      const pill = screen.getByTestId('agent-context-gauge')
+      expect(pill.tagName).toBe('BUTTON')
+      expect(onCompact).not.toHaveBeenCalled()
+
+      fireEvent.click(pill)
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Compact conversation' }))
       expect(onCompact).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(screen.queryByRole('menuitem')).not.toBeInTheDocument())
     })
 
-    it('still carries the bar and the percentage — the button IS the gauge, not a second control beside it', () => {
-      render(
-        <AgentContextGauge
-          telemetry={telemetry({ context: { usedPercent: 61.4 } })}
-          onCompact={() => {}}
-        />,
-      )
-      const gauge = screen.getByTestId('agent-context-gauge')
-      expect(gauge).toHaveTextContent('61% context')
-      expect(gauge.querySelector('.gbar > span')).toHaveStyle({ width: '61.4%' })
-    })
-
-    // User call: Compact overlays the BAR on hover (CSS makes it hidden at
-    // rest — see composer.test.ts), not the percentage text beside it.
-    it('places .gaction in the same stack as .gbar, not beside .gpct', () => {
-      render(
-        <AgentContextGauge
-          telemetry={telemetry({ context: { usedPercent: 61 } })}
-          onCompact={() => {}}
-        />,
-      )
-      const gauge = screen.getByTestId('agent-context-gauge')
-      const gbar = gauge.querySelector('.gbar')
-      const gaction = gauge.querySelector('.gaction')
-      const gpct = gauge.querySelector('.gpct')
-      expect(gaction?.parentElement).toBe(gbar?.parentElement)
-      expect(gaction?.parentElement).not.toBe(gpct?.parentElement)
-    })
-  })
-
-  // Compact is gated on the provider's capability, not telemetry, so a missing usage report
-  // (never sent, or wiped by a daemon restart) must not take the Compact control down with it.
-  describe('onCompact with no usage report', () => {
-    it('still renders nothing when neither a report nor compaction is offered', () => {
-      const { container } = render(<AgentContextGauge telemetry={null} />)
-      expect(container).toBeEmptyDOMElement()
-    })
-
-    it('offers Compact even though there is no usage report to show', () => {
-      render(<AgentContextGauge telemetry={null} onCompact={() => {}} />)
-      const gauge = screen.getByTestId('agent-context-gauge')
-      expect(gauge.tagName).toBe('BUTTON')
-      expect(gauge).not.toBeDisabled()
-      expect(gauge).toHaveTextContent('Compact')
-    })
-
-    it('never invents a 0% bar for the unreported chat', () => {
-      render(<AgentContextGauge telemetry={null} onCompact={() => {}} />)
-      expect(screen.getByTestId('agent-context-gauge').querySelector('.gbar')).toBeNull()
-    })
-
-    it('calls onCompact on click with no report present', () => {
+    // Compaction is a provider capability, not telemetry: a wiped usage report must not take it down.
+    it('still offers Compact, and no invented 0% ring, when there is no usage report', () => {
       const onCompact = vi.fn()
-      render(<AgentContextGauge telemetry={telemetry()} onCompact={onCompact} />)
-      fireEvent.click(screen.getByTestId('agent-context-gauge'))
+      render(<AgentContextGauge telemetry={null} onCompact={onCompact} />)
+      const pill = screen.getByTestId('agent-context-gauge')
+      expect(pill).toHaveTextContent('Compact')
+      expect(pill.querySelector('.ctx-ring')).toBeNull()
+      fireEvent.click(pill)
       expect(onCompact).toHaveBeenCalledTimes(1)
     })
   })

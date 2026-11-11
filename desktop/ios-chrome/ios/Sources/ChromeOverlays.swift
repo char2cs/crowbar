@@ -150,10 +150,6 @@ final class ChromeOverlays {
     settingsModel.applyHosts(snapshot)
   }
 
-  func applyContext(_ state: ContextState) {
-    model.context = state
-  }
-
   func applyTabs(_ state: TabsState) {
     tabs.state = state
     // With no tab open the IDE greets with its own page; the strip is the IDE header's alone.

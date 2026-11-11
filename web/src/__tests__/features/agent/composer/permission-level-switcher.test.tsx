@@ -2,7 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
-import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
+import {
+  PermissionLevelChip,
+  PermissionLevelSwitcher,
+} from '@/features/agent/composer/permission-level-switcher'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { toast } from '@/features/window/stores/toast-store'
 import { proxyMarkerError } from '@/lib/api/errors'
@@ -115,5 +118,36 @@ describe('PermissionLevelSwitcher', () => {
     toastError.mockRestore()
     destroyHostRuntime('h1')
     resetHostWorld()
+  })
+})
+
+describe('PermissionLevelChip', () => {
+  function drawChip(chatId = 'c1', levels: PermissionLevel[] = ALL) {
+    return render(<PermissionLevelChip wsId="w1" chatId={chatId} levels={levels} />)
+  }
+
+  it('names the level the chat is pinned to on the footer chip', () => {
+    writeChat({ id: 'c1', permissionLevel: 'trusted' })
+    drawChip()
+    expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent(/^Trusted$/)
+  })
+
+  it('draws nothing when the provider declares no levels', () => {
+    const { container } = drawChip('c1', [])
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('opens as a menu of only the declared levels and PUTs the pick', async () => {
+    const user = userEvent.setup()
+    drawChip('c1', ['trusted', 'full-auto'])
+
+    await user.click(screen.getByTestId('chat-permission-level-chip'))
+    expect(screen.queryByRole('menuitem', { name: 'Guarded' })).toBeNull()
+    await user.click(await screen.findByRole('menuitem', { name: 'Full Auto' }))
+
+    expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'full-auto')
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent(/^Full Auto$/),
+    )
   })
 })

@@ -143,10 +143,15 @@ final class PayloadDecodingTests: XCTestCase {
     XCTAssertEqual(state.efforts, ["low", "high"])
   }
 
-  func testContextStateHidesMeterWithoutPercent() throws {
+  func testModelPickerStateCarriesThePermissionSection() throws {
     let state = try decode(
-      ContextState.self, #"{"usedLabel":"1k","canCompact":false,"compacting":false}"#)
-    XCTAssertNil(state.percent)
+      ModelPickerState.self,
+      """
+      {"open":true,"providers":[],"selected":null,"efforts":[],"effort":null,
+       "permission":{"levels":[{"value":"guarded","label":"Guarded"}],"level":"guarded"}}
+      """)
+    XCTAssertEqual(state.permission?.levels.map(\.label), ["Guarded"])
+    XCTAssertEqual(state.permission?.level, "guarded")
   }
 
   func testDialogOptions() throws {

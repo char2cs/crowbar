@@ -2,6 +2,10 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
+import {
+  PermissionLevelChip,
+  type PermissionTarget,
+} from '@/features/agent/composer/permission-level-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { IS_MOBILE } from '@/utils/platform'
 
@@ -22,13 +26,16 @@ interface ProviderBarProps {
   /** Exactly one switcher per pane: both surfaces stay mounted, so an
    *  unconditional one would linger hidden behind the terminal. */
   showSwitcher?: boolean
-  /** Prompts waiting behind the running turn. 0 draws nothing. */
-  queued?: number
+  /** The chat's permission level and the levels its provider offers: a chip on the desktop,
+   *  a section of the model picker sheet on the phone. */
+  permission?: PermissionTarget
+  /** The conversation is being folded: named before the pill. The input stays usable. */
+  compacting?: boolean
   onCompact?: () => void
 }
 
-/** Every control renders nothing when the provider declares nothing — never a
- *  disabled control. `.underbar .left`'s negative margin aligns it to the composer. */
+/** The footer line under the pill. Every control renders nothing when the provider declares
+ *  nothing — never a disabled control. */
 export function ProviderBar({
   provider,
   providers,
@@ -43,7 +50,8 @@ export function ProviderBar({
   onSelectionChange,
   onSelectPresentation,
   showSwitcher,
-  queued = 0,
+  permission,
+  compacting,
   onCompact,
 }: ProviderBarProps) {
   return (
@@ -60,14 +68,15 @@ export function ProviderBar({
           showSwitcher={showSwitcher}
           handoverBlocked={handoverBlocked}
           switchDisabled={switchDisabled}
+          permission={permission}
           onSelectionChange={onSelectionChange}
           onSelectPresentation={onSelectPresentation}
         />
+        {!IS_MOBILE && permission && <PermissionLevelChip {...permission} />}
       </div>
       <div className="right">
-        {queued > 0 && <span>{queued} queued</span>}
-        {/* The phone draws its meter natively, beside the IDE button (use-native-context). */}
-        {!IS_MOBILE && <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />}
+        {compacting && <span className="ctx-compacting">Compacting…</span>}
+        <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />
       </div>
     </div>
   )
