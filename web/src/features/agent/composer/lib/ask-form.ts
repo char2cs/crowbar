@@ -85,26 +85,27 @@ export function initialValues(fields: FormField[]): FormValues {
 
 function numberError(field: FormField, text: string): string {
   const value = Number(text)
-  if (Number.isNaN(value)) return `${field.key} must be a number`
+  if (Number.isNaN(value)) return `${field.label} must be a number`
   if (field.kind === 'integer' && !Number.isInteger(value))
-    return `${field.key} must be a whole number`
+    return `${field.label} must be a whole number`
   if (field.min !== undefined && value < field.min)
-    return `${field.key} must be at least ${field.min}`
+    return `${field.label} must be at least ${field.min}`
   if (field.max !== undefined && value > field.max)
-    return `${field.key} must be at most ${field.max}`
+    return `${field.label} must be at most ${field.max}`
   return ''
 }
 
-/** Why a value is not acceptable yet, or '' when it is. */
-export function fieldError(field: FormField, value: string | boolean): string {
+/** Why a value is not acceptable yet, or '' when it is. Under its own field a blank required
+ *  value says just "Required"; `short` is that line. */
+export function fieldError(field: FormField, value: string | boolean, short = false): string {
   if (typeof value === 'boolean') return ''
   const text = value.trim()
-  if (text === '') return field.required ? `${field.key} is required` : ''
+  if (text === '') return field.required ? (short ? 'Required' : `${field.label} is required`) : ''
   if (field.kind === 'number' || field.kind === 'integer') return numberError(field, text)
   if (field.minLength !== undefined && text.length < field.minLength)
-    return `${field.key} needs at least ${field.minLength} characters`
+    return `${field.label} needs at least ${field.minLength} characters`
   if (field.maxLength !== undefined && text.length > field.maxLength)
-    return `${field.key} takes at most ${field.maxLength} characters`
+    return `${field.label} takes at most ${field.maxLength} characters`
   return ''
 }
 

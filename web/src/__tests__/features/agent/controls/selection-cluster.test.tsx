@@ -1,4 +1,3 @@
-import { PERMISSION_LEVEL_OPTIONS } from '@/features/agent/api/agent-providers-api'
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
@@ -19,12 +18,6 @@ afterEach(() => {
   platform.mobile = false
 })
 
-const permissionLevel = {
-  options: PERMISSION_LEVEL_OPTIONS.filter((opt) => opt.value !== 'full-auto'),
-  level: 'trusted' as const,
-  setLevel: vi.fn(),
-  cycle: vi.fn(() => true),
-}
 const permission = { wsId: 'w1', chatId: 'c1', levels: ['guarded' as const, 'trusted' as const] }
 
 // The blank document and the dock's footer both draw this cluster, so both name the permission level.
@@ -36,7 +29,6 @@ describe('SelectionCluster', () => {
         model=""
         effort=""
         permission={permission}
-        permissionLevel={permissionLevel}
         onSelectionChange={vi.fn()}
       />,
     )
@@ -51,7 +43,6 @@ describe('SelectionCluster', () => {
         model=""
         effort=""
         permission={permission}
-        permissionLevel={permissionLevel}
         onSelectionChange={vi.fn()}
       />,
     )

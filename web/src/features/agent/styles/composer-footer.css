@@ -97,7 +97,6 @@
   line-height: 1;
   color: var(--muted-foreground);
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 .agent-chat button.ctx-pill {
   cursor: pointer;

@@ -2,7 +2,6 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 import {
   PermissionLevelChip,
-  type PermissionControl,
   type PermissionTarget,
 } from '@/features/agent/composer/permission-level-switcher'
 import { IS_MOBILE } from '@/utils/platform'
@@ -18,8 +17,6 @@ export interface SelectionClusterProps {
   hot?: boolean
   /** A chip after the picker on the desktop, a section of the model picker's sheet on the phone. */
   permission?: PermissionTarget
-  /** The same choice as a footer chip: held by the chat view, which also steps it from the keyboard. */
-  permissionLevel?: PermissionControl
   onSelectionChange: (provider: string, model: string, effort: string) => void
 }
 
@@ -34,7 +31,6 @@ export function SelectionCluster({
   switchDisabled,
   hot,
   permission,
-  permissionLevel,
   onSelectionChange,
 }: SelectionClusterProps) {
   return (
@@ -53,7 +49,7 @@ export function SelectionCluster({
         // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
       />
-      {!IS_MOBILE && permissionLevel && <PermissionLevelChip control={permissionLevel} />}
+      {!IS_MOBILE && permission && <PermissionLevelChip target={permission} />}
     </span>
   )
 }

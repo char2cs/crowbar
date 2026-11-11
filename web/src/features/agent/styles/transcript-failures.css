@@ -112,6 +112,11 @@
   line-height: 16px;
   overflow-wrap: anywhere;
 }
+/* Basis 0: the words wrap beside the action; only the record list takes a row. */
+.agent-chat .marker-notice .tx {
+  flex: 1 1 0;
+  min-width: 0;
+}
 @media (pointer: coarse) {
   .agent-chat .marker-notice {
     gap: 8px;
@@ -131,10 +136,6 @@
     position: absolute;
     inset: -4px 0;
   }
-}
-.agent-chat .marker-notice .tx {
-  flex: 1 1 auto;
-  min-width: 0;
 }
 .agent-chat .marker-notice b {
   font-weight: 600;

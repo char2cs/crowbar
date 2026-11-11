@@ -79,6 +79,7 @@ describe('validation and content', () => {
 
   it('says why a field is wrong, in the field’s own words', () => {
     expect(fieldError(fields[0], '')).toBe('name is required')
+    expect(fieldError(fields[0], '', true)).toBe('Required')
     expect(fieldError(fields[0], 'a')).toBe('name needs at least 2 characters')
     expect(fieldError(fields[0], 'ab')).toBe('')
     expect(fieldError(fields[1], 'x')).toBe('n must be a number')

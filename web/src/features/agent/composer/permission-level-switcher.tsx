@@ -80,21 +80,12 @@ export function usePermissionLevel(target: PermissionTarget | null) {
   const offered = options.map((opt) => opt.value)
   const level: PermissionLevel | '' =
     picked ?? (pinned || (inherited && offered.length > 0 ? offeredLevel(inherited, offered) : ''))
-  /** Steps to the next offered level, wrapping; false when there is no choice to step through. */
-  const cycle = () => {
-    if (options.length < 2) return false
-    const at = options.findIndex((opt) => opt.value === level)
-    setLevel(options[(at + 1) % options.length]!.value)
-    return true
-  }
-  return { options, level, setLevel, cycle }
+  return { options, level, setLevel }
 }
 
-export type PermissionControl = ReturnType<typeof usePermissionLevel>
-
 /** The footer's permission chip: the current level, opening the choice as a menu. */
-export function PermissionLevelChip({ control }: { control: PermissionControl }) {
-  const { options, level, setLevel } = control
+export function PermissionLevelChip({ target }: { target: PermissionTarget }) {
+  const { options, level, setLevel } = usePermissionLevel(target)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const close = useCallback(() => setOpen(false), [])
@@ -148,16 +139,6 @@ export function PermissionLevelChip({ control }: { control: PermissionControl })
               {opt.value === level && <CheckIcon size={12} className="lvl-check" />}
             </button>
           ))}
-          <div className="lvl-foot">
-            <span>Applies to this chat</span>
-            <span className="lvl-grow" />
-            {options.length > 1 && (
-              <span>
-                <kbd>shift</kbd>
-                <kbd>tab</kbd>cycle
-              </span>
-            )}
-          </div>
         </div>
       </Dropdown>
     </>

@@ -16,8 +16,6 @@ import {
   ComposerSlashPicker,
   type PickerItem,
 } from '@/features/agent/composer/composer-slash-picker'
-import { usePermissionLevel } from '@/features/agent/composer/permission-level-switcher'
-import { IS_MOBILE } from '@/utils/platform'
 import { useChatPlace } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
 import type {
@@ -290,7 +288,6 @@ export function AgentChatView({
         selectSlashItem,
         send: enqueueDraft,
         recall: load,
-        cyclePermission: permissionLevel.cycle,
       },
       event,
       readMarkdown,
@@ -317,7 +314,6 @@ export function AgentChatView({
 
   // The empty document's cluster and the dock's bar offer the same controls.
   const permissionTarget = { wsId, chatId, levels: provider?.permissionLevels }
-  const permissionLevel = usePermissionLevel(IS_MOBILE ? null : permissionTarget)
   const selection = {
     provider: effectiveProvider,
     providers,
@@ -325,7 +321,6 @@ export function AgentChatView({
     reportedModel,
     switchDisabled,
     permission: permissionTarget,
-    permissionLevel,
     onSelectionChange,
     onSelectPresentation,
   }

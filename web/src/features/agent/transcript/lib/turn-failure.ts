@@ -75,8 +75,8 @@ export function describeFailure({
     case 'overloaded':
       return {
         kind: 'overloaded',
-        headline: `${capitalised(name)} is busy`,
-        hint: 'Try again in a moment.',
+        headline: `${capitalised(name)} is busy right now`,
+        hint: 'Try again in a moment. Nothing was lost.',
         tag: `${capitalised(name)} was busy · this turn did not finish`,
       }
     default: {
@@ -91,8 +91,8 @@ export function describeFailure({
   }
 }
 
-// A sentence ends at a stop before a capital; a dot inside a path or a URL does not.
-const SENTENCE_END = /[.!?](?=\s+[A-Z])/
+// A sentence ends at a stop before a capital or a figure; a dot inside a path or a URL does not.
+const SENTENCE_END = /[.!?](?=\s+[A-Z0-9])/
 
 /** A provider's warning: its first sentence in bold, the rest as the line under it. */
 export function warningHeadline(detail = ''): { text: string; rest?: string } {

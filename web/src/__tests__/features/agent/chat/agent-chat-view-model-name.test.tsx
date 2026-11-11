@@ -43,8 +43,6 @@ describe('AgentChatView model name', () => {
 
     const picker = screen.getByTestId('agent-selection-picker')
     expect(picker).toHaveTextContent('Model X 4.5')
-    expect(picker).toHaveAccessibleName(
-      'Agent: Provider B, model Default (reported Model X 4.5), effort Default',
-    )
+    expect(picker).toHaveAccessibleName('Agent: Provider B, model Model X 4.5, effort Default')
   })
 })

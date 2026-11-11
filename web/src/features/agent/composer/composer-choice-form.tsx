@@ -26,7 +26,7 @@ export function ChoiceForm({
   return (
     <div className="rq-form" data-testid="agent-choice-form">
       {fields.map((field) => {
-        const error = shown.has(field.key) ? fieldError(field, values[field.key]) : ''
+        const error = shown.has(field.key) ? fieldError(field, values[field.key], true) : ''
         return (
           <div key={field.key} className="rq-field">
             <span className="rq-field-label" id={`${scope}-${field.key}`}>

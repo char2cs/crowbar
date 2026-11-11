@@ -18,8 +18,8 @@ describe('describeFailure', () => {
   it('words an overloaded provider by its name', () => {
     expect(describeFailure({ kind: 'overloaded', provider: 'Provider A' })).toMatchObject({
       kind: 'overloaded',
-      headline: 'Provider A is busy',
-      hint: 'Try again in a moment.',
+      headline: 'Provider A is busy right now',
+      hint: 'Try again in a moment. Nothing was lost.',
       tag: 'Provider A was busy · this turn did not finish',
     })
   })
@@ -58,5 +58,9 @@ describe('warningHeadline', () => {
       rest: 'Install it with your package manager.',
     })
     expect(warningHeadline('Model changed.')).toEqual({ text: 'Model changed.' })
+    expect(warningHeadline('Context is almost full. 4% left. It compacts alone.')).toEqual({
+      text: 'Context is almost full.',
+      rest: '4% left. It compacts alone.',
+    })
   })
 })

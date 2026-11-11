@@ -104,7 +104,8 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  gap: 18px;
+  --stream-gap: 18px;
+  gap: var(--stream-gap);
 }
 /* A released pin's room slides away: removing it at once drops the reply by
    the whole blank height in one frame, and an ease-out spends most of it in the
@@ -118,6 +119,8 @@
    fade mask, so the gap and the fade band agree. */
 .agent-chat .dock-spacer {
   flex-shrink: 0;
+  /* The row gap is between rows; the room under the last one is the board's alone. */
+  margin-top: calc(-1 * var(--stream-gap));
   height: calc(var(--agent-dock-h, 92px) + var(--agent-dock-room, 32px));
 }
 
@@ -258,6 +261,7 @@
 }
 
 .agent-chat .assistant {
+  position: relative;
   width: 100%;
   padding: 4px 0;
 }

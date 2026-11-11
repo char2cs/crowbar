@@ -48,7 +48,7 @@ describe('ComposerChoice elicitation form', () => {
     show(form)
 
     expect(screen.getByRole('button', { name: 'Submit' })).toBeDisabled()
-    expect(screen.getByText('name is required')).toBeInTheDocument()
+    expect(screen.getByText('Name is required')).toBeInTheDocument()
   })
 
   it('marks a field wrong once it is left, not before', () => {
@@ -58,7 +58,8 @@ describe('ComposerChoice elicitation form', () => {
     expect(name).not.toHaveAttribute('aria-invalid')
     fireEvent.blur(name)
     expect(name).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getAllByText('name is required').length).toBeGreaterThan(1)
+    expect(screen.getByText('Required')).toBeInTheDocument()
+    expect(screen.getByText('Name is required')).toBeInTheDocument()
   })
 
   it('submits typed values as an accept', async () => {

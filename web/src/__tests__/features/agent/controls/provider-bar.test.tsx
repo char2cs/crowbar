@@ -1,4 +1,3 @@
-import { PERMISSION_LEVEL_OPTIONS } from '@/features/agent/api/agent-providers-api'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
@@ -56,12 +55,6 @@ function renderBar(props: Partial<React.ComponentProps<typeof ProviderBar>> = {}
   )
 }
 
-const permissionLevel = {
-  options: PERMISSION_LEVEL_OPTIONS.filter((opt) => opt.value !== 'full-auto'),
-  level: 'trusted' as const,
-  setLevel: vi.fn(),
-  cycle: vi.fn(() => true),
-}
 const permission = { wsId: 'w1', chatId: 'c1', levels: ['guarded', 'trusted'] as const }
 
 // The footer line: model chip, permission chip (desktop only), and at the right the context pill.
@@ -90,14 +83,12 @@ describe('ProviderBar', () => {
   it('draws the permission chip on the desktop only', () => {
     renderBar({
       permission: { ...permission, levels: [...permission.levels] },
-      permissionLevel,
     })
     expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent('Trusted')
     platform.mobile = true
     document.body.innerHTML = ''
     renderBar({
       permission: { ...permission, levels: [...permission.levels] },
-      permissionLevel,
     })
     expect(screen.queryByTestId('chat-permission-level-chip')).not.toBeInTheDocument()
   })

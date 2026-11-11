@@ -4,12 +4,17 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
   color: var(--muted-foreground);
   opacity: 0;
   transition: opacity 0.15s;
+  /* Out of flow: the board's replies carry no footer, so it floats under the reply on hover. */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
 }
 .agent-chat .row:hover .turnbar,
+.agent-chat .turnbar:hover,
 .agent-chat .turnbar:focus-within {
   opacity: 1;
 }

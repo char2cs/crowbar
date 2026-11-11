@@ -121,7 +121,7 @@ describe('useWorkRows shells and monitors', () => {
     )
 
     expect(result.current.map((row) => [row.label, row.status, row.detail])).toEqual([
-      ['make dev', 'running', ''],
+      ['make dev', 'running', 'opened by the agent, still managed'],
       ['make test', 'failed', 'Exit 2 · boom'],
     ])
     push(l.row('shell', { phase: 'end', shellId: 'sh-2', status: 'stopped' }, { turnId: 'turn-1' }))

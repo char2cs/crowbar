@@ -1,4 +1,9 @@
+/* The one-line box, shared with the signposts that take the pill's place in the dock. */
 .agent-chat .pill {
+  --pill-line: 20px;
+  --pill-pad-y: 10px;
+  --pill-pad-x: 18px;
+  --pill-h: calc(var(--pill-line) + 2 * var(--pill-pad-y) + 2px);
   position: relative;
   /* Above the bottom tray, which follows it in the dock and tucks behind it. */
   z-index: 1;
@@ -9,7 +14,7 @@
     0 1px 2px oklch(0 0 0 / 0.06),
     0 8px 28px -18px oklch(0 0 0 / 0.55),
     inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
-  padding: 10px 18px;
+  padding: var(--pill-pad-y) var(--pill-pad-x);
   transition: box-shadow 0.18s ease;
   /* The compaction rain sits at z-index -1: above the fill, below the text. */
   isolation: isolate;
@@ -259,7 +264,9 @@
   --touch-text: 16px;
 }
 .agent-chat .pill[data-touch] {
-  padding: var(--touch-pad-y) var(--touch-pad-x);
+  --pill-line: var(--touch-line);
+  --pill-pad-y: var(--touch-pad-y);
+  --pill-pad-x: var(--touch-pad-x);
 }
 .agent-chat .pill[data-touch].multi {
   border-radius: 22px;
