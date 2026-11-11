@@ -205,15 +205,12 @@ export function AgentComposer(props: AgentComposerProps) {
     if (returned && (!active || active === window.document.body)) editorRef.current?.focus()
   }, [input, editorRef])
 
-  // Compaction does not take the box away: it queues what is typed, as a busy
-  // turn does, so only the placeholder differs.
+  // Compaction queues what is typed, as a busy turn does; the footer already says it compacts.
   const placeholder = document
     ? 'Describe the change…'
-    : state.kind === 'compacting'
-      ? 'Compacting… messages will queue'
-      : props.working
-        ? 'Queue a message…'
-        : 'Message the agent…'
+    : props.working || state.kind === 'compacting'
+      ? 'Queue a message…'
+      : 'Message the agent…'
 
   const takeover = modal === 'excalidraw' && (
     <ExcalidrawTakeover
