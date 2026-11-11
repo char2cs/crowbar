@@ -210,7 +210,7 @@ export function AgentComposer(props: AgentComposerProps) {
   const placeholder = document
     ? 'Describe the change…'
     : state.kind === 'compacting'
-      ? 'Compacting… your message will be queued'
+      ? 'Compacting… messages will queue'
       : props.working
         ? 'Queue a message…'
         : 'Message the agent…'
