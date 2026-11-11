@@ -1,0 +1,105 @@
+/* ── the empty state ───────────────────────────────────── */
+/* A prompt fills the dock slot as ONE box: the question reads down the page and the nested bar
+   becomes its plain bottom row. `.asks` takes `.pill.multi`'s growing-box geometry (it is never
+   one line). */
+.agent-chat .asks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 18px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  padding: 12px 14px;
+}
+.agent-chat .asks .pill.asking {
+  margin: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  min-height: auto;
+}
+.agent-chat .choice-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+}
+
+/* What a permission would let run: the command, the edit or the MCP call. */
+.agent-chat .choice-request {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .choice-request-head,
+.agent-chat .choice-request-note {
+  color: var(--muted-foreground);
+}
+.agent-chat .choice-request-code {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-chat .choice-request-code[data-expanded] {
+  max-height: min(40vh, 24rem);
+  overflow-y: auto;
+}
+.agent-chat .choice-request-markdown {
+  max-height: min(40vh, 24rem);
+  overflow-y: auto;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  font-size: var(--ui-text-sm);
+}
+.agent-chat .choice-request-cut {
+  color: var(--muted-foreground);
+}
+.agent-chat .choice-diff-del {
+  color: var(--danger-text);
+}
+.agent-chat .choice-diff-add {
+  color: var(--ok-text);
+}
+.agent-chat .asks:focus-visible {
+  outline: 2px solid var(--emph);
+  outline-offset: 2px;
+}
+/* A character that does not draw, written out so it cannot hide or reorder text. */
+.agent-chat .choice-escape {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--destructive) 18%, transparent);
+  color: var(--danger-text);
+}
+.agent-chat .choice-request-more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--ui-text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.agent-chat .pill.asking .q .choice-hidden-lines {
+  color: var(--warn-text);
+  font-weight: 600;
+}
+/* Drawn from the button's own text colour: a fixed muted grey vanished on filled buttons. */
+.agent-chat .choice-key {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 3px;
+  color: color-mix(in srgb, currentColor 75%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+}

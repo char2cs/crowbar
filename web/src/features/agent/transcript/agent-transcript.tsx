@@ -77,7 +77,7 @@ type Key = VirtualItem['key']
 /** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
 const ROW_GAP = 18
 
-/** `.dock-spacer`'s height past the dock's own (transcript.css). */
+/** `.dock-spacer`'s height past the dock's own (transcript-layout.css). */
 const DOCK_ROOM = 32
 
 /** Whole pixels: `resizeItem` treats any float drift as a real resize. */
@@ -403,7 +403,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
   const pinStart = pinIndex < 0 ? undefined : rowVirtualizer.measurementsCache[pinIndex]?.start
-  // A released pin's room slides (transcript.css) down to the rows' own height,
+  // A released pin's room slides (transcript-layout.css) down to the rows' own height,
   // which the floor must reach exactly, else the slide spends itself above or below it.
   const floor =
     pinStart === undefined

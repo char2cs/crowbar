@@ -1,0 +1,63 @@
+/* The trays tucked behind the pill: same surface as the pill, inset from its edges, rows 36px
+   (44px on a phone). `.tray-top` sits above the pill, `.tray-bottom` below it. */
+.agent-chat .tray-top,
+.agent-chat .tray-bottom {
+  --tray-tuck: 22px;
+  --tray-inset: 14px;
+  --tray-radius: 12px;
+  --tray-row-h: 36px;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+}
+.agent-chat .dock:has(.pill[data-touch]) :is(.tray-top, .tray-bottom) {
+  --tray-tuck: 27px;
+  --tray-inset: 18px;
+  --tray-radius: 16px;
+  --tray-row-h: 44px;
+}
+.agent-chat .tray-top {
+  margin: 0 var(--tray-inset) calc(var(--tray-tuck) * -1);
+  padding-bottom: var(--tray-tuck);
+  border-bottom: 0;
+  border-radius: var(--tray-radius) var(--tray-radius) 0 0;
+}
+.agent-chat .tray-bottom {
+  margin: calc(var(--tray-tuck) * -1) var(--tray-inset) 0;
+  padding-top: var(--tray-tuck);
+  border-top: 0;
+  border-radius: 0 0 var(--tray-radius) var(--tray-radius);
+}
+.agent-chat .tray-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: var(--tray-row-h);
+  padding: 0 14px 0 16px;
+  font-size: 12px;
+}
+.agent-chat .tray-head b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.agent-chat .tray-list {
+  margin: 0;
+  padding: 2px 8px 8px;
+  list-style: none;
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.agent-chat .tray-bottom .tray-list {
+  padding: 4px 8px 6px;
+  border-top: 0;
+}
+.agent-chat .tray-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tray-row-h);
+  padding: 0 6px;
+  font-size: 13px;
+  border-radius: 8px;
+}

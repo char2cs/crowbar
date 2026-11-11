@@ -1,0 +1,224 @@
+/* The composer, lifted from the design canvas. Scoped under `.agent-chat` so the design's class
+   names survive verbatim (parity is a diff of two stylesheets). Crowbar tokens only. */
+
+/* The affirmative accent. Dark mode mixes in OKLAB, not OKLCH: an oklch mix toward the
+   achromatic foreground interpolates the green's hue toward 0 and lands on olive. */
+.agent-chat {
+  --emph: var(--primary);
+  --warn-text: var(--warning-foreground);
+  --danger-text: var(--destructive-foreground);
+  --ok-text: var(--success-foreground);
+}
+/* The theme's *-foreground tokens are ink for a tinted chip in light only; in
+   dark they are near-black, so text on the page takes the hue itself. */
+.dark .agent-chat {
+  --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
+  --warn-text: var(--warning);
+  --danger-text: var(--destructive);
+  --ok-text: var(--success);
+}
+
+/* OVER the conversation, not after it. Text scrolling up passes behind the box
+   and dissolves into the page rather than being clipped by an edge — which is
+   what a hard boundary between a scroller and a bar always looks like. */
+.agent-chat .dock {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 1;
+  flex: none;
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px 14px;
+  /* No fill: any colour, even translucent, is a tint that never matches what it sits over.
+     Only the pill and chips paint, each with its own opaque surface. */
+  /* `.scroll` runs under this box the full pane height, so its empty padding must not take the
+     hit test: `none` lets wheel gestures fall through, `auto` on each child restores clicks. */
+  pointer-events: none;
+}
+.agent-chat .dock > * {
+  pointer-events: auto;
+}
+/* Status and error lines about the composer read centred on the input box. */
+.agent-chat .composer-note {
+  text-align: center;
+}
+/* arrival-animation.ts drives the dock's slide as an inline transform; this keeps the underbar
+   hidden while `data-arriving` is present (one render), then fades it in once JS lifts it. */
+.agent-chat .dock .underbar {
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+.agent-chat .dock[data-arriving] .underbar {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+/* Progressive blur under the dock (stacked backdrop-filter layers, each masked to a lower band);
+   a sibling of .dock so it spans the full pane. `right` stops short of the scrollbar, with a floor
+   for overlay scrollbars that reserve 0px of layout but still paint. */
+.agent-chat .dissolve {
+  --dissolve-h: calc(var(--agent-dock-h, 92px) + 24px);
+  /* An overlay scrollbar thumb's painted width; `right` never goes under it. */
+  --overlay-scrollbar-floor: 10px;
+  position: absolute;
+  left: 0;
+  right: max(var(--agent-scrollbar-w, 0px), var(--overlay-scrollbar-floor));
+  bottom: 0;
+  height: var(--dissolve-h);
+  z-index: 1;
+  pointer-events: none;
+  /* Every child is absolutely inset within this box, so `contain: paint` is safe; it bounds the
+     repaint of the 7 backdrop-filter layers, which can otherwise starve other composited layers
+     (e.g. the native sidebar's vibrancy) of frames. */
+  contain: paint;
+}
+.agent-chat .dissolve-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Each layer spans only its mask's band plus its blur radius (less area recomputed per frame).
+     Mask stops are absolute calc() offsets from the layer's own top, so they land on the same pixel
+     whatever --agent-dock-h is. */
+}
+.agent-chat .dissolve-layer:nth-child(1) {
+  --top: 0px;
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.6 - 1px));
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(2) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 1px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 1px));
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(3) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 2px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 2px));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(4) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 5px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 5px));
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(5) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 10px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 10px));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(6) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 19px));
+  top: var(--top);
+  bottom: 0px;
+  backdrop-filter: blur(19px);
+  -webkit-backdrop-filter: blur(19px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(7) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 38px));
+  top: var(--top);
+  bottom: 0px;
+  backdrop-filter: blur(38px);
+  -webkit-backdrop-filter: blur(38px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+}

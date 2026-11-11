@@ -1,4 +1,4 @@
-/** Duplicated as a literal in composer.css (`.dock .underbar`): CSS cannot import it. */
+/** Duplicated as a literal in composer-dock.css (`.dock .underbar`): CSS cannot import it. */
 export const ARRIVAL_SLIDE_MS = 320
 
 export const ARRIVAL_EASE = 'cubic-bezier(0, 0, 0.2, 1)'
@@ -15,7 +15,7 @@ export function arrivalOffset(
 }
 
 /** Pins the dock's first paint over the handle it replaced, then eases it to rest.
- *  `data-arriving` holds `.underbar`'s reveal until the slide ends (composer.css). */
+ *  `data-arriving` holds `.underbar`'s reveal until the slide ends (composer-dock.css). */
 export function playArrival(node: HTMLElement, origin: { top: number } | null): void {
   const dy = arrivalOffset(origin, node.getBoundingClientRect())
   if (dy === null) return

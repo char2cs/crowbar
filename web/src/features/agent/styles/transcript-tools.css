@@ -1,0 +1,283 @@
+/* Whose turn this was, and a way to take it elsewhere. The provider icon has no padding, so only
+   the copy button needs a correction, and only when it leads (no provider icon known). */
+.agent-chat .turnbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+}
+/* The copy button's icon sits 8px inside its box; pulling the button by 8px when it leads puts
+   the icon flush with the prose above, as in the provider-icon case. */
+.agent-chat .turnbar > button:first-child {
+  margin-left: -8px;
+}
+.agent-chat .turn-effort {
+  font-size: var(--ui-text-xs);
+}
+
+/* Inside `.turnbar` it inherits that row's layout and colour; as a user row's sibling it sets
+   both itself. The `>` keeps these off the turnbar's nested `.turn-time`, where the margin would
+   still apply and nudge it out of line. */
+.agent-chat .turn-time {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .row.stacked > .turn-time {
+  margin-top: 2px;
+  align-self: flex-start;
+}
+.agent-chat .row.me > .turn-time {
+  align-self: flex-end;
+}
+
+.agent-chat .tools {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .tools li {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.5;
+}
+.agent-chat .row[data-nested] {
+  margin-inline-start: 22px;
+}
+.agent-chat .tool-turn-diff {
+  width: 100%;
+  margin: 5px 0 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+}
+.agent-chat .tools li > .tool-row {
+  position: relative;
+}
+.agent-chat .tool-row .tool-call-summary {
+  padding-right: 26px;
+}
+.agent-chat .tool-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.agent-chat .tool-row-toggle svg {
+  transition: transform 120ms ease;
+}
+.agent-chat .tool-row-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.agent-chat .tool-row-toggle:hover,
+.agent-chat .tool-row-toggle:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 3px;
+}
+.agent-chat .tool-call-verb {
+  flex: none;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground));
+}
+.agent-chat .tool-call-subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.agent-chat .tool-call-duration {
+  flex: none;
+  margin-left: auto;
+  color: color-mix(in srgb, var(--muted-foreground) 78%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .tools .kind {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  flex: none;
+}
+/* `AgentToolCall.error` (turn-tools.tsx) — a short caption for a failed call,
+   shown next to its name rather than only inferred from the row's colour. */
+.agent-chat .tools .err {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A running call's newest output, on the same row as the call it belongs to.
+   One line — it is a sign of progress, not a log, and the full output is on the
+   call once it finishes. */
+.agent-chat .tools .out {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .tools .payload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 6px 22px;
+  width: calc(100% - 22px);
+}
+.agent-chat .tools .payload-label {
+  margin: 0;
+  font-weight: 500;
+}
+.agent-chat .tools .payload-status {
+  margin: 0;
+  font-style: italic;
+}
+.agent-chat .tools .payload pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+}
+/* A call still in flight, in the live list. It carries a spinner instead of a
+   duration (turn-tools.tsx), and full-strength text is what tells it apart from
+   the finished rows above it at a glance. */
+.agent-chat .tools li[data-status='running'] {
+  color: var(--foreground);
+}
+/* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
+   without this, all three rendered pixel-identical, so a failed tool call
+   read as a successful one with nothing on screen to say otherwise. */
+.agent-chat .tools li[data-status='error'] {
+  color: var(--destructive);
+}
+.agent-chat .tools li[data-status='declined'],
+.agent-chat .tools li[data-status='abandoned'] {
+  color: var(--muted-foreground);
+}
+/* A resolved choice (AgentTurnChoices) that was never actually answered
+   through Crowbar reads the same muted way an abandoned tool call does. */
+.agent-chat .tools li[data-resolution='abandoned'] {
+  opacity: 0.6;
+}
+
+/* A live verb shimmers; a settled one does not. The app-wide reduced-motion
+   switch (index.css) stops the sweep. */
+.agent-chat .tool-call-verb[data-live] {
+  background: linear-gradient(
+      90deg,
+      var(--foreground) 0%,
+      var(--muted-foreground) 50%,
+      var(--foreground) 100%
+    )
+    0 0 / 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: tool-verb-shimmer 1.6s linear infinite;
+}
+@keyframes tool-verb-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* A zero basis let a long command or error take the whole row and draw over the
+   verb; the label keeps up to 45% of it before it truncates. */
+.agent-chat .tool-call-label {
+  display: inline-flex;
+  min-width: min(45%, max-content);
+  flex: 1 1 auto;
+  overflow: hidden;
+  align-items: center;
+  gap: 6px;
+}
+.agent-chat .tool-glyph {
+  flex: none;
+}
+.agent-chat .tool-call-state,
+.agent-chat .tool-call-stat,
+.agent-chat .tool-call-command {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.agent-chat .tools li[data-status='abandoned'] .tool-call-state {
+  color: var(--warn-text);
+}
+.agent-chat .tool-call-command {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+/* A non-zero exit is not a failure by itself: a neutral chip, not the error colour. */
+.agent-chat .tool-call-exit {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.agent-chat .mcp-server {
+  --mcp-hue: var(--chart-1);
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--mcp-hue) 16%, transparent);
+  color: color-mix(in srgb, var(--mcp-hue) 45%, var(--foreground));
+  font-weight: 500;
+}
+.agent-chat .mcp-server[data-hue='2'] {
+  --mcp-hue: var(--chart-2);
+}
+.agent-chat .mcp-server[data-hue='3'] {
+  --mcp-hue: var(--chart-3);
+}
+.agent-chat .mcp-server[data-hue='4'] {
+  --mcp-hue: var(--chart-4);
+}
+.agent-chat .mcp-server[data-hue='5'] {
+  --mcp-hue: var(--chart-5);
+}
+.agent-chat .tool-run-members {
+  margin: 2px 0 4px 18px;
+}

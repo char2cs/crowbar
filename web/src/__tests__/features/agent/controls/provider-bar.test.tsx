@@ -74,7 +74,7 @@ describe('ProviderBar', () => {
     expect(screen.queryByTestId('agent-context-gauge')).not.toBeInTheDocument()
   })
 
-  // The phone's picker is drawn at the composer's touch scale (composer.css `[data-touch]`).
+  // The phone's picker is drawn at the composer's touch scale (composer-pill.css `[data-touch]`).
   it('draws the picker row at the touch scale on the phone only', () => {
     const desktop = renderBar().container.querySelector('.underbar')
     expect(desktop).not.toHaveAttribute('data-touch')

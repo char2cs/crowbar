@@ -1,0 +1,25 @@
+/* Rides the bottom of the view, just above the composer, while a reader is up the page. */
+.agent-chat .stream .jump-latest {
+  position: sticky;
+  bottom: calc(var(--agent-dock-h, 92px) + 12px);
+  align-self: center;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+/* The editor's zero-size caret spacers beside inline code and links: never selected or copied. */
+.agent-chat .agent-prose span[contenteditable='false'] {
+  user-select: none;
+}
+
+/* A finished call's short output, read without opening the call. */
+.agent-chat .tool-call-output {
+  margin: 2px 0 0 20px;
+  max-height: 7.5em;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+}

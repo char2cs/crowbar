@@ -1,0 +1,185 @@
+/* ── the row under the pill ────────────────────────────── */
+/* Never wraps: a wrapped `.right` (queued count, context gauge/Compact) lands at or past the
+   dock's bottom edge at narrow widths. `.right` holds the row; `.left` shrinks and clips. */
+.agent-chat .underbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 12px;
+  /* Both sides match `.pill`'s `padding: 8px 14px`, the edge its text and send circle sit inside.
+     Real padding, not a negative margin on `.left`, which `overflow: hidden` would clip. */
+  padding: 8px 14px 0;
+  overflow: hidden;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .underbar .left,
+.agent-chat .underbar .right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  /* Never break "N queued" or "NN% context" mid-word — a group that doesn't
+     fit moves to the next line whole, it doesn't fold in place. */
+  white-space: nowrap;
+}
+/* `.left` gives: it already shrinks (`min-width: 0`), and clipping its overflow keeps a wide
+   cluster from pushing `.right` or growing the row. */
+.agent-chat .underbar .left {
+  overflow: hidden;
+}
+/* `.right` keeps its natural width and never shrinks or wraps; the margin pins it right. */
+.agent-chat .underbar .right {
+  flex: none;
+  margin-left: auto;
+}
+/* Only in the underbar does the identity cluster compete for its row, so here it shrinks and
+   wraps internally: the view switcher (last, least essential) drops a line instead of the
+   cluster spilling past the dock. Elsewhere `.selpos` stays `flex: none`. */
+.agent-chat .underbar .selpos {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* The selection cluster: model, effort and the view switcher read as ONE
+   control group, which is why they sit closer to each other (2px) than the
+   group does to anything else in the row (10px). */
+.agent-chat-pane .selpos {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+/* The underbar's chip. Lower contrast than a Button by design — this row reports
+   what the chat IS, and only earns foreground colour once a choice has actually
+   been made (`.set`). */
+.agent-chat-pane .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: var(--ui-text-sm);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat-pane .chip:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.agent-chat-pane .chip.set {
+  color: var(--foreground);
+}
+.agent-chat-pane .chip:disabled {
+  cursor: default;
+}
+
+.agent-chat .gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .gbar {
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.agent-chat .gbar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 42%, transparent);
+  transition: width 0.3s ease;
+}
+.agent-chat .gbar.warn > span {
+  background: var(--warning);
+}
+/* The gauge as a button, rendered only when compaction is offered (context-gauge.tsx). `.gstack`
+   overlays `.gaction` on the bar in one grid cell, revealed on hover, so it never widens the row
+   (the cell already fits "Compact"). */
+.gauge .gstack {
+  display: grid;
+}
+.gauge .gstack > * {
+  grid-area: 1 / 1;
+  align-self: center;
+  justify-self: center;
+}
+.gauge .gaction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
+}
+.gauge.chip:hover:not(:disabled) .gaction {
+  opacity: 1;
+  color: var(--foreground);
+}
+
+/* ── the view switcher (ui/tabs pill variant) ──────────── */
+/* Unscoped: the terminal surface portals this into the pane header, outside
+   both `.agent-chat` and `.agent-chat-pane`. */
+.viewswitch {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+  padding: 2px;
+  border-radius: 9999px;
+  background: var(--muted);
+}
+.viewswitch button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.viewswitch button:hover:not(:disabled):not(.on) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.viewswitch button.on {
+  border-color: var(--background);
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.1),
+    inset 0 1px var(--elevated-highlight);
+}
+.viewswitch button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* The phone's 44pt touch target, invisible: the segments keep their size. */
+.agent-chat-pane[data-touch] .viewswitch button {
+  position: relative;
+}
+.agent-chat-pane[data-touch] .viewswitch button::before {
+  content: '';
+  position: absolute;
+  inset: -11px -3px;
+}
+.viewswitch svg {
+  width: 14px;
+  height: 14px;
+}
