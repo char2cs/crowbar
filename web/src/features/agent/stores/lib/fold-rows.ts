@@ -45,6 +45,7 @@ const emptyFacts: TurnFacts = {
   prompts: {},
   compacting: false,
   openAsks: [],
+  decidedAsks: [],
   liveSubagents: [],
   shells: [],
   subagentScopes: {},

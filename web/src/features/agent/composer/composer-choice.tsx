@@ -184,8 +184,10 @@ export function ComposerChoice({
   // A digit picks that option; Enter allows once, only from the card itself so
   // an Enter meant for the composer never grants a permission.
   const pickByKey = (event: globalThis.KeyboardEvent, enter: boolean) => {
-    if (!active || event.repeat || event.isComposing || !flat || busy) return
+    if (!active || event.repeat || event.isComposing || busy) return
     if (event.metaKey || event.ctrlKey || event.altKey || (!enter && event.key === 'Enter')) return
+    if (canAnswerHere && question) return pickQuestionByKey(event)
+    if (!flat) return
     const picked = keyedOption(controls, event.key)
     if (!picked) return
     event.preventDefault()
@@ -210,6 +212,18 @@ export function ComposerChoice({
   const lastStep = step >= questions.length - 1
   const question = questions[step]
   const picks = question ? (card.byQuestion[question.id] ?? []) : []
+  // A digit names an option of the question on screen: it picks it, or ticks it when several may be.
+  const pickQuestionByKey = (event: globalThis.KeyboardEvent) => {
+    const option = /^[1-9]$/.test(event.key) ? question?.options[Number(event.key) - 1] : undefined
+    if (!question || !option) return
+    event.preventDefault()
+    const next = !question.multi
+      ? [option.id]
+      : picks.includes(option.id)
+        ? picks.filter((id) => id !== option.id)
+        : [...picks, option.id]
+    update({ byQuestion: { ...card.byQuestion, [question.id]: next } })
+  }
   const answered = questions.every((q) => (card.byQuestion[q.id] ?? []).length > 0)
   // Every question's picks as the one list the answer endpoint takes, read off the questions so a
   // pick for a question gone from the prompt is never sent.

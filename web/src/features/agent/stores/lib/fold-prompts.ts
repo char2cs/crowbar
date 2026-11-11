@@ -25,6 +25,7 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
     requestId,
   })
   fold.place(id, '')
+  if (fold.facts.decidedAsks.length > 0) fold.set('decidedAsks', [])
   if (!requestId) return
   if (retryOf && fold.facts.prompts[retryOf]?.state === 'refused') {
     setPrompt(fold, retryOf, { state: 'retried', by: requestId })

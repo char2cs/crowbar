@@ -212,3 +212,28 @@ describe('ComposerChoice question Skip', () => {
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 })
+
+describe('ComposerChoice question digits', () => {
+  it('numbers the options and picks, or ticks, the one a digit names', () => {
+    show(three)
+    const card = screen.getByTestId('agent-choice-prompt')
+    expect(screen.getByRole('radio', { name: /Go/ }).closest('.rq-opt')).toHaveTextContent('1')
+    fireEvent.keyDown(card, { key: '2' })
+    expect(screen.getByRole('radio', { name: /TypeScript/ })).toBeChecked()
+    fireEvent.keyDown(card, { key: '1' })
+    expect(screen.getByRole('radio', { name: /Go/ })).toBeChecked()
+
+    click('button', 'Next')
+    fireEvent.keyDown(card, { key: '2' })
+    fireEvent.keyDown(card, { key: '1' })
+    fireEvent.keyDown(card, { key: '2' })
+    expect(screen.getByRole('checkbox', { name: /SQLite/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Postgres/ })).not.toBeChecked()
+  })
+
+  it('sends nothing for a digit: only the send button answers', () => {
+    show(single)
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+})

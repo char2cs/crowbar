@@ -1,5 +1,7 @@
 .agent-chat .pill {
   position: relative;
+  /* Above the bottom tray, which follows it in the dock and tucks behind it. */
+  z-index: 1;
   border-radius: 9999px;
   border: 1px solid var(--input);
   background: color-mix(in oklch, var(--foreground) 3%, var(--background));

@@ -31,7 +31,7 @@ export function ChoiceQuestion({
       </span>
       {question.multi ? (
         <div className="rq-opts" data-testid="agent-choice-options">
-          {question.options.map((option) => (
+          {question.options.map((option, place) => (
             <div key={option.id} className="rq-opt">
               <label>
                 <Checkbox
@@ -46,6 +46,7 @@ export function ChoiceQuestion({
                   }
                 />
                 <span>{optionLabel(option)}</span>
+                <OptionKey place={place} />
               </label>
               {option.description && <span className="rq-opt-desc">{option.description}</span>}
             </div>
@@ -59,12 +60,13 @@ export function ChoiceQuestion({
           value={picked[0] ?? ''}
           onValueChange={(value) => onPick([String(value)])}
         >
-          {question.options.map((option) => (
+          {question.options.map((option, place) => (
             // The description sits OUTSIDE the label so it is not read out as the control's name.
             <div key={option.id} className="rq-opt">
               <label>
                 <Radio value={option.id} disabled={busy} />
                 <span>{optionLabel(option)}</span>
+                <OptionKey place={place} />
               </label>
               {option.description && <span className="rq-opt-desc">{option.description}</span>}
             </div>
@@ -73,6 +75,15 @@ export function ChoiceQuestion({
       )}
     </div>
   )
+}
+
+/** The digit that picks the option at `place`; the first nine have one. */
+function OptionKey({ place }: { place: number }) {
+  return place < 9 ? (
+    <kbd className="choice-key" aria-hidden="true">
+      {place + 1}
+    </kbd>
+  ) : null
 }
 
 const refusing = (option: AgentChoiceOption) => option.kind === 'deny' || option.kind === 'decline'

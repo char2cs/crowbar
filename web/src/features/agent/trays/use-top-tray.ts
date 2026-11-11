@@ -9,10 +9,9 @@ import type { ChatFeed } from '@/features/agent/stores/lib/transcript-items'
 /** Decided asks after the newest message, oldest first. */
 function resolvedSinceLastMessage(feed: ChatFeed | undefined): AgentChoice[] {
   const choices: AgentChoice[] = []
-  for (let i = (feed?.order.length ?? 0) - 1; i >= 0; i--) {
-    const item = feed?.items.get(feed.order[i]!)
-    if (item?.kind === 'user') break
-    if (item?.kind === 'ask' && !item.choice.pending) choices.unshift(item.choice)
+  for (const id of feed?.facts.decidedAsks ?? []) {
+    const item = feed?.items.get(id)
+    if (item?.kind === 'ask' && !item.choice.pending) choices.push(item.choice)
   }
   return choices
 }

@@ -70,4 +70,26 @@ describe('useTopTray', () => {
     push(l.prompt('r2', 'and then?'))
     expect(result.current.resolved).toEqual([])
   })
+
+  it('holds the decided asks of tool calls, which the transcript draws on the call and not as a row', () => {
+    const l = ledger()
+    const { result } = renderHook(() => useTopTray('chat-1', undefined))
+    push(l.prompt('r1', 'go'))
+    push(l.start('turn-1', 'r1'))
+    push(l.tool('turn-1', 't1', 'pre', 'Bash'))
+    push(
+      l.row(
+        'ask',
+        {
+          ...{ askId: 'a1', event: 'permission', kind: 'tool_permission', toolName: 'Bash' },
+          ...{ toolId: 't1', answerable: true, options: [{ id: 'y', kind: 'allow' }] },
+        },
+        { turnId: 'turn-1' },
+      ),
+    )
+    push(l.answer('a1', 'y'))
+    expect(result.current.resolved.map((choice) => choice.id)).toEqual(['a1'])
+    push(l.prompt('r2', 'and then?'))
+    expect(result.current.resolved).toEqual([])
+  })
 })

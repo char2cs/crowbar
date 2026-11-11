@@ -115,6 +115,7 @@ export const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
       answeredOptionIds: row.body.optionIds,
     }
     fold.put({ ...known, choice })
+    fold.set('decidedAsks', [...fold.facts.decidedAsks.filter((other) => other !== id), id])
     // A denied tool never runs, so no post or fail row will settle it.
     const picked = new Set(row.body.optionIds)
     const denied =

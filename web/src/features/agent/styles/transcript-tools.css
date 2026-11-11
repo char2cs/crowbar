@@ -252,7 +252,7 @@
 [data-outcome='denied'] {
   border-color: color-mix(in oklch, var(--warning) 55%, var(--border));
   background: color-mix(in oklch, var(--warning) 13%, var(--background));
-  color: var(--warning-foreground);
+  color: var(--warn-text);
 }
 [data-outcome='stopped'] {
   border-color: var(--foreground);
@@ -269,7 +269,7 @@
   color: var(--destructive);
 }
 .agent-chat .tools li[data-status='declined'] .tool-glyph {
-  color: var(--warning-foreground);
+  color: var(--warn-text);
 }
 .agent-chat .tool-call-command {
   min-width: 0;

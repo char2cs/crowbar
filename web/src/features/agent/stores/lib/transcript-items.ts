@@ -198,6 +198,8 @@ export interface TurnFacts {
   prompts: Record<string, PromptFact>
   compacting: boolean
   openAsks: string[]
+  /** Asks decided since the person last spoke; a call's ask has no row of its own to find them by. */
+  decidedAsks: string[]
   /** Subagent cards still starting or running. */
   liveSubagents: string[]
   /** Every background shell of the chat, in the order they started. */
