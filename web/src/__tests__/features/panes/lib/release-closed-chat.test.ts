@@ -13,6 +13,7 @@ import { killChat, stopChat } from '@/features/agent/api/agent-chat-commands'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { subscribeWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const activeWs = vi.mocked(getActiveWorkspaceId)
 
@@ -43,7 +44,10 @@ beforeEach(() => {
   unsubscribe = subscribeWorkspaceEviction((wsId) => evicted.push(wsId))
 })
 
-afterEach(() => unsubscribe())
+afterEach(() => {
+  unsubscribe()
+  resetChatStore()
+})
 
 describe('releaseClosedChat', () => {
   // A closed view only detaches: the agent keeps running for whoever else is
@@ -86,6 +90,14 @@ describe('releaseClosedChat', () => {
   // the same repo can never be mistaken for this one's.
   it("leaves another workspace's still-open chat out of it", () => {
     releaseClosedChat('chat-1', 'ws-1', panesOf([pane('p2', 'chat-2', 'ws-2')]))
+
+    expect(evicted).toEqual(['ws-1'])
+  })
+
+  // A sibling that moved away no longer holds the workspace its pane opened in.
+  it('evicts the workspace a still-open chat moved out of', () => {
+    writeChat({ id: 'chat-2', workspaceId: 'ws-2' })
+    releaseClosedChat('chat-1', 'ws-1', panesOf([pane('p2', 'chat-2', 'ws-1')]))
 
     expect(evicted).toEqual(['ws-1'])
   })

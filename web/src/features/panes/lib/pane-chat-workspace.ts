@@ -1,11 +1,18 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { chatWorkspaceIn, showingLayout } from '@/features/panes/lib/view-state'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
+import { readSelect, selectAgentChat } from '@/core/entities/select'
 
-// A chat's workspace for a non-pane caller: its pane record (C3), else the caller's `hint` (what
-// its row claims). No guessing: null means the caller skips rather than open the wrong one.
+// A chat's workspace for a non-pane caller: the chat's own, else its pane record (C3), else the
+// caller's `hint` (what its row claims). No guessing: null means the caller skips.
 export function resolveChatWorkspaceId(chatId: string, hint?: string | null): string | null {
-  return chatWorkspaceIn(windowPaneStore.getState().panes, chatId) ?? hint ?? null
+  return (
+    readSelect((s) => selectAgentChat(s, chatId)?.workspaceId) ||
+    chatWorkspaceIn(windowPaneStore.getState().panes, chatId) ||
+    hint ||
+    null
+  )
 }
 
 // The on-screen pane a sidebar file click for `wsId` should open into (`openContent`'s paneId):
@@ -16,8 +23,7 @@ export function resolveOnscreenPaneForWorkspace(wsId: string): string | null {
   const onscreenIds = getAllLeafIds(showingLayout(state))
   const onscreenIdSet = new Set(onscreenIds)
   const belongsToWorkspace = (paneId: string): boolean => {
-    const pane = state.panes[paneId]
-    return !!pane?.chatId && pane.workspaceId === wsId
+    return paneChatWorkspaceId(state.panes[paneId]) === wsId
   }
 
   if (onscreenIdSet.has(state.activePaneId) && belongsToWorkspace(state.activePaneId)) {

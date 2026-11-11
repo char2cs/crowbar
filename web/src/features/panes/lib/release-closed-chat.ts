@@ -1,4 +1,5 @@
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 
@@ -23,13 +24,12 @@ export function releaseClosedChat(
   // reveals rather than duplicates, but a persisted layout can still carry
   // two). Closing one of them ends that VIEW, not the chat.
   if (chatIsUp(readPanes, chatId)) return
-  // The workspace was recorded on the pane when the chat was opened (C3).
   if (!workspaceId) return
 
   // The workspace still has a view of its own up — some other chat OF ITS OWN
   // is on screen — so it is in use, not closed.
   for (const pane of Object.values(readPanes())) {
-    if (pane.chatId && pane.workspaceId === workspaceId) return
+    if (paneChatWorkspaceId(pane) === workspaceId) return
   }
 
   // The active workspace is the route: WorkspaceView would re-create its store at once. Ordinary

@@ -3,6 +3,7 @@ import { openChatRoute } from '@/components/layout/open-actions'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 import type { Repo } from '@/core/entities/repo-types'
 
 type NavigateFn = ReturnType<typeof useNavigate>
@@ -19,7 +20,7 @@ export function focusRecent(viewId: string, repos: readonly Repo[], navigate: Na
   const pane = paneId ? panes[paneId] : undefined
   if (!paneId || !pane?.chatId) return
   paneActions.setActivePane(paneId)
-  openChatRoute(repos, pane.chatId, pane.workspaceId ?? '', navigate)
+  openChatRoute(repos, pane.chatId, paneChatWorkspaceId(pane) ?? '', navigate)
 }
 
 /** The row's × — ends the whole view. Its agents keep running; only Kill ends one. */

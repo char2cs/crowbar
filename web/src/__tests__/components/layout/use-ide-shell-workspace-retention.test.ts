@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
@@ -11,6 +11,10 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import type { Repo } from '@/core/entities/repo-types'
+import {
+  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+  useFocusedWorkspaceContextStore,
+} from '@/features/window/stores/focused-workspace-context-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
@@ -202,5 +206,47 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
     expect(result.current.sidebarWorkspacePath).toBe('/Users/mateo/projects/rabbyte-labs')
     expect(result.current.sidebarWorkspacePath).not.toBe('')
     expect(result.current.sidebarWorkspacePath).not.toBe(repoWithOwnPath.localPath)
+  })
+})
+
+// Branch-out and move re-point a chat to another workspace; its pane keeps the workspace it
+// opened in. The Files tab, the git tab and store retention must follow the chat.
+describe('useIdeShellWorkspaceRetention — a chat that moved to a child worktree', () => {
+  const todoCli: Repo = {
+    id: 'r-todo',
+    projectId: 'p1',
+    name: 'todo-cli',
+    avatarLabel: 'T',
+    avatarColor: 't',
+    localPath: '/repos/todo-cli',
+    defaultWorkspaceId: 'ws-main',
+    workspaces: [
+      { id: 'ws-main', branch: 'main', age: '', localPath: '/repos/todo-cli' },
+      { id: 'ws-child', branch: 'wobbly', age: '', localPath: '/wt/wobbly', parentId: 'ws-main' },
+    ],
+  }
+
+  afterEach(() => {
+    act(() => useFocusedWorkspaceContextStore.setState({ ...EMPTY_FOCUSED_WORKSPACE_CONTEXT }))
+  })
+
+  it("scopes the panel and retention to the chat's current workspace, not the pane's record", () => {
+    seedRepos([todoCli])
+    writeChat({ id: 'chat-b', repoId: 'r-todo', workspaceId: 'ws-main' })
+    windowPaneStore.getState().paneActions.openChat('chat-b', { workspaceId: 'ws-main' })
+    const { result } = renderHook(() =>
+      useIdeShellWorkspaceRetention('ws-main', 'ws-home', 'p1', 'r-todo', false),
+    )
+
+    act(() => writeChat({ id: 'chat-b', workspaceId: 'ws-child' }))
+
+    expect(result.current.effectiveActiveWorkspaceId).toBe('ws-child')
+    expect(result.current.sidebarWorkspacePath).toBe('/wt/wobbly')
+    expect(useFocusedWorkspaceContextStore.getState()).toMatchObject({
+      workspaceId: 'ws-child',
+      repoId: 'r-todo',
+      rootPath: '/wt/wobbly',
+    })
+    expect(result.current.viewWsIds).toEqual(['ws-child'])
   })
 })

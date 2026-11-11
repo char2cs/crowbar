@@ -5,9 +5,9 @@ export interface PaneGroup {
   chatId: string | null
   /** The runner (vendor-CLI process) the chat is following, or null when dormant. */
   runnerId: string | null
-  /** `chatId`'s workspace, set once by the gesture that placed it (C3) and never re-derived.
-   *  With `chatId` it is the view's member record: on-screen workspace lookups read it here.
-   *  Null for a chatless pane. */
+  /** Where `chatId` ran when the pane placed it (C3): a boot-time hint until the chat entity is
+   *  known. Branch-out and moves change the chat's workspace, not this; readers go through
+   *  `paneChatWorkspaceId` / `usePaneChatWorkspaceId`. Null for a chatless pane. */
   workspaceId?: string | null
   /** For a draft thread: the row its chat will be placed under, '' being the panel root. */
   draftParentId?: string
@@ -25,7 +25,7 @@ export interface PaneGroup {
   viewId: string | null
 }
 
-/** One chat of a view, with its identity fixed at open (C3). */
+/** One chat of a view, with the workspace it runs in now. */
 export interface ViewMember {
   chatId: string
   workspaceId: string | null

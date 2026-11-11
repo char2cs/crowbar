@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { hasUnsavedEdits, type PaneContent } from '@/features/panes/types/pane-content'
 import { settlePinnedOrder } from './view-pins'
+import { paneChatWorkspaceId } from './pane-chat-workspace-id'
 import {
   closeLayout,
   createLeaf,
@@ -186,7 +187,7 @@ export function removePane(state: ViewState, paneId: string): void {
   forgetPaneId(state, paneId)
 
   if (home.kind === 'view') {
-    if (!rest) dropRecord(state, home.viewId, new Set([pane.workspaceId ?? null]))
+    if (!rest) dropRecord(state, home.viewId, new Set([paneChatWorkspaceId(pane)]))
     else if (!viewHasChat(state, home.viewId)) removeView(state, home.viewId)
     return
   }
@@ -246,7 +247,7 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
   pane.viewId = to.kind === 'view' ? to.viewId : null
 
   if (from.kind === 'view') {
-    if (!rest) dropRecord(state, from.viewId, new Set([pane.workspaceId ?? null]))
+    if (!rest) dropRecord(state, from.viewId, new Set([paneChatWorkspaceId(pane)]))
     else if (!viewHasChat(state, from.viewId)) removeView(state, from.viewId)
   } else if (!rest) {
     if (from.kind === 'stage') resetStage(state)

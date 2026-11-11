@@ -12,6 +12,7 @@ import { closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import { recentsRowOf } from '@/components/sidebar/lib/recents-row-registry'
 import { useMemberRow, ViewTabPreview } from '@/components/sidebar/view-row'
 import { viewMembers } from '../lib/view-state'
+import { usePaneChatWorkspaceId } from '../hooks/use-pane-workspace'
 import { windowPaneStore } from '../stores/window-pane-store'
 import type { PaneGroup } from '../types/pane'
 
@@ -23,8 +24,9 @@ export function PaneHandle({ pane }: { pane: PaneGroup }) {
     windowPaneStore,
     (s) => !!pane.viewId && viewMembers(s, pane.viewId).length > 1,
   )
+  const workspaceId = usePaneChatWorkspaceId(pane)
   if (!inSplit || !pane.chatId) return null
-  return <PaneHandleBody paneId={pane.id} chatId={pane.chatId} workspaceId={pane.workspaceId} />
+  return <PaneHandleBody paneId={pane.id} chatId={pane.chatId} workspaceId={workspaceId} />
 }
 
 function PaneHandleBody({

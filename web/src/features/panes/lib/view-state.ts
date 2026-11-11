@@ -9,6 +9,7 @@ import type {
   ViewRecord,
 } from '@/features/panes/types/pane'
 import { createLeaf, findLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 
 /** The pane slice's structural state; see `view-ops.ts` for the only writers. */
 export interface ViewState {
@@ -137,18 +138,18 @@ export function viewMembers(
   const out: ViewMember[] = []
   for (const id of getAllLeafIds(view.layout)) {
     const pane = state.panes[id]
-    if (pane?.chatId) out.push({ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null })
+    if (pane?.chatId) out.push({ chatId: pane.chatId, workspaceId: paneChatWorkspaceId(pane) })
   }
   return out
 }
 
-/** The workspace recorded for `chatId` by the pane showing it, if any. */
+/** The workspace `chatId` runs in, if a pane shows it. */
 export function chatWorkspaceIn(
   panes: Readonly<Record<string, PaneGroup>>,
   chatId: string,
 ): string | null {
   for (const pane of Object.values(panes)) {
-    if (pane.chatId === chatId) return pane.workspaceId ?? null
+    if (pane.chatId === chatId) return paneChatWorkspaceId(pane)
   }
   return null
 }
