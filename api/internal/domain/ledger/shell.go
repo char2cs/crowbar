@@ -16,6 +16,9 @@ const (
 	ShellStart = "start"
 	ShellNote  = "note"
 	ShellEnd   = "end"
+	// ShellStopping says the agent was asked to end the shell; only its end
+	// settles it.
+	ShellStopping = "stopping"
 
 	ShellFinished = "finished"
 	ShellFailed   = "failed"
@@ -77,6 +80,8 @@ func ShellTail(out string) string {
 type Shell struct {
 	ID, Command, Label, Status string
 	TurnID                     string
+	// Stopping is set once the agent was asked to end the shell, until it does.
+	Stopping bool
 }
 
 // Live reports whether the shell is still running.
@@ -95,7 +100,7 @@ func checkShell(r Row) error {
 		if b.Kind != "" && b.Kind != ShellKindShell && b.Kind != ShellKindMonitor {
 			return false
 		}
-		return b.Phase == ShellStart || b.Phase == ShellNote && b.Tail != "" ||
+		return b.Phase == ShellStart || b.Phase == ShellStopping || b.Phase == ShellNote && b.Tail != "" ||
 			b.Phase == ShellEnd && ShellStatusEnds(b.Status)
 	})
 }
@@ -118,6 +123,9 @@ func (s *State) applyShell(r Row) {
 			s.shells = map[string]Shell{}
 		}
 		s.shells[body.ShellID] = Shell{ID: body.ShellID, Command: body.Command, Label: body.Label, TurnID: r.TurnID}
+	case body.Phase == ShellStopping && seen && known.Live():
+		known.Stopping = true
+		s.shells[body.ShellID] = known
 	case body.Phase == ShellEnd && seen && known.Live():
 		known.Status = body.Status
 		s.shells[body.ShellID] = known

@@ -186,6 +186,26 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The end-this-shell control: 24px, 44px on a phone. */
+.agent-chat .tray-stop {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+}
+.agent-chat .tray-stop:hover {
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-stop {
+  width: 44px;
+  height: 44px;
+  margin-right: -10px;
+}
 /* A rule above each group after the first, the group's name beneath it. */
 .agent-chat li.tray-group {
   min-height: 22px;

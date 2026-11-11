@@ -300,6 +300,8 @@ func (configurableListGetUsecase) SwitchProvider(context.Context, string, string
 
 func (configurableListGetUsecase) ResumeChat(context.Context, string) (string, error) { return "", nil }
 
+func (configurableListGetUsecase) StopShell(context.Context, string, string) error { return nil }
+
 func (configurableListGetUsecase) Compact(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) StopChat(context.Context, string) error { return nil }

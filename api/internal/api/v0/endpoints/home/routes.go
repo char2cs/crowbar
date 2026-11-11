@@ -97,6 +97,7 @@ func registerAgent(
 	home.GET("/chats/:id/slash-catalog", h.RequireHomeWorkspace, ah.SlashCatalog)
 	home.POST("/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
 	home.POST("/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
+	home.POST("/chats/:id/shells/:shellId/stop", h.RequireHomeWorkspace, ah.StopShell)
 	home.POST("/chats/:id/compact", h.RequireHomeWorkspace, ah.Compact)
 	home.POST("/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
 	home.POST("/chats/:id/prompts/:requestId/retract", h.RequireHomeWorkspace, ah.Retract)

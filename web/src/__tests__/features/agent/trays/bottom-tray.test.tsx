@@ -106,4 +106,56 @@ describe('BottomTray', () => {
     expect(within(monitor).queryByTestId('agent-tray-clock')).toBeNull()
     expect(screen.getByText('Dev server').closest('li')).toHaveAttribute('data-status', 'running')
   })
+
+  describe('ending a shell', () => {
+    function startShells() {
+      const l = ledger()
+      push(l.start('turn-1'))
+      const start = (body: object) =>
+        push(l.row('shell', { phase: 'start', ...body } as never, { turnId: 'turn-1' }))
+      start({ shellId: 'sh-1', command: 'npm run dev', label: 'Dev server' })
+      start({ shellId: 'mon-1', kind: 'monitor', command: 'tail -f app.log' })
+      return l
+    }
+
+    it('offers an End control on each running shell and monitor that asks for that one', () => {
+      const onStop = vi.fn()
+      render(<BottomTray chatId="chat-1" onStopShell={onStop} />)
+      startShells()
+
+      fireEvent.click(screen.getByRole('button', { name: 'End this monitor' }))
+      expect(onStop).toHaveBeenCalledWith('mon-1')
+      fireEvent.click(screen.getByRole('button', { name: 'End this shell' }))
+      expect(onStop).toHaveBeenLastCalledWith('sh-1')
+    })
+
+    it('offers none where the provider cannot be asked, nor on a subagent', () => {
+      render(<BottomTray chatId="chat-1" />)
+      startShells()
+      push(
+        ledger().row(
+          'subagent',
+          { phase: 'start', type: 'agent-1' },
+          { turnId: 'turn-1', scope: 's1' },
+        ),
+      )
+      expect(screen.queryByRole('button', { name: /End this/ })).toBeNull()
+    })
+
+    it('says Stopping until the shell really ends, and never closes it itself', () => {
+      render(<BottomTray chatId="chat-1" onStopShell={vi.fn()} />)
+      const l = startShells()
+
+      push(l.row('shell', { phase: 'stopping', shellId: 'sh-1' } as never, { turnId: 'turn-1' }))
+      const shell = screen.getByText('Dev server').closest('li') as HTMLElement
+      expect(shell).toHaveTextContent('Stopping…')
+      expect(shell).toHaveAttribute('data-status', 'running')
+      expect(within(shell).queryByRole('button')).toBeNull()
+
+      push(
+        l.row('shell', { phase: 'end', shellId: 'sh-1', status: 'stopped' }, { turnId: 'turn-1' }),
+      )
+      expect(screen.getByText('Dev server').closest('li')).toHaveAttribute('data-status', 'stopped')
+    })
+  })
 })

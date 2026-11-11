@@ -35,6 +35,8 @@ export function applyShell(fold: FeedFold, row: LedgerRow<'shell'>) {
     fold.set('shells', [...fold.facts.shells, id])
   } else if (known?.status === 'running' && phase === 'note') {
     fold.put({ ...known, tail: row.body.tail ?? known.tail })
+  } else if (known?.status === 'running' && phase === 'stopping') {
+    fold.put({ ...known, stopping: true })
   } else if (known?.status === 'running' && phase === 'end' && row.body.status) {
     const { status, exitCode, tail, summary } = row.body
     fold.put({

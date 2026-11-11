@@ -28,11 +28,15 @@ export function shellRow(shell: ShellItem): TrayRow {
   const running = shell.status === 'running'
   const where = shell.label ? shell.command : (shell.cwd ?? '')
   const detail = running
-    ? lastLine(shell.tail) || where
+    ? shell.stopping
+      ? 'Stopping…'
+      : lastLine(shell.tail) || where
     : [ending(shell), shell.summary || lastLine(shell.tail)].filter(Boolean).join(' · ')
   return {
     id: shell.id,
     kind: shell.shellKind,
+    shellId: shell.shellId,
+    stopping: shell.stopping,
     label: shell.label || shell.command || (shell.shellKind === 'monitor' ? 'Monitor' : 'Shell'),
     detail,
     hint: hint(shell),

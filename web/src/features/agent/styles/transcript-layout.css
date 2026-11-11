@@ -225,6 +225,15 @@
   gap: 2px;
   margin-top: 6px;
 }
+/* 44pt to the finger inside the same 32pt footprint: the margins give back what the size takes. */
+.agent-chat-pane[data-touch] .agent-chat :is(.queued, .firstq) .acts {
+  gap: 12px;
+}
+.agent-chat-pane[data-touch] .agent-chat :is(.queued, .firstq) .acts > button {
+  width: 44px;
+  height: 44px;
+  margin: -6px;
+}
 /* The pill's own metrics govern the prose inside it. The canvas draws a bubble
    at 1.6 and prose at 1.625, and the difference is enough to move the height of
    the stadium the composer's box turns into. */

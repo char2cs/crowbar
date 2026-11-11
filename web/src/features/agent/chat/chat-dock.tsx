@@ -19,6 +19,8 @@ interface ChatDockProps {
   providers: AgentProvider[]
   /** What the notice for a stopped turn can do. */
   failureActions: FailureActions
+  /** Asks the agent to end a shell; absent where the provider cannot be asked. */
+  onStopShell?: (shellId: string) => void
   /** Puts an unsent message's text back in the composer. */
   onEditPrompt: (text: string) => void
   pickers: ReactNode
@@ -39,6 +41,7 @@ export function ChatDock({
   plan,
   providers,
   failureActions,
+  onStopShell,
   onEditPrompt,
   pickers,
   note,
@@ -78,7 +81,7 @@ export function ChatDock({
           {...composer}
         />
       }
-      bottomTray={!blank && <BottomTray chatId={chatId} />}
+      bottomTray={!blank && <BottomTray chatId={chatId} onStopShell={onStopShell} />}
       footer={!blank && <ProviderBar {...footer} modelHot={modelHot} />}
       alert={
         error && (

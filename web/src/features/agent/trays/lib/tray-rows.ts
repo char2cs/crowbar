@@ -8,6 +8,10 @@ export interface TrayRow {
   /** Everything else known of it, for a tooltip. */
   hint?: string
   status: 'running' | 'done' | 'failed' | 'stopped'
+  /** A shell or monitor the agent was asked to end and has not yet. */
+  stopping?: boolean
+  /** The provider's id of a shell or monitor, which a stop names. */
+  shellId?: string
   startedAt: string
   /** When it ended, so an ended row keeps how long it ran. */
   endedAt?: string

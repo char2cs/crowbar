@@ -6,7 +6,13 @@ import { useWorkRows } from '@/features/agent/trays/use-work-rows'
 
 /** Subagents (and shells) behind the input box's bottom edge: at most four rows, the rest
  *  gathered into one row that opens. Absent while nothing runs. */
-export function BottomTray({ chatId }: { chatId: string }) {
+export function BottomTray({
+  chatId,
+  onStopShell,
+}: {
+  chatId: string
+  onStopShell?: (shellId: string) => void
+}) {
   const rows = useWorkRows(chatId)
   const [expanded, setExpanded] = useState(false)
   if (rows.length === 0) return null
@@ -23,7 +29,7 @@ export function BottomTray({ chatId }: { chatId: string }) {
               {entry.text}
             </li>
           ) : (
-            <TrayRowView key={entry.row.id} row={entry.row} />
+            <TrayRowView key={entry.row.id} row={entry.row} onStop={onStopShell} />
           ),
         )}
         {(view.more || view.canCollapse) && (

@@ -154,7 +154,7 @@ export interface RowBodies {
   plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
   /** A command the main agent left running in the background. */
   shell: {
-    phase: 'start' | 'note' | 'end'
+    phase: 'start' | 'note' | 'stopping' | 'end'
     shellId: string
     /** Absent for a plain shell. */
     kind?: 'shell' | 'monitor'

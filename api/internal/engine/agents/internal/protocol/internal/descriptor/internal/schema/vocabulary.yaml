@@ -357,3 +357,12 @@ events:
     direction: out
     required: []
     optional: [session_id]
+
+  # Crowbar asks the agent to end one of its background shells (shell_id). The
+  # provider has no operation to end a shell from outside, so the request goes to
+  # the agent in the provider's own words. Key-presence is the capability: a
+  # provider that declares none gets no stop control on its shell rows.
+  shell_stop:
+    direction: out
+    required: []
+    optional: [session_id, shell_id]

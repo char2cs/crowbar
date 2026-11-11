@@ -145,6 +145,14 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// StopShell asks the chat's agent, in the words its provider declares, to end the
+	// running background shell shellID, and marks it stopping until the agent's own end
+	// arrives. ErrNotFound for a provider that declares none; a shell not running is a conflict.
+	StopShell(
+		ctx context.Context,
+		chatID, shellID string,
+	) error
+
 	// TerminalWait reports whether a chat's CLI is parked on a modal terminal
 	// prompt, and on which kind. A daemon whose terminal seam cannot render a
 	// screen always answers "not waiting".
@@ -292,6 +300,11 @@ func (u *Usecase) Compact(ctx context.Context, chatID string) error {
 	// fails validation (see manualCompactRequests).
 	u.recorder.ArmManualCompaction(chatID)
 	return u.runners.Compact(ctx, chatID)
+}
+
+// StopShell implements RunnerUsecase.
+func (u *Usecase) StopShell(ctx context.Context, chatID, shellID string) error {
+	return u.runners.StopShell(ctx, chatID, shellID)
 }
 
 // SwitchToTerminal moves the chat onto its provider's own TUI.

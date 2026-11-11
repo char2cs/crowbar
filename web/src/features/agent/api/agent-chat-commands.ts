@@ -131,6 +131,15 @@ export async function compactChat(wsId: string, id: string): Promise<void> {
   })
 }
 
+// stopShell asks the chat's agent to end one of its background shells. The shell closes
+// only when the agent's own end arrives; gate the control on the provider's `shellStop`.
+export async function stopShell(wsId: string, id: string, shellId: string): Promise<void> {
+  await apiFetch<unknown>(
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/shells/${encodeURIComponent(shellId)}/stop`,
+    { method: 'POST' },
+  )
+}
+
 /** Type the descriptor-declared reply into the prompt a chat's CLI is parked on.
  *  The wait itself clears when the daemon next sees the prompt gone; a 409 means it already has. */
 export async function answerTerminalWait(

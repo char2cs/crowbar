@@ -51,6 +51,7 @@ func Register(
 	repoScoped.POST("/chats/:id/switch", h.Switch)
 	repoScoped.POST("/chats/:id/resume", h.Resume)
 	repoScoped.POST("/chats/:id/compact", h.Compact)
+	repoScoped.POST("/chats/:id/shells/:shellId/stop", h.StopShell)
 	repoScoped.POST("/chats/:id/stop", h.Stop)
 	repoScoped.POST("/chats/:id/prompts/:requestId/retract", h.Retract)
 	repoScoped.POST("/chats/:id/switch-to-terminal", h.SwitchToTerminal)

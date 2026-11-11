@@ -184,6 +184,11 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// StopShell asks chatID's agent to end its running background shell shellID by the
+	// words its provider declares (ErrNotFound when it declares none) and marks the
+	// shell stopping; the shell closes only when the agent ends it.
+	StopShell(ctx context.Context, chatID, shellID string) error
+
 	// SwitchToTerminal moves chatID onto its provider's own TUI and returns
 	// the terminal session it is. Refuses (ErrTurnInProgress) while a turn is
 	// in flight and (ErrNoNativeTerminal) for a provider with no TUI to show.

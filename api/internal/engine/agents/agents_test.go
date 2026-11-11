@@ -60,9 +60,15 @@ func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 	assert.True(t, claude.Telemetry)
 	assert.True(t, claude.Declares(agents.HookToolPre))
 	assert.True(t, claude.Declares(agents.HookNotification))
+	assert.True(t, claude.ShellStop)
+	wire, payload, ok := get(t, "claude").OutboundCall("shell_stop", map[string]string{"shell_id": "bg-7"})
+	assert.True(t, ok)
+	assert.Equal(t, "prompt", wire)
+	assert.Contains(t, payload["text"], "bg-7")
 
 	codex := get(t, "codex").Capabilities()
 	assert.True(t, codex.PromptSubmit)
+	assert.False(t, codex.ShellStop, "codex declares no way to ask for a shell to end")
 
 	assert.Equal(t, agents.DeliveryRestartTUI, codex.Delivery)
 	assert.False(t, codex.Telemetry, "codex exposes no telemetry channel today")

@@ -26,6 +26,9 @@ export interface AgentProvider {
   /** Without a declared `compact_start` there is no compact control, and
    *  `POST /compact` answers 404. */
   compaction: boolean
+  /** The descriptor declares how to ask the agent to end a background shell; without it
+   *  a shell row has no stop control and `POST /shells/:id/stop` answers 404. */
+  shellStop?: boolean
   /** Structural, not a capability the descriptor opts into. */
   hasTerminal: boolean
   /** Chat and terminal faces can be live at once; when false the user finishes

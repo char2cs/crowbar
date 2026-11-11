@@ -370,6 +370,11 @@ events:
     out: prompt
     send: { text: "/compact" }
 
+  # A background task has no outside handle: the agent is asked to stop it itself.
+  shell_stop:
+    out: prompt
+    send: { text: "Stop the background task {shell_id} now." }
+
 # restart_tui is a no-op in practice: prompt_submit.strategy is already
 # restart_tui, so every message already restarts the CLI. NOT
 # bypassPermissions, which skips every check including what auto still makes.

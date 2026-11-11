@@ -292,6 +292,8 @@ func (f *fakeAgentUsecase) ResumeChat(
 	return f.resumeSegID, nil
 }
 
+func (f *fakeAgentUsecase) StopShell(context.Context, string, string) error { return nil }
+
 func (f *fakeAgentUsecase) Compact(
 	_ context.Context,
 	chatID string,

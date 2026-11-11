@@ -157,6 +157,8 @@ export interface ShellItem extends ItemBase {
   persistent?: boolean
   timeoutMs?: number
   status: ShellStatus
+  /** The agent was asked to end it; only its own end settles the row. */
+  stopping?: boolean
   exitCode?: number
   /** The newest line while it runs, the end of its output once it ended. */
   tail?: string

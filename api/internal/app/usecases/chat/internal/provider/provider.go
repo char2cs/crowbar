@@ -202,6 +202,7 @@ func (p *Providers) ResolveProviders(
 			Enabled:           !pref.Disabled,
 			MCPEnabled:        !pref.MCPDisabled,
 			Compaction:        caps.Compaction,
+			ShellStop:         caps.ShellStop,
 			ModelSelect:       caps.ModelSelect,
 			EffortSelect:      caps.EffortSelect,
 			ActivityEvents:    caps.Observes,

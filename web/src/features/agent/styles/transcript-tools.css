@@ -308,3 +308,24 @@
 .agent-chat .tool-run-members {
   margin: 2px 0 4px 18px;
 }
+
+/* Targets past their drawn size on a phone: the card head and "Thought" reach 44pt; a tool row's
+   caret takes the whole row's width but only its 29pt pitch, or its neighbours' targets overlap. */
+.agent-chat-pane[data-touch] .agent-chat :is(.reasoning-toggle, button.subagent-head) {
+  position: relative;
+}
+.agent-chat-pane[data-touch]
+  .agent-chat
+  :is(.reasoning-toggle, button.subagent-head, .tool-row-toggle)::after {
+  content: '';
+  position: absolute;
+}
+.agent-chat-pane[data-touch] .agent-chat .reasoning-toggle::after {
+  inset: -14px -12px;
+}
+.agent-chat-pane[data-touch] .agent-chat button.subagent-head::after {
+  inset: -14px 0;
+}
+.agent-chat-pane[data-touch] .agent-chat .tool-row-toggle::after {
+  inset: -4px -2px -4px -330px;
+}

@@ -182,6 +182,8 @@ func (stubUsecase) SwitchProvider(context.Context, string, string, string) (stri
 
 func (stubUsecase) ResumeChat(context.Context, string) (string, error) { return "seg-2", nil }
 
+func (stubUsecase) StopShell(context.Context, string, string) error { return nil }
+
 func (stubUsecase) Compact(context.Context, string) error { return nil }
 
 func (stubUsecase) Retract(context.Context, string, string) (agentusecase.RetractResult, error) {

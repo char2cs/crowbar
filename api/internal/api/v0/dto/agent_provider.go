@@ -32,6 +32,7 @@ type AgentProviderDTO struct {
 	Enabled     bool   `json:"enabled"`
 	MCPEnabled  bool   `json:"mcpEnabled"`
 	Compaction  bool   `json:"compaction"`
+	ShellStop   bool   `json:"shellStop"`
 	Hotswap     bool   `json:"hotswap"`
 	// SignIn is the shell command that logs the CLI in, omitted when undeclared.
 	SignIn string `json:"signIn,omitempty"`

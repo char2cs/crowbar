@@ -32,6 +32,22 @@ func TestCheck_RefusesAMalformedShellRow(t *testing.T) {
 	assert.NoError(t, ledger.Check(ledger.State{}, shellRow(t, ledger.ShellBody{Phase: ledger.ShellNote, ShellID: "s", Tail: "line"})))
 }
 
+func TestFold_AStoppingShellStaysLiveUntilItEnds(t *testing.T) {
+	start := ledger.ShellBody{Phase: ledger.ShellStart, ShellID: "s"}
+	stopping := ledger.ShellBody{Phase: ledger.ShellStopping, ShellID: "s"}
+	end := ledger.ShellBody{Phase: ledger.ShellEnd, ShellID: "s", Status: ledger.ShellStopped}
+	require.NoError(t, ledger.Check(ledger.State{}, shellRow(t, stopping)))
+
+	st := ledger.Fold("c1", sequenced(t, turnStart(t, "T1"), shellRow(t, start), shellRow(t, stopping)))
+	shell, _ := st.ShellOf("s")
+	assert.True(t, shell.Live())
+	assert.True(t, shell.Stopping)
+
+	st = ledger.Fold("c1", sequenced(t, turnStart(t, "T1"), shellRow(t, start), shellRow(t, stopping), shellRow(t, end)))
+	shell, _ = st.ShellOf("s")
+	assert.False(t, shell.Live())
+}
+
 func TestFold_AShellRunsUntilItsFirstEndAndKeepsNoChatBusy(t *testing.T) {
 	start := ledger.ShellBody{Phase: ledger.ShellStart, ShellID: "s", Command: "make dev", Label: "dev"}
 	st := ledger.Fold("c1", sequenced(t, turnStart(t, "T1"), shellRow(t, start), ended(t, "T1")))

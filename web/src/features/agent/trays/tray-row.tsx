@@ -1,3 +1,4 @@
+import { XIcon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { useTextClock } from '@/features/agent/activity/lib/text-clock'
 import { formatTrayClock, type TrayRow } from '@/features/agent/trays/lib/tray-rows'
@@ -9,8 +10,18 @@ function ranSeconds({ startedAt, endedAt }: TrayRow): number {
 
 /** One subagent, shell or monitor: a spinner while it runs, its name, what it is doing or how
  *  it ended, how long it has run. The name and the action share a line, or stack on a phone. */
-export function TrayRowView({ row }: { row: TrayRow }) {
+export function TrayRowView({
+  row,
+  onStop,
+}: {
+  row: TrayRow
+  /** Asks the agent to end this shell or monitor; absent where it cannot be asked. */
+  onStop?: (shellId: string) => void
+}) {
   const running = row.status === 'running'
+  const noun = row.kind === 'monitor' ? 'monitor' : 'shell'
+  const { shellId } = row
+  const stop = running && !row.stopping && shellId && onStop ? () => onStop(shellId) : undefined
   const ranFor = ranSeconds(row)
   const clockRef = useTextClock(row.startedAt, formatTrayClock)
   return (
@@ -22,6 +33,17 @@ export function TrayRowView({ row }: { row: TrayRow }) {
       </span>
       {!running && ranFor > 0 && <i className="tray-clock">{formatTrayClock(ranFor)}</i>}
       {running && <i className="tray-clock" data-testid="agent-tray-clock" ref={clockRef} />}
+      {stop && (
+        <button
+          type="button"
+          className="tray-stop"
+          aria-label={`End this ${noun}`}
+          title={`End this ${noun}`}
+          onClick={stop}
+        >
+          <XIcon size={12} />
+        </button>
+      )}
     </li>
   )
 }

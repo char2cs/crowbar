@@ -34,6 +34,13 @@ var ErrCompactionOffSurface = fmt.Errorf(
 	problem.ErrUnprocessable,
 )
 
+// ErrShellStopOffSurface refuses a shell stop asked from the provider's OWN terminal,
+// where its shells are the user's to end.
+var ErrShellStopOffSurface = fmt.Errorf(
+	"agent: ending a shell is offered on Crowbar's own chat, not the provider's terminal: %w",
+	problem.ErrUnprocessable,
+)
+
 // chatCapabilityContext resolves the pair every chat-scoped capability needs:
 // the chat itself (for its current surface) and the descriptor of whichever
 // provider is on it.

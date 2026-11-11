@@ -389,6 +389,9 @@ func extraRoutes() []string {
 		//   permission) from the chat instead of the terminal.
 		"POST " + repo + "/chats/:id/terminal-wait/answer",
 		"POST " + repo + "/chats/:id/compact",
+		// Asks the agent to end one of its background shells; the provider has no
+		// outside handle on them.
+		"POST " + repo + "/chats/:id/shells/:shellId/stop",
 		// Two more ways a session on a chat can end without the chat itself
 		// going anywhere: forcing the CLI into (or back out of) the host
 		// terminal rather than the chat's own pane.
@@ -501,6 +504,7 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/stop",
 		"POST " + home + "/chats/:id/terminal-wait/answer",
 		"POST " + home + "/chats/:id/compact",
+		"POST " + home + "/chats/:id/shells/:shellId/stop",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
 		// worktree workspace, so the surface that most needs somewhere to put them

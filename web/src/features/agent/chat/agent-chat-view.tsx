@@ -5,6 +5,7 @@ import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resumeChat } from '@/features/agent/api/agent-chat-commands'
 import { offeredCompact } from '@/features/agent/chat/lib/offered-compact'
+import { offeredStopShell } from '@/features/agent/chat/lib/offered-stop-shell'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { declaredModel } from '@/features/agent/lib/staged-selection'
 import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
@@ -199,6 +200,10 @@ export function AgentChatView({
   const shownModel =
     declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
   const idle = !!provider?.compaction && live && !compacting && !working && !onTerminalSurface
+  const onStopShell = useMemo(
+    () => offeredStopShell(wsId, chatId, !!provider?.shellStop && live && !onTerminalSurface),
+    [wsId, chatId, provider?.shellStop, live, onTerminalSurface],
+  )
   const onCompact = useMemo(() => offeredCompact(wsId, chatId, idle), [wsId, chatId, idle])
   const rowActions = useMemo<RowActions>(
     () => ({
@@ -405,6 +410,7 @@ export function AgentChatView({
               plan={facts.plan}
               providers={providers}
               failureActions={rowActions}
+              onStopShell={onStopShell}
               onEditPrompt={editPrompt}
               pickers={
                 <>

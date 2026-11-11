@@ -204,6 +204,7 @@ func (a *agent) Capabilities() Capabilities {
 
 		TerminalPrompts: protocol.TerminalPrompts(a.spec),
 		Compaction:      protocol.CanSend(a.spec, "compact_start"),
+		ShellStop:       protocol.CanSend(a.spec, "shell_stop"),
 		Observes:        protocol.Observes(a.spec),
 
 		Hotswap:     a.spec.Runtime.Hotswap,

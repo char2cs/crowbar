@@ -18,6 +18,10 @@ type AgentProvider struct {
 	// control must be gated on it, since a button that does nothing is worse than none.
 	Compaction bool
 
+	// ShellStop is whether the provider declares how to ask its agent to end a
+	// background shell; a stop control on a shell row must be gated on it.
+	ShellStop bool
+
 	// Hotswap and HasTerminal are engine.Capabilities.Hotswap/.HasTerminal,
 	// carried through unchanged — see there for what each means.
 	Hotswap bool
