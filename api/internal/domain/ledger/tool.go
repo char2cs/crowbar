@@ -50,6 +50,10 @@ type ToolCall struct {
 	MCPTool     string `json:"mcpTool,omitempty"`
 	ExitCode    *int   `json:"exitCode,omitempty"`
 	Interrupted bool   `json:"interrupted,omitempty"`
+	// Cwd and Ref are where a command ran and the provider's handle on its process;
+	// a shell that outlives the call is told by them.
+	Cwd string `json:"cwd,omitempty"`
+	Ref string `json:"ref,omitempty"`
 	// InputKey is InputKey of the call's input: what an ask about it names it by.
 	InputKey string `json:"inputKey,omitempty"`
 	// SpawnsScope is the subagent this call spawned; AddressesScope one it
@@ -68,6 +72,7 @@ type ToolLocation struct {
 type toolKeys struct {
 	turnID, name, input string
 	kind, target        string // what the call does and to what, as first said
+	cwd, ref            string // where it ran and its process handle, as first said
 	phases              []string
 	seq                 int64 // its first row's seq
 }
@@ -104,6 +109,30 @@ func (s State) HasToolPhase(scope, toolID, phase string) bool {
 func (s State) ToolAim(scope, toolID string) (kind, target string) {
 	t := s.keys.tools[ref(scope, toolID)]
 	return t.kind, t.target
+}
+
+// ToolRun is where the tool call toolID of scope ran and the provider's handle on its process.
+func (s State) ToolRun(scope, toolID string) (cwd, handle string) {
+	t := s.keys.tools[ref(scope, toolID)]
+	return t.cwd, t.ref
+}
+
+// OpenToolOfRef is the uncompleted tool call of scope whose process handle is processRef.
+func (s State) OpenToolOfRef(scope, processRef string) (string, bool) {
+	var found newest
+	for key, t := range s.keys.tools {
+		toolScope, toolID := unref(key)
+		if toolScope == scope && processRef != "" && t.ref == processRef && !t.closed() {
+			found.offer(t.seq, toolID)
+		}
+	}
+	return found.id, found.id != ""
+}
+
+// ToolOpen reports whether the tool call toolID of scope was recorded and has not completed.
+func (s State) ToolOpen(scope, toolID string) bool {
+	t, ok := s.keys.tools[ref(scope, toolID)]
+	return ok && !t.closed()
 }
 
 // HasToolInput reports whether the tool call toolID of scope is keyed by an input.
@@ -162,6 +191,7 @@ func (s *State) applyToolCall(r Row) {
 	}
 	t.name, t.input = cmp.Or(t.name, body.Name), cmp.Or(t.input, body.InputKey)
 	t.kind, t.target = cmp.Or(t.kind, body.Kind), cmp.Or(t.target, body.Target)
+	t.cwd, t.ref = cmp.Or(t.cwd, body.Cwd), cmp.Or(t.ref, body.Ref)
 	if !slices.Contains(t.phases, body.Phase) {
 		t.phases = append(slices.Clip(t.phases), body.Phase)
 	}

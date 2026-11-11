@@ -1285,12 +1285,8 @@ describe('AgentChatPane', () => {
       // The daemon's lifecycle frame says the runner is gone.
       await act(async () => writeChat(dormantChat({ id: 'c1' })))
 
-      await vi.waitFor(() =>
-        expect(chatStore.getState().outbox.c1?.[0]).toMatchObject({
-          state: 'failed',
-          error: 'replacement failed',
-        }),
-      )
+      await vi.waitFor(() => expect(chatStore.getState().outbox.c1?.[0]?.state).toBe('failed'))
+      expect(chatStore.getState().outbox.c1?.[0]?.error).toBe('replacement failed')
       expect(screen.queryByTestId('agent-session-note')).not.toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
     })

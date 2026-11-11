@@ -1,8 +1,6 @@
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 import type { PermissionTarget } from '@/features/agent/composer/permission-level-switcher'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
-import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 export interface SelectionClusterProps {
   provider?: AgentProvider
@@ -10,16 +8,10 @@ export interface SelectionClusterProps {
   model: string
   effort: string
   reportedModel?: string
-  presentation: ChatPresentation
-  splitEnabled: boolean
-  /** Draw the surface switcher. Exactly one exists on a pane. */
-  showSwitcher?: boolean
-  handoverBlocked?: boolean
   switchDisabled?: boolean
   /** Offered inside the model picker's phone sheet. */
   permission?: PermissionTarget
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  onSelectPresentation: (next: ChatPresentation) => void
 }
 
 /** Shared by the underbar and the blank document's handle so a chat never names
@@ -30,16 +22,10 @@ export function SelectionCluster({
   model,
   effort,
   reportedModel,
-  presentation,
-  splitEnabled,
-  showSwitcher,
-  handoverBlocked,
   switchDisabled,
   permission,
   onSelectionChange,
-  onSelectPresentation,
 }: SelectionClusterProps) {
-  const switcher = showSwitcher
   return (
     <span className="selpos">
       {/* One merged control: picking a model already picks its provider. */}
@@ -55,15 +41,6 @@ export function SelectionCluster({
         // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
       />
-      {switcher && <span className="sep" />}
-      {switcher && (
-        <ViewSwitcher
-          presentation={presentation}
-          splitEnabled={splitEnabled}
-          handoverBlocked={handoverBlocked}
-          onSelect={onSelectPresentation}
-        />
-      )}
     </span>
   )
 }

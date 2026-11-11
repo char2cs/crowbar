@@ -489,13 +489,8 @@ describe('AskRow', () => {
     ])
     const { container } = draw('a:q1')
     expect(container).toBeEmptyDOMElement()
-    act(
-      () =>
-        void applyFeedFrame('chat-1', {
-          type: 'row',
-          row: l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['y'] }),
-        }),
-    )
+    const row = l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['y'] })
+    act(() => void applyFeedFrame('chat-1', { type: 'row', row }))
     expect(screen.getByTestId('agent-turn-choices')).toHaveTextContent('Bash · Allow')
   })
 })

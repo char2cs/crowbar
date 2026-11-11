@@ -349,6 +349,10 @@
     height: 44px;
     margin: -7px -6px;
   }
+  .agent-chat .rq-opt {
+    min-height: 44px;
+    justify-content: center;
+  }
   .agent-chat .rq-form {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;

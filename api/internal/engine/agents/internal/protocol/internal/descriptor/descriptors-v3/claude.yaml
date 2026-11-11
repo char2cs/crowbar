@@ -48,7 +48,7 @@ runtime:
 #
 # idle is NOT among them any more: claude has no live status stream, but it does
 # send one authoritative idle report — see the idle: event below.
-not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update, message_complete, warning]
+not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update, message_complete, warning, terminal_input]
 
 # Both faces are live from the instant the process spawns (hotswap: true
 # above) — the terminal PTY IS claude, chat is the same hooks stream read
@@ -164,11 +164,17 @@ events:
       # Bash as backgroundTaskId, Monitor as taskId. TaskStop confirms the one it stopped.
       spawns_shell: { first_present: [tool_response.backgroundTaskId, tool_response.taskId] }
       stops_shell:  { first_present: [tool_response.task_id, tool_input.task_id, tool_input.shell_id] }
+      # A Monitor is a background command whose output lines come back as notifications;
+      # persistent and timeout_ms say how long it was set to watch.
+      shell_kind:       tool_name
+      shell_persistent: tool_input.persistent
+      shell_timeout_ms: { first_present: [tool_input.timeout_ms, tool_response.timeoutMs] }
+    shell_kind_map: { Monitor: monitor, Bash: shell }
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
     fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json, PostToolUse.Bash.json,
                PostToolUse.mcp.json, PostToolUse.Agent.json]
     # No recorded background command, Monitor or TaskStop: their ids follow the documented tool_response.
-    unverified_fields: [spawns_shell, stops_shell]
+    unverified_fields: [spawns_shell, stops_shell, shell_persistent, shell_timeout_ms]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
@@ -657,6 +663,9 @@ injected_prompts:
     # way and ends no shell, as nothing of that id was started as one.
     task_id: { pattern: '<task-id>(?P<v>[^<]+)</task-id>' }
     status:  { pattern: '<status>(?P<v>[^<]+)</status>' }
+    # A Monitor's notifications carry the line it printed and no status; an end carries one.
+    summary: { pattern: '<summary>(?P<v>[^<]+)</summary>' }
+    event:   { pattern: '(?s)<event>(?P<v>.*?)</event>' }
     status_map: { completed: finished, failed: failed, stopped: stopped }
   - needle: "<teammate-message"
   # The hand-back of a subagent's result: subagent_result, never a prompt.

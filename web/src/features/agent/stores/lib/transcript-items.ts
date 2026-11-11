@@ -139,9 +139,19 @@ export interface ShellItem extends ItemBase {
   kind: 'shell'
   /** The provider's id for the task, which a notification names. */
   shellId: string
+  /** A monitor reports the lines its command prints; a shell just runs. */
+  shellKind: 'shell' | 'monitor'
   command: string
   label: string
+  cwd?: string
+  ref?: string
+  persistent?: boolean
+  timeoutMs?: number
   status: ShellStatus
+  exitCode?: number
+  /** The newest line while it runs, the end of its output once it ended. */
+  tail?: string
+  summary?: string
   startedAt: string
   endedAt?: string
 }

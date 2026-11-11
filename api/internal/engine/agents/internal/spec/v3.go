@@ -124,7 +124,10 @@ type EventSpec struct {
 	// component statuses. Unknown values pass through unchanged.
 	StatusMap map[string]string `yaml:"status_map"`
 	KindMap   map[string]string `yaml:"kind_map"`
-	Locations *LocationsSpec    `yaml:"locations"`
+	// ShellKindMap turns shell_kind, the provider's word for what a call started,
+	// into shell or monitor.
+	ShellKindMap map[string]string `yaml:"shell_kind_map"`
+	Locations    *LocationsSpec    `yaml:"locations"`
 	// DiffFiles maps a tool call's own changed-file list into one preview for
 	// that call. It is separate from the turn-wide diff snapshot.
 	DiffFiles *DiffFilesSpec `yaml:"diff_files"`

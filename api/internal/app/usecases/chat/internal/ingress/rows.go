@@ -107,6 +107,7 @@ var mappers = map[string]mapFunc{
 	engineagents.HookToolPre:         mapToolCall,
 	engineagents.HookToolPost:        mapToolCall,
 	engineagents.HookToolFail:        mapToolCall,
+	engineagents.HookTerminalInput:   mapTerminalInput,
 	engineagents.HookSubagentPre:     rowsOnly(mapSubagent),
 	engineagents.HookSubagentPost:    rowsOnly(mapSubagent),
 	engineagents.HookPermission:      scoped(mapAsk),

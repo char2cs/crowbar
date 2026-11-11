@@ -34,6 +34,15 @@ const (
 
 	HookTurnFailed = "turn_failed"
 
+	// The kinds a background command is: a shell, or a monitor that reports the
+	// lines it prints.
+	ShellKindShell   = "shell"
+	ShellKindMonitor = "monitor"
+
+	// HookTerminalInput is input written to the process of a running tool call: the
+	// call outlived the moment it returned.
+	HookTerminalInput = "terminal_input"
+
 	// HookIdle is the provider reporting that it is doing nothing; it ends the
 	// running turn, so a descriptor maps it only where no turn-close follows it.
 	HookIdle = "idle"

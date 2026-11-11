@@ -102,6 +102,7 @@ const (
 	HookMessageDelta    = spec.HookMessageDelta
 	HookReasoningDelta  = spec.HookReasoningDelta
 	HookTurnFailed      = spec.HookTurnFailed
+	HookTerminalInput   = spec.HookTerminalInput
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate

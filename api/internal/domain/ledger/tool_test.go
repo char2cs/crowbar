@@ -118,3 +118,26 @@ func TestCheck_AToolCallNeedsAnIDAndAPhase(t *testing.T) {
 	require.ErrorIs(t, ledger.Check(ledger.State{}, toolCall(t, "", "", ledger.ToolPre, "Bash")), ledger.ErrMalformedRow)
 	require.ErrorIs(t, ledger.Check(ledger.State{}, toolCall(t, "", "t", "later", "Bash")), ledger.ErrMalformedRow)
 }
+
+// A command that returned names where it ran and its process; the one still open is told by that handle.
+func TestState_AnOpenCallIsFoundByItsProcessHandle(t *testing.T) {
+	pre := scoped(t, ledger.KindToolCall, "T1", "", ledger.ToolCall{
+		ToolID: "c1", Phase: ledger.ToolPre, Name: "run", Kind: ledger.ToolKindExecute, Cwd: "/work", Ref: "77",
+	})
+	st := ledger.Fold("c1", sequenced(t, turnStart(t, "T1"), pre))
+
+	cwd, handle := st.ToolRun("", "c1")
+	assert.Equal(t, "/work", cwd)
+	assert.Equal(t, "77", handle)
+	id, ok := st.OpenToolOfRef("", "77")
+	assert.True(t, ok)
+	assert.Equal(t, "c1", id)
+	assert.True(t, st.ToolOpen("", "c1"))
+
+	closed := ledger.Fold("c1", sequenced(t, turnStart(t, "T1"), pre, toolCall(t, "", "c1", ledger.ToolPost, "run")))
+	_, ok = closed.OpenToolOfRef("", "77")
+	assert.False(t, ok, "a completed call holds no process")
+	assert.False(t, closed.ToolOpen("", "c1"))
+	_, ok = st.OpenToolOfRef("", "")
+	assert.False(t, ok)
+}

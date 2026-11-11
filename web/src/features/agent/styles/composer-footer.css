@@ -145,6 +145,15 @@
   font-size: 13px;
   gap: 7px;
 }
+/* 44pt to the finger, 32pt to the eye. */
+.agent-chat .underbar[data-touch] button.ctx-pill {
+  position: relative;
+}
+.agent-chat .underbar[data-touch] button.ctx-pill::before {
+  content: '';
+  position: absolute;
+  inset: -6px -4px;
+}
 .agent-chat .underbar[data-touch] .ctx-ring {
   width: 15px;
   height: 15px;
@@ -198,13 +207,16 @@
   cursor: default;
 }
 /* The phone's 44pt touch target, invisible: the segments keep their size. */
-.agent-chat-pane[data-touch] .viewswitch button {
-  position: relative;
-}
-.agent-chat-pane[data-touch] .viewswitch button::before {
-  content: '';
-  position: absolute;
-  inset: -11px -3px;
+/* Keyed to the pointer, not the pane: the header slot sits outside `.agent-chat-pane`. */
+@media (pointer: coarse) {
+  .viewswitch button {
+    position: relative;
+  }
+  .viewswitch button::before {
+    content: '';
+    position: absolute;
+    inset: -11px -3px;
+  }
 }
 .viewswitch svg {
   width: 14px;

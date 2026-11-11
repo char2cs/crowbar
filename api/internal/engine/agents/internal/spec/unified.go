@@ -90,6 +90,12 @@ func (d *Descriptor) EventKindMap(canonical string) map[string]string {
 	return d.Events[canonical].KindMap
 }
 
+// EventShellKindMap turns the provider's word for what a call started into
+// Crowbar's shell kind.
+func (d *Descriptor) EventShellKindMap(canonical string) map[string]string {
+	return d.Events[canonical].ShellKindMap
+}
+
 func (d *Descriptor) EventLocations(canonical string) *LocationsSpec {
 	return d.Events[canonical].Locations
 }

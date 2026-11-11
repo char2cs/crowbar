@@ -70,4 +70,76 @@ describe('background shells', () => {
       ['sh-2', 'failed'],
     ])
   })
+
+  it('keeps what the provider says of a monitor and its command, and follows its lines', () => {
+    const l = ledger()
+    const turn = l.start('turn-1')
+    const monitor = l.row(
+      'shell',
+      {
+        phase: 'start',
+        shellId: 'mon-1',
+        kind: 'monitor',
+        command: 'tail -f app.log',
+        label: 'Watch the log',
+        cwd: '/work',
+        ref: '4242',
+        persistent: true,
+        timeoutMs: 300000,
+      },
+      { turnId: 'turn-1' },
+    )
+    const line = (tail: string) =>
+      l.row('shell', { phase: 'note', shellId: 'mon-1', tail }, { turnId: 'turn-1' })
+    const feed = applyRows(emptyFeed(), [turn, monitor, line('one'), line('two')])
+
+    expect(shellsOf(feed)).toMatchObject([
+      {
+        shellKind: 'monitor',
+        command: 'tail -f app.log',
+        cwd: '/work',
+        ref: '4242',
+        persistent: true,
+        timeoutMs: 300000,
+        status: 'running',
+        tail: 'two',
+      },
+    ])
+    expect(shellsOf(feed)[0]?.exitCode).toBeUndefined()
+  })
+
+  it('reads a start that names no kind as a shell and ends with its exit code and output', () => {
+    const l = ledger()
+    const turn = l.start('turn-1')
+    const started = start(l)
+    const done = l.row(
+      'shell',
+      {
+        phase: 'end',
+        shellId: 'sh-1',
+        status: 'failed',
+        exitCode: 2,
+        tail: 'boom',
+        summary: 'it broke',
+      },
+      { turnId: 'turn-1' },
+    )
+    const feed = applyRows(emptyFeed(), [turn, started, done])
+
+    expect(shellsOf(feed)).toMatchObject([
+      { shellKind: 'shell', status: 'failed', exitCode: 2, tail: 'boom', summary: 'it broke' },
+    ])
+  })
+
+  it('ignores a line of a shell that ended', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      start(l),
+      end(l, 'finished'),
+      l.row('shell', { phase: 'note', shellId: 'sh-1', tail: 'late' }, { turnId: 'turn-1' }),
+    ])
+
+    expect(shellsOf(feed)[0]?.tail).toBeUndefined()
+  })
 })

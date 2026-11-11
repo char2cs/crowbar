@@ -23,7 +23,7 @@ export async function answerChoice(
   wsId: string,
   chatId: string,
   choiceId: string,
-  answer: { optionIds: string[]; reason?: string; content?: unknown },
+  answer: { optionIds: string[]; content?: unknown },
 ): Promise<void> {
   await apiFetch<unknown>(
     `${chatBase(wsId)}/${encodeURIComponent(chatId)}` +
@@ -31,11 +31,10 @@ export async function answerChoice(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // An omitted reason/content is omitted on the wire, not sent as null: the
+      // An omitted content is omitted on the wire, not sent as null: the
       // backend reads content as raw JSON and "absent" is its own answer there.
       body: JSON.stringify({
         optionIds: answer.optionIds,
-        reason: answer.reason,
         content: answer.content,
       }),
     },

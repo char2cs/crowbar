@@ -154,11 +154,22 @@ export interface RowBodies {
   plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
   /** A command the main agent left running in the background. */
   shell: {
-    phase: 'start' | 'end'
+    phase: 'start' | 'note' | 'end'
     shellId: string
+    /** Absent for a plain shell. */
+    kind?: 'shell' | 'monitor'
     command?: string
     label?: string
+    cwd?: string
+    /** The provider's handle on the process; not necessarily an OS pid. */
+    ref?: string
+    persistent?: boolean
+    timeoutMs?: number
     status?: 'finished' | 'failed' | 'stopped'
+    exitCode?: number
+    /** The end of its output (an end) or its newest line (a note). */
+    tail?: string
+    summary?: string
   }
   /** The chat changing the folder its CLI runs in (api/internal/domain/ledger/move.go). */
   move: MoveBody

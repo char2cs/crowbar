@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { hasNativeChrome } from '@/lib/native-chrome'
 import { IS_MOBILE } from '@/utils/platform'
 import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
+import { fuzzyScore } from './agent-selection-search'
 import { NativeModelPicker } from './native-model-picker'
 
 // Fits the longest model id unwrapped. An inline style because Dropdown locks
@@ -50,27 +51,6 @@ interface ModelRow {
 interface ProviderSection {
   provider: AgentProvider
   rows: ModelRow[]
-}
-
-// Cheap subsequence fuzzy score: every query char must appear in order;
-// contiguous runs score higher so "hgh" ranks "high" over "haiku".
-function fuzzyScore(query: string, text: string): number {
-  if (!query) return 1
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
-  let qi = 0
-  let score = 0
-  let streak = 0
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) {
-      qi++
-      streak++
-      score += streak
-    } else {
-      streak = 0
-    }
-  }
-  return qi === q.length ? score + 1 : 0
 }
 
 function effortLabel(level: string): string {

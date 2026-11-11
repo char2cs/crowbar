@@ -13,27 +13,33 @@ describe('TopTray', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('holds the plan, queued messages and the failure slot in one tray', () => {
-    render(<TopTray chatId="chat-1" plan={plan} failure={<p>Sign in again</p>} />)
+  it('holds the plan, queued messages and a failed send in one tray', () => {
+    render(<TopTray chatId="chat-1" plan={plan} />)
     act(
       () =>
         void chatStore.setState({
           outbox: {
             'chat-1': [
+              { requestId: 'r0', wsId: 'ws', text: 'lost', state: 'failed', steer: false },
               { requestId: 'r1', wsId: 'ws', text: 'later', state: 'queued', steer: false },
             ],
           },
         }),
     )
     const tray = screen.getByTestId('agent-top-tray')
-    expect(tray).toHaveTextContent('Sign in again')
+    expect(tray).toHaveTextContent('Your message was not sent')
     expect(tray).toHaveTextContent('0 of 1 done')
     expect(tray).toHaveTextContent('later')
     expect(document.querySelectorAll('[data-testid="agent-top-tray"]')).toHaveLength(1)
   })
 
-  it('shows a failure alone', () => {
-    render(<TopTray chatId="chat-1" plan={undefined} failure={<p>Sign in again</p>} />)
-    expect(screen.getByTestId('agent-top-tray')).toHaveTextContent('Sign in again')
+  it('shows a failed send alone', () => {
+    chatStore.setState({
+      outbox: {
+        'chat-1': [{ requestId: 'r0', wsId: 'ws', text: 'lost', state: 'failed', steer: false }],
+      },
+    })
+    render(<TopTray chatId="chat-1" plan={undefined} />)
+    expect(screen.getByTestId('agent-top-tray')).toHaveTextContent('Your message was not sent')
   })
 })

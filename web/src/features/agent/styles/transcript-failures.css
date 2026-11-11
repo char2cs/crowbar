@@ -64,6 +64,12 @@
   gap: 8px;
   margin-left: auto;
 }
+@media (pointer: coarse) {
+  .failure-notice-actions button,
+  .failure-notice-details {
+    min-height: 44px;
+  }
+}
 .failure-notice-raw {
   flex-basis: 100%;
   max-height: 10rem;

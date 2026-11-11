@@ -163,6 +163,15 @@ func TestClaudeDescriptor_ABackgroundedCommandNamesTheShellItStarted(t *testing.
 		"tool_response":{"taskId":"mon9z8y7","timeoutMs":300000},"tool_use_id":"toolu_mon"}`), spec.ChannelHooks)
 	expectEq(t, "monitor shell", monitor.SpawnsShell, "mon9z8y7")
 	expectEq(t, "monitor kind", monitor.Kind, "execute")
+	expectEq(t, "monitor is a monitor", monitor.ShellKind, "monitor")
+	expectEq(t, "monitor timeout", monitor.ShellTimeoutMS, 300000)
+	expectEq(t, "bash is a shell", bash.ShellKind, "shell")
+
+	persistent := parseRaw(t, d, "tool_post", []byte(`{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Monitor",
+		"cwd":"/work","tool_input":{"command":"tail -f app.log","persistent":true},
+		"tool_response":{"taskId":"mon1"},"tool_use_id":"toolu_mon2"}`), spec.ChannelHooks)
+	expectEq(t, "persistent", persistent.ShellPersistent, true)
+	expectEq(t, "cwd", persistent.Cwd, "/work")
 
 	plain := parseRecorded(t, d, "tool_post", "PostToolUse.Bash.json", spec.ChannelHooks)
 	expectEq(t, "a foreground command starts none", plain.SpawnsShell, "")
@@ -192,8 +201,21 @@ func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
 			t.Fatalf("shell %v, err %v", ev.Shell, err)
 		}
 		expectEq(t, "kind", ev.Kind, spec.HookUserPrompt)
-		expectEq(t, "shell", *ev.Shell, models.ShellEvent{ID: "bg1a2b3c4", Status: want})
+		expectEq(t, "shell", *ev.Shell, models.ShellEvent{ID: "bg1a2b3c4", Status: want, Summary: "Background command finished"})
 	}
+
+	event := "<task-notification>\n<task-id>mon9z8y7</task-id>\n<summary>Monitor event</summary>\n<event>ERROR: db down\nretrying</event>\n</task-notification>"
+	raw, err := json.Marshal(map[string]any{"session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": event})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := inbound.Parse(d, spec.HookUserPrompt, raw, spec.ChannelHooks)
+	if err != nil || line.Shell == nil {
+		t.Fatalf("shell %v, err %v", line.Shell, err)
+	}
+	expectEq(t, "a monitor's line ends nothing", *line.Shell, models.ShellEvent{
+		ID: "mon9z8y7", Summary: "Monitor event", Note: "ERROR: db down\nretrying",
+	})
 
 	typed, err := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"session_id":"s","prompt":"hello"}`), spec.ChannelHooks)
 	if err != nil {

@@ -69,4 +69,40 @@ describe('BottomTray', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
     expect(within(screen.getByTestId('agent-bottom-tray')).getAllByRole('listitem')).toHaveLength(4)
   })
+
+  it('shows a running shell and a finished monitor, each in its own group with no clock once done', () => {
+    render(<BottomTray chatId="chat-1" />)
+    const l = startSubagents(1)
+    push(
+      l.row(
+        'shell',
+        { phase: 'start', shellId: 'sh-1', command: 'npm run dev', label: 'Dev server' },
+        { turnId: 'turn-1' },
+      ),
+    )
+    push(
+      l.row(
+        'shell',
+        { phase: 'start', shellId: 'mon-1', kind: 'monitor', command: 'tail -f app.log' },
+        { turnId: 'turn-1' },
+      ),
+    )
+    push(
+      l.row(
+        'shell',
+        { phase: 'end', shellId: 'mon-1', status: 'failed', exitCode: 1 },
+        { turnId: 'turn-1' },
+      ),
+    )
+
+    expect(screen.getByText('Subagents')).toBeInTheDocument()
+    expect(screen.getByText('Shells')).toBeInTheDocument()
+    expect(screen.getByText('Monitors')).toBeInTheDocument()
+    const monitor = screen.getByText('tail -f app.log').closest('li') as HTMLElement
+    expect(monitor).toHaveAttribute('data-kind', 'monitor')
+    expect(monitor).toHaveAttribute('data-status', 'failed')
+    expect(monitor).toHaveTextContent('Exit 1')
+    expect(within(monitor).queryByTestId('agent-tray-clock')).toBeNull()
+    expect(screen.getByText('Dev server').closest('li')).toHaveAttribute('data-status', 'running')
+  })
 })

@@ -24,7 +24,7 @@ beforeEach(() => {
 describe('useTopTray', () => {
   it('is empty for a quiet chat', () => {
     const { result } = renderHook(() => useTopTray('chat-1', undefined))
-    expect(result.current).toEqual({ steps: null, queued: [], resolved: [] })
+    expect(result.current).toEqual({ steps: null, queued: [], failed: undefined, resolved: [] })
   })
 
   it('keeps the plan while a step is left and drops it once all are done', () => {
@@ -51,6 +51,7 @@ describe('useTopTray', () => {
         }),
     )
     expect(result.current.queued.map((i) => i.requestId)).toEqual(['q'])
+    expect(result.current.failed?.requestId).toBe('f')
   })
 
   it('holds the decided asks since the last message until the next one is typed or sent', () => {

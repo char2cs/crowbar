@@ -18,6 +18,13 @@ describe('windowRows', () => {
     expect(view.canCollapse).toBe(false)
   })
 
+  it('shows no label for the one kind left once the rest fold away', () => {
+    const rows = [row('a'), row('b'), row('c'), row('sh', 'shell'), row('mo', 'monitor')]
+    const view = windowRows(rows, false)
+    expect(ids(view.entries)).toEqual(['a', 'b', 'c'])
+    expect(view.more).toEqual({ hidden: 2, running: 2 })
+  })
+
   it('folds past four into three rows and a group row counting what runs', () => {
     const rows = [row('a'), row('b'), row('c'), row('d', 'subagent', 'done'), row('e')]
     const view = windowRows(rows, false)
@@ -34,9 +41,16 @@ describe('windowRows', () => {
     expect(view.canCollapse).toBe(true)
   })
 
-  it('labels the groups only when subagents and shells both show, subagents first', () => {
-    const view = windowRows([row('sh', 'shell'), row('ag')], false)
-    expect(ids(view.entries)).toEqual(['# Subagents', 'ag', '# Shells', 'sh'])
+  it('labels the groups only when more than one kind shows, in the order subagents, shells, monitors', () => {
+    const view = windowRows([row('mo', 'monitor'), row('sh', 'shell'), row('ag')], false)
+    expect(ids(view.entries)).toEqual(['# Subagents', 'ag', '# Shells', 'sh', '# Monitors', 'mo'])
+    expect(ids(windowRows([row('mo', 'monitor'), row('sh', 'shell')], false).entries)).toEqual([
+      '# Shells',
+      'sh',
+      '# Monitors',
+      'mo',
+    ])
+    expect(ids(windowRows([row('mo', 'monitor')], false).entries)).toEqual(['mo'])
     expect(ids(windowRows([row('ag')], false).entries)).toEqual(['ag'])
     expect(ids(windowRows([row('sh', 'shell')], false).entries)).toEqual(['sh'])
   })

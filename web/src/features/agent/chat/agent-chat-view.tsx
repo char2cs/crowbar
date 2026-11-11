@@ -19,6 +19,7 @@ import type {
   ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
+import { ChatViewSwitch } from '@/features/agent/controls/chat-view-switch'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import type { AgentEmptyDocumentHandle } from '@/features/agent/chat/agent-empty-document'
@@ -303,10 +304,6 @@ export function AgentChatView({
     providers,
     effort: effectiveEffort,
     reportedModel,
-    presentation,
-    splitEnabled: splitEnabled && provider?.hotswap === true,
-    showSwitcher: presentation !== 'terminal' && provider?.hasTerminal !== false,
-    handoverBlocked: !provider?.hotswap && working,
     switchDisabled,
     permission: { wsId, chatId, levels: provider?.permissionLevels },
     onSelectionChange,
@@ -370,6 +367,13 @@ export function AgentChatView({
             } as CSSProperties
           }
         >
+          <ChatViewSwitch
+            presentation={presentation}
+            splitEnabled={splitEnabled && provider?.hotswap === true}
+            handoverBlocked={!provider?.hotswap && working}
+            hasTerminal={provider?.hasTerminal !== false}
+            onSelect={onSelectPresentation}
+          />
           {!blank && transcript}
           {!blank && !settling && <DockDissolve />}
           {blank && stashPicker && <div className="blank-picker">{stashPicker}</div>}
@@ -393,7 +397,6 @@ export function AgentChatView({
                 editorRef: composer.editorRef,
                 asks: facts.asks,
                 providerLabel,
-                permissionLevels: provider?.permissionLevels,
                 live: canSend,
                 offline,
                 working,

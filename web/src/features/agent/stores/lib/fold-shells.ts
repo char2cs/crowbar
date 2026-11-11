@@ -6,15 +6,18 @@ import {
   type ShellItem,
 } from '@/features/agent/stores/lib/transcript-items'
 
-/** A shell starts on its row and ends once, by the first end the daemon records. */
+/** A shell starts on its row, shows its newest line while it runs and ends once, by the
+ *  first end the daemon records. */
 export function applyShell(fold: FeedFold, row: LedgerRow<'shell'>) {
   if (row.scope) return
-  const { phase, shellId, command, label, status } = row.body
+  const { phase, shellId } = row.body
   const id = shellItemId(shellId)
   const known = fold.item<ShellItem>(id)
   if (phase === 'start' && !known) {
+    const { kind, command, label, cwd, ref, persistent, timeoutMs } = row.body
     fold.put({
       kind: 'shell',
+      shellKind: kind ?? 'shell',
       shellId,
       id,
       seq: row.seq,
@@ -22,12 +25,26 @@ export function applyShell(fold: FeedFold, row: LedgerRow<'shell'>) {
       at: row.at,
       command: command ?? '',
       label: label ?? '',
+      cwd,
+      ref,
+      persistent,
+      timeoutMs,
       status: 'running',
       startedAt: row.at,
     })
     fold.set('shells', [...fold.facts.shells, id])
-  } else if (phase === 'end' && known?.status === 'running' && status) {
-    fold.put({ ...known, status, endedAt: row.at })
+  } else if (known?.status === 'running' && phase === 'note') {
+    fold.put({ ...known, tail: row.body.tail ?? known.tail })
+  } else if (known?.status === 'running' && phase === 'end' && row.body.status) {
+    const { status, exitCode, tail, summary } = row.body
+    fold.put({
+      ...known,
+      status,
+      exitCode,
+      tail: tail ?? known.tail,
+      summary,
+      endedAt: row.at,
+    })
   }
 }
 

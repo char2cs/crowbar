@@ -1,6 +1,7 @@
 package ledger_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,11 +21,15 @@ func TestCheck_RefusesAMalformedShellRow(t *testing.T) {
 		"unknown phase": {Phase: "pause", ShellID: "s"},
 		"end no status": {Phase: ledger.ShellEnd, ShellID: "s"},
 		"odd status":    {Phase: ledger.ShellEnd, ShellID: "s", Status: "exploded"},
+		"odd kind":      {Phase: ledger.ShellStart, ShellID: "s", Kind: "daemon"},
+		"empty note":    {Phase: ledger.ShellNote, ShellID: "s"},
 	} {
-		assert.ErrorIs(t, ledger.Check(ledger.State{}, shellRow(t, body)), ledger.ErrMalformedRow, name)
+		require.ErrorIs(t, ledger.Check(ledger.State{}, shellRow(t, body)), ledger.ErrMalformedRow, name)
 	}
 	assert.NoError(t, ledger.Check(ledger.State{}, shellRow(t, ledger.ShellBody{Phase: ledger.ShellStart, ShellID: "s"})))
 	assert.NoError(t, ledger.Check(ledger.State{}, shellRow(t, ledger.ShellBody{Phase: ledger.ShellEnd, ShellID: "s", Status: ledger.ShellFailed})))
+	assert.NoError(t, ledger.Check(ledger.State{}, shellRow(t, ledger.ShellBody{Phase: ledger.ShellStart, ShellID: "s", Kind: ledger.ShellKindMonitor})))
+	assert.NoError(t, ledger.Check(ledger.State{}, shellRow(t, ledger.ShellBody{Phase: ledger.ShellNote, ShellID: "s", Tail: "line"})))
 }
 
 func TestFold_AShellRunsUntilItsFirstEndAndKeepsNoChatBusy(t *testing.T) {
@@ -43,4 +48,15 @@ func TestFold_AShellRunsUntilItsFirstEndAndKeepsNoChatBusy(t *testing.T) {
 	shell, _ = st.ShellOf("s")
 	assert.False(t, shell.Live())
 	assert.Equal(t, ledger.ShellFailed, shell.Status, "its first end is its end")
+}
+
+func TestShellTail_KeepsTheEndOfTheOutputWithinItsBoundAtALineStart(t *testing.T) {
+	assert.Equal(t, "a\nb", ledger.ShellTail("a\nb\n\n"))
+	assert.Empty(t, ledger.ShellTail(""))
+
+	long := strings.Repeat("0123456789\n", 400) + "last"
+	tail := ledger.ShellTail(long)
+	assert.LessOrEqual(t, len(tail), ledger.ShellTailBytes)
+	assert.True(t, strings.HasSuffix(tail, "\nlast"))
+	assert.True(t, strings.HasPrefix(tail, "0123456789"), "cut at a line start")
 }

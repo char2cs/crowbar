@@ -178,7 +178,7 @@ describe('AgentChatView', () => {
     ])
     draw('c1')
 
-    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('401 Unauthorized')
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('You are signed out')
     expect(box()).toBeVisible()
   })
 

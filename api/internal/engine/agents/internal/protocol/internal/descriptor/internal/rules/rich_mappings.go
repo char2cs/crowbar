@@ -74,6 +74,11 @@ func checkCanonicalMaps(id, name string, event spec.EventSpec, kinds, statuses m
 			return invalid(id, "events[%s].kind_map: unknown canonical kind %q", name, mapped)
 		}
 	}
+	for _, mapped := range event.ShellKindMap {
+		if mapped != spec.ShellKindShell && mapped != spec.ShellKindMonitor {
+			return invalid(id, "events[%s].shell_kind_map: unknown shell kind %q", name, mapped)
+		}
+	}
 	for _, mapped := range event.StatusMap {
 		if _, ok := statuses[mapped]; !ok {
 			return invalid(id, "events[%s].status_map: unknown canonical status %q", name, mapped)

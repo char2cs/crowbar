@@ -1,11 +1,13 @@
 /** One line of the bottom tray: work the agent started that is still being tracked. */
 export interface TrayRow {
   id: string
-  kind: 'subagent' | 'shell'
+  kind: 'subagent' | 'shell' | 'monitor'
   label: string
-  /** What it is doing now. */
+  /** What it is doing now, or how it ended. */
   detail: string
-  status: 'running' | 'done'
+  /** Everything else known of it, for a tooltip. */
+  hint?: string
+  status: 'running' | 'done' | 'failed' | 'stopped'
   startedAt: string
 }
 
@@ -22,11 +24,20 @@ export interface TrayWindow {
 /** The tray never grows past this many rows, its group row included. */
 const MAX_ROWS = 4
 
-const GROUP_LABELS: Record<TrayRow['kind'], string> = { subagent: 'Subagents', shell: 'Shells' }
+const GROUPS: { kind: TrayRow['kind']; label: string }[] = [
+  { kind: 'subagent', label: 'Subagents' },
+  { kind: 'shell', label: 'Shells' },
+  { kind: 'monitor', label: 'Monitors' },
+]
+const GROUP_LABELS = Object.fromEntries(GROUPS.map((g) => [g.kind, g.label])) as Record<
+  TrayRow['kind'],
+  string
+>
+const rank = (row: TrayRow) => GROUPS.findIndex((g) => g.kind === row.kind)
 
-/** The rows to draw: subagents then shells, folded to fit unless `expanded`. */
+/** The rows to draw: subagents, then shells, then monitors, folded to fit unless `expanded`. */
 export function windowRows(rows: TrayRow[], expanded: boolean): TrayWindow {
-  const ordered = [...rows].sort((a, b) => Number(a.kind === 'shell') - Number(b.kind === 'shell'))
+  const ordered = [...rows].sort((a, b) => rank(a) - rank(b))
   const folds = ordered.length > MAX_ROWS && !expanded
   const shown = folds ? ordered.slice(0, MAX_ROWS - 1) : ordered
   const hidden = ordered.slice(shown.length)

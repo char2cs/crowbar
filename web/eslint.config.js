@@ -14,7 +14,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
   'src/__tests__/components/sidebar/space-scroller.test.tsx',
   'src/__tests__/features/agent/components/agent-chat-pane.test.tsx',
-  'src/__tests__/features/agent/composer/composer-choice.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx',
   'src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts',
   'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',

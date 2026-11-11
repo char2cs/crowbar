@@ -13,13 +13,6 @@ import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useChatHost } from '@/lib/host-resolve'
 import { cn } from '@/lib/utils'
 import { Dropdown } from '@/components/ui/dropdown'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 /** The default level of the chat's host while the chat pins none; null until it is known. */
 function useInheritedLevel(chatId: string, inherits: boolean): PermissionLevel | null {
@@ -89,49 +82,6 @@ export function usePermissionLevel(target: PermissionTarget | null) {
   const level: PermissionLevel | '' =
     picked ?? (pinned || (inherited && offered.length > 0 ? offeredLevel(inherited, offered) : ''))
   return { options, level, setLevel }
-}
-
-/** Shows the level the chat is pinned to (or inherits), and offers only levels the provider
- *  declares — the server rejects the rest. */
-export function PermissionLevelSwitcher({
-  wsId,
-  chatId,
-  availableLevels,
-}: {
-  wsId: string
-  chatId: string
-  availableLevels?: PermissionLevel[]
-}) {
-  const { options, level, setLevel } = usePermissionLevel({
-    wsId,
-    chatId,
-    levels: availableLevels,
-  })
-  if (options.length === 0) return null
-
-  return (
-    <Select items={options} value={level} onValueChange={setLevel}>
-      <SelectTrigger
-        data-testid="chat-permission-level-trigger"
-        size="sm"
-        aria-label="Permission level for this chat"
-        className="w-32 max-w-full"
-      >
-        <SelectValue placeholder="Permission level" />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((opt) => (
-          <SelectItem
-            key={opt.value}
-            value={opt.value}
-            data-testid={`chat-permission-level-option-${opt.value}`}
-          >
-            {opt.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
 }
 
 /** The footer's permission chip: the current level, opening the choice as a menu. */

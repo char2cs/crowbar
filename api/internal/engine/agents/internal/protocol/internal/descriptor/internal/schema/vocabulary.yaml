@@ -51,14 +51,14 @@ events:
   tool_pre:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, spawns_scope, addresses_scope, scope_id, tool_title, mcp_server, mcp_tool, exit_code, interrupted, cwd]
+    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, spawns_scope, addresses_scope, scope_id, tool_title, mcp_server, mcp_tool, exit_code, interrupted, cwd, shell_ref]
     extras: [kind_map, locations, diff_files]
     # deny: the hook's answer refusing the call before it runs.
     replies: [deny]
 
   tool_post:
     direction: in
-    extras: [status_map, kind_map, locations, patch, diff_files]
+    extras: [status_map, kind_map, shell_kind_map, locations, patch, diff_files]
     required: []
     optional:
       - session_id
@@ -80,6 +80,13 @@ events:
       # injected prompt (see injected_prompts task_id).
       - spawns_shell
       - stops_shell
+      # shell_kind is the provider's word for what spawns_shell started (mapped by
+      # shell_kind_map to shell or monitor); persistent and timeout say how long a
+      # monitor was set to run; shell_ref is the provider's handle on the process.
+      - shell_kind
+      - shell_persistent
+      - shell_timeout_ms
+      - shell_ref
       - scope_id
       - tool_title
       - mcp_server
@@ -102,11 +109,13 @@ events:
       - tool_target
       - tool_input
       - tool_result
+      - tool_output
       - tool_error
       - tool_status
       - duration_ms
       - spawns_scope
       - addresses_scope
+      - shell_ref
       - scope_id
       - tool_title
       - mcp_server
@@ -186,6 +195,13 @@ events:
   #
   # message_id is the tool call it belongs to, so a client can put the lines under
   # the right running row.
+  # Input written to the process of a tool call still running: the call outlived the
+  # moment it returned, and tool_id and shell_ref name which one.
+  terminal_input:
+    direction: in
+    required: [tool_id]
+    optional: [session_id, shell_ref, turn_id]
+
   tool_output_delta:
     direction: in
     required: [text]

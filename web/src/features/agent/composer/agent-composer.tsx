@@ -2,7 +2,6 @@ import type { DragEvent, KeyboardEvent, ReactNode, Ref, RefObject } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
-import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoiceCarousel } from '@/features/agent/composer/composer-choice-carousel'
@@ -48,10 +47,6 @@ interface AgentComposerProps {
   /** The asks still pending, oldest first. */
   asks: AskItem[]
   providerLabel: string
-  /** This chat's current provider's own declared levels, for the permission
-   *  switcher a permission choice offers. Undefined/empty hides the switcher. */
-  permissionLevels?: PermissionLevel[]
-
   live: boolean
   /** The chat's host does not answer: the bar is a read-only signpost. */
   offline?: boolean

@@ -13,8 +13,6 @@ interface ChatDockProps {
   blank: boolean
   dockRef: Ref<HTMLDivElement>
   plan: PlanItem[] | undefined
-  /** A failure notice for the top tray. */
-  failure?: ReactNode
   pickers: ReactNode
   /** Why the chat cannot take a prompt yet. */
   note?: string
@@ -31,7 +29,6 @@ export function ChatDock({
   blank,
   dockRef,
   plan,
-  failure,
   pickers,
   note,
   error,
@@ -42,7 +39,7 @@ export function ChatDock({
     <DockStack
       blank={blank}
       dockRef={dockRef}
-      topTray={!blank && <TopTray chatId={chatId} plan={plan} failure={failure} />}
+      topTray={!blank && <TopTray chatId={chatId} plan={plan} />}
       pickers={!blank && pickers}
       notes={
         note && (

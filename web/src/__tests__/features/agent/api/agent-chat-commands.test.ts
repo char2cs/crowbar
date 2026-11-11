@@ -167,18 +167,16 @@ describe('agent-chat-commands', () => {
 
   // Several ids in ONE answer is what `multi` means, and the elicitation form
   // travels beside them as the provider's own document.
-  it('answerChoice carries several options, a reason and a form document', async () => {
+  it('answerChoice carries several options and a form document', async () => {
     apiFetch.mockResolvedValue(undefined)
 
     await api.answerChoice('w1', 'c1', 'k1', {
       optionIds: ['answer-0', 'answer-1'],
-      reason: 'both apply',
       content: { name: 'crowbar' },
     })
 
     expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({
       optionIds: ['answer-0', 'answer-1'],
-      reason: 'both apply',
       content: { name: 'crowbar' },
     })
   })

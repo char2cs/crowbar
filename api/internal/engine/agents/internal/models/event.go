@@ -128,6 +128,14 @@ type ToolEvent struct {
 	// one it stopped.
 	SpawnsShell string
 	StopsShell  string
+	// ShellKind is Crowbar's word (shell, monitor) for what SpawnsShell started;
+	// ShellPersistent and ShellTimeoutMS say how long a monitor was set to run.
+	ShellKind       string
+	ShellPersistent bool
+	ShellTimeoutMS  int
+	// ShellRef is the provider's handle on the call's process, which the call
+	// names before it is known to have outlived the call.
+	ShellRef string
 }
 
 type ToolLocation struct {
@@ -147,10 +155,12 @@ type SubagentUsage struct {
 	Tokens, ToolUses, DurationMs int64
 }
 
-// ShellEvent is a background command reported ended; Status is Crowbar's word
-// (finished, failed, stopped) by the injected prompt's status_map.
+// ShellEvent is what a harness-injected prompt reports of a background command:
+// Status is Crowbar's word (finished, failed, stopped) by the injected prompt's
+// status_map, empty for a report that is not an end; Summary is the provider's
+// account of it and Note a line the command printed.
 type ShellEvent struct {
-	ID, Status string
+	ID, Status, Summary, Note string
 }
 
 // PlanStepEvent is one step of a plan changed alone, in the scope that keeps it.

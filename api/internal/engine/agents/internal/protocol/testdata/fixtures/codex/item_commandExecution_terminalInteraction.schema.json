@@ -1,0 +1,11 @@
+{
+  "method": "item/commandExecution/terminalInteraction",
+  "params": {
+    "threadId": "01a081af-73bf-7fd1-bc4b-efd041f46edc",
+    "turnId": "01a081af-7550-79d0-a51e-6424d9724c88",
+    "itemId": "call_PQbUMzNNrlEGDg3Y4zc7JwNW",
+    "processId": "10527",
+    "stdin": ""
+  },
+  "emittedAtMs": 1788882167752
+}

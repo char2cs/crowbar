@@ -112,7 +112,11 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			}
 		}
 	}
-	ev := build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded)
+	tool := toolSpecs{
+		status: d.EventStatusMap(canonical), kinds: d.EventKindMap(canonical), shellKinds: d.EventShellKindMap(canonical),
+		locations: d.EventLocations(canonical), diffFiles: d.EventDiffFiles(canonical), patch: d.EventPatch(canonical),
+	}
+	ev := build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), tool, decoded)
 	if ev.Choice != nil && ev.Choice.Kind == models.ChoiceToolPermission {
 		ev.Choice.Options = append(ev.Choice.Options, suggestionOptions(fields, d.EventSuggestions(canonical, decoded))...)
 		markReasons(ev.Choice.Options, d, canonical)
@@ -163,7 +167,7 @@ func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 	if mapped, ok := p.StatusMap[status]; ok {
 		status = mapped
 	}
-	ev.Shell = &models.ShellEvent{ID: id, Status: status}
+	ev.Shell = &models.ShellEvent{ID: id, Status: status, Summary: p.Summary.Find(ev.Message), Note: p.Event.Find(ev.Message)}
 	return ev
 }
 
@@ -200,10 +204,7 @@ func build(
 	fields spec.FieldMap,
 	steps *spec.StepsSpec,
 	statusMap map[string]string,
-	kindMap map[string]string,
-	locations *spec.LocationsSpec,
-	diffFiles *spec.DiffFilesSpec,
-	patch *spec.PatchSpec,
+	tool toolSpecs,
 	decoded map[string]any,
 ) models.CanonicalEvent {
 	get := func(name string) string { return mapping.String(decoded, fields[name]) }
@@ -225,8 +226,8 @@ func build(
 		ev.Reason = mapped(statusMap, ev.Reason)
 	case spec.HookUserPrompt:
 		ev.Subagent = scope(get("scope_id"))
-	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
-		ev.Tool = buildTool(fields, statusMap, kindMap, locations, diffFiles, patch, decoded)
+	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail, spec.HookTerminalInput:
+		ev.Tool = buildTool(fields, tool, decoded)
 		ev.Subagent = scope(get("scope_id"))
 	case spec.HookSubagentPre, spec.HookSubagentPost, spec.HookSubagentResult:
 		ev.Subagent = buildSubagent(fields, statusMap, decoded)
@@ -338,7 +339,17 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 	return out
 }
 
-func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locations *spec.LocationsSpec, diffFiles *spec.DiffFilesSpec, patch *spec.PatchSpec, decoded map[string]any) *models.ToolEvent {
+// toolSpecs is what an event's descriptor declares beside its field map to read a tool call.
+type toolSpecs struct {
+	status, kinds, shellKinds map[string]string
+	locations                 *spec.LocationsSpec
+	diffFiles                 *spec.DiffFilesSpec
+	patch                     *spec.PatchSpec
+}
+
+func buildTool(fields spec.FieldMap, specs toolSpecs, decoded map[string]any) *models.ToolEvent {
+	statusMap, kindMap, shellKinds := specs.status, specs.kinds, specs.shellKinds
+	locations, diffFiles, patch := specs.locations, specs.diffFiles, specs.patch
 	duration, _ := mapping.Int(decoded, fields["duration_ms"])
 	status := mapped(statusMap, mapping.String(decoded, fields["tool_status"]))
 	kind := mapping.String(decoded, fields["tool_kind"])
@@ -350,7 +361,7 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		exitCode = &code
 	}
 	interrupted, _ := mapping.Bool(decoded, fields["interrupted"])
-	return &models.ToolEvent{
+	tool := &models.ToolEvent{
 		ID:        mapping.String(decoded, fields["tool_id"]),
 		Name:      mapping.String(decoded, fields["tool_name"]),
 		Kind:      kind,
@@ -379,7 +390,12 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		AddressesScope: mapping.String(decoded, fields["addresses_scope"]),
 		SpawnsShell:    mapping.String(decoded, fields["spawns_shell"]),
 		StopsShell:     mapping.String(decoded, fields["stops_shell"]),
+		ShellKind:      mapped(shellKinds, mapping.String(decoded, fields["shell_kind"])),
+		ShellRef:       mapping.String(decoded, fields["shell_ref"]),
 	}
+	tool.ShellPersistent, _ = mapping.Bool(decoded, fields["shell_persistent"])
+	tool.ShellTimeoutMS, _ = mapping.Int(decoded, fields["shell_timeout_ms"])
+	return tool
 }
 
 func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {

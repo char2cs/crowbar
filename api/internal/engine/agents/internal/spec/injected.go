@@ -31,6 +31,9 @@ type InjectedPromptSpec struct {
 	// StatusMap turns the provider's word for how into Crowbar's.
 	TaskID    *PromptPattern    `yaml:"task_id"`
 	StatusMap map[string]string `yaml:"status_map"`
+	// Summary is the provider's account of the task; Event a line it printed.
+	Summary *PromptPattern `yaml:"summary"`
+	Event   *PromptPattern `yaml:"event"`
 }
 
 // PromptPattern keeps the (?P<v>...) group of its pattern matched in a prompt;

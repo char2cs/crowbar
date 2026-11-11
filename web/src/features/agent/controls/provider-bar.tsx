@@ -6,7 +6,6 @@ import {
   PermissionLevelChip,
   type PermissionTarget,
 } from '@/features/agent/composer/permission-level-switcher'
-import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { IS_MOBILE } from '@/utils/platform'
 
 interface ProviderBarProps {
@@ -18,14 +17,7 @@ interface ProviderBarProps {
   effort: string
   reportedModel?: string
   telemetry: AgentTelemetry | null
-  presentation: ChatPresentation
-  splitEnabled: boolean
-  handoverBlocked?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  onSelectPresentation: (next: ChatPresentation) => void
-  /** Exactly one switcher per pane: both surfaces stay mounted, so an
-   *  unconditional one would linger hidden behind the terminal. */
-  showSwitcher?: boolean
   /** The chat's permission level and the levels its provider offers: a chip on the desktop,
    *  a section of the model picker sheet on the phone. */
   permission?: PermissionTarget
@@ -44,12 +36,7 @@ export function ProviderBar({
   effort,
   reportedModel,
   telemetry,
-  presentation,
-  splitEnabled,
-  handoverBlocked,
   onSelectionChange,
-  onSelectPresentation,
-  showSwitcher,
   permission,
   compacting,
   onCompact,
@@ -63,14 +50,9 @@ export function ProviderBar({
           model={model}
           effort={effort}
           reportedModel={reportedModel}
-          presentation={presentation}
-          splitEnabled={splitEnabled}
-          showSwitcher={showSwitcher}
-          handoverBlocked={handoverBlocked}
           switchDisabled={switchDisabled}
           permission={permission}
           onSelectionChange={onSelectionChange}
-          onSelectPresentation={onSelectPresentation}
         />
         {!IS_MOBILE && permission && <PermissionLevelChip {...permission} />}
       </div>

@@ -49,10 +49,7 @@ function renderBar(props: Partial<React.ComponentProps<typeof ProviderBar>> = {}
       model=""
       effort=""
       telemetry={telemetry}
-      presentation="chat"
-      splitEnabled={false}
       onSelectionChange={vi.fn()}
-      onSelectPresentation={vi.fn()}
       {...props}
     />,
   )
@@ -102,10 +99,7 @@ describe('ProviderBar', () => {
         model=""
         effort=""
         telemetry={telemetry}
-        presentation="chat"
-        splitEnabled={false}
         onSelectionChange={vi.fn()}
-        onSelectPresentation={vi.fn()}
       />,
     )
     expect(screen.queryByText('Compacting…')).not.toBeInTheDocument()
