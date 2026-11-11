@@ -108,7 +108,8 @@ describe('AttachFileModal', () => {
     draw()
     browse(new File(['x'], 'a.png', { type: 'image/png' }))
 
-    expect(await screen.findByRole('progressbar', { name: 'Uploading a.png' })).toBeInTheDocument()
+    const bar = await screen.findByRole('progressbar', { name: 'Uploading a.png' })
+    expect(bar).not.toHaveAttribute('aria-valuenow')
     expect(screen.getByText('Uploading 0 of 1…')).toBeInTheDocument()
     expect(attachButton()).toBeDisabled()
 

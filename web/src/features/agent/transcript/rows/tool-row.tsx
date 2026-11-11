@@ -86,9 +86,8 @@ function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?
 }
 
 function Label({ item, waiting }: { item: ToolItem; waiting: boolean }) {
-  const label = toolLabel(item)
-  const verb = waiting && item.family !== 'mcp' && item.body.name ? item.body.name : label.verb
-  const { subject } = label
+  // A call waiting on the person reads with the live verb, as the boards draw it.
+  const { verb, subject } = toolLabel(waiting ? { ...item, status: 'running' } : item)
   const live = item.status === 'running' && !waiting ? '' : undefined
   if (item.family === 'mcp') {
     return (

@@ -41,8 +41,8 @@ function sizeLabel(bytes: number | null): string {
 
 function rowNote(item: Staged): string {
   const size = sizeLabel(item.bytes)
-  if (item.status === 'uploading' && item.bytes) {
-    return `${sizeLabel(item.loaded ?? 0)} of ${size} · Uploading…`
+  if (item.status === 'uploading' && item.bytes && item.loaded !== undefined) {
+    return `${sizeLabel(item.loaded)} of ${size} · Uploading…`
   }
   const note =
     item.status === 'done' ? 'Uploaded' : item.status === 'uploading' ? 'Uploading…' : item.problem
@@ -174,41 +174,39 @@ export function AttachFileModal({
     <>
       {items.length > 0 && (
         <div className="attach-files" data-testid="attach-file-list">
-          {items.map((item) => (
-            <div key={item.id} className="attach-file" data-status={item.status}>
-              <div className="attach-file-text">
-                <div className="attach-file-name">{item.name}</div>
-                <div className="attach-file-note">{rowNote(item)}</div>
-                {item.status === 'uploading' && (
-                  <div
-                    className="attach-bar"
-                    role="progressbar"
-                    aria-label={`Uploading ${item.name}`}
-                    aria-valuenow={
-                      item.bytes ? Math.round(((item.loaded ?? 0) / item.bytes) * 100) : undefined
-                    }
-                    data-determinate={item.bytes ? '' : undefined}
-                  >
-                    <i
-                      style={
-                        item.bytes
-                          ? { width: `${Math.round(((item.loaded ?? 0) / item.bytes) * 100)}%` }
-                          : undefined
-                      }
-                    />
-                  </div>
-                )}
+          {items.map((item) => {
+            const percent =
+              item.bytes && item.loaded !== undefined
+                ? Math.round((item.loaded / item.bytes) * 100)
+                : undefined
+            return (
+              <div key={item.id} className="attach-file" data-status={item.status}>
+                <div className="attach-file-text">
+                  <div className="attach-file-name">{item.name}</div>
+                  <div className="attach-file-note">{rowNote(item)}</div>
+                  {item.status === 'uploading' && (
+                    <div
+                      className="attach-bar"
+                      role="progressbar"
+                      aria-label={`Uploading ${item.name}`}
+                      aria-valuenow={percent}
+                      data-determinate={percent === undefined ? undefined : ''}
+                    >
+                      <i style={percent === undefined ? undefined : { width: `${percent}%` }} />
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="attach-x"
+                  aria-label={`Remove ${item.name}`}
+                  onClick={() => remove(item.id)}
+                >
+                  <XIcon size={13} />
+                </button>
               </div>
-              <button
-                type="button"
-                className="attach-x"
-                aria-label={`Remove ${item.name}`}
-                onClick={() => remove(item.id)}
-              >
-                <XIcon size={13} />
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
       <div className="attach-foot">
