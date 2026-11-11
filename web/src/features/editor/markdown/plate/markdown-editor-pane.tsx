@@ -8,6 +8,7 @@ import type { DocumentRef } from '@/lib/api/documents'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
+import { useWorkspaceReadOnly } from '@/features/editor/hooks/use-workspace-read-only'
 import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
@@ -114,6 +115,9 @@ function MarkdownRichEditor({
   // `<img>` srcs (README logos etc.) beside it. `null` for an unsaved buffer —
   // the node then leaves images at their raw src instead of guessing.
   const assetBuffer = useBufferById(bufferId)
+  const readOnly = useWorkspaceReadOnly(
+    assetBuffer && isEditorContent(assetBuffer) ? assetBuffer.workspaceId : null,
+  )
   const assetUri =
     assetBuffer && isEditorContent(assetBuffer) && !assetBuffer.isVirtual
       ? documentUri(documentRefOf(assetBuffer))
@@ -254,7 +258,7 @@ function MarkdownRichEditor({
             {frontmatterText && <MarkdownFrontmatterBanner frontmatter={frontmatterText} />}
             {/* BlockPlaceholderKit hints an empty line in a non-empty document; this prop
               covers the wholly empty file it deliberately skips. */}
-            <PlateContent className="outline-none" placeholder="Write…" />
+            <PlateContent className="outline-none" placeholder="Write…" readOnly={readOnly} />
           </div>
         </Plate>
       </LinkWorkspaceContext>

@@ -18,6 +18,7 @@ import { EditorStylesheet } from './stylesheet'
 import Breadcrumb, { type BreadcrumbProps } from './toolbar/breadcrumb'
 import { usePaneEditorController } from '../hooks/use-pane-editor-controller'
 import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
+import { useWorkspaceReadOnly } from '../hooks/use-workspace-read-only'
 import { defineMonacoTheme } from '../monaco/define-theme'
 import { toEditorPosition, toEditorRange } from '../monaco/editor-conversions'
 import { createRafCoalescer } from '../lib/raf-coalesce'
@@ -221,11 +222,24 @@ export function EditorSurface({
     syncCursorAndSelection,
   })
 
+  const activeWorkspaceId = useStore(
+    windowPaneStore,
+    useCallback(
+      (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
+        const id = state.panes[paneId]?.activeEditorTabId
+        const buffer = id ? state.buffers.find((b) => b.id === id) : undefined
+        return buffer && isEditorContent(buffer) ? buffer.workspaceId : null
+      },
+      [paneId],
+    ),
+  )
+  const readOnly = useWorkspaceReadOnly(activeWorkspaceId)
+
   // ── Retained-widget satellite concerns (settings, theme, LSP document sync) ─
   usePaneEditorSatellites(paneId, {
     registry: activeEditors,
     isActiveSurface,
-    readOnly: false,
+    readOnly,
     scrollable: true,
   })
 

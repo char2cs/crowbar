@@ -1,4 +1,4 @@
-import { PushPin as Pin, X } from '@phosphor-icons/react'
+import { LockIcon, PushPin as Pin, X } from '@phosphor-icons/react'
 import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import type { PaneContent } from '@/features/panes/types/pane-content'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Tab } from '@/components/ui/tabs'
 import { WithTooltip } from '@/components/ui/tooltip'
 import { cn } from '@/utils/cn'
+import { useWorkspaceReadOnly } from '@/features/editor/hooks/use-workspace-read-only'
 
 interface TabBarItemProps {
   buffer: PaneContent
@@ -75,6 +76,7 @@ const TabBarItem = memo(function TabBarItem({
   // Unsaved editor tab: when active, a blue border over the normal active fill; when inactive,
   // a bright dot.
   const isDirtyEditor = buffer.type === 'editor' && buffer.isDirty
+  const readOnly = useWorkspaceReadOnly(buffer.type === 'editor' ? buffer.workspaceId : null)
 
   return (
     /* `group/tab` drives the close button's hover reveal. The close/pin Button is a SIBLING of the
@@ -94,13 +96,16 @@ const TabBarItem = memo(function TabBarItem({
           <>
             <div>{displayName}</div>
             {buffer.type === 'editor' && <div className="text-muted-foreground">{buffer.path}</div>}
+            {readOnly && (
+              <div className="text-muted-foreground">Read-only: this branch is locked</div>
+            )}
           </>
         }
         trigger={
           <Tab
             role="tab"
             aria-selected={isActive}
-            aria-label={`${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ' (unsaved)' : ''}${buffer.isPinned ? ' (pinned)' : ''}${buffer.isPreview ? ' (preview)' : ''}`}
+            aria-label={`${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ' (unsaved)' : ''}${buffer.isPinned ? ' (pinned)' : ''}${buffer.isPreview ? ' (preview)' : ''}${readOnly ? ' (read-only)' : ''}`}
             tabIndex={isActive ? 0 : -1}
             isActive={isActive}
             isDragged={isDraggedTab}
@@ -135,6 +140,7 @@ const TabBarItem = memo(function TabBarItem({
             >
               {displayName}
             </span>
+            {readOnly && <LockIcon className="size-3 shrink-0 text-muted-foreground" />}
             {isDirtyEditor && !isActive && (
               <div
                 className="size-2 shrink-0 rounded-full bg-primary"

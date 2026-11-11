@@ -26,6 +26,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 // Buffer fixtures keyed by bufferId, so each test picks the shape it needs with no shared mutable
 // state; hoisted for the `vi.mock` factory below.
@@ -153,6 +154,27 @@ describe('MarkdownEditorPane', () => {
     // The heading text and the bold run are present in the rendered rich output.
     expect(await screen.findByText('Hello')).toBeInTheDocument()
     expect(screen.getByText('bold')).toBeInTheDocument()
+  })
+
+  // A locked branch refuses every write, so typing is refused up front, not at save.
+  it('is read-only on a locked workspace', async () => {
+    seedRepos([
+      {
+        id: 'r1',
+        projectId: 'p1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'r',
+        workspaces: [],
+        defaultWorkspaceId: 'ws-1',
+        defaultWorkspaceStatus: 'locked',
+      },
+    ])
+    render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
+    const heading = await screen.findByText('Hello')
+
+    expect(heading.closest('[contenteditable]')).toHaveAttribute('contenteditable', 'false')
+    resetEntities()
   })
 
   it('does not write when a reader flushes a pristine editor', async () => {

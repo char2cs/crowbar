@@ -7,6 +7,7 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { useSettingsStore } from '@/features/settings/store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => <span data-testid="file-icon" />,
@@ -51,6 +52,34 @@ describe('TabBarItem', () => {
     const buffer: EditorContent = { ...editorBuffer, isDirty: true }
     render(<TabBarItem buffer={buffer} isActive={false} {...shared} />)
     expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
+  })
+})
+
+// A locked branch's file says so on its tab before the user types, not only when a save fails.
+describe('TabBarItem on a locked workspace', () => {
+  it('marks the tab read-only', () => {
+    seedRepos([
+      {
+        id: 'r1',
+        projectId: 'p1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'r',
+        workspaces: [],
+        defaultWorkspaceId: 'w1',
+        defaultWorkspaceStatus: 'locked',
+      },
+    ])
+    render(<TabBarItem buffer={editorBuffer} isActive {...shared} />)
+
+    expect(screen.getByRole('tab', { name: 'bar.ts (read-only)' })).toBeInTheDocument()
+    resetEntities()
+  })
+
+  it('leaves an unlocked workspace’s tab alone', () => {
+    render(<TabBarItem buffer={editorBuffer} isActive {...shared} />)
+
+    expect(screen.getByRole('tab', { name: 'bar.ts' })).toBeInTheDocument()
   })
 })
 
