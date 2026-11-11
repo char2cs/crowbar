@@ -30,7 +30,6 @@ export function useChatSend(
         discardPrompt(chatId, requestId)
         onEdit(text)
       },
-      cancel: (requestId) => discardPrompt(chatId, requestId),
     }),
     [wsId, chatId, steer, onEdit],
   )

@@ -13,6 +13,8 @@ interface ChatDockProps {
   blank: boolean
   dockRef: Ref<HTMLDivElement>
   plan: PlanItem[] | undefined
+  /** Puts an unsent message's text back in the composer. */
+  onEditPrompt: (text: string) => void
   pickers: ReactNode
   /** Why the chat cannot take a prompt yet. */
   note?: string
@@ -29,6 +31,7 @@ export function ChatDock({
   blank,
   dockRef,
   plan,
+  onEditPrompt,
   pickers,
   note,
   error,
@@ -39,7 +42,7 @@ export function ChatDock({
     <DockStack
       blank={blank}
       dockRef={dockRef}
-      topTray={!blank && <TopTray chatId={chatId} plan={plan} />}
+      topTray={!blank && <TopTray chatId={chatId} plan={plan} onEdit={onEditPrompt} />}
       pickers={!blank && pickers}
       notes={
         note && (

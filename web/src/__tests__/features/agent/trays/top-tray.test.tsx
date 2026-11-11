@@ -9,12 +9,12 @@ beforeEach(() => chatStore.setState({ feeds: {}, outbox: {} }))
 
 describe('TopTray', () => {
   it('renders nothing when no section has anything to say', () => {
-    const { container } = render(<TopTray chatId="chat-1" plan={undefined} />)
+    const { container } = render(<TopTray chatId="chat-1" plan={undefined} onEdit={() => {}} />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('holds the plan, queued messages and a failed send in one tray', () => {
-    render(<TopTray chatId="chat-1" plan={plan} />)
+    render(<TopTray chatId="chat-1" plan={plan} onEdit={() => {}} />)
     act(
       () =>
         void chatStore.setState({
@@ -39,7 +39,7 @@ describe('TopTray', () => {
         'chat-1': [{ requestId: 'r0', wsId: 'ws', text: 'lost', state: 'failed', steer: false }],
       },
     })
-    render(<TopTray chatId="chat-1" plan={undefined} />)
+    render(<TopTray chatId="chat-1" plan={undefined} onEdit={() => {}} />)
     expect(screen.getByTestId('agent-top-tray')).toHaveTextContent('Your message was not sent')
   })
 })

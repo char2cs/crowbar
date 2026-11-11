@@ -8,9 +8,12 @@ import { FailureNotice } from '@/features/agent/transcript/rows/failure-notice'
 export function SendFailureTray({
   chatId,
   item,
+  onEdit,
 }: {
   chatId: string
   item: OutboxItem | undefined
+  /** Puts the failed message's text in the composer. */
+  onEdit: (text: string) => void
 }) {
   if (!item) return null
   const { headline, hint, final } = describeSendFailure(item)
@@ -23,6 +26,16 @@ export function SendFailureTray({
       headlineTestId="agent-send-failure"
       actions={
         <>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              discardPrompt(chatId, item.requestId)
+              onEdit(item.text)
+            }}
+          >
+            Edit
+          </Button>
           <Button size="sm" variant="outline" onClick={() => discardPrompt(chatId, item.requestId)}>
             Discard
           </Button>

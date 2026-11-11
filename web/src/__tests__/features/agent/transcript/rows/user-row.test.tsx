@@ -16,7 +16,7 @@ const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800
 const originalRect = HTMLElement.prototype.getBoundingClientRect
 
 let submit: MockInstance<typeof commands.submitAgentPrompt>
-const actions = { retry: vi.fn(), edit: vi.fn(), cancel: vi.fn() }
+const actions = { retry: vi.fn(), edit: vi.fn() }
 
 beforeEach(() => {
   chatStore.setState({ feeds: {}, outbox: {} })
@@ -63,17 +63,18 @@ describe('UserRow', () => {
     expect(rowOf(queuedId())).toHaveAttribute('data-state', 'sending')
   })
 
-  it('keeps the same row element from queued to settled', async () => {
+  it('keeps the same row element from sending to settled; a queued prompt has no row', async () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r0', 'earlier'), l.start('turn-0', 'r0')])
     draw()
     act(() => void sendPrompt('w1', 'c1', { text: 'next please', steer: false }))
     const requestId = queuedId()
-    const row = rowOf(requestId)
-    expect(row).toHaveAttribute('data-state', 'queued')
+    expect(chatStore.getState().outbox.c1?.[0]?.state).toBe('queued')
+    expect(rowOf(requestId)).toBeNull()
+    expect(screen.queryByText('next please')).not.toBeInTheDocument()
 
     await act(async () => seedFeed('c1', [l.end('turn-0')]))
-    expect(rowOf(requestId)).toBe(row)
+    const row = rowOf(requestId)
     expect(row).toHaveAttribute('data-state', 'sending')
 
     act(() => seedFeed('c1', [l.prompt(requestId, 'next please')]))
@@ -86,7 +87,7 @@ describe('UserRow', () => {
     expect(screen.getAllByText('next please')).toHaveLength(1)
   })
 
-  it('offers Retry and Edit when a send fails', async () => {
+  it('draws no row for a failed send; the tray owns it', async () => {
     seedFeed('c1', [])
     submit.mockRejectedValueOnce(new ApiError('model is unknown: invalid argument', 400))
     draw()
@@ -94,11 +95,21 @@ describe('UserRow', () => {
     const requestId = queuedId()
     await act(async () => {})
 
-    expect(screen.getByText('model is unknown: invalid argument')).toBeInTheDocument()
+    expect(chatStore.getState().outbox.c1?.[0]?.state).toBe('failed')
+    expect(rowOf(requestId)).toBeNull()
+    expect(screen.queryByText('try me')).not.toBeInTheDocument()
+  })
+
+  it('a refused row offers Retry and Edit', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'try me'), l.settle('r1', false, 'not_acknowledged')])
+    draw()
+
     fireEvent.click(screen.getByLabelText('Retry prompt'))
-    expect(actions.retry).toHaveBeenCalledWith(requestId)
+    expect(actions.retry).toHaveBeenCalledWith('r1')
     fireEvent.click(screen.getByLabelText('Edit prompt'))
-    expect(actions.edit).toHaveBeenCalledWith(requestId, 'try me')
+    expect(actions.edit).toHaveBeenCalledWith('r1', 'try me')
+    expect(screen.queryByLabelText('Cancel prompt')).not.toBeInTheDocument()
   })
 
   it('a prompt the lost session refused says so and offers Retry', () => {

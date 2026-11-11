@@ -8,18 +8,20 @@ import { useTopTray } from '@/features/agent/trays/use-top-tray'
 interface TopTrayProps {
   chatId: string
   plan: PlanItem[] | undefined
+  /** Puts an unsent message's text back in the composer. */
+  onEdit: (text: string) => void
 }
 
 /** Behind the input box's top edge: a failure, the to-do list, queued messages and the answered
  *  requests, in one tray that exists only while one of them has something to show. */
-export function TopTray({ chatId, plan }: TopTrayProps) {
+export function TopTray({ chatId, plan, onEdit }: TopTrayProps) {
   const { steps, queued, failed, resolved } = useTopTray(chatId, plan)
   if (!failed && !steps && queued.length === 0 && resolved.length === 0) return null
   return (
     <div className="tray-top" data-testid="agent-top-tray">
-      <SendFailureTray chatId={chatId} item={failed} />
+      <SendFailureTray chatId={chatId} item={failed} onEdit={onEdit} />
       <PlanTray plan={steps ?? undefined} />
-      <QueuedTray chatId={chatId} items={queued} />
+      <QueuedTray chatId={chatId} items={queued} onEdit={onEdit} />
       <ResolvedTray choices={resolved} />
     </div>
   )

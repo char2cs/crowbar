@@ -239,6 +239,15 @@ describe('AgentTranscript', () => {
     expect(stream.style.minHeight).toBe(`${800 + 800}px`)
   })
 
+  it('draws no row for a queued or failed prompt', () => {
+    seedFeed('chat-1', [ledger().prompt('r1', 'one')])
+    draw()
+    const unsent = (state: 'queued' | 'failed') => ({ ...outboxItem(`x-${state}`), state })
+    act(() => chatStore.setState({ outbox: { 'chat-1': [unsent('queued'), unsent('failed')] } }))
+    expect(document.querySelector('[data-row-id="p:x-queued"]')).toBeNull()
+    expect(document.querySelector('[data-row-id="p:x-failed"]')).toBeNull()
+  })
+
   it('releases the pin of a prompt taken back before its row landed', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one')])

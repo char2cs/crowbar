@@ -385,6 +385,7 @@ export function AgentChatView({
               blank={blank}
               dockRef={dock.dockRef}
               plan={facts.plan}
+              onEditPrompt={editPrompt}
               pickers={
                 <>
                   {stashPicker}

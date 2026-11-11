@@ -19,6 +19,8 @@ const failed = (patch: Partial<OutboxItem> = {}): OutboxItem => ({
   ...patch,
 })
 
+const onEdit = vi.fn()
+
 beforeEach(() => {
   vi.clearAllMocks()
   chatStore.setState({ feeds: {}, outbox: {} })
@@ -27,13 +29,15 @@ beforeEach(() => {
 describe('SendFailureTray', () => {
   it('renders nothing while no send has failed', () => {
     chatStore.setState({ outbox: { 'chat-1': [failed({ state: 'queued' })] } })
-    const { container } = render(<SendFailureTray chatId="chat-1" item={undefined} />)
+    const { container } = render(
+      <SendFailureTray chatId="chat-1" item={undefined} onEdit={onEdit} />,
+    )
     expect(container).toBeEmptyDOMElement()
   })
 
   it('says a dropped connection in plain words and offers Retry and Discard', () => {
     const item = failed({ error: 'fetch failed: ECONNRESET', sameIdRetry: true })
-    render(<SendFailureTray chatId="chat-1" item={item} />)
+    render(<SendFailureTray chatId="chat-1" item={item} onEdit={onEdit} />)
     expect(screen.getByTestId('agent-send-failure')).toHaveTextContent('Your message was not sent')
     expect(screen.queryByText(/ECONNRESET/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
@@ -43,9 +47,20 @@ describe('SendFailureTray', () => {
   })
 
   it('offers only Discard when a resend cannot work', () => {
-    render(<SendFailureTray chatId="chat-1" item={failed({ code: 'session_lost' })} />)
+    render(
+      <SendFailureTray chatId="chat-1" item={failed({ code: 'session_lost' })} onEdit={onEdit} />,
+    )
     expect(screen.getByTestId('agent-send-failure')).toHaveTextContent('The session was lost')
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
+  })
+
+  it('Edit puts the failed text back in the composer and discards the item, even when a resend cannot work', () => {
+    render(
+      <SendFailureTray chatId="chat-1" item={failed({ code: 'session_lost' })} onEdit={onEdit} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(discardPrompt).toHaveBeenCalledWith('chat-1', 'r1')
+    expect(onEdit).toHaveBeenCalledWith('ship it')
   })
 })

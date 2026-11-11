@@ -300,10 +300,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     }),
   )
 
-  // An outbox prompt whose row landed is the rows' from then on, under the same key.
+  // A sending prompt whose row landed is the rows' from then on, under the same key.
   const unsent = useMemo(() => {
     const byId = new Map<string, UserItem>()
     for (const item of outbox) {
+      // Queued and failed prompts are the top tray's until they are really sent.
+      if (item.state !== 'sending') continue
       const id = `p:${item.requestId}`
       if (!items?.has(id)) byId.set(id, asUser(item))
     }

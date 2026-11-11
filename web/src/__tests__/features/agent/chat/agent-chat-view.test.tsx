@@ -214,7 +214,8 @@ describe('AgentChatView', () => {
     await type('next one')
     await press('Enter')
 
-    expect(await screen.findByTestId('queued-prompt')).toHaveAttribute('data-state', 'queued')
+    expect(await screen.findByTestId('agent-queued-tray')).toHaveTextContent('next one')
+    expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument()
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(submit).not.toHaveBeenCalled()
   })
