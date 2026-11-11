@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { useEffect } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { MessageBoundary } from '@/features/agent/transcript/rows/message-boundary'
@@ -14,7 +14,7 @@ function Probe({ onMount }: { onMount: () => void }) {
 }
 
 describe('MessageBoundary', () => {
-  it('shows the message as plain text with a one-line note when its body throws', () => {
+  it('says the message could not be displayed and offers its plain text and another try', () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
     render(
       <MessageBoundary text="BOOM raw">
@@ -22,7 +22,9 @@ describe('MessageBoundary', () => {
       </MessageBoundary>,
     )
     quiet.mockRestore()
-    expect(screen.getByText('Could not render this message')).toBeInTheDocument()
+    expect(screen.getByText('This message could not be displayed.')).toBeInTheDocument()
+    expect(screen.queryByText('BOOM raw')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show as plain text' }))
     expect(screen.getByText('BOOM raw')).toBeInTheDocument()
   })
 
@@ -39,7 +41,7 @@ describe('MessageBoundary', () => {
         <Body text="fixed" />
       </MessageBoundary>,
     )
-    expect(screen.queryByText('Could not render this message')).toBeNull()
+    expect(screen.queryByText('This message could not be displayed.')).toBeNull()
     expect(screen.getByText('fixed')).toBeInTheDocument()
   })
 

@@ -50,7 +50,15 @@ describe('useWorkRows', () => {
     })
     expect(result.current[1]).toMatchObject({ kind: 'subagent', label: 'plan' })
     push(l.row('subagent', { phase: 'stop' }, { turnId: 'turn-1', scope: 'sub-1' }))
-    expect(result.current.map((row) => row.label)).toEqual(['plan'])
+    // The one that finished stays beside the one still running, how it ended on its row.
+    expect(result.current.map((row) => [row.label, row.status])).toEqual([
+      ['plan', 'running'],
+      ['Scout', 'done'],
+    ])
+    expect(result.current[1]?.detail).toMatch(/^done/)
+    expect(result.current[1]?.endedAt).toBeTruthy()
+    push(l.row('subagent', { phase: 'stop' }, { turnId: 'turn-1', scope: 'sub-2' }))
+    expect(result.current).toEqual([])
   })
 
   it('keeps the same rows while unrelated rows arrive', () => {

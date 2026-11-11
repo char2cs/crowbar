@@ -24,14 +24,32 @@ const reported = (usedPercent: number) => telemetry({ context: { usedPercent } }
 describe('AgentContextGauge', () => {
   // "Not reported" and "zero" are different facts, and a confident 0% over the
   // first is a lie a user would act on.
-  it('renders nothing when the provider has not reported', () => {
-    const { container } = render(<AgentContextGauge telemetry={null} />)
-    expect(container).toBeEmptyDOMElement()
+  it('shows an empty ring and no percentage when the provider has not reported', () => {
+    render(<AgentContextGauge telemetry={null} />)
+    const pill = screen.getByTestId('agent-context-gauge')
+    expect(pill).toHaveTextContent(/^context$/)
+    expect(pill.querySelector('.ctx-ring')).toHaveAttribute('data-unknown')
   })
 
-  it('renders nothing when a report carries no context usage', () => {
-    const { container } = render(<AgentContextGauge telemetry={telemetry()} />)
-    expect(container).toBeEmptyDOMElement()
+  it('does the same when a report carries no context usage', () => {
+    render(<AgentContextGauge telemetry={telemetry()} />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^context$/)
+  })
+
+  // The board's footer always carries the pill: a provider that offers context shows it before
+  // its first report, as an empty ring and the word, on the phone too.
+  it('stands before a report, on both surfaces', () => {
+    const { unmount } = render(<AgentContextGauge telemetry={null} />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^context$/)
+    unmount()
+    platform.mobile = true
+    render(<AgentContextGauge telemetry={null} />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^context$/)
+  })
+
+  it('turns the ring to the warning colour while the conversation is compacted', () => {
+    render(<AgentContextGauge telemetry={null} compacting />)
+    expect(screen.getByTestId('agent-context-gauge')).toHaveAttribute('data-level', 'warn')
   })
 
   it('says "N% context" on the desktop and just "N%" on the phone', () => {
@@ -100,12 +118,12 @@ describe('AgentContextGauge', () => {
     })
 
     // Compaction is a provider capability, not telemetry: a wiped usage report must not take it down.
-    it('still offers Compact, and no invented 0% ring, when there is no usage report', () => {
+    it('still offers Compact, and no invented 0%, when there is no usage report', () => {
       const onCompact = vi.fn()
       render(<AgentContextGauge telemetry={null} onCompact={onCompact} />)
       const pill = screen.getByTestId('agent-context-gauge')
-      expect(pill).toHaveTextContent('Compact')
-      expect(pill.querySelector('.ctx-ring')).toBeNull()
+      expect(pill).toHaveTextContent(/^context$/)
+      expect(pill.querySelector('.ctx-ring')).toHaveAttribute('data-unknown')
       fireEvent.click(pill)
       expect(onCompact).toHaveBeenCalledTimes(1)
     })

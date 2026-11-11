@@ -93,3 +93,40 @@ describe('requestView for an MCP call', () => {
     ])
   })
 })
+
+describe('requestView of an edit', () => {
+  const edit = (old_string: string, new_string: string) =>
+    requestView({ toolName: 'Edit', toolInput: { file_path: 'a.go', old_string, new_string } }).code
+
+  it('keeps the lines the edit leaves alone as numbered context and marks what changed in a line', () => {
+    const rows = edit(
+      'for {\n  sum = add(x.Round(2))\n}\nreturn M(sum)',
+      'for {\n  sum = add(x)\n}\nreturn M(sum.Bank(2))',
+    )
+
+    expect(rows.map((row) => [row.tone, row.n, row.text])).toEqual([
+      ['ctx', 1, 'for {'],
+      ['del', 2, '  sum = add(x.Round(2))'],
+      ['add', 2, '  sum = add(x)'],
+      ['ctx', 3, '}'],
+      ['del', 4, 'return M(sum)'],
+      ['add', 4, 'return M(sum.Bank(2))'],
+    ])
+    const marked = (row: (typeof rows)[number]) => row.mark && row.text.slice(...row.mark)
+    expect(rows.map(marked)).toEqual([
+      undefined,
+      '.Round(2)',
+      undefined,
+      undefined,
+      undefined,
+      '.Bank(2)',
+    ])
+  })
+
+  it('draws a pure addition as added lines only', () => {
+    expect(edit('', 'one\ntwo').map((row) => [row.tone, row.text])).toEqual([
+      ['add', 'one'],
+      ['add', 'two'],
+    ])
+  })
+})

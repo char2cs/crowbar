@@ -1,11 +1,15 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
+import { ChoiceRequest, ChoiceRequestHead } from '@/features/agent/composer/composer-choice-request'
 import { requestView, type AskRequest } from '@/features/agent/composer/lib/ask-request'
 
 function show({ request, expanded = false }: { request: AskRequest; expanded?: boolean }) {
+  const view = requestView(request)
   return render(
-    <ChoiceRequest view={requestView(request)} expanded={expanded} onExpand={() => {}} />,
+    <div data-testid="whole">
+      <ChoiceRequestHead view={view} />
+      <ChoiceRequest view={view} expanded={expanded} onExpand={() => {}} />
+    </div>,
   )
 }
 
@@ -17,7 +21,7 @@ describe('ChoiceRequest request body', () => {
         toolInput: { plan: '# Add hello\n\n1. Create `hello.txt`\n2. Check it' },
       },
     })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     expect(screen.getByRole('heading', { name: 'Add hello' })).toBeInTheDocument()
     expect(body.querySelectorAll('ol li')).toHaveLength(2)
     expect(body).not.toHaveTextContent('# Add hello')
@@ -30,7 +34,7 @@ describe('ChoiceRequest request body', () => {
         toolInput: { command: 'rm -rf build', description: 'Clean the build' },
       },
     })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     expect(body).toHaveTextContent('rm -rf build')
     expect(body).not.toHaveTextContent('Clean the build')
   })
@@ -43,9 +47,9 @@ describe('ChoiceRequest request body', () => {
         toolInput: { text: 'hi', loud: true },
       },
     })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     expect(body).toHaveTextContent('echo · shout')
-    const keys = [...body.querySelectorAll('.choice-request-key')].map((k) => k.textContent)
+    const keys = [...body.querySelectorAll('.rq-arg-key')].map((k) => k.textContent)
     expect(keys).toEqual(['text', 'loud'])
     expect(body).toHaveTextContent('texthi')
     expect(body).toHaveTextContent('loudtrue')
@@ -58,15 +62,16 @@ describe('ChoiceRequest request body', () => {
         toolInput: { file_path: 'a.ts', old_string: 'x\ny', new_string: 'z' },
       },
     })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     expect(body).toHaveTextContent('a.ts')
-    expect(body.querySelector('.choice-request-counts')).toHaveTextContent('+1 −2')
+    expect(body.querySelector('.rq-add')).toHaveTextContent('+1')
+    expect(body.querySelector('.rq-del')).toHaveTextContent('−2')
   })
 
   it('shows a truncated tool input as text, not as parsed arguments', () => {
     const text = '{"command":"cat a very long'
     show({ request: { toolName: 'Bash', toolInput: text, truncated: true } })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     expect(body).toHaveTextContent(text)
     expect(body).toHaveTextContent('Input truncated')
   })
@@ -80,14 +85,14 @@ describe('ChoiceRequest with a very long input', () => {
     show({ request: { toolName: 'Bash', toolInput: { command } } })
     // Drawn whole, this took ~300 ms in escaping alone; bounded it is a few.
     expect(performance.now() - start).toBeLessThan(150)
-    const code = screen.getByTestId('agent-choice-request').querySelector('pre')!
+    const code = screen.getByTestId('whole').querySelector('pre')!
     expect(code.textContent!.length).toBeLessThan(300)
     expect(screen.getByRole('button', { name: 'Show all 1048576 characters' })).toBeInTheDocument()
   })
 
   it('draws all of it once asked to', () => {
     show({ request: { toolName: 'Bash', toolInput: { command } }, expanded: true })
-    const code = screen.getByTestId('agent-choice-request').querySelector('pre')!
+    const code = screen.getByTestId('whole').querySelector('pre')!
     expect(code.textContent).toBe(`${command}\n`)
     // It scrolls inside its own bound, so it must be reachable by keyboard.
     expect(code).toHaveAttribute('tabindex', '0')
@@ -99,13 +104,13 @@ describe('ChoiceRequest with a very long input', () => {
     )
     const request = { toolName: 'mcp__echo__shout', mcpServer: 'echo', toolInput }
     const { unmount } = show({ request })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     expect(body).not.toHaveTextContent('k13')
     expect(body.textContent).not.toContain('z'.repeat(500))
     unmount()
     show({ request, expanded: true })
-    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('k1313')
-    expect(screen.getByTestId('agent-choice-request').textContent).toContain('z'.repeat(500))
+    expect(screen.getByTestId('whole')).toHaveTextContent('k1313')
+    expect(screen.getByTestId('whole').textContent).toContain('z'.repeat(500))
   })
 })
 
@@ -113,7 +118,7 @@ describe('ChoiceRequest shows a command as it is', () => {
   it('writes bidi, control and zero-width characters out visibly', () => {
     const command = 'echo build done \u202E; rm -rf ~ #\u202C\u200B\u0007'
     show({ request: { toolName: 'Bash', toolInput: { command } } })
-    const body = screen.getByTestId('agent-choice-request')
+    const body = screen.getByTestId('whole')
     for (const raw of ['\u202E', '\u202C', '\u200B', '\u0007'])
       expect(body.textContent).not.toContain(raw)
     expect(body).toHaveTextContent('\\u{202E}')
@@ -123,7 +128,7 @@ describe('ChoiceRequest shows a command as it is', () => {
 
   it('draws a CRLF line break as a break, and a lone carriage return written out', () => {
     show({ request: { toolName: 'Bash', toolInput: { command: 'one\r\ntwo\rthree' } } })
-    const code = screen.getByTestId('agent-choice-request').querySelector('pre')!
+    const code = screen.getByTestId('whole').querySelector('pre')!
     expect(code.textContent).toBe('one\ntwo\\u{D}three\n')
   })
 
@@ -131,8 +136,7 @@ describe('ChoiceRequest shows a command as it is', () => {
     show({
       request: { toolName: 'mcp__e\u202Ecal__x', mcpServer: 'e\u202Ecal', toolInput: {} },
     })
-    const server = screen.getByTestId('agent-mcp-server')
-    expect(server.textContent).toBe('e\\u{202E}cal')
+    expect(screen.getByTestId('whole')).toHaveTextContent('e\\u{202E}cal')
   })
 
   it('escapes MCP args and edit previews the same way', () => {
@@ -143,12 +147,12 @@ describe('ChoiceRequest shows a command as it is', () => {
         toolInput: { text: 'a\u202Eb' },
       },
     })
-    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('a\\u{202E}b')
+    expect(screen.getByTestId('whole')).toHaveTextContent('a\\u{202E}b')
   })
 })
 
 describe('ChoiceRequest edit and write bodies', () => {
-  const body = () => screen.getByTestId('agent-choice-request')
+  const body = () => screen.getByTestId('whole')
 
   it('draws no removed line for an edit with nothing to remove, and says replace-all', () => {
     show({
@@ -157,8 +161,8 @@ describe('ChoiceRequest edit and write bodies', () => {
         toolInput: { file_path: 'a.ts', old_string: '', new_string: 'x', replace_all: true },
       },
     })
-    expect(body().textContent).not.toContain('- ')
-    expect(body()).toHaveTextContent('+ x')
+    expect(body().querySelector('[data-tone="del"]')).toBeNull()
+    expect(body()).toHaveTextContent('+x')
     expect(body()).toHaveTextContent('Every occurrence')
   })
 
@@ -184,8 +188,8 @@ describe('ChoiceRequest edit and write bodies', () => {
         },
       },
     })
-    expect(body()).toHaveTextContent('- a')
-    expect(body()).toHaveTextContent('+ d')
+    expect(body()).toHaveTextContent('−a')
+    expect(body()).toHaveTextContent('+d')
   })
 
   it('shows a notebook cell’s new source', () => {

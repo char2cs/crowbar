@@ -141,6 +141,20 @@ describe('subagent cards', () => {
     expect(feed.facts.liveSubagents).toEqual([])
   })
 
+  // A daemon restart kills the CLI without recording its exit; the next CLI has none of the
+  // old one's subagents, so the tray must not count them up for hours.
+  it('interrupts what an earlier CLI left running when a new CLI starts', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.runner('r1'),
+      l.start('turn-1'),
+      l.row('subagent', { phase: 'start', type: 'plan' }, { turnId: 'turn-1', scope: 'sub-1' }),
+      l.runner('r2'),
+    ])
+    expect(feed.items.get('s:sub-1')).toMatchObject({ status: 'interrupted' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
   it('marks a card abandoned when its parent turn ends before it binds', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [

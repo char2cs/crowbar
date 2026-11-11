@@ -105,6 +105,10 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
+  /** The other chat the boundary names: who holds a conflicting session, or took a lost one. */
+  chat?: string
+  /** A legacy_unreadable boundary's left-out records, each in its own words. */
+  records?: string[]
   /** A launch's switches (provider, model, effort) drawn as this one divider. */
   parts?: { marker: MarkerName; detail?: string }[]
   /** A 'move' marker's newest phase, over what its request named (where to, under what). */
@@ -210,7 +214,6 @@ export interface TurnFacts {
   pendingScopes: Record<string, { type?: string; title?: string }>
   /** By scope, latest. */
   plan: Record<string, PlanItem[]>
-  lastExit: { runnerId: string; reason: string; exitCode?: number; seq: number } | null
   /** The turn Stop was pressed on; it reads as stopping only while it runs. */
   stopping: string | null
   /** Turn ids that produced text or a tool. */

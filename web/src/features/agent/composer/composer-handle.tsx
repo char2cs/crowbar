@@ -1,5 +1,5 @@
+import type { ReactNode } from 'react'
 import { ComposerActionButton } from '@/features/agent/composer/composer-action-button'
-import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
 import { handleOffset } from '@/features/agent/composer/lib/handle-geometry'
 
 interface ComposerHandleProps {
@@ -12,8 +12,8 @@ interface ComposerHandleProps {
   sending: boolean
   onSend: () => void
   onStop: () => void
-  onOpenExcalidraw: () => void
-  onOpenAttachFile: () => void
+  /** The plus button, built by whoever knows what it can reach. */
+  attach: ReactNode
 }
 
 /** Plus and the action circle, side by side at the right end of the pill, riding the last line. */
@@ -25,12 +25,11 @@ export function ComposerHandle({
   sending,
   onSend,
   onStop,
-  onOpenExcalidraw,
-  onOpenAttachFile,
+  attach,
 }: ComposerHandleProps) {
   return (
     <div className="handle" style={{ transform: `translateY(${handleOffset(fieldHeight)}px)` }}>
-      <ComposerPlusButton onOpenExcalidraw={onOpenExcalidraw} onOpenAttachFile={onOpenAttachFile} />
+      {attach}
       <ComposerActionButton
         hasText={hasText}
         working={working}

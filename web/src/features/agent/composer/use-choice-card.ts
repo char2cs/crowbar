@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/errors/api-error'
 import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import {
   fieldError,
+  formContent,
   initialValues,
   parseForm,
   type FormValues,
@@ -125,6 +126,13 @@ export function useChoiceCard({
   const picks = question ? (card.byQuestion[question.id] ?? []) : []
   // A digit names an option of the question on screen: it picks it, or ticks it when several may be.
   const pickQuestionByKey = (event: globalThis.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      if (picks.length === 0) return
+      event.preventDefault()
+      if (!lastStep) update({ step: step + 1 })
+      else if (answered) void send(allPicks)
+      return
+    }
     const option = /^[1-9]$/.test(event.key) ? question?.options[Number(event.key) - 1] : undefined
     if (!question || !option) return
     event.preventDefault()
@@ -151,8 +159,17 @@ export function useChoiceCard({
     void send([picked.id])
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Only from the card itself: a key on a control inside it is that control's.
-    if (event.target === event.currentTarget) pickByKey(event.nativeEvent, true)
+    // From the card itself, a key answers; from a control inside it the control keeps its keys,
+    // except that a form's Escape declines and Enter in a field submits.
+    if (event.target === event.currentTarget) return pickByKey(event.nativeEvent, true)
+    if (!active || busy || !fields || card.unsupportedHere || event.nativeEvent.isComposing) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      void send(['decline'])
+    } else if (event.key === 'Enter' && event.target instanceof HTMLInputElement && !formError) {
+      event.preventDefault()
+      void send(['accept'], formContent(fields, values))
+    }
   }
   // The composer gives way to the card and focus falls to the page: a digit typed
   // then is for the card. Not an Enter, which may be the end of a message.

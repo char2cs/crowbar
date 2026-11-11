@@ -13,6 +13,7 @@ function targets(searchOlder: (query: string) => string | undefined) {
     selectSlashItem: vi.fn(),
     send: vi.fn(),
     recall: vi.fn(),
+    cyclePermission: vi.fn(() => true),
   }
 }
 
@@ -44,5 +45,33 @@ describe('handleComposerKey', () => {
 
     expect(event.preventDefault).toHaveBeenCalled()
     expect(t.recall).toHaveBeenCalledWith('run the tests')
+  })
+
+  const press = (t: ReturnType<typeof targets>, init: Partial<KeyboardEvent<HTMLDivElement>>) => {
+    const event = key(init)
+    handleComposerKey(
+      t,
+      event,
+      () => '',
+      { atStart: true, atEnd: true },
+      { empty: true, slashQuery: null, mentionQuery: null },
+    )
+    return event
+  }
+
+  it('shift+tab steps the permission level and keeps focus where it is', () => {
+    const t = targets(() => undefined)
+    const event = press(t, { key: 'Tab', shiftKey: true })
+
+    expect(t.cyclePermission).toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalled()
+  })
+
+  it('leaves shift+tab to the browser when the chat has no levels to step through', () => {
+    const t = targets(() => undefined)
+    t.cyclePermission.mockReturnValue(false)
+    const event = press(t, { key: 'Tab', shiftKey: true })
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
   })
 })

@@ -6,4 +6,5 @@ export const noRowActions: RowActions = {
   edit: () => {},
   openTerminal: () => {},
   newConversation: () => {},
+  openChat: () => {},
 }

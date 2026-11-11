@@ -29,6 +29,8 @@ interface ComposerKeyTargets {
   selectSlashItem: (item: PickerItem) => void
   send: (markdown: string) => void
   recall: (text: string) => void
+  /** Steps the chat's permission level; false when it has no levels to step through. */
+  cyclePermission: () => boolean
 }
 
 /** One key in the composer, routed to the picker, the queue or history recall. */
@@ -64,6 +66,10 @@ export function handleComposerKey(
   if (event.key === 'Tab' && !event.shiftKey && slash.highlighted) {
     event.preventDefault()
     targets.selectSlashItem(slash.highlighted)
+    return
+  }
+  if (event.key === 'Tab' && event.shiftKey && !slash.open && targets.cyclePermission()) {
+    event.preventDefault()
     return
   }
   if (isSendKey(event)) {

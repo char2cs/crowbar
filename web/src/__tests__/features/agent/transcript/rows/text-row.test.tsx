@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { LedgerRow } from '@/features/agent/api/chat-rows'
@@ -214,7 +214,8 @@ describe('TextRow', () => {
       </>,
     )
     quiet.mockRestore()
-    expect(screen.getByText('Could not render this message')).toBeInTheDocument()
+    expect(screen.getByText('This message could not be displayed.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show as plain text' }))
     expect(screen.getByText('BOOM **raw**')).toBeInTheDocument()
     expect(screen.getByText('still fine')).toBeInTheDocument()
   })

@@ -7,18 +7,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px 12px;
-  /* Both sides match `.pill`'s `padding: 8px 14px`, the edge its text and send circle sit inside.
-     Real padding, not a negative margin on `.left`, which `overflow: hidden` would clip. */
-  padding: 8px 14px 0;
+  min-height: 34px;
+  padding: 2px 10px 0 12px;
   overflow: hidden;
-  font-size: var(--ui-text-xs);
+  font-size: var(--ui-text-sm);
   color: var(--muted-foreground);
 }
 .agent-chat .underbar .left,
 .agent-chat .underbar .right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 2px;
   min-width: 0;
   /* Never break "NN% context" mid-word — a group that doesn't
      fit moves to the next line whole, it doesn't fold in place. */
@@ -54,15 +53,14 @@
   gap: 2px;
   flex: none;
 }
-/* The underbar's chip. Lower contrast than a Button by design — this row reports
-   what the chat IS, and only earns foreground colour once a choice has actually
-   been made (`.set`). */
+/* The underbar's chip. Lower contrast than a Button by design: this row reports what the chat IS,
+   so only the model's name is in the foreground colour. */
 .agent-chat-pane .chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 7px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
   border: none;
   border-radius: var(--radius-md);
   background: none;
@@ -75,7 +73,8 @@
   background: var(--accent);
   color: var(--foreground);
 }
-.agent-chat-pane .chip.set {
+.agent-chat-pane .chip[data-hot] {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
   color: var(--foreground);
 }
 .agent-chat-pane .chip:disabled {
@@ -94,7 +93,7 @@
   border-radius: 9999px;
   background: none;
   font-family: inherit;
-  font-size: var(--ui-text-xs);
+  font-size: var(--ui-text-sm);
   line-height: 1;
   color: var(--muted-foreground);
   white-space: nowrap;
@@ -129,15 +128,25 @@
 }
 .agent-chat .ctx-compacting {
   padding: 0 8px;
-  font-size: var(--ui-text-xs);
+  font-size: var(--ui-text-sm);
   font-weight: 600;
   color: var(--primary);
 }
-/* The phone's footer is a row of 44px targets. */
+/* The phone's footer is a row of 44px targets: the model chip at the left, the pill at the right. */
 .agent-chat .underbar[data-touch] {
   min-height: 44px;
-  padding-top: 2px;
   font-size: 13px;
+}
+.agent-chat .underbar[data-touch] .chip {
+  height: 44px;
+  padding: 0 6px;
+  gap: 5px;
+  font-size: 13px;
+}
+.agent-chat .underbar[data-touch] .chip [data-provider-icon],
+.agent-chat .underbar[data-touch] .chip [data-provider-icon] svg {
+  width: 15px;
+  height: 15px;
 }
 .agent-chat .underbar[data-touch] .ctx-pill {
   height: 32px;
@@ -162,9 +171,6 @@
 .agent-chat .underbar[data-touch] .ctx-compacting {
   padding: 0 4px;
   font-size: 13px;
-}
-.agent-chat .underbar[data-touch] .chip {
-  height: 44px;
 }
 
 /* ── the view switcher (ui/tabs pill variant) ──────────── */

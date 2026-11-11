@@ -21,22 +21,22 @@ describe('ResolvedTray', () => {
     ]
     render(<ResolvedTray choices={choices} />)
     const toggle = screen.getByRole('button', { name: /3 requests answered/ })
-    expect(toggle).toHaveTextContent('2 allowed · 1 denied')
+    expect(toggle).toHaveTextContent('Show')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryAllByRole('listitem')).toHaveLength(0)
     fireEvent.click(toggle)
-    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-      'Bash · Allow',
-      'Bash · Allow',
-      'Bash · Deny',
+    expect(toggle).toHaveTextContent('Hide')
+    expect(toggle).toHaveTextContent('2 allowed · 1 denied')
+    expect(screen.getAllByRole('listitem').map((li) => li.firstChild?.textContent)).toEqual([
+      'Allowed',
+      'Allowed',
+      'Denied',
     ])
   })
 
-  it('says one request in the singular and leaves out a split that adds nothing', () => {
+  it('says one request in the singular', () => {
     render(<ResolvedTray choices={[decided('a1', 'choice', 'Blue')]} />)
-    const toggle = screen.getByRole('button', { name: /1 request answered/ })
-    expect(toggle).not.toHaveTextContent('allowed')
-    expect(toggle).not.toHaveTextContent('denied')
+    expect(screen.getByRole('button', { name: /1 request answered/ })).toBeInTheDocument()
   })
 
   it('renders nothing without a decision', () => {

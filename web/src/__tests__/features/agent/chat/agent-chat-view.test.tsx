@@ -134,7 +134,7 @@ describe('AgentChatView', () => {
     ])
     draw('c1')
 
-    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('You are signed out')
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('Signed out of')
     expect(box()).toBeVisible()
   })
 
@@ -192,7 +192,8 @@ describe('AgentChatView', () => {
     seedFeed('c1', [])
     draw('c1')
     await type('/he', DOCUMENT)
-    expect(await screen.findByRole('option', { name: /help.*runs in the terminal/i })).toBeVisible()
+    expect(await screen.findByRole('option', { name: /help/i })).toBeVisible()
+    expect(screen.getByText('Runs in the terminal')).toBeVisible()
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {

@@ -35,6 +35,18 @@ describe('background shells', () => {
     expect(shellsOf(feed).map((s) => s.status)).toEqual(['running'])
   })
 
+  it('stops what an earlier CLI left running when a new CLI starts', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.runner('r1'),
+      l.start('turn-1'),
+      start(l),
+      l.runner('r2'),
+    ])
+
+    expect(shellsOf(feed).map((s) => s.status)).toEqual(['stopped'])
+  })
+
   it.each(['finished', 'failed', 'stopped'] as const)('ends as %s, once', (status) => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [

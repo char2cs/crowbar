@@ -8,41 +8,15 @@ export interface TurnFailure {
   headline: string
   /** At most one short second line. */
   hint?: string
-  /** The provider's raw words, kept for a Details toggle; never shown by default. */
-  more?: string
+  /** The transcript's divider for the stopped turn. */
+  tag: string
 }
 
 const AUTH = /\b40[13]\b|unauthori[sz]ed|authentication|not logged in|invalid api key|log ?in/i
 const OVERLOADED = /\b529\b|overloaded/i
 const LIMIT = /\b429\b|rate.?limit|usage.?limit|too many requests|quota/i
-
-// A reason that is a code, not a sentence: the provider gave no words of its own.
-const CODE = /^[a-z_]+$/
-// A status the provider put in front of its sentence: "API Error: 500 ...".
-const STATUS_PREFIX = /^(?:api error:?\s*)?(?:(?:http|status)\s*)?\d{3}\b[:\s-]*/i
-
-const SAID: Record<Exclude<FailureKind, 'other'>, Pick<TurnFailure, 'headline' | 'hint'>> = {
-  auth: { headline: 'You are signed out', hint: 'Sign in again to continue.' },
-  limit: { headline: 'Usage limit reached' },
-  overloaded: { headline: 'The provider is overloaded.', hint: 'Try again in a moment.' },
-}
-const STOPPED = 'The provider stopped this turn.'
-
-/** The message inside a provider error whose words end in its raw JSON body. */
-function jsonMessage(words: string): string | undefined {
-  const start = words.indexOf('{')
-  if (start < 0 || !words.endsWith('}')) return undefined
-  try {
-    const body = JSON.parse(words.slice(start)) as {
-      message?: unknown
-      error?: { message?: unknown }
-    }
-    const message = body.error?.message ?? body.message
-    return typeof message === 'string' && message ? message : undefined
-  } catch {
-    return undefined // not JSON after all: the words stand as they are
-  }
-}
+// "resets at 7pm", "reset at 7:30 PM": the provider's own clock, read in the person's.
+const RESET_AT = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i
 
 function kindOf(said: string): FailureKind {
   if (AUTH.test(said)) return 'auth'
@@ -50,29 +24,101 @@ function kindOf(said: string): FailureKind {
   return LIMIT.test(said) ? 'limit' : 'other'
 }
 
-export function describeFailure(reason = '', detail = ''): TurnFailure {
-  const words = detail.trim() || (CODE.test(reason) ? '' : reason.trim())
-  const kind = kindOf(`${reason}\n${detail}`)
-  const more = words || undefined
-  if (kind !== 'other') return { kind, ...SAID[kind], more }
-  const first = (jsonMessage(words) ?? words.split('\n')[0] ?? '').replace(STATUS_PREFIX, '')
-  const headline = first.trim() || STOPPED
-  return { kind, headline, more: more === headline ? undefined : more }
+/** The next time the clock reads `hour:minute` after `now`, from the words "resets at 7pm". */
+function resetFromWords(said: string, now: Date): Date | undefined {
+  const match = RESET_AT.exec(said)
+  if (!match) return undefined
+  const hour = Number(match[1])
+  if (hour < 1 || hour > 12) return undefined
+  const afternoon = match[3]?.toLowerCase() === 'pm'
+  const at = new Date(now)
+  at.setHours((hour % 12) + (afternoon ? 12 : 0), Number(match[2] ?? 0), 0, 0)
+  if (at <= now) at.setDate(at.getDate() + 1)
+  return at
 }
 
-/** When a limit lifts, in the person's own clock; '' for an unreadable time. */
-export function resetLabel(resetsAt: string): string {
-  const at = new Date(resetsAt)
-  if (Number.isNaN(at.getTime())) return ''
-  return `Resets ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+function untilLabel(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  if (minutes < 60) return `${minutes}m`
+  const rest = minutes % 60
+  return rest === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h ${rest}m`
+}
+
+const ANOTHER_MODEL = 'Another model can keep going now.'
+
+/** "Resets at 7:00 PM, in 2h 14m. Another model can keep going now." */
+function limitHint(resetsAt: Date | undefined, now: Date): string {
+  if (!resetsAt || Number.isNaN(resetsAt.getTime()) || resetsAt <= now) return ANOTHER_MODEL
+  const clock = resetsAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return `Resets at ${clock}, in ${untilLabel(resetsAt.getTime() - now.getTime())}. ${ANOTHER_MODEL}`
+}
+
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+export interface FailureInput {
+  reason?: string
+  detail?: string
+  /** The provider's name, as the person knows it; "the agent" when none is known. */
+  provider?: string
+  /** When a limit lifts, where the provider reported it. */
+  resetsAt?: string
+  now?: Date
+}
+
+/** A failed turn in the board's words. The provider's own text only decides which
+ *  words these are: it is never shown, and neither are its codes or numbers. */
+export function describeFailure({
+  reason = '',
+  detail = '',
+  provider = 'the agent',
+  resetsAt,
+  now = new Date(),
+}: FailureInput): TurnFailure {
+  const said = `${reason}\n${detail}`
+  const name = provider || 'the agent'
+  switch (kindOf(said)) {
+    case 'auth':
+      return {
+        kind: 'auth',
+        headline: `Signed out of ${name}`,
+        hint: 'Sign in again to continue.',
+        tag: `Stopped · signed out of ${name}`,
+      }
+    case 'limit': {
+      const lifts = resetsAt ? new Date(resetsAt) : resetFromWords(said, now)
+      return {
+        kind: 'limit',
+        headline: 'Usage limit reached',
+        hint: limitHint(lifts, now),
+        tag: 'Stopped · usage limit reached',
+      }
+    }
+    case 'overloaded':
+      return {
+        kind: 'overloaded',
+        headline: `${capitalised(name)} is busy`,
+        hint: 'Try again in a moment.',
+        tag: `${capitalised(name)} was busy · this turn did not finish`,
+      }
+    default: {
+      const headline = `${capitalised(name)} had a problem on its side`
+      return {
+        kind: 'other',
+        headline,
+        hint: 'Try again. Nothing was lost.',
+        tag: `Stopped · ${headline}`,
+      }
+    }
+  }
 }
 
 // A sentence ends at a stop before a capital; a dot inside a path or a URL does not.
 const SENTENCE_END = /[.!?](?=\s+[A-Z])/
 
-/** A provider's warning, said by its first sentence; `more` is its whole message. */
-export function warningHeadline(detail = ''): { text: string; more?: string } {
+/** A provider's warning: its first sentence in bold, the rest as the line under it. */
+export function warningHeadline(detail = ''): { text: string; rest?: string } {
   const said = detail.trim()
   const end = said.search(SENTENCE_END)
-  return end < 0 ? { text: said } : { text: said.slice(0, end + 1), more: said }
+  if (end < 0) return { text: said }
+  return { text: said.slice(0, end + 1), rest: said.slice(end + 1).trim() }
 }

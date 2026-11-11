@@ -33,6 +33,7 @@ import {
   textItemId,
   upsertPlan,
   type ChatFeed,
+  type MarkerItem,
   type MarkerName,
   type TextItem,
   type ToolStatus,
@@ -51,7 +52,6 @@ const emptyFacts: TurnFacts = {
   subagentScopes: {},
   pendingScopes: {},
   plan: {},
-  lastExit: null,
   stopping: null,
   output: {},
   traceless: {},
@@ -278,18 +278,11 @@ function marker(
   name: MarkerName,
   detail?: string,
   reason?: string,
+  extra: Pick<MarkerItem, 'chat' | 'records'> = {},
 ) {
   const id = markerItemId(row.seq)
-  fold.put({
-    kind: 'marker',
-    id,
-    seq: row.seq,
-    turnId: row.turnId,
-    at: row.at,
-    marker: name,
-    detail,
-    reason,
-  })
+  const { seq, turnId, at } = row
+  fold.put({ kind: 'marker', id, seq, turnId, at, marker: name, detail, reason, ...extra })
   fold.place(id, '')
   return id
 }
@@ -320,6 +313,11 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
 }
 
 const applyRunnerStarted: Apply<'runner_started'> = (fold, row) => {
+  // A restart kills the old CLI without recording its exit: what it ran is not running.
+  if (!row.scope) {
+    interruptSubagents(fold, row)
+    stopShells(fold, row)
+  }
   fold.set('provider', row.body.provider)
   fold.set('model', row.body.launchModel)
 }
@@ -358,29 +356,29 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
 }
 
 const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
-  const { runnerId, reason, exitCode } = row.body
-  fold.set('lastExit', { runnerId, reason, exitCode, seq: row.seq })
+  const { reason } = row.body
   endTurn(fold, null)
   interruptSubagents(fold, row)
   stopShells(fold, row)
-  if (!row.scope && ABNORMAL_EXITS.has(reason))
-    marker(fold, row, 'runner_exited', undefined, reason)
+  // Only a CLI that never started needs a word; any other exit is continued by the next send.
+  if (!row.scope && reason === 'spawn_failed') marker(fold, row, 'runner_exited', undefined, reason)
 }
 
-/** Exits nobody asked for; the others (a stop, a switch, a retract) need no word. */
-const ABNORMAL_EXITS = new Set(['exited', 'connection_lost', 'transport_overflow', 'spawn_failed'])
-
 const applySessionLost: Apply<'session_lost'> = (fold, row) => {
-  if (!row.scope) marker(fold, row, 'session_lost', row.body.provider, row.body.reason)
+  if (!row.scope)
+    marker(fold, row, 'session_lost', row.body.provider, row.body.reason, {
+      chat: row.body.movedTo,
+    })
 }
 
 const applyMarker: Apply<'marker'> = (fold, row) => {
-  const { kind, detail } = row.body
+  const { kind, detail, owner, records } = row.body
   if (kind === 'compaction_started') fold.set('compacting', true)
   if (kind === 'compaction_ended') fold.set('compacting', false)
   if (kind === 'model_changed' && !row.scope) fold.set('model', detail ?? '')
   if (kind === 'warning' && warningShown(fold, detail)) return
-  if (!row.scope) divider(fold, kind, () => marker(fold, row, kind, detail))
+  if (!row.scope)
+    divider(fold, kind, () => marker(fold, row, kind, detail, undefined, { chat: owner, records }))
 }
 
 /** The reply its turn closed on that `item` is shown as: the one its message named,

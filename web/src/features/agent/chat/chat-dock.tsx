@@ -1,7 +1,10 @@
 import type { ComponentProps, ReactNode, Ref } from 'react'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { PlanItem } from '@/features/agent/api/chat-rows'
+import type { FailureActions } from '@/features/agent/transcript/lib/marker-failure'
 import { BottomTray } from '@/features/agent/trays/bottom-tray'
 import { TopTray } from '@/features/agent/trays/top-tray'
+import { useModelHot } from '@/features/agent/trays/use-model-hot'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { DockStack } from '@/features/agent/chat/dock-stack'
@@ -13,6 +16,9 @@ interface ChatDockProps {
   blank: boolean
   dockRef: Ref<HTMLDivElement>
   plan: PlanItem[] | undefined
+  providers: AgentProvider[]
+  /** What the notice for a stopped turn can do. */
+  failureActions: FailureActions
   /** Puts an unsent message's text back in the composer. */
   onEditPrompt: (text: string) => void
   pickers: ReactNode
@@ -31,6 +37,8 @@ export function ChatDock({
   blank,
   dockRef,
   plan,
+  providers,
+  failureActions,
   onEditPrompt,
   pickers,
   note,
@@ -38,11 +46,22 @@ export function ChatDock({
   composer,
   footer,
 }: ChatDockProps) {
+  const modelHot = useModelHot(chatId)
   return (
     <DockStack
       blank={blank}
       dockRef={dockRef}
-      topTray={!blank && <TopTray chatId={chatId} plan={plan} onEdit={onEditPrompt} />}
+      topTray={
+        !blank && (
+          <TopTray
+            chatId={chatId}
+            plan={plan}
+            providers={providers}
+            actions={failureActions}
+            onEdit={onEditPrompt}
+          />
+        )
+      }
       pickers={!blank && pickers}
       notes={
         note && (
@@ -60,7 +79,7 @@ export function ChatDock({
         />
       }
       bottomTray={!blank && <BottomTray chatId={chatId} />}
-      footer={!blank && <ProviderBar {...footer} />}
+      footer={!blank && <ProviderBar {...footer} modelHot={modelHot} />}
       alert={
         error && (
           <p className="meta composer-note" role="alert">

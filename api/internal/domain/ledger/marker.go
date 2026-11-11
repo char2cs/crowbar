@@ -29,6 +29,10 @@ var markerKinds = []string{
 type Marker struct {
 	Kind   string `json:"kind"`
 	Detail string `json:"detail,omitempty"`
+	// Records names, for legacy_unreadable, each record the upgrade left out, in its own words.
+	Records []string `json:"records,omitempty"`
+	// Owner is the chat that holds the session of a session_conflict.
+	Owner string `json:"owner,omitempty"`
 	// ProviderTurnID is the provider turn a compaction runs as its own: that
 	// turn's end is the compaction's, never a reply.
 	ProviderTurnID string `json:"providerTurnId,omitempty"`

@@ -53,6 +53,7 @@ describe('BottomTray', () => {
     expect(rows[0]).toHaveTextContent('Reading /a/b')
     expect(screen.queryByText('Subagents')).toBeNull()
     const clock = screen.getByTestId('agent-tray-clock')
+    expect(clock).toHaveTextContent(/^\d+s$/)
     const before = clock.textContent
     act(() => void vi.advanceTimersByTime(1000))
     expect(clock.textContent).not.toBe(before)

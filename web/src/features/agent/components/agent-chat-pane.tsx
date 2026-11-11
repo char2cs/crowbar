@@ -152,24 +152,15 @@ export function AgentChatPaneBody({
   // CSS zoom relayouts the chat only; the terminal has its own font zoom.
   const chatZoom = useZoomStore.use.zoom()
   const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
-  const {
-    known,
-    liveRunnerId,
-    attachment,
-    revival,
-    sessionNote,
-    connecting,
-    canSend,
-    offline,
-    startSession,
-  } = usePaneAttachment({
-    wsId,
-    hostId,
-    chatId: shownChatId,
-    providerName,
-    presentation,
-    promptReplacing: deliveryPending,
-  })
+  const { known, liveRunnerId, attachment, revival, connecting, canSend, offline, startSession } =
+    usePaneAttachment({
+      wsId,
+      hostId,
+      chatId: shownChatId,
+      providerName,
+      presentation,
+      promptReplacing: deliveryPending,
+    })
 
   // At most one blank-chat signpost: waiting needs a live runner, reviving none.
   const waitingBannerShown = waiting && chatBlank
@@ -365,7 +356,6 @@ export function AgentChatPaneBody({
                 live={attachment.state === 'attached' || deliveryPending}
                 canSend={canSend}
                 offline={offline}
-                sessionNote={sessionNote}
                 connecting={revivingBannerShown ? undefined : connecting}
                 // In split the chat is in front of the user, so it is active.
                 active={presentation === 'chat' || splitting}

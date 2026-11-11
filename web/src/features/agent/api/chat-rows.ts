@@ -113,7 +113,7 @@ export interface RowBodies {
   }
   turn_failed: { reason: string; detail?: string }
   session_bound: { provider: string; sessionId: string; cause: string }
-  session_lost: { provider: string; sessionId: string; reason: string }
+  session_lost: { provider: string; sessionId: string; reason: string; movedTo?: string }
   runner_started: {
     runnerId: string
     provider: string
@@ -134,7 +134,7 @@ export interface RowBodies {
     reply?: string
   }
   reasoning: { messageId?: string; text: string }
-  marker: { kind: MarkerKind; detail?: string }
+  marker: { kind: MarkerKind; detail?: string; owner?: string; records?: string[] }
   tool_call: ToolCallBody
   ask: AskBody
   ask_resolved: {

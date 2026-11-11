@@ -30,6 +30,7 @@ import {
   AgentEmptyDocument,
   type AgentEmptyDocumentHandle,
 } from '@/features/agent/chat/agent-empty-document'
+import { isAttachShortcut } from '@/features/agent/composer/lib/plus-menu'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { IS_MOBILE } from '@/utils/platform'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
@@ -176,6 +177,17 @@ export function AgentComposer(props: AgentComposerProps) {
     [uploadAndInsert],
   )
 
+  const attachFiles = (files: File[]) => {
+    for (const file of files) void uploadAndInsert({ file })
+  }
+
+  // The chord the plus menu's first row advertises.
+  const handlePillKeyDown = (e: KeyboardEvent) => {
+    if (!isAttachShortcut(e)) return
+    e.preventDefault()
+    setModal('attach-file')
+  }
+
   const openExcalidraw = () => {
     const saved = loadExcalidrawDesign(props.wsId, props.chatId)
     setExcalidrawInitialScene((saved ? parseExcalidrawScene(saved) : null) ?? undefined)
@@ -208,9 +220,21 @@ export function AgentComposer(props: AgentComposerProps) {
   // Compaction queues what is typed, as a busy turn does; the footer already says it compacts.
   const placeholder = document
     ? 'Describe the change…'
-    : props.working || state.kind === 'compacting'
-      ? 'Queue a message…'
-      : 'Message the agent…'
+    : props.working || props.sending || state.kind === 'compacting'
+      ? 'Queue a follow-up…'
+      : IS_MOBILE
+        ? 'Ask for a change…'
+        : 'Ask for a change, or type / for commands'
+
+  const plusButton = (
+    <ComposerPlusButton
+      onOpenExcalidraw={openExcalidraw}
+      onOpenAttachFile={() => setModal('attach-file')}
+      onFiles={attachFiles}
+      onMentionFile={() => editorRef.current?.insertTrigger('@')}
+      onStartCommand={() => editorRef.current?.startCommand()}
+    />
+  )
 
   const takeover = modal === 'excalidraw' && (
     <ExcalidrawTakeover
@@ -248,6 +272,7 @@ export function AgentComposer(props: AgentComposerProps) {
           dropTarget && 'drop-target',
         )}
         data-touch={IS_MOBILE || undefined}
+        onKeyDown={handlePillKeyDown}
         onDragOver={handlePillDragOver}
         onDragLeave={handlePillDragLeave}
         onDrop={handlePillDrop}
@@ -273,12 +298,7 @@ export function AgentComposer(props: AgentComposerProps) {
             docRef={docRef}
             hasText={!empty}
             controls={props.controls}
-            attach={
-              <ComposerPlusButton
-                onOpenExcalidraw={openExcalidraw}
-                onOpenAttachFile={() => setModal('attach-file')}
-              />
-            }
+            attach={plusButton}
             working={props.working}
             canStop={props.canStop}
             sending={props.sending}
@@ -296,8 +316,7 @@ export function AgentComposer(props: AgentComposerProps) {
             sending={props.sending}
             onSend={props.onSend}
             onStop={props.onStop}
-            onOpenExcalidraw={openExcalidraw}
-            onOpenAttachFile={() => setModal('attach-file')}
+            attach={plusButton}
           />
         )}
       </div>

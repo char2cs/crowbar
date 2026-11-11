@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCallBody } from '@/features/agent/api/chat-rows'
 import {
-  commandProgramName,
   diffStat,
   formatDuration,
   labelText,
@@ -35,10 +34,11 @@ describe('tool labels', () => {
   })
 
   it('unwraps shells, sudo and env assignments to the program', () => {
-    expect(commandProgramName("bash -lc 'npm test'")).toBe('npm test')
-    expect(commandProgramName('sudo -E env CI=1 /usr/bin/make check')).toBe('make check')
-    expect(commandProgramName('sh -c "go vet ./..."\nsecond line')).toBe('go vet ./...')
-    expect(commandProgramName('')).toBe('')
+    const named = (target: string) =>
+      labelText({ ...tool({ kind: 'execute', target }), status: 'ok' })
+    expect(named("bash -lc 'npm test'")).toBe('Ran npm test')
+    expect(named('sudo -E env CI=1 /usr/bin/make check')).toBe('Ran make check')
+    expect(named('sh -c "go vet ./..."\nsecond line')).toBe('Ran go vet ./...')
   })
 
   it('names an edit that writes a new file a create, whatever became of it', () => {

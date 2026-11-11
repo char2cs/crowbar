@@ -38,7 +38,6 @@ function headingOf(p: WorkingLineProps, thought: string | undefined): string {
   if (p.connecting && !p.working) return p.connecting
   if (p.activeTodo) return p.activeTodo
   if (p.toolLabel) return p.toolLabel
-  if (p.agents) return `Waiting for ${p.agents} ${p.agents === 1 ? 'agent' : 'agents'}`
   if (thought) return thought
   if (p.streaming) return 'Writing…'
   return ''
@@ -49,7 +48,9 @@ export function WorkingLine(props: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const thought = props.reasoning ? reasoningHeadline(props.reasoning) : null
   const heading = headingOf(props, thought?.headline || undefined)
-  const rotating = working && heading === ''
+  // Subagents running with nothing else to say: their cards in the stream are the sign.
+  const onlyAgents = working && !!props.agents && heading === ''
+  const rotating = working && heading === '' && !onlyAgents
   const clockRef = useTextClock(props.since, clockText)
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export function WorkingLine(props: WorkingLineProps) {
     return () => window.clearInterval(timer)
   }, [rotating])
 
-  if (!working && !compacting && !asking && !connecting) return null
+  if (onlyAgents || (!working && !compacting && !asking && !connecting)) return null
 
   return (
     <div className="activity" data-testid="agent-activity-strip">

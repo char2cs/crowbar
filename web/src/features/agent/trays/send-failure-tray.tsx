@@ -19,10 +19,9 @@ export function SendFailureTray({
   const { headline, hint, final } = describeSendFailure(item)
   return (
     <FailureNotice
-      kind="other"
+      tone="danger"
       headline={headline}
       hint={hint}
-      detail={item.error}
       headlineTestId="agent-send-failure"
       actions={
         <>

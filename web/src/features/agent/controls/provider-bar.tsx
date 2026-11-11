@@ -2,9 +2,9 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
-import {
-  PermissionLevelChip,
-  type PermissionTarget,
+import type {
+  PermissionControl,
+  PermissionTarget,
 } from '@/features/agent/composer/permission-level-switcher'
 import { IS_MOBILE } from '@/utils/platform'
 
@@ -21,8 +21,11 @@ interface ProviderBarProps {
   /** The chat's permission level and the levels its provider offers: a chip on the desktop,
    *  a section of the model picker sheet on the phone. */
   permission?: PermissionTarget
+  permissionLevel?: PermissionControl
   /** The conversation is being folded: named before the pill. The input stays usable. */
   compacting?: boolean
+  /** A stop another model gets past: the model chip is lit. */
+  modelHot?: boolean
   onCompact?: () => void
 }
 
@@ -38,7 +41,9 @@ export function ProviderBar({
   telemetry,
   onSelectionChange,
   permission,
+  permissionLevel,
   compacting,
+  modelHot,
   onCompact,
 }: ProviderBarProps) {
   return (
@@ -52,13 +57,14 @@ export function ProviderBar({
           reportedModel={reportedModel}
           switchDisabled={switchDisabled}
           permission={permission}
+          permissionLevel={permissionLevel}
+          hot={modelHot}
           onSelectionChange={onSelectionChange}
         />
-        {!IS_MOBILE && permission && <PermissionLevelChip {...permission} />}
       </div>
       <div className="right">
         {compacting && <span className="ctx-compacting">Compacting…</span>}
-        <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />
+        <AgentContextGauge telemetry={telemetry} compacting={compacting} onCompact={onCompact} />
       </div>
     </div>
   )

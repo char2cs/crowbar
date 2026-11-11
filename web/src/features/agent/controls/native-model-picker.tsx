@@ -55,7 +55,7 @@ interface NativeModelPickerProps {
   effort: string
   /** The chat's level choice, drawn as a section of the sheet; absent hides it. */
   permission?: {
-    options: { value: PermissionLevel; label: string }[]
+    options: { value: PermissionLevel; label: string; description: string }[]
     level: PermissionLevel | ''
     onPick: (level: PermissionLevel) => void
   }
@@ -86,7 +86,7 @@ export function NativeModelPicker({
         name: p.displayName,
         icon: icons[p.id] ?? null,
         fallbackIcon: 'Robot',
-        models: (p.models ?? []).map((m) => ({ id: m, name: m, detail: null })),
+        models: (p.models ?? []).map((m) => ({ id: m, name: m })),
       })),
       selected: provider && model ? { providerId: provider.id, modelId: model } : null,
       efforts: effortLevelsFor(provider, model),

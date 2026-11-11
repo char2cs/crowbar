@@ -30,7 +30,6 @@
     "src/components/ui/dropdown-menu.tsx": ["exports"],
     "src/components/ui/inline-combobox.tsx": ["exports"],
     "src/components/ui/popover.tsx": ["exports"],
-    "src/components/ui/radio-group.tsx": ["exports"],
     "src/components/ui/scroll-area.tsx": ["exports"],
     "src/components/ui/search.tsx": ["types"],
     "src/components/ui/select.tsx": ["exports"],

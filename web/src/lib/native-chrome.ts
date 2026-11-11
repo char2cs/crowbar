@@ -213,7 +213,7 @@ export type NativeModelPicker = {
     /** A PNG data URL of the provider's icon; `fallbackIcon` (a Phosphor name) stands in without one. */
     icon: string | null
     fallbackIcon: string
-    models: { id: string; name: string; detail: string | null }[]
+    models: { id: string; name: string }[]
   }[]
   selected: { providerId: string; modelId: string } | null
   /** The selected model's effort levels, in order; empty hides the effort control. */
@@ -221,7 +221,7 @@ export type NativeModelPicker = {
   effort: string | null
   /** The chat's permission level and the levels its provider offers; null hides the section. */
   permission: {
-    levels: { value: PermissionLevel; label: string }[]
+    levels: { value: PermissionLevel; label: string; description: string }[]
     level: PermissionLevel | ''
   } | null
 }

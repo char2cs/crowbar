@@ -95,16 +95,13 @@ describe('WorkingLine', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('names the running tool, then the agents it waits on, before any thought', () => {
+  it('names the running tool before any thought, and draws nothing for subagents alone', () => {
     const { rerender } = render(
       <WorkingLine working toolLabel="Running npm test" agents={2} reasoning="Hmm" />,
     )
-    const heading = () => screen.getByTestId('agent-working-heading')
-    expect(heading()).toHaveTextContent('Running npm test')
-    rerender(<WorkingLine working agents={2} reasoning="Hmm" />)
-    expect(heading()).toHaveTextContent('Waiting for 2 agents')
-    rerender(<WorkingLine working agents={1} reasoning="Hmm" />)
-    expect(heading()).toHaveTextContent('Waiting for 1 agent')
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Running npm test')
+    rerender(<WorkingLine working agents={2} />)
+    expect(screen.queryByTestId('agent-activity-strip')).toBeNull()
   })
 
   it('says Writing while answer text streams, and a running tool over it', () => {

@@ -1,58 +1,92 @@
 import { useState } from 'react'
 import { CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react'
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
-import { describeResolvedChoice } from '@/features/agent/composer/lib/ask-labels'
+import { describeChoice, optionLabel } from '@/features/agent/composer/lib/ask-labels'
 
-function verdict(choice: AgentChoice): 'allowed' | 'denied' | null {
-  const picked = new Set(choice.answeredOptionIds)
-  let allowed = false
-  for (const option of choice.options) {
-    if (!picked.has(option.id)) continue
-    if (option.kind === 'deny') return 'denied'
-    allowed ||= option.kind === 'allow'
-  }
-  return allowed ? 'allowed' : null
+type Outcome = 'allowed' | 'denied' | 'timed out' | 'not answered'
+
+interface Verdict {
+  outcome: Outcome
+  /** What the row says: the option the person picked, in the past tense. */
+  words: string
 }
 
+function pickedOption(choice: AgentChoice) {
+  const picked = new Set(choice.answeredOptionIds)
+  return choice.options.find((option) => picked.has(option.id))
+}
+
+function verdict(choice: AgentChoice): Verdict | null {
+  if (choice.resolution === 'proceeded') return { outcome: 'allowed', words: 'Allowed in terminal' }
+  if (choice.resolution === 'refused') return { outcome: 'timed out', words: 'Timed out' }
+  if (choice.resolution === 'abandoned') return { outcome: 'not answered', words: 'Not answered' }
+  const option = pickedOption(choice)
+  if (!option) return null
+  if (option.kind === 'deny') return { outcome: 'denied', words: 'Denied' }
+  if (option.kind !== 'allow') return null
+  const label = optionLabel(option)
+  return { outcome: 'allowed', words: label.replace(/^Allow\b/, 'Allowed') }
+}
+
+const ORDER: Outcome[] = ['allowed', 'denied', 'timed out', 'not answered']
+
 /** "2 allowed · 1 denied"; empty when the decisions were not allow-or-deny. */
-function split(choices: AgentChoice[]): string {
-  const counts = { allowed: 0, denied: 0 }
-  for (const choice of choices) {
-    const kind = verdict(choice)
-    if (kind) counts[kind] += 1
-  }
-  return (['allowed', 'denied'] as const)
-    .filter((kind) => counts[kind] > 0)
-    .map((kind) => `${counts[kind]} ${kind}`)
+function split(verdicts: (Verdict | null)[]): string {
+  return ORDER.map(
+    (outcome) => [outcome, verdicts.filter((v) => v?.outcome === outcome).length] as const,
+  )
+    .filter(([, n]) => n > 0)
+    .map(([outcome, n]) => `${n} ${outcome}`)
     .join(' · ')
 }
 
-/** The requests answered since the last message, folded into one line that opens to one row each. */
+const clock = (at?: string) =>
+  at
+    ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+    : ''
+
+/** The requests settled since the last message, folded into one line that opens to one row each. */
 export function ResolvedTray({ choices }: { choices: AgentChoice[] }) {
   const [open, setOpen] = useState(false)
   if (choices.length === 0) return null
-  const summary = split(choices)
+  const verdicts = choices.map(verdict)
+  const unanswered = verdicts.some(
+    (v) => v?.outcome === 'timed out' || v?.outcome === 'not answered',
+  )
+  const noun = choices.length === 1 ? 'request' : 'requests'
   return (
-    <section className="tray-section" data-testid="agent-resolved-tray">
+    <section className="tray-section rq-hist" data-testid="agent-resolved-tray">
       <button
         type="button"
-        className="tray-head"
+        className="rq-hsum"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <b>
-          {choices.length} {choices.length === 1 ? 'request' : 'requests'} answered
-        </b>
-        <span className="tray-current">{summary}</span>
-        {open ? <CaretUpIcon size={12} /> : <CaretDownIcon size={12} />}
+        <span className="rq-hsum-text">
+          <b>
+            {choices.length} {noun} {unanswered ? 'closed' : 'answered'}
+          </b>
+          <span className="rq-hsum-split">{split(verdicts)}</span>
+        </span>
+        <span className="rq-hsum-toggle">
+          {open ? 'Hide' : 'Show'}
+          {open ? <CaretUpIcon size={12} /> : <CaretDownIcon size={12} />}
+        </span>
       </button>
       {open && (
-        <ul className="tray-list">
-          {choices.map((choice) => (
-            <li key={choice.id}>
-              <span>{describeResolvedChoice(choice)}</span>
-            </li>
-          ))}
+        <ul className="rq-hrows">
+          {choices.map((choice, i) => {
+            const v = verdicts[i]
+            return (
+              <li key={choice.id} className="rq-hrow">
+                <span className="rq-hverdict" data-outcome={v?.outcome}>
+                  {v?.words ?? 'Answered'}
+                </span>
+                <span className="rq-hwhat">{choice.toolName || describeChoice(choice)}</span>
+                <span className="rq-htime">{clock(choice.resolvedAt)}</span>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

@@ -133,7 +133,7 @@ describe('ComposerChoice with several questions', () => {
     show(three)
 
     expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(1)
-    expect(screen.getByText('1 of 3 questions')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-choice-position')).toHaveTextContent('1 of 3')
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
     click('radio', 'Go')
     click('button', 'Next')
@@ -167,7 +167,7 @@ describe('ComposerChoice with several questions', () => {
 
     click('radio', 'Go')
     click('button', 'Next')
-    click('button', 'Back')
+    click('button', 'Previous question')
 
     expect(screen.getByRole('radio', { name: 'Go' })).toBeChecked()
   })
@@ -197,18 +197,18 @@ describe('ComposerChoice question Skip', () => {
     expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull()
     unmount()
 
-    const onSkip = vi.fn()
+    const onNext = vi.fn()
     render(
       <ComposerChoice
         wsId="w1"
         chatId="c1"
         choice={choice(single)}
         providerLabel="Claude"
-        onSkip={onSkip}
+        position={{ index: 0, total: 2, noun: 'request', onPrev: vi.fn(), onNext }}
       />,
     )
     click('button', 'Skip')
-    expect(onSkip).toHaveBeenCalled()
+    expect(onNext).toHaveBeenCalled()
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 })

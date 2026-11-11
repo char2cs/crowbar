@@ -60,10 +60,10 @@ describe('ComposerChoiceCarousel', () => {
     mount([ask('k1'), ask('k2'), ask('k3')])
 
     expect(visible()).toHaveLength(1)
-    expect(within(visible()[0]).getByText('1 of 3')).toBeInTheDocument()
+    expect(visible()[0]).toHaveTextContent('1 of 3')
     fireEvent.click(within(visible()[0]).getByRole('button', { name: 'Next request' }))
     expect(visible()[0].dataset.choiceId).toBe('k2')
-    expect(within(visible()[0]).getByText('2 of 3')).toBeInTheDocument()
+    expect(visible()[0]).toHaveTextContent('2 of 3')
     fireEvent.click(within(visible()[0]).getByRole('button', { name: 'Previous request' }))
     expect(visible()[0].dataset.choiceId).toBe('k1')
   })

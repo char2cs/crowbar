@@ -1,5 +1,5 @@
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { choiceDetail, describeChoice } from '@/features/agent/composer/lib/ask-labels'
@@ -10,7 +10,12 @@ import {
 } from '@/features/agent/composer/composer-choice-controls'
 import { useChoiceCard } from '@/features/agent/composer/use-choice-card'
 import { ChoiceForm } from '@/features/agent/composer/composer-choice-form'
-import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
+import { ChoiceRequest, ChoiceRequestHead } from '@/features/agent/composer/composer-choice-request'
+import {
+  ChoicePeeks,
+  ChoiceStepper,
+  type StepPosition,
+} from '@/features/agent/composer/composer-choice-stepper'
 import { formContent } from '@/features/agent/composer/lib/ask-form'
 import {
   foldCode,
@@ -32,8 +37,7 @@ export function ComposerChoice({
   request,
   family,
   active = true,
-  stepper,
-  onSkip,
+  position,
 }: {
   wsId: string
   chatId: string
@@ -49,9 +53,8 @@ export function ComposerChoice({
   /** False while another card of the carousel is the one on screen: it stays mounted, with its
    *  picks, but answers no key. */
   active?: boolean
-  stepper?: ReactNode
-  /** Moves the carousel on without answering; absent when there is nowhere to go. */
-  onSkip?: () => void
+  /** Where this card is among the requests waiting; absent when it is the only one. */
+  position?: StepPosition
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -88,11 +91,33 @@ export function ComposerChoice({
     allPicks,
   } = useChoiceCard({ wsId, chatId, choice, active })
   const detail = choiceDetail(choice, toolTarget)
+  const elicitation = choice.kind === 'elicitation'
   const title = choice.kind === 'question' ? 'Question' : describeChoice(choice, family)
-  const subtitle =
-    questions.length > 1
+  // One prompt's several questions step like requests do, unless requests already do.
+  const ownPosition: StepPosition | undefined =
+    questions.length > 1 && !position
+      ? {
+          index: step,
+          total: questions.length,
+          noun: 'question',
+          onPrev: () => update({ step: step - 1 }),
+          onNext: () => update({ step: step + 1 }),
+        }
+      : undefined
+  const stepping = position ?? ownPosition
+  const ahead = stepping ? Math.min(2, stepping.total - 1 - stepping.index) : 0
+  const skip = ownPosition
+    ? step < questions.length - 1
+      ? ownPosition.onNext
+      : undefined
+    : position && position.index < position.total - 1
+      ? position.onNext
+      : undefined
+  const subtitle = view
+    ? ''
+    : questions.length > 1 && position
       ? `${step + 1} of ${questions.length} questions`
-      : choice.kind === 'elicitation' || view
+      : elicitation
         ? ''
         : detail
 
@@ -110,146 +135,159 @@ export function ComposerChoice({
       tabIndex={0}
       onKeyDown={onKeyDown}
     >
-      <div className="rq-head">
-        <div className="rq-titles">
-          {/* `alert`, like the interruption banner: it appears unasked and will not move until
+      <ChoicePeeks ahead={ahead} />
+      <div className="rq-box">
+        <div className="rq-head">
+          <div className="rq-titles">
+            {/* `alert`, like the interruption banner: it appears unasked and will not move until
               they act. */}
-          <span className="rq-title" role="alert">
-            {title}
-          </span>
-          {subtitle && (
-            <span className="rq-sub" data-testid="agent-choice-detail">
-              {subtitle}
+            <span className={elicitation ? 'rq-msg' : 'rq-title'} role="alert">
+              {elicitation ? describeChoice(choice, family) : title}
             </span>
-          )}
+            {view && <ChoiceRequestHead view={view} />}
+            {subtitle && (
+              <span className="rq-sub" data-testid="agent-choice-detail">
+                {subtitle}
+              </span>
+            )}
+          </div>
+          {stepping && <ChoiceStepper {...stepping} />}
         </div>
-        {stepper}
-      </div>
 
-      <div className="rq-body">
-        {view && (
-          <ChoiceRequest
-            view={view}
-            expanded={expanded}
-            onExpand={() => setExpandedId(choice.id)}
-          />
-        )}
-        {canAnswerHere && question && (
-          <ChoiceQuestion
-            key={question.id}
-            question={question}
-            picked={picks}
-            busy={busy}
-            onPick={(optionIds) =>
-              update({ byQuestion: { ...card.byQuestion, [question.id]: optionIds } })
-            }
-          />
-        )}
-        {canAnswerHere && fields && !card.unsupportedHere && (
-          <ChoiceForm
-            fields={fields}
-            values={values}
-            shown={new Set(card.shown)}
-            busy={busy}
-            onChange={(key, value) => update({ values: { ...values, [key]: value } })}
-            onLeave={(key) => update({ shown: [...new Set([...card.shown, key])] })}
-          />
-        )}
-        {needsTerminal && canAnswerHere && !card.unsupportedHere && (
-          <p className="rq-note">This form can only be filled in the terminal.</p>
-        )}
-        {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
-      </div>
+        <div className="rq-body">
+          {view && (
+            <ChoiceRequest
+              view={view}
+              expanded={expanded}
+              onExpand={() => setExpandedId(choice.id)}
+            />
+          )}
+          {canAnswerHere && question && (
+            <ChoiceQuestion
+              key={question.id}
+              question={question}
+              picked={picks}
+              busy={busy}
+              onPick={(optionIds) =>
+                update({ byQuestion: { ...card.byQuestion, [question.id]: optionIds } })
+              }
+            />
+          )}
+          {canAnswerHere && fields && !card.unsupportedHere && (
+            <ChoiceForm
+              fields={fields}
+              values={values}
+              shown={new Set(card.shown)}
+              busy={busy}
+              onChange={(key, value) => update({ values: { ...values, [key]: value } })}
+              onLeave={(key) => update({ shown: [...new Set([...card.shown, key])] })}
+            />
+          )}
+          {needsTerminal && canAnswerHere && !card.unsupportedHere && (
+            <p className="rq-note">This form can only be filled in the terminal.</p>
+          )}
+          {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
+        </div>
 
-      {hiddenCue && (
-        <span className="rq-hint warn" data-testid="agent-choice-hidden-lines">
-          {hiddenCue}
-        </span>
-      )}
-      {card.sent && (
-        <span className="rq-hint" data-testid="agent-choice-sent">
-          Answer sent. Waiting for {providerLabel} to confirm it.
-        </span>
-      )}
-      {card.error && !terminalOnly && (
-        <p className="rq-error" role="alert" data-testid="agent-choice-error">
-          {card.error}
-        </p>
-      )}
+        {hiddenCue && (
+          <span className="rq-hint warn" data-testid="agent-choice-hidden-lines">
+            {hiddenCue}
+          </span>
+        )}
+        {card.sent && (
+          <span className="rq-hint" data-testid="agent-choice-sent">
+            Answer sent. Waiting for {providerLabel} to confirm it.
+          </span>
+        )}
+        {card.error && !terminalOnly && (
+          <p className="rq-error" role="alert" data-testid="agent-choice-error">
+            {card.error}
+          </p>
+        )}
 
-      {(onOpenTerminal || !terminalOnly) && (
-        <div className="rq-acts">
-          {terminalOnly ? (
-            onOpenTerminal && <TerminalLink onOpenTerminal={onOpenTerminal} />
-          ) : question ? (
-            <>
-              {step > 0 ? (
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => update({ step: step - 1 })}
-                >
-                  Back
-                </Button>
-              ) : (
-                onSkip && (
-                  <Button variant="outline" disabled={busy} onClick={onSkip}>
-                    Skip
-                  </Button>
-                )
-              )}
-              <span className="rq-grow" />
-              {lastStep ? (
-                <Button disabled={busy || !answered} onClick={() => void send(allPicks)}>
-                  {questions.length > 1 ? 'Send answers' : 'Send answer'}
-                </Button>
-              ) : (
-                <Button
-                  disabled={busy || picks.length === 0}
-                  onClick={() => update({ step: step + 1 })}
-                >
-                  Next
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              {fields ? (
-                <>
+        {(onOpenTerminal || !terminalOnly) && (
+          <div className="rq-acts">
+            {terminalOnly ? (
+              onOpenTerminal && <TerminalLink onOpenTerminal={onOpenTerminal} />
+            ) : question ? (
+              <>
+                {!ownPosition && step > 0 ? (
                   <Button
-                    data-role="refuse"
                     variant="outline"
                     disabled={busy}
-                    onClick={() => void send(['decline'])}
+                    onClick={() => update({ step: step - 1 })}
                   >
-                    Decline
+                    Back
                   </Button>
-                  <span className="rq-grow" />
-                  {formError && <span className="rq-field-error">{formError}</span>}
+                ) : (
+                  skip && (
+                    <Button variant="outline" disabled={busy} onClick={skip}>
+                      Skip
+                    </Button>
+                  )
+                )}
+                <span className="rq-grow" />
+                {lastStep ? (
+                  <Button disabled={busy || !answered} onClick={() => void send(allPicks)}>
+                    {questions.length > 1 ? 'Send answers' : 'Send answer'}
+                  </Button>
+                ) : (
                   <Button
-                    disabled={busy || formError !== ''}
-                    onClick={() => void send(['accept'], formContent(fields, values))}
+                    disabled={busy || picks.length === 0}
+                    onClick={() => update({ step: step + 1 })}
                   >
-                    Submit
+                    Next
+                    <kbd className="choice-key" aria-hidden="true">
+                      ↵
+                    </kbd>
                   </Button>
-                </>
-              ) : (
-                <>
-                  <ChoiceButtons
-                    options={controls}
-                    keyed={flat}
-                    busy={busy}
-                    onPick={(option) => void send([option.id])}
-                  />
-                  {needsTerminal && onOpenTerminal && (
-                    <TerminalLink onOpenTerminal={onOpenTerminal} />
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                )}
+              </>
+            ) : (
+              <>
+                {fields ? (
+                  <>
+                    <Button
+                      data-role="refuse"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void send(['decline'])}
+                    >
+                      Decline
+                      <kbd className="choice-key" aria-hidden="true">
+                        esc
+                      </kbd>
+                    </Button>
+                    <span className="rq-grow" />
+                    {formError && <span className="rq-field-error">{formError}</span>}
+                    <Button
+                      disabled={busy || formError !== ''}
+                      onClick={() => void send(['accept'], formContent(fields, values))}
+                    >
+                      Submit
+                      <kbd className="choice-key" aria-hidden="true">
+                        ↵
+                      </kbd>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <ChoiceButtons
+                      options={controls}
+                      keyed={flat}
+                      busy={busy}
+                      onPick={(option) => void send([option.id])}
+                    />
+                    {needsTerminal && onOpenTerminal && (
+                      <TerminalLink onOpenTerminal={onOpenTerminal} />
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

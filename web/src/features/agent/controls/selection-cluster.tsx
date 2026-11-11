@@ -1,6 +1,11 @@
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
-import type { PermissionTarget } from '@/features/agent/composer/permission-level-switcher'
+import {
+  PermissionLevelChip,
+  type PermissionControl,
+  type PermissionTarget,
+} from '@/features/agent/composer/permission-level-switcher'
+import { IS_MOBILE } from '@/utils/platform'
 
 export interface SelectionClusterProps {
   provider?: AgentProvider
@@ -9,13 +14,17 @@ export interface SelectionClusterProps {
   effort: string
   reportedModel?: string
   switchDisabled?: boolean
-  /** Offered inside the model picker's phone sheet. */
+  /** The model chip is lit: the way on is a different model. */
+  hot?: boolean
+  /** A chip after the picker on the desktop, a section of the model picker's sheet on the phone. */
   permission?: PermissionTarget
+  /** The same choice as a footer chip: held by the chat view, which also steps it from the keyboard. */
+  permissionLevel?: PermissionControl
   onSelectionChange: (provider: string, model: string, effort: string) => void
 }
 
-/** Shared by the underbar and the blank document's handle so a chat never names
- *  its model differently in the two. */
+/** Shared by the underbar and the blank document's handle so a chat never names its model or
+ *  permission level differently in the two. */
 export function SelectionCluster({
   provider,
   providers,
@@ -23,7 +32,9 @@ export function SelectionCluster({
   effort,
   reportedModel,
   switchDisabled,
+  hot,
   permission,
+  permissionLevel,
   onSelectionChange,
 }: SelectionClusterProps) {
   return (
@@ -36,11 +47,13 @@ export function SelectionCluster({
         effort={effort}
         reportedModel={reportedModel}
         disabled={switchDisabled}
+        hot={hot}
         permission={permission}
         onSelectionChange={onSelectionChange}
         // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
       />
+      {!IS_MOBILE && permissionLevel && <PermissionLevelChip control={permissionLevel} />}
     </span>
   )
 }

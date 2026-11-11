@@ -68,6 +68,8 @@ export async function apiFetchRaw(
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
   hostId?: string,
+  /** What sends the request: `fetch`, or an uploader that reports progress. */
+  send: typeof fetch = fetch,
 ): Promise<Response> {
   const target = routeToHost(path, hostId)
   if (target.hostId === LOCAL_HOST.id && !hasLocalDaemon()) {
@@ -88,7 +90,7 @@ export async function apiFetchRaw(
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${base}${target.path}`, init)
+      res = await send(`${base}${target.path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with

@@ -7,14 +7,17 @@ import { IS_MOBILE } from '@/utils/platform'
 /** Past this, a compaction is imminent. */
 const WARN_AT = 85
 
-/** The footer's context-usage pill. Nothing until the provider reports: "not reported" is not 0%.
- *  Compaction is an unrelated capability, so `onCompact` offers it from the pill's menu (alone,
- *  without a report); absent means not offered, never a disabled control. */
+/** The footer's context-usage pill, in every chat's footer: a muted empty ring and just
+ *  "context" until the provider reports, never a made-up 0%. While the
+ *  conversation is being folded the ring is the warning's. A button when `onCompact` is
+ *  offered (its menu, or at once without a report); absent means not offered, never disabled. */
 export function AgentContextGauge({
   telemetry,
+  compacting,
   onCompact,
 }: {
   telemetry: AgentTelemetry | null
+  compacting?: boolean
   onCompact?: () => void
 }) {
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -22,23 +25,23 @@ export function AgentContextGauge({
   const close = useCallback(() => setOpen(false), [])
   const used = telemetry?.context?.usedPercent
 
-  if (used === undefined && !onCompact) return null
   const pct = used === undefined ? undefined : Math.max(0, Math.min(100, used))
-  const body =
-    pct === undefined ? (
-      'Compact'
-    ) : (
-      <>
-        <i className="ctx-ring" style={{ '--p': pct } as CSSProperties} />
-        <b>{Math.round(pct)}%</b>
-        {!IS_MOBILE && <span>context</span>}
-      </>
-    )
+  const body = (
+    <>
+      <i
+        className="ctx-ring"
+        data-unknown={pct === undefined || undefined}
+        style={{ '--p': pct ?? 0 } as CSSProperties}
+      />
+      {pct !== undefined && <b>{Math.round(pct)}%</b>}
+      {(pct === undefined || !IS_MOBILE) && <span>context</span>}
+    </>
+  )
   const shared = {
     className: 'ctx-pill',
     'data-testid': 'agent-context-gauge',
-    'data-level': pct !== undefined && pct >= WARN_AT ? 'warn' : undefined,
-    title: contextTitle(telemetry),
+    'data-level': compacting || (pct !== undefined && pct >= WARN_AT) ? 'warn' : undefined,
+    title: contextTitle(telemetry, !!onCompact),
   }
   if (!onCompact) return <span {...shared}>{body}</span>
 
@@ -66,9 +69,9 @@ export function AgentContextGauge({
   )
 }
 
-function contextTitle(telemetry: AgentTelemetry | null): string {
+function contextTitle(telemetry: AgentTelemetry | null, canCompact: boolean): string {
   const context = telemetry?.context
-  if (!context) return 'Compact the conversation'
+  if (!context) return canCompact ? 'Compact the conversation' : 'Context usage not reported yet'
   const parts: string[] = []
   if (context.usedTokens !== undefined && context.capacityTokens !== undefined) {
     parts.push(

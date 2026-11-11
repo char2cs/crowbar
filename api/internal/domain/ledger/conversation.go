@@ -174,7 +174,7 @@ func announce(st State, provider, sessionID, owner, cause string) ([]Row, error)
 	}
 	holds := ok && c.Resumable()
 	if owner != "" && holds {
-		r, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionConflict, Detail: sessionID})
+		r, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionConflict, Detail: sessionID, Owner: owner})
 		return []Row{r}, err
 	}
 	bound := SessionBound{Provider: provider, SessionID: sessionID, Cause: cause}

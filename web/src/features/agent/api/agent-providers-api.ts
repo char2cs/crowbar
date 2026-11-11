@@ -139,10 +139,15 @@ export type PermissionLevel = 'guarded' | 'trusted' | 'full-auto'
 export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
   value: PermissionLevel
   label: string
+  description: string
 }> = [
-  { value: 'guarded', label: 'Guarded' },
-  { value: 'trusted', label: 'Trusted' },
-  { value: 'full-auto', label: 'Full Auto' },
+  { value: 'guarded', label: 'Guarded', description: 'Asks before edits, commands and tools.' },
+  { value: 'trusted', label: 'Trusted', description: 'Edits files freely. Asks before commands.' },
+  {
+    value: 'full-auto',
+    label: 'Full Auto',
+    description: 'Never asks. Runs every command and tool.',
+  },
 ]
 
 interface DescriptorFinding {

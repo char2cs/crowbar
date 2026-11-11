@@ -837,18 +837,18 @@ describe('AgentChatPane', () => {
       expect(resumeChatFn).not.toHaveBeenCalled()
     })
 
-    it.each([
-      ['stopped', 'Stopped. Send a message to continue the conversation.'],
-      ['retracted', 'You took the prompt back. Send a message to continue.'],
-      ['resume_failed', /reopen its session\. Send a message to start a new conversation/],
-    ])('shows the exit reason from the last runner_exited row (%s)', async (reason, note) => {
-      const l = ledger('c1', 4)
-      const exited = l.row('runner_exited', { runnerId: 'r1', reason, exitCode: 0 })
-      seedFeed('c1', [...spokenIn('c1'), exited])
-      const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openChatPane(store, 'c1', ''))
-      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(note)
-    })
+    it.each(['stopped', 'retracted', 'resume_failed', 'daemon_restart'])(
+      'says nothing about the last exit (%s): the next message continues',
+      async (reason) => {
+        const l = ledger('c1', 4)
+        const exited = l.row('runner_exited', { runnerId: 'r1', reason, exitCode: 0 })
+        seedFeed('c1', [...spokenIn('c1'), exited])
+        const store = seedWorkspace([dormantChat({ id: 'c1' })])
+        await renderPane(store, openChatPane(store, 'c1', ''))
+        expect(screen.queryByTestId('agent-session-note')).toBeNull()
+        expect(screen.queryByText(/Send a message to/)).toBeNull()
+      },
+    )
 
     it('starts a session from the terminal surface only when asked', async () => {
       landOnTerminal()

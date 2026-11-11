@@ -19,7 +19,7 @@ export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
   | { state: 'reviving'; message: string }
-  | { state: 'idle'; message?: string }
+  | { state: 'idle' }
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
@@ -172,9 +172,11 @@ export function AgentTerminalSurface({
 
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-          <p className="max-w-sm text-center text-muted-foreground text-sm">
-            {offline ? 'Offline — a session can start once the host is back.' : attachment.message}
-          </p>
+          {offline && (
+            <p className="max-w-sm text-center text-muted-foreground text-sm">
+              Offline — a session can start once the host is back.
+            </p>
+          )}
           <Button
             type="button"
             variant="secondary"

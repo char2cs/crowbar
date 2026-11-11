@@ -2,7 +2,8 @@ import { memo } from 'react'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { useChatItem } from '@/features/agent/hooks/use-chat-feed'
 import { useChatStore } from '@/features/agent/stores/chat-store'
-import { MarkerRow, type MarkerActions } from '@/features/agent/transcript/rows/marker-row'
+import type { FailureActions, NoticeActions } from '@/features/agent/transcript/lib/marker-failure'
+import { MarkerRow } from '@/features/agent/transcript/rows/marker-row'
 import { TextRow } from '@/features/agent/transcript/rows/text-row'
 import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
 import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
@@ -12,7 +13,7 @@ import { SubagentCard } from '@/features/agent/transcript/rows/subagent-card'
 import { UserRow, type PromptActions } from '@/features/agent/transcript/rows/user-row'
 
 /** Everything a transcript row can do. */
-export type RowActions = PromptActions & MarkerActions
+export type RowActions = PromptActions & FailureActions & NoticeActions
 
 /** What a row's place in the conversation says about it, from the transcript. */
 export interface RowPlace {
@@ -88,8 +89,8 @@ function TranscriptRowBody({
           chatId={chatId}
           item={item}
           providers={providers}
-          provider={provider}
           actions={actions}
+          provider={provider}
         />
       )
     case 'subagent':

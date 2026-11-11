@@ -69,3 +69,36 @@ describe('ComposerField — an @ path', () => {
     )
   })
 })
+
+describe('ComposerField — a command', () => {
+  it('starts one in an empty box with a bare slash', () => {
+    drawField('c5')
+    act(() => ref.current?.startCommand())
+
+    expect(ref.current?.getMarkdown().trim()).toBe('/')
+    expect(onShapeChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slashQuery: '' }),
+      true,
+    )
+  })
+
+  it('starts one above a draft, which stays under it', () => {
+    drawField('c6')
+    act(() => ref.current?.setMarkdown('fix the rounding'))
+    act(() => ref.current?.startCommand())
+
+    expect(ref.current?.getMarkdown().trim()).toBe('/\n\nfix the rounding')
+    expect(onShapeChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slashQuery: '' }),
+      true,
+    )
+  })
+
+  it('completes the command line and leaves the lines below it alone', () => {
+    drawField('c7')
+    act(() => ref.current?.setMarkdown('/he\n\nfix the rounding'))
+    act(() => ref.current?.completeCommand('/help '))
+
+    expect(ref.current?.getMarkdown().trim()).toBe('/help\n\nfix the rounding')
+  })
+})

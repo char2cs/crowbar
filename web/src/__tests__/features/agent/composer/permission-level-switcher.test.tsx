@@ -2,7 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
-import { PermissionLevelChip } from '@/features/agent/composer/permission-level-switcher'
+import {
+  PermissionLevelChip,
+  usePermissionLevel,
+} from '@/features/agent/composer/permission-level-switcher'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { toast } from '@/features/window/stores/toast-store'
 import { proxyMarkerError } from '@/lib/api/errors'
@@ -36,9 +39,22 @@ beforeEach(() => {
 
 const ALL: PermissionLevel[] = ['guarded', 'trusted', 'full-auto']
 
+/** The chat view holds the control; the chip and the keyboard both use it. */
+function Held({ chatId, levels }: { chatId: string; levels: PermissionLevel[] }) {
+  const control = usePermissionLevel({ wsId: 'w1', chatId, levels })
+  return (
+    <>
+      <PermissionLevelChip control={control} />
+      <button type="button" onClick={() => control.cycle()}>
+        cycle
+      </button>
+    </>
+  )
+}
+
 describe('PermissionLevelChip', () => {
   function drawChip(chatId = 'c1', levels: PermissionLevel[] = ALL) {
-    return render(<PermissionLevelChip wsId="w1" chatId={chatId} levels={levels} />)
+    return render(<Held chatId={chatId} levels={levels} />)
   }
 
   it('names the level the chat is pinned to on the footer chip', () => {
@@ -74,7 +90,7 @@ describe('PermissionLevelChip', () => {
     drawChip()
 
     await user.click(screen.getByTestId('chat-permission-level-chip'))
-    await user.click(await screen.findByRole('menuitem', { name: 'Trusted' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: /^Trusted/ }))
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledExactlyOnceWith(
@@ -88,8 +104,8 @@ describe('PermissionLevelChip', () => {
   })
 
   it('draws nothing when the provider declares no levels', () => {
-    const { container } = drawChip('c1', [])
-    expect(container).toBeEmptyDOMElement()
+    drawChip('c1', [])
+    expect(screen.queryByTestId('chat-permission-level-chip')).toBeNull()
   })
 
   it('opens as a menu of only the declared levels and PUTs the pick', async () => {
@@ -97,12 +113,37 @@ describe('PermissionLevelChip', () => {
     drawChip('c1', ['trusted', 'full-auto'])
 
     await user.click(screen.getByTestId('chat-permission-level-chip'))
-    expect(screen.queryByRole('menuitem', { name: 'Guarded' })).toBeNull()
-    await user.click(await screen.findByRole('menuitem', { name: 'Full Auto' }))
+    expect(screen.queryByRole('menuitemradio', { name: /^Guarded/ })).toBeNull()
+    await user.click(await screen.findByRole('menuitemradio', { name: /^Full Auto/ }))
 
     expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'full-auto')
     await waitFor(() =>
       expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent(/^Full Auto$/),
     )
+  })
+
+  it('steps to the next offered level and wraps round, through the same write as a pick', async () => {
+    const user = userEvent.setup()
+    writeChat({ id: 'c1', permissionLevel: 'trusted' })
+    drawChip('c1', ['trusted', 'full-auto'])
+
+    await user.click(screen.getByRole('button', { name: 'cycle' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent(/^Full Auto$/),
+    )
+    await user.click(screen.getByRole('button', { name: 'cycle' }))
+
+    expect(setChatPermissionLevelFn.mock.calls.map((call) => call[2])).toEqual([
+      'full-auto',
+      'trusted',
+    ])
+  })
+
+  it('has nothing to step through with a single level', async () => {
+    const user = userEvent.setup()
+    drawChip('c1', ['trusted'])
+    await user.click(screen.getByRole('button', { name: 'cycle' }))
+
+    expect(setChatPermissionLevelFn).not.toHaveBeenCalled()
   })
 })

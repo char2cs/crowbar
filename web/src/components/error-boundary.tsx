@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface Props {
   children: ReactNode
-  fallback?: ReactNode
+  /** Drawn in place of the children; a function is handed the way to try them again. */
+  fallback?: ReactNode | ((retry: () => void) => ReactNode)
   /** A change clears a caught error, so the children get another try. */
   resetKey?: unknown
 }
@@ -36,7 +37,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error) {
-      if (this.props.fallback) return this.props.fallback
+      const { fallback } = this.props
+      if (typeof fallback === 'function') return fallback(this.reset)
+      if (fallback) return fallback
       return (
         <div className="flex flex-1 items-center justify-center p-8">
           <Card className="w-full max-w-sm border-destructive/20 bg-destructive/10">

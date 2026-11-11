@@ -29,12 +29,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* Heading face, user-configurable via the token. It is single-weight, so no
-     faux bold; size and line-height keep the row at the body font's 1.5 x 14px. */
-  font-family: var(--font-heading);
-  font-weight: 400;
-  font-size: 1.25em;
-  line-height: 1.2;
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--foreground);
 }
 .agent-chat .activity .dim {

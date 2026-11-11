@@ -82,7 +82,7 @@
   justify-content: space-between;
   width: 100%;
   height: 42px;
-  padding: 0 5px 0 10px;
+  padding: 0 5px;
   border-radius: 9999px;
   border: 1px solid var(--input);
   background: color-mix(in oklch, var(--foreground) 3%, var(--background));
@@ -93,8 +93,7 @@
   pointer-events: auto;
 }
 .agent-chat .dochandle .chip {
-  height: 24px;
-  padding: 0 7px;
+  font-size: 13px;
 }
 /* As `.handle .send`: `.side`'s flex `gap: 2px` is the only spacing between the two circles. */
 .agent-chat .dochandle .send {
@@ -117,27 +116,31 @@
 }
 .agent-chat .dochandle .ghosts > div {
   display: flex;
-  gap: 14px;
   align-items: baseline;
-  padding: 3px 0;
+  padding: 4.5px 0;
 }
 .agent-chat .dochandle .ghosts dt {
   flex: none;
-  width: 52px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  opacity: 0.7;
+  width: 76px;
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  opacity: 0.62;
 }
 .agent-chat .dochandle .ghosts dd {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 20px;
   opacity: 0.62;
 }
 
 /* The empty document's bar is the same capsule: as tall as the one-line pill. */
 .agent-chat .dochandle[data-touch] .grp {
   height: calc(var(--touch-line) + 2 * var(--touch-pad-y) + 2px);
-  padding: 0 calc(var(--touch-inset) - 1px) 0 calc(var(--touch-pad-x) - 7px);
+  padding: 0 4px;
+}
+.agent-chat .dochandle[data-touch] .side:last-child {
+  gap: var(--touch-gap);
 }
 .agent-chat .dochandle[data-touch] :is(.inner, .ghosts) {
   /* The dock's own side padding (`.center`), so the bar and the chat's capsule are one width. */
@@ -146,4 +149,14 @@
 .agent-chat .doc:has(+ .dochandle[data-touch]) {
   --pad: 24px;
   font-size: var(--touch-text);
+}
+/* On the phone each hint's label stacks over its text. */
+.agent-chat .dochandle[data-touch] .ghosts > div {
+  flex-direction: column;
+  padding: 0;
+  margin-top: 10px;
+}
+.agent-chat .dochandle[data-touch] .ghosts dd {
+  font-size: 15.5px;
+  line-height: 21px;
 }

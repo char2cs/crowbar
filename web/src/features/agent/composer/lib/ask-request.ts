@@ -1,3 +1,5 @@
+import { diffLines } from '@/features/agent/composer/lib/line-diff'
+
 /** What a permission asks to run, from the ask's own copy of the call's input. */
 export interface AskRequest {
   toolName?: string
@@ -14,7 +16,10 @@ export interface CodeLine {
   text: string
   /** An MCP argument's name, on the first line of its value: drawn as a labelled row. */
   key?: string
-  tone?: 'del' | 'add'
+  tone?: 'del' | 'add' | 'ctx'
+  /** In a diff: the line's number within the edit, and the span of it that changed. */
+  n?: number
+  mark?: [number, number]
   /** Drawn short: the rest of the line is counted, not shown. */
   cut?: boolean
 }
@@ -61,11 +66,14 @@ function mcpView(req: AskRequest): RequestView {
 const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
   text ? lines(text).map((line) => ({ text: line, tone })) : []
 
-/** One replacement as removed then added lines; an empty side draws nothing. */
-const replacement = (edit: Record<string, unknown>) => [
-  ...toned(str(edit.old_string), 'del'),
-  ...toned(str(edit.new_string), 'add'),
-]
+/** One replacement as a line diff; past the diff's budget, the removed lines then the added. */
+const replacement = (edit: Record<string, unknown>) => {
+  const [before, after] = [str(edit.old_string), str(edit.new_string)]
+  const diff = diffLines(before, after)
+  return diff.length > 0 || before === after
+    ? diff
+    : [...toned(before, 'del'), ...toned(after, 'add')]
+}
 
 /** A file change: an edit, every edit of a multi-edit, a write, a notebook cell. */
 function fileView(input: Record<string, unknown>, target: string): RequestView | null {

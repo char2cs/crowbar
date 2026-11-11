@@ -43,8 +43,7 @@
   font-weight: 500;
 }
 .agent-chat .subagent-type,
-.agent-chat .subagent-clock,
-.agent-chat .subagent-usage {
+.agent-chat .subagent-clock {
   flex: none;
   font-variant-numeric: tabular-nums;
 }
@@ -156,4 +155,8 @@
        layer per word, promoted for a fade that never runs. */
     will-change: auto;
   }
+}
+/* On a subagent's header the outcome sits beside the title, as on the board. */
+.agent-chat .subagent-head .tool-call-state {
+  margin-left: 8px;
 }

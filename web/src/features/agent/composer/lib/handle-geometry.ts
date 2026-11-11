@@ -1,7 +1,7 @@
 export const COMPOSER_LINE_HEIGHT = 20
 
 /** The pill's vertical padding, per side. */
-export const COMPOSER_PADDING_Y = 8
+export const COMPOSER_PADDING_Y = 10
 
 export const SEND_DIAMETER = 30
 
@@ -41,8 +41,9 @@ export function handleClusterWidth(
   return occupants * diameter + Math.max(0, occupants - 1) * gap
 }
 
-/** Must equal `.agent-chat .pill .field`'s `padding-right` (65px) with no slack, which
- *  is why `.handle .send` has no `margin-left` on top of the flex gap. */
+/** How far in from the pill's padding edge the handle reaches: the field's `padding-right`
+ *  (57px) is this less the pill's 18px side padding, plus the 8px between text and handle. No
+ *  `margin-left` on `.handle .send` on top of the flex gap, or the two would double-count. */
 export function fieldRightPadding(
   rightInset: number = sendInset(),
   occupants: number = 2,

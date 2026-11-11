@@ -7,7 +7,7 @@ export interface SendFailureText {
   final: boolean
 }
 
-/** A failed send in plain, provider-neutral words; the raw error stays behind Details. */
+/** A failed send in plain, provider-neutral words; the raw error is never shown. */
 export function describeSendFailure(item: Pick<OutboxItem, 'code'>): SendFailureText {
   switch (item.code) {
     case 'session_lost':

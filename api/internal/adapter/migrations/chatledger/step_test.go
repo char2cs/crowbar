@@ -303,7 +303,10 @@ func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 			if last.Kind == ledger.KindRunnerStarted {
 				last = rows[len(rows)-2]
 			}
-			assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: tc.shown}, body[ledger.Marker](t, last))
+			shown := body[ledger.Marker](t, last)
+			assert.Equal(t, ledger.MarkerUnreadable, shown.Kind)
+			assert.Equal(t, tc.shown, shown.Detail)
+			assert.NotEmpty(t, shown.Records, "the marker names what it counts")
 		})
 	}
 }

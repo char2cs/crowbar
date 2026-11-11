@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resumeChat } from '@/features/agent/api/agent-chat-commands'
 import { offeredCompact } from '@/features/agent/chat/lib/offered-compact'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
@@ -13,6 +15,9 @@ import {
   ComposerSlashPicker,
   type PickerItem,
 } from '@/features/agent/composer/composer-slash-picker'
+import { usePermissionLevel } from '@/features/agent/composer/permission-level-switcher'
+import { IS_MOBILE } from '@/utils/platform'
+import { useChatPlace } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
 import type {
   CaretEdges,
@@ -62,8 +67,6 @@ export interface AgentChatViewProps {
   canSend: boolean
   /** The chat's host does not answer: the composer is read-only. */
   offline?: boolean
-  /** How the conversation continues (why it is dormant, or from what). */
-  sessionNote?: string
   /** The CLI the chat is moving onto is still connecting. */
   connecting?: string
   active: boolean
@@ -108,7 +111,6 @@ export function AgentChatView({
   live,
   canSend,
   offline = false,
-  sessionNote,
   connecting,
   active,
   visible,
@@ -170,6 +172,7 @@ export function AgentChatView({
     [load, setError, resetHistory],
   )
   const steer = providers.find((candidate) => candidate.id === providerId)?.promptSteer === true
+  const place = useChatPlace(chatId, wsId)
   const prompts = useChatSend(wsId, chatId, steer, editPrompt)
 
   // An empty chat is a writing surface, not an empty transcript; it stops being
@@ -183,17 +186,6 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
-  const rowActions = useMemo<RowActions>(
-    () => ({
-      ...prompts.actions,
-      openTerminal: onOpenTerminal,
-      newConversation: () =>
-        void resumeChat(wsId, chatId).catch((err: unknown) =>
-          toastSpawnFailure(err, providerLabel, 'start'),
-        ),
-    }),
-    [prompts.actions, wsId, chatId, onOpenTerminal, providerLabel],
-  )
   // The picker shows a staged pick at once; labels and the catalogue stay on the live CLI.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
   // The person's pick first, then what the last turn reported running at.
@@ -207,7 +199,24 @@ export function AgentChatView({
   const shownModel =
     declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
   const idle = !!provider?.compaction && live && !compacting && !working && !onTerminalSurface
-  const onCompact = offeredCompact(wsId, chatId, idle)
+  const onCompact = useMemo(() => offeredCompact(wsId, chatId, idle), [wsId, chatId, idle])
+  const rowActions = useMemo<RowActions>(
+    () => ({
+      ...prompts.actions,
+      openTerminal: onOpenTerminal,
+      compact: onCompact,
+      openChat: (target: string) =>
+        windowPaneStore.getState().paneActions.openChat(target, {
+          projectId: resolveChatProjectId(target, wsId) ?? undefined,
+          workspaceId: wsId,
+        }),
+      newConversation: () =>
+        void resumeChat(wsId, chatId).catch((err: unknown) =>
+          toastSpawnFailure(err, providerLabel, 'start'),
+        ),
+    }),
+    [prompts.actions, wsId, chatId, onOpenTerminal, onCompact, providerLabel],
+  )
 
   // A chat recording no agent cannot start; it says what would let it.
   const agentNote =
@@ -216,7 +225,7 @@ export function AgentChatView({
       : providers.some((p) => p.connected && p.enabled)
         ? 'This chat has no agent yet. Pick one, then send a message to start it.'
         : 'No agent is installed. Add one in Settings → Agents to start this chat.'
-  const note = providerId ? (blank ? undefined : sessionNote) : agentNote
+  const note = providerId ? undefined : agentNote
 
   // The one serialization of a prompt: the key handler's read, or the box's on a click.
   const enqueueDraft = (text?: string) => {
@@ -255,7 +264,9 @@ export function AgentChatView({
   // An open @ path picker takes the keys before the skill picker: it completes in place.
   const picker = mention.open ? mention : slash
   const selectSlashItem = (item: PickerItem) =>
-    mention.open ? composer.completeMention(mention.accept(item)) : load(slash.accept(item))
+    mention.open
+      ? composer.completeMention(mention.accept(item))
+      : composer.completeCommand(slash.accept(item))
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
@@ -274,6 +285,7 @@ export function AgentChatView({
         selectSlashItem,
         send: enqueueDraft,
         recall: load,
+        cyclePermission: permissionLevel.cycle,
       },
       event,
       readMarkdown,
@@ -299,13 +311,16 @@ export function AgentChatView({
   })
 
   // The empty document's cluster and the dock's bar offer the same controls.
+  const permissionTarget = { wsId, chatId, levels: provider?.permissionLevels }
+  const permissionLevel = usePermissionLevel(IS_MOBILE ? null : permissionTarget)
   const selection = {
     provider: effectiveProvider,
     providers,
     effort: effectiveEffort,
     reportedModel,
     switchDisabled,
-    permission: { wsId, chatId, levels: provider?.permissionLevels },
+    permission: permissionTarget,
+    permissionLevel,
     onSelectionChange,
     onSelectPresentation,
   }
@@ -336,9 +351,12 @@ export function AgentChatView({
 
   const slashPicker = (mention.open || slash.open) && (
     <ComposerSlashPicker
-      label={mention.open ? 'Files' : 'Commands'}
+      variant={mention.open ? 'files' : 'commands'}
+      scope={place.route?.kind === 'project' ? place.route.name : place.route?.repoName}
       items={picker.items}
       selected={picker.selected}
+      query={picker.query}
+      total={slash.total}
       onSelect={selectSlashItem}
     />
   )
@@ -385,6 +403,8 @@ export function AgentChatView({
               blank={blank}
               dockRef={dock.dockRef}
               plan={facts.plan}
+              providers={providers}
+              failureActions={rowActions}
               onEditPrompt={editPrompt}
               pickers={
                 <>

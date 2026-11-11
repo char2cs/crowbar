@@ -8,8 +8,8 @@ import {
   usePermissionLevel,
   type PermissionTarget,
 } from '@/features/agent/composer/permission-level-switcher'
+import { useModelPickerOpen } from '@/features/agent/controls/model-picker-open'
 import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
-import { cn } from '@/lib/utils'
 import { hasNativeChrome } from '@/lib/native-chrome'
 import { IS_MOBILE } from '@/utils/platform'
 import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
@@ -18,7 +18,7 @@ import { NativeModelPicker } from './native-model-picker'
 
 // Fits the longest model id unwrapped. An inline style because Dropdown locks
 // its measured width on open and would overwrite a class-set one.
-const MENU_WIDTH_PX = 280
+const MENU_WIDTH_PX = 356
 
 export interface AgentSelectionPickerProps {
   /** The agent running this chat, or undefined before any runner has been on it. */
@@ -29,6 +29,8 @@ export interface AgentSelectionPickerProps {
   effort: string
   /** A turn is in flight, or a switch is already running. */
   disabled?: boolean
+  /** Lit, as the board's chip while the way on is another model. */
+  hot?: boolean
   /** Local staging only, provider included: nothing is written or switched
    *  until the next message sends, so a row click never tears down the live CLI. */
   onSelectionChange: (provider: string, model: string, effort: string) => void
@@ -57,8 +59,11 @@ function effortLabel(level: string): string {
   return level === 'xhigh' ? 'XHigh' : level.charAt(0).toUpperCase() + level.slice(1)
 }
 
-/** Search results, split out so the running rowIndex used for highlighting
- *  stays local. */
+/** Past this many models in all, the menu grows a search field; fewer fit on sight. */
+const SEARCH_FROM = 12
+
+/** Search results, split out so the running rowIndex used for highlighting stays local. One
+ *  column per provider, side by side. */
 function ModelSections({
   sections,
   query,
@@ -82,46 +87,41 @@ function ModelSections({
 
   let rowIndex = -1
   return (
-    <>
+    <div
+      className="pk-cols"
+      style={{ gridTemplateColumns: `repeat(${Math.min(sections.length, 2)}, 1fr)` }}
+    >
       {sections.map((section) => (
         <div key={section.provider.id}>
-          <div className="ui-font ui-text-sm flex items-center gap-1.5 px-2.5 py-1 text-muted-foreground">
+          <div className="pk-head">
             <ProviderIcon svg={section.provider.icon} className="size-3" />
             <span>{section.provider.displayName}</span>
           </div>
           {section.rows.map((row) => {
             rowIndex += 1
-            const isHighlighted = rowIndex === highlight
             return (
               <button
                 key={row.model}
                 type="button"
                 role="menuitem"
+                data-highlighted={rowIndex === highlight || undefined}
                 onClick={() => onPick(section.provider, row.model)}
                 onMouseEnter={() => onHighlight(rowIndex)}
-                className={cn(
-                  'ui-font ui-text-sm flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors',
-                  isHighlighted ? 'bg-muted' : 'hover:bg-muted',
-                )}
+                className="pk-row"
               >
-                {row.picked ? (
-                  <CheckIcon size={12} className="shrink-0" />
-                ) : (
-                  <span className="inline-block size-3 shrink-0" />
-                )}
                 <span className="min-w-0 flex-1 truncate">{row.model}</span>
+                {row.picked && <CheckIcon size={12} className="shrink-0 text-primary" />}
               </button>
             )
           })}
         </div>
       ))}
-    </>
+    </div>
   )
 }
 
-/** Renders nothing when the model declares no levels — absence, not a disabled
- *  control. Owns its drag gesture so the picker carries none of that state. */
-function EffortSlider({
+/** Renders nothing when the model declares no levels: absence, not a disabled control. */
+function EffortSegments({
   levels,
   effort,
   defaultEffort,
@@ -132,113 +132,28 @@ function EffortSlider({
   defaultEffort: string
   onPick: (level: string) => void
 }) {
-  // An unknown effort draws no thumb rather than clamping to the first level,
-  // which would look like a pick nobody made. '' runs at the stated default.
+  // An unknown effort marks nothing rather than clamping to the first level, which would look
+  // like a pick nobody made. '' runs at the stated default.
   const shown = effort || defaultEffort
-  const shownLabel = effort ? effortLabel(effort) : `${effortLabel(defaultEffort)} (default)`
-  const knownIndex = levels.indexOf(shown)
-  const hasKnownEffort = knownIndex !== -1
-  const effortIndex = Math.max(0, knownIndex)
-  const effortPct = levels.length > 1 ? Math.round((effortIndex / (levels.length - 1)) * 100) : 0
-
-  // Press anywhere on the track jumps there and keeps tracking until release,
-  // snapping to the nearest discrete level.
-  const setEffortFromClientX = useCallback(
-    (track: HTMLDivElement, clientX: number) => {
-      if (levels.length === 0) return
-      const rect = track.getBoundingClientRect()
-      const ratio =
-        rect.width === 0 ? 0 : Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      const index = Math.round(ratio * (levels.length - 1))
-      const nextLevel = levels[index]
-      if (nextLevel) onPick(nextLevel)
-    },
-    [levels, onPick],
-  )
-
-  // Window listeners instead of pointer capture: WKWebView throws NotFoundError
-  // from setPointerCapture even on a genuine pointerdown.
-  const draggingRef = useRef<(() => void) | null>(null)
-
-  const onTrackPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (levels.length === 0) return
-      event.preventDefault()
-      const track = event.currentTarget
-      setEffortFromClientX(track, event.clientX)
-      draggingRef.current?.()
-      const onMove = (moveEvent: PointerEvent) => setEffortFromClientX(track, moveEvent.clientX)
-      const stop = () => {
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', stop)
-        window.removeEventListener('pointercancel', stop)
-        draggingRef.current = null
-      }
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', stop)
-      window.addEventListener('pointercancel', stop)
-      draggingRef.current = stop
-    },
-    [levels, setEffortFromClientX],
-  )
-
-  useEffect(() => () => draggingRef.current?.(), [])
-
   if (levels.length === 0) return null
-
   return (
-    <div className="border-border/60 border-t px-2.5 pt-2.5 pb-2">
-      <div className="mb-2.5 flex items-baseline justify-between text-muted-foreground text-xs">
-        <span>Effort</span>
-        <b className="font-semibold text-foreground">{shown ? shownLabel : ''}</b>
+    <div className="pk-effort">
+      <div className="pk-effort-head">
+        <b>Effort</b>
       </div>
-      <div className="px-1.5 py-2">
-        <div
-          role="slider"
-          aria-label="Reasoning effort"
-          aria-valuemin={0}
-          aria-valuemax={levels.length - 1}
-          aria-valuenow={hasKnownEffort ? effortIndex : undefined}
-          aria-valuetext={shown ? shownLabel : ''}
-          tabIndex={0}
-          onPointerDown={onTrackPointerDown}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-              event.preventDefault()
-              const next = levels[Math.min(effortIndex + 1, levels.length - 1)]
-              if (next) onPick(next)
-            } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-              event.preventDefault()
-              const prev = levels[Math.max(effortIndex - 1, 0)]
-              if (prev) onPick(prev)
-            }
-          }}
-          className="relative h-1 cursor-grab touch-none rounded-full bg-muted active:cursor-grabbing"
-        >
-          {hasKnownEffort && (
-            <>
-              <div
-                className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-primary transition-[width]"
-                style={{ width: `${effortPct}%` }}
-              />
-              <div
-                className="-translate-y-1/2 -translate-x-1/2 pointer-events-none absolute top-1/2 size-4 rounded-full border-2 border-primary bg-popover shadow-[0_1px_3px_oklch(0_0_0/28%)] transition-[left]"
-                style={{ left: `${effortPct}%` }}
-              />
-            </>
-          )}
-        </div>
-      </div>
-      <div className="mt-2.5 flex justify-between">
+      <div
+        role="radiogroup"
+        aria-label="Reasoning effort"
+        className="pk-seg"
+        style={{ gridTemplateColumns: `repeat(${levels.length}, 1fr)` }}
+      >
         {levels.map((level) => (
           <button
             key={level}
             type="button"
+            role="radio"
+            aria-checked={level === shown}
             onClick={() => onPick(level)}
-            className={cn(
-              'rounded px-1 py-0.5 text-[10px] hover:bg-muted hover:text-foreground',
-              level === shown ? 'font-bold text-foreground' : 'text-muted-foreground',
-            )}
           >
             {effortLabel(level)}
           </button>
@@ -254,7 +169,7 @@ function PermissionRadios({
   level,
   onPick,
 }: {
-  options: { value: PermissionLevel; label: string }[]
+  options: { value: PermissionLevel; label: string; description: string }[]
   level: PermissionLevel | ''
   onPick: (level: PermissionLevel) => void
 }) {
@@ -291,6 +206,7 @@ export function AgentSelectionPicker({
   model,
   effort,
   disabled,
+  hot,
   onSelectionChange,
   unsetLabel = 'unset',
   reportedModel,
@@ -299,7 +215,7 @@ export function AgentSelectionPicker({
   const modelLabel = model || unsetLabel
   const effortLabelText = effort || unsetLabel
   const showsReport = !model && Boolean(reportedModel)
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setOpen] = useModelPickerOpen(permission?.chatId)
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -346,16 +262,22 @@ export function AgentSelectionPicker({
   )
 
   const levels = effortLevelsFor(provider, model)
+  const searchable =
+    catalogueProviders.reduce((sum, candidate) => sum + (candidate.models?.length ?? 0), 0) >
+    SEARCH_FROM
 
   useEffect(() => {
     if (!isOpen) return
-    setQuery('')
-    setHighlight(0)
     const frame = window.requestAnimationFrame(() => searchRef.current?.focus())
-    return () => window.cancelAnimationFrame(frame)
+    // A search belongs to one opening of the menu: closing it lets the query go.
+    return () => {
+      window.cancelAnimationFrame(frame)
+      setQuery('')
+      setHighlight(0)
+    }
   }, [isOpen])
 
-  const close = useCallback(() => setIsOpen(false), [])
+  const close = useCallback(() => setOpen(false), [setOpen])
 
   // Stages the provider alongside the model — never a live switch.
   const pickModel = useCallback(
@@ -407,20 +329,16 @@ export function AgentSelectionPicker({
         aria-label={`Agent: ${provider?.displayName ?? 'none'}, model ${modelLabel}${showsReport ? ` (reported ${reportedModel})` : ''}, effort ${effortLabelText}`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-        className={cn('chip max-w-56', (provider || model) && 'set')}
+        onClick={() => setOpen(!isOpen)}
+        className="chip max-w-56"
+        data-hot={hot || undefined}
       >
-        {provider && <ProviderIcon svg={provider.icon} className="size-3" />}
+        {provider && <ProviderIcon svg={provider.icon} className="size-[13px]" />}
         <b className="font-semibold text-foreground">{modelLabel}</b>
         {showsReport && (
           <span className="truncate text-[11px] text-muted-foreground">({reportedModel})</span>
         )}
-        {(model || effort) && (
-          <>
-            <span className="opacity-50">&middot;</span>
-            <span className="truncate">{effortLabel(effortLabelText)}</span>
-          </>
-        )}
+        {(model || effort) && <span className="truncate">{effortLabel(effortLabelText)}</span>}
         <UpDownIcon size={12} className="opacity-55" />
       </button>
       {hasNativeChrome() ? (
@@ -444,21 +362,23 @@ export function AgentSelectionPicker({
           style={{ width: MENU_WIDTH_PX }}
         >
           <div className="flex max-h-100 flex-col">
-            <div className="border-border/60 border-b px-1.5 pb-1.5 pt-0.5">
-              <Input
-                ref={searchRef}
-                type="text"
-                placeholder="Search models&hellip;"
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value)
-                  setHighlight(0)
-                }}
-                onKeyDown={onSearchKeyDown}
-                leftIcon={Search}
-                size="sm"
-              />
-            </div>
+            {searchable && (
+              <div className="border-border/60 border-b px-1.5 pb-1.5 pt-0.5">
+                <Input
+                  ref={searchRef}
+                  type="text"
+                  placeholder="Search models&hellip;"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value)
+                    setHighlight(0)
+                  }}
+                  onKeyDown={onSearchKeyDown}
+                  leftIcon={Search}
+                  size="sm"
+                />
+              </div>
+            )}
             <div className="min-h-0 flex-1 overflow-y-auto p-1">
               <ModelSections
                 sections={sections}
@@ -468,7 +388,7 @@ export function AgentSelectionPicker({
                 onPick={pickModel}
               />
             </div>
-            <EffortSlider
+            <EffortSegments
               levels={levels}
               effort={effort}
               defaultEffort={provider?.defaultEfforts?.[model] ?? ''}

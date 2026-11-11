@@ -169,6 +169,7 @@ var convertedByVersion = map[int]string{
 	3: "4c6559e36a2f6ddbdf4fc0cd4fb90348b489f74879731102cc5ef474e5113a29",
 	4: "04fce162792b6a427ac30d503b62e9a4836bf4b6212b75eeef2bf54e9de1c6f2",
 	5: "62494e5a9e60706b85a267732f1bed15522aacf84453aef24c084b9ebd205f17",
+	6: "5650bc629f355686af0f895618392ea14b80d93ced96aed65ff11c49c7cadd97",
 }
 
 func TestConvertChat_AChangedConversionRaisesTheConverterVersion(t *testing.T) {

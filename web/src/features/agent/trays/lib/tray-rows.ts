@@ -9,6 +9,8 @@ export interface TrayRow {
   hint?: string
   status: 'running' | 'done' | 'failed' | 'stopped'
   startedAt: string
+  /** When it ended, so an ended row keeps how long it ran. */
+  endedAt?: string
 }
 
 type TrayEntry = { type: 'label'; id: string; text: string } | { type: 'row'; row: TrayRow }
@@ -19,6 +21,15 @@ export interface TrayWindow {
   more: { hidden: number; running: number } | null
   /** Everything is showing and there was more than fits. */
   canCollapse: boolean
+}
+
+/** How long a row has run, the way the board writes it: `58s`, `1m 42s`, `1h 05m`. */
+export function formatTrayClock(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds))
+  if (safe < 60) return `${safe}s`
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (safe < 3600) return `${Math.floor(safe / 60)}m ${pad(safe % 60)}s`
+  return `${Math.floor(safe / 3600)}h ${pad(Math.floor((safe % 3600) / 60))}m`
 }
 
 /** The tray never grows past this many rows, its group row included. */

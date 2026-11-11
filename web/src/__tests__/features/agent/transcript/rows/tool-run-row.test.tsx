@@ -110,7 +110,7 @@ describe('ToolRunRow with an ask on a member', () => {
     for (const row of fetches(l)) push(row)
     draw()
     expect(statusOf('f2')).toBe('awaiting_approval')
-    expect(screen.getByText('Waiting for your approval')).toBeInTheDocument()
+    expect(screen.getByText('Needs your answer')).toBeInTheDocument()
 
     push(deny(l))
     expect(statusOf('f2')).toBe('declined')

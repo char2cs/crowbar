@@ -46,6 +46,10 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     (text: string) => editorRef.current?.completeMention(text),
     [],
   )
+  const completeCommand = useCallback(
+    (text: string) => editorRef.current?.completeCommand(text),
+    [],
+  )
 
   /** Puts text back after what was typed since; false when there is no box to take it. */
   const putBack = useCallback((text: string) => {
@@ -120,6 +124,7 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     slash,
     mention,
     completeMention,
+    completeCommand,
     putBack,
     noteShape,
     stashes,

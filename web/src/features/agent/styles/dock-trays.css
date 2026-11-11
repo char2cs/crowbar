@@ -68,16 +68,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-chat .tray-ring {
+.agent-chat .tray-pips {
+  display: inline-flex;
   flex: none;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--primary) calc(var(--p) * 1%),
-    color-mix(in oklch, var(--foreground) 14%, transparent) 0
-  );
-  mask-image: radial-gradient(circle, transparent 4px, #000 4.5px);
+  gap: 2px;
+}
+.agent-chat .tray-pips i {
+  width: 5px;
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+.agent-chat .tray-pips i[data-on] {
+  background: var(--primary);
 }
 .agent-chat .tray-gap {
   flex: 0 0 16px;
@@ -92,8 +95,19 @@
 .agent-chat .tray-section > .tray-head + .tray-list {
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
+.agent-chat .tray-section > .tray-head + .tray-list > li:first-child {
+  margin-top: 6px;
+}
+/* One waiting message is a row of its own, the header's size. */
 .agent-chat .tray-top .tray-list[data-flat] {
-  padding: 0 8px;
+  padding: 0;
+}
+.agent-chat .tray-list[data-flat] li {
+  min-height: var(--tray-row-h);
+  padding: 0 14px 0 16px;
+  gap: 9px;
+  font-size: 12px;
+  border-radius: 0;
 }
 .agent-chat .tray-bottom .tray-list {
   padding: 4px 8px 6px;
@@ -102,7 +116,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: var(--tray-row-h);
+  min-height: 28px;
   padding: 0 6px;
   font-size: 13px;
   border-radius: 8px;
@@ -113,29 +127,45 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-chat .tray-list li[data-status='done'] {
+.agent-chat ol.tray-list li[data-status='done'] {
   color: var(--muted-foreground);
 }
-.agent-chat .tray-list li[data-status='done'] > span {
+.agent-chat ol.tray-list li[data-status='done'] > span {
   text-decoration: line-through;
   text-decoration-color: color-mix(in oklch, var(--foreground) 25%, transparent);
 }
-.agent-chat .tray-list li[data-status='active'] {
+.agent-chat ol.tray-list li[data-status='active'] {
   background: color-mix(in oklch, var(--primary) 9%, transparent);
   font-weight: 500;
 }
-.agent-chat .tray-list li[data-status='pending'] {
+.agent-chat ol.tray-list li[data-status='pending'] {
   color: color-mix(in oklch, var(--foreground) 72%, transparent);
 }
 .agent-chat .tray-list li > i {
   font-style: normal;
 }
+/* Subagents, shells and monitors: the name and its action on one line, the clock at the end;
+   shells and monitors are named by their command, in the mono face. */
+.agent-chat .tray-lines {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+}
 .agent-chat .tray-who {
   font-weight: 600;
   white-space: nowrap;
 }
+.agent-chat .tray-list li[data-kind='shell'] .tray-who,
+.agent-chat .tray-list li[data-kind='monitor'] .tray-who {
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.agent-chat .tray-list li:not([data-status='running']) .tray-who {
+  font-weight: 500;
+}
 .agent-chat .tray-what {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   color: var(--muted-foreground);
@@ -156,14 +186,18 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* A rule above each group after the first, the group's name beneath it. */
 .agent-chat li.tray-group {
-  min-height: calc(var(--tray-row-h) * 0.65);
+  min-height: 22px;
+  margin-top: 2px;
   padding-top: 4px;
+  border-radius: 0;
   color: var(--muted-foreground);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 500;
+}
+.agent-chat li.tray-group:not(:first-child) {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 .agent-chat li.tray-more {
   padding: 0;
@@ -173,9 +207,10 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: var(--tray-row-h);
+  min-height: 28px;
   padding: 0 6px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted-foreground);
   font-size: 12px;
@@ -205,7 +240,69 @@
   background: color-mix(in oklch, var(--foreground) 8%, transparent);
   color: var(--foreground);
 }
+/* The phone: 44px header, 36px rows (two lines: 50px), 15px text, 44px targets. */
 .agent-chat .dock:has(.pill[data-touch]) .tray-remove {
   width: 44px;
   height: 44px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list[data-flat] .tray-remove {
+  margin-right: -10px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-head {
+  padding: 0 16px 0 18px;
+  font-size: 13px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list {
+  padding: 2px 8px 10px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list li {
+  min-height: 36px;
+  font-size: 15px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list[data-flat] {
+  padding: 0;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list[data-flat] li {
+  min-height: 44px;
+  font-size: 13px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list li[data-kind] {
+  min-height: 50px;
+  gap: 11px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-lines {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  line-height: 19px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-lines > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-what {
+  font-size: 13px;
+  line-height: 17px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-clock {
+  font-size: 12.5px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-more button {
+  min-height: 40px;
+  font-size: 13px;
+}
+/* The answered requests' "Show"/"Hide" at the header's right, beside its chevron. */
+.agent-chat .tray-toggle {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.agent-chat .tray-list li[data-verdict='denied'] {
+  color: var(--destructive);
+}
+.agent-chat .dock:has(.pill[data-touch]) [data-testid='agent-resolved-tray'] .tray-head {
+  font-size: 14px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-toggle {
+  font-size: 13.5px;
 }

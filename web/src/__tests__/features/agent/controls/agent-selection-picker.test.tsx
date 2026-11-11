@@ -82,6 +82,13 @@ function openMenu() {
 }
 
 describe('AgentSelectionPicker', () => {
+  // The open state is shared by chat id, so a test that leaves the menu open would toggle it shut
+  // for the next one.
+  afterEach(() => {
+    const trigger = screen.queryByRole('button', { name: /Agent:/ })
+    if (trigger?.getAttribute('aria-expanded') === 'true') fireEvent.click(trigger)
+  })
+
   it('renders nothing when no offered provider declares a model catalogue', () => {
     const noCatalogue: AgentProvider = { ...claude, modelSelect: false, models: [] }
     const { container } = draw({
@@ -109,7 +116,7 @@ describe('AgentSelectionPicker', () => {
 
   it('still names the effort when only the model is unpicked', () => {
     draw({ providers: [claude], model: '', effort: 'low', unsetLabel: 'Default' })
-    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('Default·Low')
+    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('DefaultLow')
   })
 
   it('groups models under their own provider section, one section per offered provider', () => {
@@ -153,8 +160,20 @@ describe('AgentSelectionPicker', () => {
     expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-sol', 'high')
   })
 
-  it('typing a provider name surfaces every model under it', () => {
+  // A short catalogue fits on sight; a long one grows a search field.
+  const crowded: AgentProvider = {
+    ...claude,
+    models: [...(claude.models ?? []), ...Array.from({ length: 10 }, (_, i) => `model-${i}`)],
+  }
+
+  it('offers no search field for a short catalogue', () => {
     draw()
+    openMenu()
+    expect(screen.queryByPlaceholderText(/Search models/)).not.toBeInTheDocument()
+  })
+
+  it('typing a provider name surfaces every model under it', () => {
+    draw({ provider: crowded, providers: [crowded, codex] })
     openMenu()
     fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'codex' } })
 
@@ -165,7 +184,7 @@ describe('AgentSelectionPicker', () => {
   })
 
   it('filters to matching models only when the query names no provider', () => {
-    draw()
+    draw({ provider: crowded, providers: [crowded, codex] })
     openMenu()
     fireEvent.change(screen.getByPlaceholderText(/Search models/), { target: { value: 'haiku' } })
 
@@ -174,81 +193,55 @@ describe('AgentSelectionPicker', () => {
     expect(screen.queryByText('Codex')).not.toBeInTheDocument()
   })
 
-  it('renders the effort slider for the CURRENT model, not the whole provider', () => {
+  const effortGroup = () => screen.getByRole('radiogroup', { name: /Reasoning effort/ })
+  const checkedEffort = () =>
+    within(effortGroup())
+      .getAllByRole('radio')
+      .filter((radio) => radio.getAttribute('aria-checked') === 'true')
+      .map((radio) => radio.textContent)
+
+  it('lists the efforts of the CURRENT model, not the whole provider', () => {
     draw({ provider: codex, model: 'gpt-5.6-sol' })
     openMenu()
-    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    const effortSection = slider.parentElement?.parentElement as HTMLElement
-    expect(within(effortSection).getByText('Ultra')).toBeInTheDocument()
+    expect(
+      within(effortGroup())
+        .getAllByRole('radio')
+        .map((radio) => radio.textContent),
+    ).toEqual(['Low', 'Medium', 'High', 'Ultra'])
   })
 
   // An undeclared effort must not clamp to "Low": nobody picked that level.
-  it('draws no thumb/fill for an effort the current model does not declare', () => {
+  it('marks no effort when the current one is not declared by the model', () => {
     draw({ provider: codex, model: 'gpt-5.6-sol', effort: 'Default' })
     openMenu()
-    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    expect(slider).not.toHaveAttribute('aria-valuenow')
-    expect(slider.querySelector('.bg-primary')).not.toBeInTheDocument()
-    // A real pick is still possible; only nothing is highlighted as chosen.
-    expect(screen.getByRole('button', { name: 'Low' })).toBeInTheDocument()
+    expect(checkedEffort()).toEqual([])
+    expect(screen.getByRole('radio', { name: 'Low' })).toBeInTheDocument()
   })
 
-  // '' is "the provider's default": with that default stated, the slider shows the level it is.
-  it("places the thumb on the model's stated default effort when none is chosen", () => {
-    const onSelectionChange = vi.fn()
+  // '' is "the provider's default": with that default stated, it is the level marked.
+  it("marks the model's stated default effort when none is chosen", () => {
     const withDefault: AgentProvider = { ...codex, defaultEfforts: { 'gpt-5.6-sol': 'medium' } }
     draw({
       provider: withDefault,
       providers: [claude, withDefault],
       model: 'gpt-5.6-sol',
       effort: '',
-      onSelectionChange,
     })
     openMenu()
-    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    expect(slider).toHaveAttribute('aria-valuenow', '1')
-    expect(slider).toHaveAttribute('aria-valuetext', 'Medium (default)')
-    fireEvent.keyDown(slider, { key: 'ArrowRight' })
-    expect(onSelectionChange).toHaveBeenLastCalledWith('codex', 'gpt-5.6-sol', 'high')
+    expect(checkedEffort()).toEqual(['Medium'])
   })
 
-  // Tracking rides `window` pointer listeners, not Pointer Capture, which throws
-  // in WKWebView; so moves fire on `window` and capture is never stubbed.
-  it('is an actually-draggable slider, not just a click-to-jump bar', () => {
-    const onSelectionChange = vi.fn()
-    draw({ effort: 'low', onSelectionChange })
-    openMenu()
-    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    // opus: low, medium, high, xhigh, max — 5 stops across the track width.
-    slider.getBoundingClientRect = () =>
-      ({ left: 0, right: 100, width: 100, top: 0, bottom: 0, height: 0 }) as DOMRect
-
-    fireEvent.pointerDown(slider, { clientX: 0, pointerId: 1 })
-    expect(onSelectionChange).toHaveBeenLastCalledWith('claude', 'opus', 'low')
-
-    fireEvent.pointerMove(window, { clientX: 100, pointerId: 1 })
-    expect(onSelectionChange).toHaveBeenLastCalledWith('claude', 'opus', 'max')
-
-    fireEvent.pointerMove(window, { clientX: 50, pointerId: 1 })
-    expect(onSelectionChange).toHaveBeenLastCalledWith('claude', 'opus', 'high')
-
-    fireEvent.pointerUp(window, { pointerId: 1 })
-    // A move AFTER release must not keep tracking.
-    fireEvent.pointerMove(window, { clientX: 0, pointerId: 1 })
-    expect(onSelectionChange).toHaveBeenLastCalledWith('claude', 'opus', 'high')
-  })
-
-  it('hides the effort slider entirely for a model with no declared levels', () => {
+  it('hides the effort control entirely for a model with no declared levels', () => {
     draw({ provider: codex, model: 'gpt-5.6-luna', effort: '' })
     openMenu()
-    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
   })
 
-  it('clicking an effort tick changes only the effort, keeping the model', () => {
+  it('picking an effort changes only the effort, keeping the model', () => {
     const onSelectionChange = vi.fn()
     draw({ onSelectionChange })
     openMenu()
-    fireEvent.click(screen.getByRole('button', { name: 'Max' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Max' }))
 
     expect(onSelectionChange).toHaveBeenCalledWith('claude', 'opus', 'max')
   })
@@ -274,7 +267,7 @@ describe('AgentSelectionPicker', () => {
 
   // `efforts['']` is the backend's levels for an unselected model, so the raw
   // unset model ('') must find it, where a baked-in label would not.
-  it("finds the provider's own '' entry and draws the slider when no model is confirmed yet", () => {
+  it("finds the provider's own '' entry and draws the effort control when no model is confirmed yet", () => {
     const withDefaultEfforts: AgentProvider = {
       ...claude,
       efforts: { ...claude.efforts, '': ['low', 'medium'] },
@@ -286,17 +279,18 @@ describe('AgentSelectionPicker', () => {
       effort: '',
     })
     openMenu()
-    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    const effortSection = slider.parentElement?.parentElement as HTMLElement
-    expect(within(effortSection).getByText('Low')).toBeInTheDocument()
-    expect(within(effortSection).getByText('Medium')).toBeInTheDocument()
+    expect(
+      within(effortGroup())
+        .getAllByRole('radio')
+        .map((radio) => radio.textContent),
+    ).toEqual(['Low', 'Medium'])
   })
 
   // Without an '' entry there are no levels until a model is picked: absent, not disabled.
-  it('renders no slider for an unconfirmed model when the provider declares no own-default entry', () => {
+  it('renders no effort control for an unconfirmed model when the provider declares no own-default entry', () => {
     draw({ model: '', effort: '' })
     openMenu()
-    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
   })
 
   // `reportedModel` names which model answered; it is display-only, never the selection.
@@ -318,9 +312,9 @@ describe('AgentSelectionPicker', () => {
     expect(trigger).toHaveAccessibleName('Agent: Claude, model opus, effort high')
   })
 
-  // The report must not stand in for the '' model: the slider still finds
+  // The report must not stand in for the '' model: the effort control still finds
   // `efforts['']`, and a pick stages the raw '' model.
-  it("a reported model does not break the unset model's own efforts[''] slider or leak into a pick", () => {
+  it("a reported model does not break the unset model's own efforts[''] control or leak into a pick", () => {
     const withDefaultEfforts: AgentProvider = {
       ...claude,
       efforts: { ...claude.efforts, '': ['low', 'medium'] },
@@ -335,11 +329,9 @@ describe('AgentSelectionPicker', () => {
       onSelectionChange,
     })
     openMenu()
-    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    const effortSection = slider.parentElement?.parentElement as HTMLElement
-    expect(within(effortSection).getByText('Low')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Low' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Medium' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Medium' }))
     expect(onSelectionChange).toHaveBeenCalledWith('claude', '', 'medium')
   })
 
@@ -422,8 +414,16 @@ describe('AgentSelectionPicker', () => {
       await waitFor(() => expect(chrome.pushed.at(-1)?.open).toBe(true))
       expect(chrome.pushed.at(-1)?.permission).toEqual({
         levels: [
-          { value: 'guarded', label: 'Guarded' },
-          { value: 'trusted', label: 'Trusted' },
+          {
+            value: 'guarded',
+            label: 'Guarded',
+            description: 'Asks before edits, commands and tools.',
+          },
+          {
+            value: 'trusted',
+            label: 'Trusted',
+            description: 'Edits files freely. Asks before commands.',
+          },
         ],
         level: 'trusted',
       })

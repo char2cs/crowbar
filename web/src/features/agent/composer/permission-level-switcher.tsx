@@ -11,7 +11,6 @@ import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useChatHost } from '@/lib/host-resolve'
-import { cn } from '@/lib/utils'
 import { Dropdown } from '@/components/ui/dropdown'
 
 /** The default level of the chat's host while the chat pins none; null until it is known. */
@@ -81,12 +80,21 @@ export function usePermissionLevel(target: PermissionTarget | null) {
   const offered = options.map((opt) => opt.value)
   const level: PermissionLevel | '' =
     picked ?? (pinned || (inherited && offered.length > 0 ? offeredLevel(inherited, offered) : ''))
-  return { options, level, setLevel }
+  /** Steps to the next offered level, wrapping; false when there is no choice to step through. */
+  const cycle = () => {
+    if (options.length < 2) return false
+    const at = options.findIndex((opt) => opt.value === level)
+    setLevel(options[(at + 1) % options.length]!.value)
+    return true
+  }
+  return { options, level, setLevel, cycle }
 }
 
+export type PermissionControl = ReturnType<typeof usePermissionLevel>
+
 /** The footer's permission chip: the current level, opening the choice as a menu. */
-export function PermissionLevelChip(props: PermissionTarget) {
-  const { options, level, setLevel } = usePermissionLevel(props)
+export function PermissionLevelChip({ control }: { control: PermissionControl }) {
+  const { options, level, setLevel } = control
   const anchorRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const close = useCallback(() => setOpen(false), [])
@@ -98,7 +106,7 @@ export function PermissionLevelChip(props: PermissionTarget) {
       <button
         ref={anchorRef}
         type="button"
-        className={cn('chip', current && 'set')}
+        className="chip"
         data-testid="chat-permission-level-chip"
         title="What the agent may do without asking"
         aria-label={`Permission level for this chat: ${current?.label ?? 'not set'}`}
@@ -116,13 +124,42 @@ export function PermissionLevelChip(props: PermissionTarget) {
         anchorRef={anchorRef}
         anchorSide="top"
         anchorAlign="start"
-        items={options.map((opt) => ({
-          id: opt.value,
-          label: opt.label,
-          icon: opt.value === level ? <CheckIcon size={12} /> : <span className="size-3" />,
-          onClick: () => setLevel(opt.value),
-        }))}
-      />
+        style={{ width: 332 }}
+      >
+        <div role="menu" aria-label="Permission level" className="p-1">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={opt.value === level}
+              className="lvl-row"
+              data-selected={opt.value === level || undefined}
+              data-risk={opt.value === 'full-auto' || undefined}
+              onClick={() => {
+                setLevel(opt.value)
+                close()
+              }}
+            >
+              <span>
+                <b>{opt.label}</b>
+                <small>{opt.description}</small>
+              </span>
+              {opt.value === level && <CheckIcon size={12} className="lvl-check" />}
+            </button>
+          ))}
+          <div className="lvl-foot">
+            <span>Applies to this chat</span>
+            <span className="lvl-grow" />
+            {options.length > 1 && (
+              <span>
+                <kbd>shift</kbd>
+                <kbd>tab</kbd>cycle
+              </span>
+            )}
+          </div>
+        </div>
+      </Dropdown>
     </>
   )
 }

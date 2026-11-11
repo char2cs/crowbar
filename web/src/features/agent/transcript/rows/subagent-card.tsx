@@ -1,11 +1,11 @@
 import { memo, useMemo, useState } from 'react'
-import { CaretRightIcon, CircleDashedIcon, StopIcon, XIcon } from '@phosphor-icons/react'
+import { CaretRightIcon, CheckIcon, CircleDashedIcon, StopIcon, XIcon } from '@phosphor-icons/react'
 import type { Icon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { useTextClock } from '@/features/agent/activity/lib/text-clock'
 import { useChatItem, useChatItems } from '@/features/agent/hooks/use-chat-feed'
 import { useSubagentAction } from '@/features/agent/hooks/use-subagent-action'
+import { formatTrayClock } from '@/features/agent/trays/lib/tray-rows'
 import { SubagentIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import { ItemMap } from '@/features/agent/stores/lib/item-map'
@@ -41,7 +41,7 @@ function took(card: SubagentItem): string {
   const ms =
     card.usage?.durationMs ??
     (card.endedAt ? Date.parse(card.endedAt) - Date.parse(card.startedAt) : 0)
-  return ms > 0 ? formatElapsed(Math.round(ms / 1000)) : ''
+  return ms > 0 ? formatTrayClock(Math.round(ms / 1000)) : ''
 }
 
 /** The subagent's own rows, by the same components as the main transcript. */
@@ -86,7 +86,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
   const [open, setOpen] = useState(false)
   const action = useSubagentAction(chatId, card?.scope)
   const live = card?.status === 'starting' || card?.status === 'running'
-  const clockRef = useTextClock(live ? card?.startedAt : undefined)
+  const clockRef = useTextClock(live ? card?.startedAt : undefined, formatTrayClock)
   if (card?.kind !== 'subagent') return null
   const usage = live ? '' : spent(card)
   const outcome = OUTCOMES[card.status]
@@ -94,19 +94,23 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
     <>
       {live ? (
         <FlickerSpinner className="size-3" />
+      ) : outcome ? (
+        <outcome.Glyph size={12} className="tool-glyph" />
       ) : (
-        outcome && <outcome.Glyph size={12} className="tool-glyph" />
+        <CheckIcon size={12} className="tool-glyph" />
       )}
       <SubagentIcon size={12} />
       <span className="subagent-title">{card.title || card.type || 'Subagent'}</span>
       {card.type && card.title && <span className="subagent-type">{card.type}</span>}
-      <span className="subagent-clock" ref={clockRef}>
-        {live ? '' : took(card)}
-      </span>
-      {usage && <span className="subagent-usage">· {usage}</span>}
+      {(live || took(card)) && (
+        <span className="subagent-clock" ref={clockRef}>
+          {live ? '' : took(card)}
+        </span>
+      )}
       {outcome && (
         <span className="tool-call-state" data-outcome={outcome.kind}>
           {outcome.text}
+          {card.status === 'failed' && !usage && !took(card) && ' · could not start'}
         </span>
       )}
     </>
@@ -124,6 +128,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
           <button
             type="button"
             className="subagent-head"
+            title={usage || undefined}
             aria-expanded={open}
             onClick={() => setOpen((o) => !o)}
           >
@@ -133,7 +138,9 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
             </span>
           </button>
         ) : (
-          <div className="subagent-head">{head}</div>
+          <div className="subagent-head" title={usage || undefined}>
+            {head}
+          </div>
         )}
         {live && (
           <p className="subagent-action" data-testid="agent-subagent-action">

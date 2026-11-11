@@ -111,14 +111,6 @@
   font-family: var(--font-mono);
   font-size: 0.72rem;
 }
-.agent-chat .tool-call-duration {
-  flex: none;
-  margin-left: auto;
-  color: color-mix(in srgb, var(--muted-foreground) 78%, transparent);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-variant-numeric: tabular-nums;
-}
 .agent-chat .tools .kind {
   display: inline-flex;
   align-items: center;
@@ -226,9 +218,9 @@
   flex: none;
 }
 .agent-chat .tool-call-state,
-.agent-chat .tool-call-stat,
-.agent-chat .tool-call-command {
+.agent-chat .tool-call-note {
   flex: none;
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 0.68rem;
 }
@@ -236,13 +228,23 @@
    a solid chip, and a result that never came a dashed, empty one. */
 .agent-chat .tool-call-state[data-outcome],
 .agent-chat .tool-call-note[data-outcome] {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 18px;
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 9999px;
   font-family: var(--app-font-family, inherit);
   font-size: 0.72rem;
   font-weight: 500;
-  line-height: 18px;
+  line-height: 1;
+  white-space: nowrap;
+}
+/* Zero specificity, so each outcome below can recolour it. */
+:where(.agent-chat .tool-call-state[data-outcome], .agent-chat .tool-call-note[data-outcome]) {
+  background: var(--muted);
+  color: var(--foreground);
 }
 [data-outcome='failed'] {
   border-color: color-mix(in oklch, var(--destructive) 36%, var(--border));
@@ -259,6 +261,13 @@
   background: var(--foreground);
   color: var(--background);
 }
+.agent-chat .tool-call-note[data-outcome='allowed'] {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
 [data-outcome='unavailable'],
 [data-outcome='awaiting'] {
   border-style: dashed;
@@ -270,24 +279,6 @@
 }
 .agent-chat .tools li[data-status='declined'] .tool-glyph {
   color: var(--warn-text);
-}
-.agent-chat .tool-call-command {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-}
-/* A non-zero exit is not a failure by itself: a neutral chip, not the error colour. */
-.agent-chat .tool-call-exit {
-  flex: none;
-  padding: 0 4px;
-  border-radius: var(--radius-sm, 4px);
-  background: var(--muted);
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
 }
 .agent-chat .mcp-server {
   --mcp-hue: var(--chart-1);

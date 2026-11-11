@@ -4,7 +4,6 @@ import UIKit
 struct PickerModel: Decodable, Identifiable, Equatable {
   let id: String
   let name: String
-  let detail: String?
 }
 
 struct PickerProvider: Decodable, Identifiable, Equatable {
@@ -24,6 +23,7 @@ struct PickerSelection: Decodable, Equatable {
 struct PickerPermissionLevel: Decodable, Identifiable, Equatable {
   let value: String
   let label: String
+  let description: String
   var id: String { value }
 }
 
@@ -151,8 +151,11 @@ struct ModelPickerSheet: View {
           Haptics.select()
           model.send(.of("setPermissionLevel", ["level": item.value]))
         } label: {
-          HStack {
-            Text(item.label).foregroundStyle(text)
+          HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(item.label).foregroundStyle(item.value == "full-auto" ? Color.orange : text)
+              Text(item.description).font(.footnote).foregroundStyle(secondaryText)
+            }
             Spacer()
             if item.value == permission.level { PhosphorIcon(.check, size: 18) }
           }
@@ -174,12 +177,7 @@ struct ModelPickerSheet: View {
       model.send(.of("selectModel", ["providerId": provider.id, "modelId": item.id]))
     } label: {
       HStack {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(item.name).foregroundStyle(text)
-          if let detail = item.detail {
-            Text(detail).font(.footnote).foregroundStyle(secondaryText)
-          }
-        }
+        Text(item.name).foregroundStyle(text)
         Spacer()
         if selected { PhosphorIcon(.check, size: 18) }
       }

@@ -9,7 +9,7 @@
     0 1px 2px oklch(0 0 0 / 0.06),
     0 8px 28px -18px oklch(0 0 0 / 0.55),
     inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
-  padding: 8px 14px;
+  padding: 10px 18px;
   transition: box-shadow 0.18s ease;
   /* The compaction rain sits at z-index -1: above the fill, below the text. */
   isolation: isolate;
@@ -49,7 +49,7 @@
   overflow-y: auto;
   scrollbar-gutter: stable;
   max-height: 50vh;
-  padding: 0 65px 0 0;
+  padding: 0 57px 0 0;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   caret-color: var(--foreground);
@@ -150,8 +150,8 @@
 /* Rides the field's growth instantly: an eased offset lags text that has already wrapped. */
 .agent-chat .handle {
   position: absolute;
-  right: 3px;
-  top: 8px;
+  right: 5px;
+  top: 10px;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -164,7 +164,7 @@
   margin: 0 4px;
 }
 
-/* A 30px circle inset 3px on every side of the pill's 36px padding box: (36 - d) / 2 = right.
+/* A 30px circle inset 5px on every side of the pill's 40px padding box: (40 - d) / 2 = right.
    Diameter, padding and `right` are one number; change them together. */
 .agent-chat .send {
   display: grid;
@@ -215,6 +215,11 @@
   height: 18px;
 }
 
+.agent-chat .send.queue svg:not([class*='size-']) {
+  width: 17px;
+  height: 17px;
+}
+
 /* In `.handle`, its flex `gap: 2px` is the only spacing beside `.send`; send's base margin would
    double-count against the field padding fieldRightPadding() (handle-geometry.ts) sizes exactly. */
 .agent-chat .handle .send {
@@ -238,25 +243,26 @@
 .agent-chat .pill.multi .plusbtn {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 2px); /* HANDLE_GAP, handle-geometry.ts */
+  bottom: calc(100% + 4px);
 }
 
 .agent-chat .pill.multi .field {
-  /* The text column must match the one-line field's (100% - 62px), or wrapping flips `.multi` and
+  /* The text column must match the one-line field's (100% - 57px), or wrapping flips `.multi` and
      back (height flicker). `width` gives back send's 18px reach so the scrollbar clears it. */
-  padding-right: 47px;
+  padding-right: 39px;
   width: calc(100% - 18px);
 }
 
 /* The phone's capsule, one set of numbers for the chat's pill and the empty document's bar:
-   20px lines, 11px padding, 32pt circles inset 5px — sendInset/fieldRightPadding in
-   handle-geometry.ts. 16px text: iOS zooms into a smaller focused field. */
+   a 54px one-line pill, 34px circles (44px to the finger) inset 9px and 10px apart.
+   16px text: iOS zooms into a smaller focused field. */
 .agent-chat {
   --touch-line: 20px;
-  --touch-pad-y: 11px;
+  --touch-pad-y: 16px;
   --touch-pad-x: 16px;
-  --touch-circle: 32px;
-  --touch-inset: 5px;
+  --touch-circle: 34px;
+  --touch-inset: 9px;
+  --touch-gap: 10px;
   --touch-text: 16px;
 }
 .agent-chat .pill[data-touch] {
@@ -269,19 +275,25 @@
   min-height: var(--touch-line);
   line-height: var(--touch-line);
   font-size: var(--touch-text);
-  padding-right: calc(var(--touch-inset) + 2 * var(--touch-circle) + 2px);
+  padding-right: calc(
+    var(--touch-inset) + 2 * var(--touch-circle) + var(--touch-gap) - var(--touch-pad-x) + 9px
+  );
 }
 /* Same text column as one line (the flicker rule above): the width gives back the send
    circle's reach past the padding, the padding keeps the rest. */
 .agent-chat .pill[data-touch].multi .field {
   --reach: calc(var(--touch-pad-x) - var(--touch-inset));
   width: calc(100% - var(--reach));
-  padding-right: calc(var(--touch-inset) + 2 * var(--touch-circle) + 2px - var(--reach));
+  padding-right: calc(
+    var(--touch-inset) + 2 * var(--touch-circle) + var(--touch-gap) - var(--touch-pad-x) + 9px -
+      var(--reach)
+  );
 }
 .agent-chat .pill[data-touch] .handle {
   top: var(--touch-pad-y);
   right: var(--touch-inset);
   height: var(--touch-line);
+  gap: var(--touch-gap);
 }
 .agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn) {
   width: var(--touch-circle);
@@ -291,13 +303,18 @@
   position: relative;
 }
 .agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn) svg:not([class*='size-']) {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
+}
+.agent-chat :is(.pill, .dochandle)[data-touch] .send.queue svg:not([class*='size-']) {
+  width: 19px;
+  height: 19px;
 }
 /* Wrapped, plus stacks above send; the handle anchors to the pill's bottom and the pill is never
-   shorter than both circles. !important unseats the desktop's inline last-line translateY. */
+   shorter than both circles and the 14px between them. !important unseats the desktop's inline
+   last-line translateY. */
 .agent-chat .pill[data-touch].multi {
-  min-height: calc(2 * var(--touch-circle) + 2px + 2 * var(--touch-inset));
+  min-height: calc(2 * var(--touch-circle) + 14px + 2 * var(--touch-inset) + 2px);
 }
 .agent-chat .pill[data-touch].multi .handle {
   top: auto;
@@ -308,66 +325,17 @@
 .agent-chat .pill[data-touch].multi .plusbtn {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 2px); /* HANDLE_GAP, handle-geometry.ts */
+  bottom: calc(100% + 14px);
 }
-/* 44pt to the finger, 32pt to the eye. */
+/* 44pt to the finger, 34pt to the eye. */
 .agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn)::after {
   content: '';
   position: absolute;
-  inset: -6px;
+  inset: -5px;
 }
 /* Under the model row: half the desktop's foot, the safe area still below it. */
 .agent-chat .dock:has(.pill[data-touch]) {
   padding-bottom: 7px;
-}
-
-/* The phone's picker row: centred under the capsule, text 1.125x, the provider mark at the
-   label's optical size; the effort truncates first. */
-.agent-chat .underbar[data-touch] {
-  justify-content: center;
-  /* Room for the chip's hit-slop, which `overflow: hidden` would otherwise clip. */
-  padding-bottom: 7px;
-}
-.agent-chat .underbar[data-touch] .left {
-  justify-content: center;
-}
-.agent-chat .underbar[data-touch] .selpos {
-  flex: 0 1 auto;
-}
-.agent-chat .underbar[data-touch] .right {
-  margin-left: 0;
-}
-.agent-chat .underbar[data-touch] .right:empty {
-  display: none;
-}
-.agent-chat .underbar[data-touch] .chip {
-  position: relative;
-  height: auto;
-  max-width: 100%;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: calc(var(--ui-text-sm) * 1.125);
-}
-/* The 44pt touch target, invisible: the chip itself hugs its text. */
-.agent-chat .underbar[data-touch] .chip::before {
-  content: '';
-  position: absolute;
-  inset: -7px 0;
-}
-.agent-chat .underbar[data-touch] .chip svg {
-  width: 0.8em;
-  height: 0.8em;
-}
-.agent-chat .underbar[data-touch] .chip [data-provider-icon],
-.agent-chat .underbar[data-touch] .chip [data-provider-icon] svg {
-  width: 1.15em;
-  height: 1.15em;
-}
-.agent-chat .underbar[data-touch] .chip > b {
-  flex-shrink: 0;
-  max-width: 60%;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Compaction: faint dot-matrix rain behind the pill's content. Two SVG layers, one transform

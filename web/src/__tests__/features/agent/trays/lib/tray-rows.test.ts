@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { windowRows, type TrayRow } from '@/features/agent/trays/lib/tray-rows'
+import { formatTrayClock, windowRows, type TrayRow } from '@/features/agent/trays/lib/tray-rows'
 
 const row = (
   id: string,
@@ -9,6 +9,15 @@ const row = (
 
 const ids = (entries: ReturnType<typeof windowRows>['entries']) =>
   entries.map((entry) => (entry.type === 'row' ? entry.row.id : `# ${entry.text}`))
+
+describe('formatTrayClock', () => {
+  it('writes seconds, then minutes with padded seconds, then hours', () => {
+    expect(formatTrayClock(58)).toBe('58s')
+    expect(formatTrayClock(102)).toBe('1m 42s')
+    expect(formatTrayClock(363)).toBe('6m 03s')
+    expect(formatTrayClock(3900)).toBe('1h 05m')
+  })
+})
 
 describe('windowRows', () => {
   it('shows up to four rows as they are', () => {

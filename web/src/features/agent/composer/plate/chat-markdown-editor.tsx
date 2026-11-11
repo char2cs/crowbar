@@ -48,6 +48,12 @@ export interface ChatMarkdownEditorHandle {
   appendMarkdown(markdown: string): void
   /** Replaces the `@path` before the caret with `text`. */
   completeMention(text: string): void
+  /** Types the `@` that opens the file picker, after a space. */
+  insertTrigger(trigger: '@'): void
+  /** Opens the command picker: a `/` line above whatever is typed, which stays below it. */
+  startCommand(): void
+  /** Replaces the command line, the first, with `text`; the lines below stay. */
+  completeCommand(text: string): void
   focus(): void
   clear(): void
 }
@@ -69,11 +75,16 @@ function blankParagraph(node: Descendant): boolean {
   return NodeApi.string(node).trim() === ''
 }
 
-function mentionBefore(editor: PlateEditor): string | null {
+function textBeforeCaret(editor: PlateEditor): string {
   const { selection } = editor
-  if (!selection || !RangeApi.isCollapsed(selection)) return null
+  if (!selection || !RangeApi.isCollapsed(selection)) return ''
   const leaf = NodeApi.get(editor, selection.anchor.path)
-  const before = leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
+  return leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
+}
+
+function mentionBefore(editor: PlateEditor): string | null {
+  const before = textBeforeCaret(editor)
+  if (!editor.selection || !RangeApi.isCollapsed(editor.selection)) return null
   return /(?:^|\s)@([^\s@]*)$/.exec(before)?.[1] ?? null
 }
 
@@ -300,6 +311,29 @@ export function ChatMarkdownEditor({
         const typed = mentionBefore(editor)
         if (typed === null) return
         editor.tf.delete({ distance: typed.length + 1, unit: 'character', reverse: true })
+        editor.tf.insertText(text)
+        focusAndReport()
+      },
+      insertTrigger: (trigger: '@') => {
+        editor.tf.focus()
+        editor.tf.insertText(/\S$/.test(textBeforeCaret(editor)) ? ` ${trigger}` : trigger)
+        report()
+      },
+      startCommand: () => {
+        const first = editor.children[0]
+        const commandFirst = first && 'type' in first && NodeApi.string(first).startsWith('/')
+        if (!commandFirst) {
+          if (shapeOf(editor).empty) load('/')
+          else editor.tf.insertNodes({ type: 'p', children: [{ text: '/' }] }, { at: [0] })
+        }
+        editor.tf.select(editor.api.end([0])!)
+        editor.tf.focus()
+        report()
+      },
+      completeCommand: (text: string) => {
+        const [start, end] = [editor.api.start([0]), editor.api.end([0])]
+        if (!start || !end) return
+        editor.tf.select({ anchor: start, focus: end })
         editor.tf.insertText(text)
         focusAndReport()
       },

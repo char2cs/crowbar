@@ -138,7 +138,7 @@ final class PayloadDecodingTests: XCTestCase {
        "selected":{"providerId":"claude","modelId":"m1"},"efforts":["low","high"],"effort":null}
       """)
     XCTAssertNil(state.providers[0].icon)
-    XCTAssertNil(state.providers[0].models[0].detail)
+    XCTAssertEqual(state.providers[0].models[0].name, "Model 1")
     XCTAssertEqual(state.selected, PickerSelection(providerId: "claude", modelId: "m1"))
     XCTAssertEqual(state.efforts, ["low", "high"])
   }
@@ -148,9 +148,10 @@ final class PayloadDecodingTests: XCTestCase {
       ModelPickerState.self,
       """
       {"open":true,"providers":[],"selected":null,"efforts":[],"effort":null,
-       "permission":{"levels":[{"value":"guarded","label":"Guarded"}],"level":"guarded"}}
+       "permission":{"levels":[{"value":"guarded","label":"Guarded","description":"Asks first."}],"level":"guarded"}}
       """)
     XCTAssertEqual(state.permission?.levels.map(\.label), ["Guarded"])
+    XCTAssertEqual(state.permission?.levels.map(\.description), ["Asks first."])
     XCTAssertEqual(state.permission?.level, "guarded")
   }
 

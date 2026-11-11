@@ -80,8 +80,9 @@ describe('ComposerChoice elicitation form', () => {
   it('declines without a form being filled, Decline before Submit', async () => {
     show(form)
 
-    const labels = screen.getAllByRole('button').map((button) => button.textContent)
-    expect(labels.indexOf('Decline')).toBeLessThan(labels.indexOf('Submit'))
+    const labels = screen.getAllByRole('button').map((button) => button.textContent ?? '')
+    const at = (name: string) => labels.findIndex((label) => label.startsWith(name))
+    expect(at('Decline')).toBeLessThan(at('Submit'))
     fireEvent.click(screen.getByRole('button', { name: 'Decline' }))
     await waitFor(() =>
       expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['decline'] }),

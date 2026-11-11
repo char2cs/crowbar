@@ -1,35 +1,31 @@
-import { useState, type ReactNode } from 'react'
-import type { FailureKind } from '@/features/agent/transcript/lib/turn-failure'
+import type { ReactNode } from 'react'
+import type { NoticeTone } from '@/features/agent/transcript/lib/marker-failure'
 
 export interface FailureNoticeProps {
-  /** `warning` is a provider's heads-up: the same notice, without a failed turn. */
-  kind: FailureKind | 'warning'
+  tone: NoticeTone
   headline: string
   /** One short second line. */
-  hint?: ReactNode
-  /** The provider's raw words, reachable only behind a compact Details toggle. */
-  detail?: string
+  hint?: string
   /** Buttons, primary last; they sit at the right of the text. */
   actions?: ReactNode
-  /** Marks the headline for tests and the transcript's own lookups. */
+  /** Marks the headline for tests and the dock's own lookups. */
   headlineTestId?: string
 }
 
-/** A failure or warning in at most two short lines, with its way on at the right. */
+/** The one failure notice: at most two plain lines with its way on at the right. No
+ *  icon, no code, no raw provider text. */
 export function FailureNotice({
-  kind,
+  tone,
   headline,
   hint,
-  detail,
   actions,
   headlineTestId,
 }: FailureNoticeProps) {
-  const [open, setOpen] = useState(false)
   return (
-    <div
-      className="failure-notice"
+    <section
+      className="tray-section failure-notice"
       role="status"
-      data-kind={kind}
+      data-tone={tone}
       data-testid="agent-failure-notice"
     >
       <div className="failure-notice-text">
@@ -41,19 +37,8 @@ export function FailureNotice({
             {hint}
           </p>
         )}
-        {detail && (
-          <button
-            type="button"
-            className="failure-notice-details"
-            aria-expanded={open}
-            onClick={() => setOpen((o) => !o)}
-          >
-            Details
-          </button>
-        )}
       </div>
       {actions && <div className="failure-notice-actions">{actions}</div>}
-      {open && detail && <pre className="failure-notice-raw">{detail}</pre>}
-    </div>
+    </section>
   )
 }

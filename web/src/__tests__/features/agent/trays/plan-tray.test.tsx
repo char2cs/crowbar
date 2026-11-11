@@ -25,6 +25,24 @@ describe('PlanTray', () => {
     ])
   })
 
+  it('draws one pip per step, lit for each one done', () => {
+    const { container } = render(<PlanTray plan={plan} />)
+    const pips = [...container.querySelectorAll('.tray-pips i')]
+    expect(pips.map((pip) => pip.hasAttribute('data-on'))).toEqual([true, false, false])
+  })
+
+  it('scales a long plan onto eight pips', () => {
+    const long = Array.from({ length: 20 }, (_, i) => ({
+      id: String(i),
+      text: `step ${i}`,
+      status: i < 10 ? 'done' : 'pending',
+    }))
+    const { container } = render(<PlanTray plan={long} />)
+    const pips = [...container.querySelectorAll('.tray-pips i')]
+    expect(pips).toHaveLength(8)
+    expect(pips.filter((pip) => pip.hasAttribute('data-on'))).toHaveLength(4)
+  })
+
   it('spins only the active step', () => {
     render(<PlanTray plan={plan} />)
     fireEvent.click(screen.getByRole('button'))

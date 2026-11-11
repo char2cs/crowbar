@@ -166,18 +166,51 @@
 
 /* One message that failed to render: its text as written, scoped to it alone. */
 .agent-chat .message-error {
-  padding: 9px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px 9px 14px;
   border: 1px dashed color-mix(in oklch, var(--destructive) 40%, var(--border));
   border-radius: 12px;
   font-size: 13px;
   line-height: 18px;
 }
+.agent-chat .message-error .tx {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.agent-chat .message-error b {
+  font-weight: 600;
+}
+.agent-chat .message-error .s {
+  color: var(--muted-foreground);
+}
+.agent-chat .message-error-action {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
 .agent-chat .message-error-text {
+  flex-basis: 100%;
+  margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.agent-chat .message-error-note {
-  margin-top: 4px;
-  color: var(--muted-foreground);
-  font-size: var(--ui-text-xs);
+@media (pointer: coarse) {
+  .agent-chat .message-error-action {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
 }

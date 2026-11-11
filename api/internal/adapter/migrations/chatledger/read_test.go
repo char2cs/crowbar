@@ -299,6 +299,7 @@ func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T)
 var readByVersion = map[int]string{
 	4: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
 	5: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
+	6: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
 }
 
 func TestReadLegacy_AChangedReaderRaisesTheConverterVersion(t *testing.T) {

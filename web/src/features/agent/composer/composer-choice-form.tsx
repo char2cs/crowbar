@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import { Input } from '@/components/ui/input'
-import { Radio, RadioGroup } from '@/components/ui/radio-group'
+import { RadioGroupPrimitive, RadioPrimitive } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
 import { fieldError, type FormField, type FormValues } from '@/features/agent/composer/lib/ask-form'
 
@@ -87,8 +87,8 @@ function FieldControl({
   }
   if (field.kind === 'choice') {
     return (
-      <RadioGroup
-        className="rq-choice"
+      <RadioGroupPrimitive
+        className="rq-seg"
         aria-labelledby={labelId}
         value={String(value)}
         onValueChange={(next) => {
@@ -97,12 +97,16 @@ function FieldControl({
         }}
       >
         {field.options?.map((option) => (
-          <label key={option.value}>
-            <Radio value={option.value} disabled={busy} />
-            <span>{option.label}</span>
-          </label>
+          <RadioPrimitive.Root
+            key={option.value}
+            value={option.value}
+            disabled={busy}
+            className="rq-seg-opt"
+          >
+            {option.label}
+          </RadioPrimitive.Root>
         ))}
-      </RadioGroup>
+      </RadioGroupPrimitive>
     )
   }
   return (

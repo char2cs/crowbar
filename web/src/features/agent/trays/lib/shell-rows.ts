@@ -38,5 +38,6 @@ export function shellRow(shell: ShellItem): TrayRow {
     hint: hint(shell),
     status: running ? 'running' : shell.status === 'finished' ? 'done' : shell.status,
     startedAt: shell.startedAt,
+    endedAt: shell.endedAt,
   }
 }

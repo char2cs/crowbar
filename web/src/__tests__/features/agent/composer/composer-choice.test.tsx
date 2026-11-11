@@ -108,7 +108,7 @@ describe('ComposerChoice that cannot be answered from here', () => {
     show({ answerable: false })
 
     expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('false')
-    expect(screen.getByText('Run Bash?')).toBeInTheDocument()
+    expect(screen.getByText('Run Bash')).toBeInTheDocument()
     expect(screen.getByTestId('agent-choice-options-readonly')).toHaveTextContent('Allow')
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
     expect(screen.queryByTestId('agent-choice-options')).toBeNull()
