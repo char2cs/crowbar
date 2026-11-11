@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
-import { NodeApi, PointApi, RangeApi, type Descendant, type Value } from 'platejs'
+import { NodeApi, PointApi, RangeApi, type Value } from 'platejs'
 import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import {
@@ -10,7 +10,10 @@ import {
   settlePendingImageInto,
 } from '@/features/agent/composer/plate/chat-attachment-insert'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { chatComposerStructurePlugin } from '@/features/agent/composer/plate/chat-composer-structure'
+import {
+  blankParagraph,
+  chatComposerStructurePlugin,
+} from '@/features/agent/composer/plate/chat-composer-structure'
 import {
   chatMarkdownToValue,
   chatValueToMarkdown,
@@ -65,14 +68,6 @@ export interface ComposerShape {
   slashQuery: string | null
   /** The `@path` typed right before the caret, without its `@`; null when there is none. */
   mentionQuery: string | null
-}
-
-// A list or quote paragraph is text-bearing markdown even when it has no letters;
-// a block id is the editor's bookkeeping, not markdown.
-function blankParagraph(node: Descendant): boolean {
-  const markup = Object.keys(node).filter((key) => key !== 'id' && key !== 'children')
-  if (!('type' in node) || node.type !== 'p' || markup.length > 1) return false
-  return NodeApi.string(node).trim() === ''
 }
 
 function textBeforeCaret(editor: PlateEditor): string {

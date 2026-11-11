@@ -44,6 +44,17 @@
 .agent-chat-pane[data-touch] .agent-chat .dock {
   padding-inline: 12px;
 }
+/* An attachment's controls reach 44pt a piece: clear of the card's top edge (the field clips
+   above it) and of each other. */
+.agent-chat-pane[data-touch] .attachment-controls {
+  top: 10px;
+  gap: 16px;
+}
+.agent-chat-pane[data-touch] .attachment-controls button::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
 /* Status and error lines about the composer read centred on the input box. */
 .agent-chat .composer-note {
   text-align: center;

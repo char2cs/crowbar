@@ -338,7 +338,7 @@
 .agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn)::after {
   content: '';
   position: absolute;
-  inset: -5px;
+  inset: -6px;
 }
 /* Under the model row: half the desktop's foot, the safe area still below it. */
 .agent-chat .dock:has(.pill[data-touch]) {

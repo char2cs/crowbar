@@ -9,6 +9,13 @@ import { useConnectionStore } from '@/lib/ws/connection-store'
 const CRASH_CHECK = 'Check whether the backend is crash-looping'
 const CRASH_CHECK_UNANSWERED = 'The desktop app did not answer; the backend may be fine.'
 
+// A crash report is a claim that nothing reconnects: a live socket proves it stale, however late it arrives.
+const recordCrash = (report: string) => {
+  if (useConnectionStore.getState().status !== 'connected') {
+    useDaemonCrashStore.getState().crashed(report)
+  }
+}
+
 // Surfaces the supervisor's daemon lifecycle so a wedge or crash loop isn't silent. Not
 // `terminated` (also fires on intentional shutdown). `halted` and `dead` go to their stores,
 // cleared by `restarted`; a crash loop from before this window loaded is asked for on mount.
@@ -43,7 +50,7 @@ export function DaemonHealthListener() {
             toast.success('Backend restarted', 'Sessions reconnect automatically.')
           },
         ],
-        ['daemon:dead', ({ payload }) => useDaemonCrashStore.getState().crashed(String(payload))],
+        ['daemon:dead', ({ payload }) => recordCrash(String(payload))],
         ['daemon:halted', ({ payload }) => useDaemonHaltStore.getState().halt(String(payload))],
       ]
       // Each subscription is an independent event name, so register them
@@ -58,7 +65,7 @@ export function DaemonHealthListener() {
         reportFailure(err, { action: CRASH_CHECK, fallback: CRASH_CHECK_UNANSWERED })
         return null
       })
-      if (!disposed && report !== null) useDaemonCrashStore.getState().crashed(report)
+      if (!disposed && report !== null) recordCrash(report)
     })()
 
     return () => {

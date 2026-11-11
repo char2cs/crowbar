@@ -5,6 +5,14 @@ import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/cha
 import { BottomTray } from '@/features/agent/trays/bottom-tray'
 import { ledger } from '@/__tests__/__fixtures__/ledger-rows'
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
 const push = (row: LedgerRow) => act(() => void applyFeedFrame('chat-1', { type: 'row', row }))
 
 function startSubagents(count: number) {
@@ -23,6 +31,7 @@ function startSubagents(count: number) {
 }
 
 beforeEach(() => {
+  platform.mobile = false
   chatStore.setState({ feeds: {} })
   openFeed('chat-1')
   applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
@@ -157,5 +166,55 @@ describe('BottomTray', () => {
       )
       expect(screen.getByText('Dev server').closest('li')).toHaveAttribute('data-status', 'stopped')
     })
+  })
+})
+
+describe('BottomTray on a phone', () => {
+  beforeEach(() => {
+    platform.mobile = true
+  })
+
+  function startMixed() {
+    const l = startSubagents(3)
+    const shell = (body: object) =>
+      push(l.row('shell', { phase: 'start', ...body } as never, { turnId: 'turn-1' }))
+    shell({ shellId: 'sh-1', command: 'npm run dev' })
+    shell({ shellId: 'sh-2', command: 'npm test' })
+    shell({ shellId: 'mon-1', kind: 'monitor', command: 'tail -f app.log' })
+  }
+
+  it('shows one row for a single item', () => {
+    render(<BottomTray chatId="chat-1" />)
+    startSubagents(1)
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.queryByRole('button', { expanded: false })).toBeNull()
+  })
+
+  it('folds two or more items into one summary row that opens to the rows and closes again', () => {
+    render(<BottomTray chatId="chat-1" />)
+    startMixed()
+    const summary = screen.getByRole('button', {
+      name: '3 subagents · 2 shells · 1 monitor',
+    })
+    expect(summary).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.queryByText('agent-1')).toBeNull()
+
+    fireEvent.click(summary)
+    expect(summary).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('agent-1')).toBeInTheDocument()
+    expect(screen.getByText('tail -f app.log')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /more/ })).toBeNull()
+
+    fireEvent.click(summary)
+    expect(screen.queryByText('agent-1')).toBeNull()
+  })
+
+  it('leaves the desktop tray as it is', () => {
+    platform.mobile = false
+    render(<BottomTray chatId="chat-1" />)
+    startMixed()
+    expect(screen.getAllByRole('listitem').length).toBeGreaterThan(1)
+    expect(screen.queryByRole('button', { name: /subagents ·/ })).toBeNull()
   })
 })

@@ -155,13 +155,16 @@ export function ChoiceReadOnly({
   const listed: AgentChoiceOption[] = [...options, ...questions.flatMap((q) => q.options)]
   if (listed.length === 0) return null
   return (
-    <ul className="rq-readonly" data-testid="agent-choice-options-readonly">
-      {listed.map((option) => (
-        <li key={option.id}>
-          {optionLabel(option)}
-          {option.description ? ` — ${option.description}` : ''}
-        </li>
-      ))}
-    </ul>
+    <>
+      <p className="rq-note">Answer this in the terminal. It offers:</p>
+      <ul className="rq-readonly" data-testid="agent-choice-options-readonly">
+        {listed.map((option) => (
+          <li key={option.id}>
+            {optionLabel(option)}
+            {option.description ? ` — ${option.description}` : ''}
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }

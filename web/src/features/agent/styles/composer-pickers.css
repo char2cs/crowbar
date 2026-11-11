@@ -542,6 +542,9 @@
 .lvl-row[data-risk] {
   color: var(--warning-foreground);
 }
+.dark .lvl-row[data-risk] {
+  color: var(--warning);
+}
 .lvl-row[data-risk][data-selected] {
   background: color-mix(in oklch, var(--warning) 14%, transparent);
 }

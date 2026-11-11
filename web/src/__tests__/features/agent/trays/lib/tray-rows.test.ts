@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatTrayClock, windowRows, type TrayRow } from '@/features/agent/trays/lib/tray-rows'
+import {
+  formatTrayClock,
+  summarizeRows,
+  windowRows,
+  type TrayRow,
+} from '@/features/agent/trays/lib/tray-rows'
 
 const row = (
   id: string,
@@ -62,5 +67,20 @@ describe('windowRows', () => {
     expect(ids(windowRows([row('mo', 'monitor')], false).entries)).toEqual(['mo'])
     expect(ids(windowRows([row('ag')], false).entries)).toEqual(['ag'])
     expect(ids(windowRows([row('sh', 'shell')], false).entries)).toEqual(['sh'])
+  })
+})
+
+describe('summarizeRows', () => {
+  it('counts each kind present, in tray order, singular or plural', () => {
+    const rows = [
+      row('m', 'monitor'),
+      row('a'),
+      row('b'),
+      row('c'),
+      row('s1', 'shell'),
+      row('s2', 'shell'),
+    ]
+    expect(summarizeRows(rows)).toBe('3 subagents · 2 shells · 1 monitor')
+    expect(summarizeRows([row('a'), row('s', 'shell')])).toBe('1 subagent · 1 shell')
   })
 })

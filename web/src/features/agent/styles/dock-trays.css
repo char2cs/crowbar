@@ -17,6 +17,10 @@
   --tray-inset: 18px;
   --tray-radius: 16px;
   --tray-row-h: 44px;
+  /* With the keyboard up the viewport is short: the tray scrolls inside itself so the pill stays
+     on screen. The 330px is the pill, the model row and the pane's header. */
+  max-height: calc(100dvh - 330px);
+  overflow: hidden auto;
 }
 .agent-chat .tray-top {
   margin: 0 var(--tray-inset) calc(var(--tray-tuck) * -1);
@@ -197,9 +201,11 @@
   border-radius: 6px;
   color: var(--muted-foreground);
 }
-.agent-chat .tray-stop:hover {
-  background: color-mix(in oklch, var(--foreground) 8%, transparent);
-  color: var(--foreground);
+@media (hover: hover) {
+  .agent-chat .tray-stop:hover {
+    background: color-mix(in oklch, var(--foreground) 8%, transparent);
+    color: var(--foreground);
+  }
 }
 .agent-chat .dock:has(.pill[data-touch]) .tray-stop {
   width: 44px;
@@ -256,9 +262,11 @@
   color: var(--muted-foreground);
   cursor: pointer;
 }
-.agent-chat .tray-remove:hover {
-  background: color-mix(in oklch, var(--foreground) 8%, transparent);
-  color: var(--foreground);
+@media (hover: hover) {
+  .agent-chat .tray-remove:hover {
+    background: color-mix(in oklch, var(--foreground) 8%, transparent);
+    color: var(--foreground);
+  }
 }
 /* The phone: 44px header, 36px rows (two lines: 50px), 15px text, 44px targets. */
 .agent-chat .dock:has(.pill[data-touch]) .tray-remove {
@@ -311,6 +319,13 @@
 .agent-chat .dock:has(.pill[data-touch]) .tray-more button {
   min-height: 44px;
   font-size: 13px;
+}
+.agent-chat .tray-summary-counts {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The answered requests' "Show"/"Hide" at the header's right, beside its chevron. */
 .agent-chat .tray-toggle {

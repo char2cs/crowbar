@@ -275,4 +275,28 @@ describe('Tab in the composer', () => {
     expect(editor.tf.tab({ reverse: false })).toBe(true)
     expect(chatValueToMarkdown(editor.children as Value)).toMatch(/- one\n\s+- two/)
   })
+
+  describe('a box with nothing in it', () => {
+    it('is one empty line however the blank lines got there', () => {
+      const editor = composer()
+      editor.tf.insertBreak()
+      editor.tf.insertBreak()
+      expect(editor.children).toHaveLength(1)
+      expect(NodeApi.string(editor.children[0]!)).toBe('')
+    })
+
+    it('holds no text at all when only soft breaks or spaces were typed', () => {
+      const editor = composer()
+      editor.tf.insertText('\n\n \n')
+      expect(editor.children).toHaveLength(1)
+      expect(NodeApi.string(editor.children[0]!)).toBe('')
+    })
+
+    it('keeps blank lines that sit between text', () => {
+      const editor = composer('a')
+      editor.tf.insertBreak()
+      editor.tf.insertBreak()
+      expect(editor.children.length).toBeGreaterThan(1)
+    })
+  })
 })

@@ -220,6 +220,13 @@ describe('askNote', () => {
     expect(askNote(choice({ pending: false, answeredOptionIds: ['allow'] }))).toBe('Allowed')
   })
 
+  it('says an "Allow once" label once', () => {
+    const options = [{ id: 'once', kind: 'allow', label: 'Allow once' }]
+    expect(askNote(choice({ options, pending: false, answeredOptionIds: ['once'] }))).toBe(
+      'Allowed',
+    )
+  })
+
   it('keeps an allow option’s label when it says more than allow', () => {
     const options = [
       { id: 'allow', kind: 'allow', label: 'Allow' },

@@ -82,6 +82,17 @@ describe('DaemonHealthListener', () => {
     resetConnectionState()
   })
 
+  it('does not record a crash loop that was reported after the backend was already serving', async () => {
+    resetConnectionState()
+    act(() => reportChannelState('/ws/feed', true, 'local'))
+    crashReportAtLoad = 'exited 3 times'
+    render(<DaemonHealthListener />)
+    await waitFor(() => expect(handlers.size).toBe(4))
+    handlers.get('daemon:dead')!({ payload: 'late' })
+    expect(useDaemonCrashStore.getState().report).toBeNull()
+    resetConnectionState()
+  })
+
   it('records a crash loop the supervisor gives up on, and clears it on restart', async () => {
     render(<DaemonHealthListener />)
     await waitFor(() => expect(handlers.size).toBe(4))

@@ -69,9 +69,11 @@
   color: var(--muted-foreground);
   cursor: pointer;
 }
-.agent-chat-pane .chip:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--foreground);
+@media (hover: hover) {
+  .agent-chat-pane .chip:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--foreground);
+  }
 }
 .agent-chat-pane .chip[data-hot] {
   background: color-mix(in oklch, var(--primary) 12%, transparent);
@@ -101,9 +103,11 @@
 .agent-chat button.ctx-pill {
   cursor: pointer;
 }
-.agent-chat button.ctx-pill:hover {
-  background: var(--accent);
-  color: var(--foreground);
+@media (hover: hover) {
+  .agent-chat button.ctx-pill:hover {
+    background: var(--accent);
+    color: var(--foreground);
+  }
 }
 .agent-chat .ctx-pill b {
   font-weight: 600;
@@ -195,9 +199,11 @@
   color: var(--muted-foreground);
   cursor: pointer;
 }
-.viewswitch button:hover:not(:disabled):not(.on) {
-  background: var(--accent);
-  color: var(--foreground);
+@media (hover: hover) {
+  .viewswitch button:hover:not(:disabled):not(.on) {
+    background: var(--accent);
+    color: var(--foreground);
+  }
 }
 .viewswitch button.on {
   border-color: var(--background);
@@ -225,10 +231,10 @@
   .viewswitch button::before {
     content: '';
     position: absolute;
-    inset: -11px 0 -11px -22px;
+    inset: -12px 0 -12px -22px;
   }
   .viewswitch button:last-child::before {
-    inset: -11px -22px -11px 0;
+    inset: -12px -22px -12px 0;
   }
 }
 .viewswitch svg {

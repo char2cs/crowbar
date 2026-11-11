@@ -85,9 +85,11 @@ function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?
   return status === 'ok' ? <CheckIcon size={12} className="tool-glyph" /> : null
 }
 
-function Label({ item }: { item: ToolItem }) {
-  const { verb, subject } = toolLabel(item)
-  const live = item.status === 'running' ? '' : undefined
+function Label({ item, waiting }: { item: ToolItem; waiting: boolean }) {
+  const label = toolLabel(item)
+  const verb = waiting && item.family !== 'mcp' && item.body.name ? item.body.name : label.verb
+  const { subject } = label
+  const live = item.status === 'running' && !waiting ? '' : undefined
   if (item.family === 'mcp') {
     return (
       <span className="tool-call-label" data-testid="agent-tool-label">
@@ -143,7 +145,7 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
       <span className="kind" data-tool-kind={body.kind}>
         <Icon size={12} />
       </span>
-      <Label item={item} />
+      <Label item={item} waiting={awaiting} />
       {/* How its ask was decided says why it did not run; the outcome would repeat it. */}
       {item.askNote ? (
         <span

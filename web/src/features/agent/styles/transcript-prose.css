@@ -218,6 +218,6 @@
   .agent-chat .message-error-action::after {
     content: '';
     position: absolute;
-    inset: -4px 0;
+    inset: -5px 0;
   }
 }

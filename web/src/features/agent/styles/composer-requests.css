@@ -711,7 +711,7 @@
   font-weight: 500;
 }
 .agent-chat .rq-hverdict[data-outcome='allowed'] {
-  color: var(--success-foreground);
+  color: var(--ok-text);
 }
 .agent-chat
   .rq-hverdict:is(
@@ -760,4 +760,7 @@
   .agent-chat .rq-htime {
     font-size: 12.5px;
   }
+}
+.agent-chat .dock:has(.pill[data-touch]) :is(.rq-readonly, .rq-note) {
+  font-size: 13px;
 }

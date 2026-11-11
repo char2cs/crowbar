@@ -134,7 +134,7 @@
   .agent-chat .marker-notice .notice-action::after {
     content: '';
     position: absolute;
-    inset: -4px 0;
+    inset: -5px 0;
   }
 }
 .agent-chat .marker-notice b {

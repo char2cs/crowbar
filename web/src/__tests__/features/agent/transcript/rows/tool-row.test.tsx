@@ -305,6 +305,7 @@ describe('ToolRow', () => {
     draw('t:tool-1')
     expect(status()).toBe('awaiting_approval')
     expect(screen.getByText('Needs your answer')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-tool-label')).toHaveTextContent('Bashls')
     expect(reveal).toHaveBeenCalled()
     act(
       () =>
@@ -314,7 +315,7 @@ describe('ToolRow', () => {
         }),
     )
     expect(status()).toBe('running')
-    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Allowed · Allow once')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent(/^Allowed$/)
     expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
   })
 

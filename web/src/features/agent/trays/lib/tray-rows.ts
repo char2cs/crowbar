@@ -74,3 +74,19 @@ export function windowRows(rows: TrayRow[], expanded: boolean): TrayWindow {
     canCollapse: expanded && ordered.length > MAX_ROWS,
   }
 }
+
+const NOUNS: Record<TrayRow['kind'], [string, string]> = {
+  subagent: ['subagent', 'subagents'],
+  shell: ['shell', 'shells'],
+  monitor: ['monitor', 'monitors'],
+}
+
+/** What the tray holds in a line, for the phone's folded row: `3 subagents · 2 shells · 1 monitor`. */
+export function summarizeRows(rows: TrayRow[]): string {
+  return GROUPS.map(({ kind }) => {
+    const n = rows.filter((row) => row.kind === kind).length
+    return n > 0 ? `${n} ${NOUNS[kind][n === 1 ? 0 : 1]}` : ''
+  })
+    .filter(Boolean)
+    .join(' · ')
+}
